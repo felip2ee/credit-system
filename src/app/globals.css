@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Identidade visual Beabá do Crédito — verde-floresta + dourado. */
+  :root {
+    --background: 48 33% 98%;
+    --foreground: 158 32% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 158 32% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 158 32% 12%;
+    --primary: 42 74% 50%;
+    --primary-foreground: 158 55% 11%;
+    --secondary: 150 22% 93%;
+    --secondary-foreground: 158 40% 14%;
+    --muted: 150 20% 95%;
+    --muted-foreground: 155 12% 40%;
+    --accent: 150 30% 91%;
+    --accent-foreground: 158 45% 14%;
+    --destructive: 0 75% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 150 16% 86%;
+    --input: 150 16% 86%;
+    --ring: 42 74% 50%;
+    --radius: 0.5rem;
+    --sidebar: 158 56% 11%;
+    --sidebar-foreground: 45 28% 90%;
+    --sidebar-primary: 42 74% 52%;
+    --sidebar-primary-foreground: 158 56% 10%;
+    --sidebar-accent: 158 38% 18%;
+    --sidebar-accent-foreground: 42 72% 60%;
+    --sidebar-border: 158 34% 20%;
+    --sidebar-ring: 42 74% 52%;
+  }
+
+  .dark {
+    --background: 158 44% 8%;
+    --foreground: 45 25% 92%;
+    --card: 158 42% 10%;
+    --card-foreground: 45 25% 92%;
+    --popover: 158 42% 10%;
+    --popover-foreground: 45 25% 92%;
+    --primary: 42 76% 55%;
+    --primary-foreground: 158 56% 10%;
+    --secondary: 158 28% 16%;
+    --secondary-foreground: 45 25% 92%;
+    --muted: 158 26% 15%;
+    --muted-foreground: 150 12% 62%;
+    --accent: 158 28% 16%;
+    --accent-foreground: 45 25% 92%;
+    --destructive: 0 62% 42%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 158 26% 18%;
+    --input: 158 26% 18%;
+    --ring: 42 76% 55%;
+    --sidebar: 158 52% 9%;
+    --sidebar-foreground: 45 28% 90%;
+    --sidebar-primary: 42 76% 55%;
+    --sidebar-primary-foreground: 158 56% 10%;
+    --sidebar-accent: 158 34% 16%;
+    --sidebar-accent-foreground: 42 72% 60%;
+    --sidebar-border: 158 30% 18%;
+    --sidebar-ring: 42 76% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
