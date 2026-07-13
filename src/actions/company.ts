@@ -80,9 +80,66 @@ export async function refreshBatchCounters(batchId: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Cliente do CRM por documento: reaproveita o existente ou cadastra um novo.
+// O processamento de empresa é a única entrada que digita documentos sem passar
+// pelo cadastro de clientes — sem isto, CNPJ e CPFs ficavam só nas consultas.
+// Devolve null se o cadastro falhar (o processo segue sem vínculo, não trava).
+// ─────────────────────────────────────────────────────────────────────────
+async function ensureCrmClient(
+  supabase: SupabaseClient<Database>,
+  args: {
+    type: EntityKind;
+    document: string;
+    name: string;
+    email: string | null;
+    userId: string;
+  }
+): Promise<string | null> {
+  const { data: existing } = await supabase
+    .from("crm_clients")
+    .select("id, email")
+    .eq("document", args.document)
+    .maybeSingle();
+
+  if (existing) {
+    const row = existing as { id: string; email: string | null };
+    // Só preenche o e-mail se o cadastro ainda não tinha um (não sobrescreve).
+    if (args.email && !row.email) {
+      await supabase.from("crm_clients").update({ email: args.email }).eq("id", row.id);
+    }
+    return row.id;
+  }
+
+  const { data: inserted } = await supabase
+    .from("crm_clients")
+    .insert({
+      type: args.type,
+      name: args.name,
+      document: args.document,
+      email: args.email,
+      status: "prospect",
+      created_by: args.userId,
+      assigned_to: args.userId,
+    })
+    .select("id")
+    .single();
+  if (!inserted) return null;
+
+  const id = (inserted as { id: string }).id;
+  await supabase.from("crm_client_documents").insert({
+    client_id: id,
+    type: args.type,
+    document: args.document,
+    label: args.type === "PJ" ? "CNPJ" : "CPF",
+    is_primary: true,
+  });
+  return id;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Roda a consulta de uma query JÁ existente (status 'processing') e grava o
-// resultado. Espelha o fluxo unificado de `runConsultation`, vinculado ao batch
-// e sem crm_client. 200 → conclui; DepsScrPendingError (400) → pendente; erro → erro.
+// resultado. Espelha o fluxo unificado de `runConsultation`, vinculado ao batch.
+// 200 → conclui; DepsScrPendingError (400) → pendente; erro → erro.
 // ─────────────────────────────────────────────────────────────────────────
 async function consultExistingMember(args: {
   supabase: SupabaseClient<Database>;
@@ -96,6 +153,7 @@ async function consultExistingMember(args: {
   email: string | null;
   reuseExisting?: boolean;
   scrMode: ScrMode;
+  crmClientId: string | null;
 }): Promise<MemberOutcome> {
   const { supabase, admin, deps, userId, queryId, type, document, documentName, email, scrMode } = args;
   const product = depsProductName(type);
@@ -199,6 +257,17 @@ async function consultExistingMember(args: {
       share_link: result.shareLink,
     })
     .eq("id", queryId);
+
+  // O cliente do CRM foi criado com o nome que o operador digitou — que muitas
+  // vezes é o próprio documento. Agora que o bureau devolveu o nome real, troca
+  // (só quando o nome ainda é o placeholder, para não sobrescrever edição manual).
+  if (args.crmClientId && displayName !== document) {
+    await supabase
+      .from("crm_clients")
+      .update({ name: displayName })
+      .eq("id", args.crmClientId)
+      .eq("name", document);
+  }
 
   await upsertScrAuthorization(supabase, {
     document,
@@ -311,6 +380,35 @@ export async function createCompanyProcess(
     })),
   ];
 
+  // Cadastra (ou reaproveita) a empresa e cada sócio no CRM e vincula os sócios
+  // à empresa. O nome aqui pode ser o próprio documento — quando a consulta
+  // concluir, `consultExistingMember` troca pelo nome real do bureau.
+  const crmIdByDocument = new Map<string, string>();
+  for (const m of toQueue) {
+    const crmId = await ensureCrmClient(supabase, {
+      type: m.type,
+      document: m.document,
+      name: m.documentName,
+      email: m.email,
+      userId,
+    });
+    if (crmId) crmIdByDocument.set(m.document, crmId);
+  }
+
+  const companyCrmId = crmIdByDocument.get(cnpj);
+  if (companyCrmId) {
+    for (const s of socios) {
+      const socioCrmId = crmIdByDocument.get(s.cpf);
+      if (!socioCrmId || socioCrmId === companyCrmId) continue;
+      // 23505 = vínculo já existe (processo repetido) — não é erro.
+      await supabase.from("crm_client_relations").insert({
+        client_id: companyCrmId,
+        related_id: socioCrmId,
+        relation_type: "socio",
+      });
+    }
+  }
+
   const memberQueryIds: string[] = [];
   for (const m of toQueue) {
     const { data: inserted, error } = await supabase
@@ -321,7 +419,7 @@ export async function createCompanyProcess(
         document_name: m.documentName,
         product: depsProductName(m.type),
         batch_id: batchId,
-        crm_client_id: null,
+        crm_client_id: crmIdByDocument.get(m.document) ?? null,
         created_by: userId,
         status: "processing",
         requires_auth: true,
@@ -338,6 +436,7 @@ export async function createCompanyProcess(
 
   await refreshBatchCounters(batchId);
   revalidatePath("/batch");
+  revalidatePath("/clients");
   return { error: null, batchId, memberQueryIds };
 }
 
@@ -359,7 +458,9 @@ export async function processCompanyMember(
 
   const { data: q } = await supabase
     .from("queries")
-    .select("id, type, document, document_name, status, batch_id, scr_email, scr_mode")
+    .select(
+      "id, type, document, document_name, status, batch_id, scr_email, scr_mode, crm_client_id"
+    )
     .eq("id", queryId)
     .maybeSingle();
   if (!q) return { outcome: "error" };
@@ -372,6 +473,7 @@ export async function processCompanyMember(
     batch_id: string | null;
     scr_email: string | null;
     scr_mode: string | null;
+    crm_client_id: string | null;
   };
 
   // Já saiu da fila (concluída/pendente/erro) → não refaz.
@@ -398,6 +500,7 @@ export async function processCompanyMember(
     email: query.scr_email,
     reuseExisting,
     scrMode: query.scr_mode === "deps" ? "deps" : "internal",
+    crmClientId: query.crm_client_id,
   });
 
   if (query.batch_id) {
@@ -406,6 +509,7 @@ export async function processCompanyMember(
     revalidatePath("/batch");
   }
   revalidatePath("/consultations");
+  revalidatePath("/clients");
   return { outcome };
 }
 
