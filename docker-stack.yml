@@ -1,58 +1,66 @@
 # Reino do Crédito — stack para Docker Swarm (Portainer > Stacks > Web editor).
 #
+# Ambiente: mesma rede (RainhaNet) e mesmo Traefik (letsencryptresolver) da
+# stack do Chatwoot.
+#
 # Antes de subir:
-#   1. A imagem já deve estar no GHCR (ver .github/workflows/docker-publish.yml).
-#   2. Confira o nome da rede externa do Traefik (abaixo, `traefik-public`) e o
-#      certresolver (`letsencrypt`) — devem bater com a sua stack do Traefik.
-#   3. Preencha as variáveis na aba "Environment variables" do Portainer.
+#   1. A imagem já deve estar no GHCR — .github/workflows/docker-image.yml.
+#   2. Se o pacote do GHCR for privado, cadastre o registry no Portainer.
+#   3. Preencha as variáveis na aba "Environment variables" do Portainer
+#      (nada de segredo dentro deste arquivo — ele vai para o Git).
 #
 # Lembrete: as NEXT_PUBLIC_* são embutidas no BUILD da imagem. Trocá-las aqui
 # não muda o que o browser recebe — é preciso rebuildar a imagem.
 
-version: "3.8"
+version: "3.7"
 
 services:
-  app:
+
+## --------------------------- REINO DO CRÉDITO --------------------------- ##
+
+  reino_app:
     image: ghcr.io/${GHCR_OWNER}/reino-credito:${IMAGE_TAG:-latest}
 
-    environment:
-      NODE_ENV: production
-      PORT: "3000"
-      HOSTNAME: 0.0.0.0
-
-      # Supabase
-      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-
-      # URL pública (links dos e-mails de autorização SCR / portal)
-      NEXT_PUBLIC_SITE_URL: https://${APP_DOMAIN}
-
-      # OpenAI (parecer de IA)
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
-
-      # Bureau deps.com.br
-      DEPS_API_BASE_URL: ${DEPS_API_BASE_URL}
-      DEPS_API_EMAIL: ${DEPS_API_EMAIL}
-      DEPS_API_PASSWORDL: ${DEPS_API_PASSWORDL}
-      DEPS_API_CENTRO_CUSTOS: ${DEPS_API_CENTRO_CUSTOS}
-      DEPS_PRODUTO_PF: ${DEPS_PRODUTO_PF:-Smart PF 002}
-      DEPS_PRODUTO_PJ: ${DEPS_PRODUTO_PJ:-Smart PJ 010}
-
-      # SMTP (termo de autorização SCR, convite do portal)
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT:-465}
-      SMTP_SECURE: ${SMTP_SECURE:-true}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
-      SMTP_FROM: ${SMTP_FROM}
-
     networks:
-      - traefik-public
+      - RainhaNet ## mesma rede do Traefik / Chatwoot
+
+    environment:
+    ## ⚡ Runtime
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - TZ=America/Sao_Paulo
+
+    ## 🗄️ Supabase
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY} ## SECRETO
+
+    ## 🌐 URL pública (links dos e-mails de SCR e do portal do cliente)
+      - NEXT_PUBLIC_SITE_URL=https://${APP_DOMAIN}
+
+    ## 🤖 OpenAI (parecer de IA)
+      - OPENAI_API_KEY=${OPENAI_API_KEY} ## SECRETO
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+
+    ## 🏦 Bureau deps.com.br
+      - DEPS_API_BASE_URL=${DEPS_API_BASE_URL:-https://api-portal.deps.com.br}
+      - DEPS_API_EMAIL=${DEPS_API_EMAIL}
+      - DEPS_API_PASSWORDL=${DEPS_API_PASSWORDL} ## SECRETO
+      - DEPS_API_CENTRO_CUSTOS=${DEPS_API_CENTRO_CUSTOS}
+      - DEPS_PRODUTO_PF=${DEPS_PRODUTO_PF:-Smart PF 002}
+      - DEPS_PRODUTO_PJ=${DEPS_PRODUTO_PJ:-Smart PJ 010}
+
+    ## 📧 SMTP (termo de autorização SCR + convite do portal)
+      - SMTP_HOST=${SMTP_HOST:-smtp.hostinger.com}
+      - SMTP_PORT=${SMTP_PORT:-465} ## 465 = SSL implícito | 587 = STARTTLS
+      - SMTP_SECURE=${SMTP_SECURE:-true} ## true p/ 465, false p/ 587
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS} ## SECRETO
+      - SMTP_FROM=${SMTP_FROM}
 
     healthcheck:
-      # /login é a única rota pública que não redireciona — serve de sinal de vida.
+      ## /login é pública e não redireciona — serve de sinal de vida.
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/login"]
       interval: 30s
       timeout: 5s
@@ -61,9 +69,12 @@ services:
 
     deploy:
       mode: replicated
-      replicas: 2
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
       update_config:
-        order: start-first
+        order: start-first ## sobe a nova antes de derrubar a antiga (deploy sem queda)
         failure_action: rollback
         delay: 10s
       rollback_config:
@@ -73,23 +84,24 @@ services:
         delay: 10s
       resources:
         limits:
-          cpus: "1.0"
-          memory: 1G
-        reservations:
-          memory: 384M
-
+          cpus: "1"
+          memory: 1024M
       labels:
         - traefik.enable=true
-        # No Swarm o Traefik precisa saber por qual rede alcançar o serviço.
-        # Traefik v3 com provider `swarm`: troque por traefik.swarm.network.
-        - traefik.docker.network=traefik-public
+        - traefik.docker.network=RainhaNet
+        - traefik.http.routers.reino_app.rule=Host(`${APP_DOMAIN}`)
+        - traefik.http.routers.reino_app.entrypoints=websecure
+        - traefik.http.routers.reino_app.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.reino_app.priority=1
+        - traefik.http.routers.reino_app.service=reino_app
+        - traefik.http.services.reino_app.loadbalancer.server.port=3000
+        - traefik.http.services.reino_app.loadbalancer.passHostHeader=true
+        - traefik.http.middlewares.sslheader.headers.customrequestheaders.X-Forwarded-Proto=https
+        - traefik.http.routers.reino_app.middlewares=sslheader
 
-        - traefik.http.routers.reino.rule=Host(`${APP_DOMAIN}`)
-        - traefik.http.routers.reino.entrypoints=websecure
-        - traefik.http.routers.reino.tls=true
-        - traefik.http.routers.reino.tls.certresolver=letsencrypt
-        - traefik.http.services.reino.loadbalancer.server.port=3000
+## --------------------------- REINO DO CRÉDITO --------------------------- ##
 
 networks:
-  traefik-public:
+  RainhaNet:
     external: true
+    name: RainhaNet
