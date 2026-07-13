@@ -11,12 +11,12 @@ import {
   type OpinionForPdf,
 } from "@/lib/pdf/consultation-full-document";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
+import { countProtestos } from "@/lib/deps/protestos";
 import { formatCNPJ, formatCPF } from "@/lib/utils";
 import { QUERY_STATUS_LABEL, type QueryStatus } from "@/types/app";
 import type {
   AcoesJudiciaisData,
   PendenciasData,
-  Protesto,
   Socio,
   SmartClassificacao,
   SmartMetrica,
@@ -58,7 +58,7 @@ function buildData(query: QueryRow, row: Record<string, unknown>): ConsultationP
     pendenciasValor = num("pendencias_valor_total") ?? 0;
     acoes = num("acoes_judiciais_total") ?? 0;
   }
-  const protestos = ((row.protestos_data as Protesto[] | null) ?? []).length;
+  const protestos = countProtestos(row.protestos_data);
 
   const data: ConsultationPdfData = {
     header: {

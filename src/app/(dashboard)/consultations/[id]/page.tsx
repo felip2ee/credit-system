@@ -18,11 +18,11 @@ import type { Parecer } from "@/types/ai";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
+import { countProtestos } from "@/lib/deps/protestos";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
 import type {
   AcoesJudiciaisData,
   PendenciasData,
-  Protesto,
   SmartClassificacao,
   SmartMetrica,
   SmartParecer,
@@ -57,12 +57,12 @@ function buildView(row: Record<string, unknown>, type: "PF" | "PJ"): ResultView 
     const pend = row.pendencias_data as PendenciasData | null;
     pendenciasTotal = pend?.total ?? 0;
     pendenciasValor = pend?.valorTotal ?? 0;
-    protestos = ((row.protestos_data as Protesto[] | null) ?? []).length;
+    protestos = countProtestos(row.protestos_data);
     acoes = (row.acoes_judiciais_data as AcoesJudiciaisData | null)?.total ?? 0;
   } else {
     pendenciasTotal = (row.pendencias_total as number | null) ?? 0;
     pendenciasValor = (row.pendencias_valor_total as number | null) ?? 0;
-    protestos = ((row.protestos_data as Protesto[] | null) ?? []).length;
+    protestos = countProtestos(row.protestos_data);
     acoes = (row.acoes_judiciais_total as number | null) ?? 0;
   }
 

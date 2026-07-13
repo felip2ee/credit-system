@@ -11,6 +11,8 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 
+import { summarizeProtestos } from "@/lib/deps/protestos";
+
 import { OpinionBlock } from "./markdown-pdf";
 import type { OpinionForPdf } from "./markdown-pdf";
 
@@ -515,7 +517,8 @@ export function FullConsultationPage({
 
   const pendTotal = mix.pendenciasRestricoes?.data?.totalPendencias ?? 0;
   const acoesTotal = mix.acoesJudiciais?.data?.totalAcoes ?? 0;
-  const protestosTotal = Array.isArray(mix.protestos?.data) ? mix.protestos!.data!.length : 0;
+  const protestosResumo = summarizeProtestos(mix.protestos?.data);
+  const protestosTotal = protestosResumo.total;
   const riscoTotal = scr?.vencimentoPorModalidade?.riscoTotal?.valor ?? null;
 
   return (
@@ -944,9 +947,30 @@ export function FullConsultationPage({
 
         {mix.protestos && (
           <Section title="Protestos">
-            <Text style={s.li}>
-              {protestosTotal > 0 ? `${protestosTotal} ocorrência(s)` : mix.protestos.message ?? "Nada consta."}
-            </Text>
+            {protestosTotal > 0 ? (
+              <>
+                <Text style={s.li}>
+                  {protestosTotal} ocorrência(s)
+                  {protestosResumo.valorTotal != null
+                    ? ` · Total ${brl(protestosResumo.valorTotal)}`
+                    : ""}
+                </Text>
+                {protestosResumo.ocorrencias.length > 0 && (
+                  <Table
+                    cols={["Cartório", "UF", "Data", "Valor"]}
+                    widths={[0.56, 0.08, 0.16, 0.2]}
+                    rows={protestosResumo.ocorrencias.map((o) => [
+                      o.cartorio ?? "—",
+                      o.uf ?? "—",
+                      dt(o.data),
+                      brl(o.valor),
+                    ])}
+                  />
+                )}
+              </>
+            ) : (
+              <Text style={s.li}>{mix.protestos.message ?? "Nada consta."}</Text>
+            )}
           </Section>
         )}
 
