@@ -3,47 +3,25 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { resendScr, verifyScr } from "@/actions/scr";
+import { sendScrSelfAuthorization } from "@/actions/scr-self";
 import { Button } from "@/components/ui/button";
-import type { EntityKind } from "@/types/app";
 
 interface ScrRowActionsProps {
   id: string;
-  document: string;
-  type: EntityKind;
-  name: string | null;
-  email: string | null;
 }
 
-export function ScrRowActions({
-  id,
-  document,
-  type,
-  name,
-  email,
-}: ScrRowActionsProps) {
+export function ScrRowActions({ id }: ScrRowActionsProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
 
-  const verify = () => {
+  // Autogestão Rainha do Crédito: envia o nosso próprio termo + código por
+  // e-mail. A gestão pela deps foi descontinuada (consultas usam autorizacaoScr).
+  const selfSend = () => {
     setMsg(null);
     startTransition(async () => {
-      const result = await verifyScr(id, document);
-      setMsg(result.message);
-      // Autorizado: a consulta foi concluída — leva direto ao resultado.
-      if (result.status === "authorized" && result.queryId) {
-        router.push(`/consultations/${result.queryId}`);
-      }
-      router.refresh();
-    });
-  };
-
-  const resend = () => {
-    setMsg(null);
-    startTransition(async () => {
-      await resendScr(id, document, type, name, email);
-      setMsg("E-mail reenviado");
+      const res = await sendScrSelfAuthorization(id);
+      setMsg(res.error ?? "Autorização enviada por e-mail");
       router.refresh();
     });
   };
@@ -51,11 +29,8 @@ export function ScrRowActions({
   return (
     <div className="flex items-center justify-end gap-2">
       {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
-      <Button variant="outline" size="sm" onClick={verify} disabled={isPending}>
-        Verificar agora
-      </Button>
-      <Button variant="ghost" size="sm" onClick={resend} disabled={isPending}>
-        Reenviar
+      <Button variant="default" size="sm" onClick={selfSend} disabled={isPending}>
+        {isPending ? "Enviando..." : "Enviar autorização"}
       </Button>
     </div>
   );

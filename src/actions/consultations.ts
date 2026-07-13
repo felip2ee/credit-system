@@ -6,9 +6,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getDepsClient } from "@/lib/deps/client";
 import { DepsScrPendingError } from "@/lib/deps/errors";
-import { mapPfResult, mapPjResult, resultDisplayName } from "@/lib/deps/map";
+import {
+  hasMappableResult,
+  mapPfResult,
+  mapPjResult,
+  resultDisplayName,
+} from "@/lib/deps/map";
 import { depsProductName } from "@/lib/deps/products";
-import { upsertScrAuthorization } from "@/lib/deps/scr-auth";
+import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/deps/scr-auth";
 import { recordAudit } from "@/lib/audit";
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 import type { Database } from "@/types/supabase";
@@ -83,6 +88,14 @@ export async function findRecentConsultation(
   return { exists: true, queryId: row.id, consultedAt: row.consulted_at };
 }
 
+// Modo de autorização SCR da consulta:
+//   internal → NÓS gerimos a autorização (termo + código por e-mail). A consulta
+//              só é disparada se houver autorização vigente no nosso BD; envia
+//              `autorizacaoScr=true` (a deps cadastra no momento da consulta).
+//   deps     → ignora nosso BD e tenta a consulta com `autorizacaoScr=false`; a
+//              deps só devolve dados se já houver autorização registrada nela.
+export type ScrMode = "internal" | "deps";
+
 export interface RunConsultationInput {
   crmClientId: string;
   type: EntityKind;
@@ -94,6 +107,8 @@ export interface RunConsultationInput {
   email?: string | null;
   // Reaproveita dados existentes na deps (sem nova cobrança). Default true.
   reuseExisting?: boolean;
+  // Como a autorização SCR é gerida nesta consulta. Default "internal".
+  scrMode?: ScrMode;
 }
 
 export interface RunConsultationResult {
@@ -117,6 +132,36 @@ export async function runConsultation(
 
   const product = depsProductName(input.type);
   const email = input.email?.trim() || null;
+  const scrMode: ScrMode = input.scrMode ?? "internal";
+
+  // ── Opção A (internal): só consulta se HÁ autorização vigente no nosso BD ──
+  // Sem autorização própria, não dispara a deps: registra/renova a pendência em
+  // scr_authorizations e orienta o operador a enviar o termo (aba Autorizações SCR).
+  if (scrMode === "internal" && !(await hasValidInternalScr(supabase, document))) {
+    await upsertScrAuthorization(supabase, {
+      document,
+      type: input.type,
+      status: "pending",
+      name: input.documentName,
+      email,
+      crmClientId: input.crmClientId,
+      requestedBy: userId,
+    });
+    if (email) {
+      await supabase
+        .from("crm_clients")
+        .update({ email })
+        .eq("id", input.crmClientId)
+        .is("email", null);
+    }
+    revalidatePath("/scr");
+    return {
+      error: null,
+      status: "pending_scr",
+      message:
+        "Sem autorização SCR própria vigente para este documento. Envie o termo de autorização (e-mail + código) ao titular em Autorizações SCR; quando ele confirmar, repita a consulta.",
+    };
+  }
 
   // Cria a consulta e tenta executar direto. A própria deps decide: 200 = SCR
   // aceito (retorna dados) → conclui; 400 = SCR pendente → (re)envia o e-mail de
@@ -133,6 +178,7 @@ export async function runConsultation(
       status: "processing",
       requires_auth: true,
       observations: input.observations ?? null,
+      scr_mode: scrMode,
     })
     .select("id")
     .single();
@@ -141,10 +187,63 @@ export async function runConsultation(
   }
   const queryId = (inserted as { id: string }).id;
 
+  // Deixa a consulta aguardando autorização SCR: marca a query pendente, registra
+  // a pendência SCR, persiste o e-mail e loga na timeline. Reutilizado no 400 da
+  // deps e quando a deps devolve 200 sem dados mapeáveis (mix vazio).
+  const markPending = async (): Promise<RunConsultationResult> => {
+    await supabase
+      .from("queries")
+      .update({ status: "pending_authorization" })
+      .eq("id", queryId);
+
+    await upsertScrAuthorization(supabase, {
+      document,
+      type: input.type,
+      status: "pending",
+      name: input.documentName,
+      email,
+      queryId,
+      crmClientId: input.crmClientId,
+      requestedBy: userId,
+    });
+
+    if (email) {
+      await supabase
+        .from("crm_clients")
+        .update({ email })
+        .eq("id", input.crmClientId)
+        .is("email", null);
+    }
+
+    await supabase.from("timeline_events").insert({
+      entity_type: "crm_client",
+      entity_id: input.crmClientId,
+      event_type: "scr.requested",
+      title: "Autorização SCR solicitada",
+      description: `Documento ${document}`,
+      created_by: userId,
+    });
+
+    revalidatePath("/consultations");
+    revalidatePath("/scr");
+    return {
+      error: null,
+      status: "pending_scr",
+      queryId,
+      message:
+        scrMode === "deps"
+          ? "A deps não possui autorização SCR registrada para este documento. Solicite a autorização pela deps (o titular receberá o e-mail) em Autorizações SCR e reprocesse a consulta."
+          : "Consulta sem dados/SCR pendente. Envie a autorização SCR (termo + código) ao titular em Autorizações SCR e reprocesse a consulta.",
+    };
+  };
+
   const consultOptions = {
     product,
     reuseExisting: input.reuseExisting,
     authorization: { name: input.documentName, email: email ?? undefined },
+    // internal → true (autogestão, deps cadastra na hora); deps → false (deps
+    // verifica a própria autorização e devolve 400 se não houver).
+    autorizacaoScr: scrMode === "internal",
   };
 
   let result: DepsConsultResultPF | DepsConsultResultPJ;
@@ -154,52 +253,9 @@ export async function runConsultation(
         ? await deps.consultPJ(document, consultOptions)
         : await deps.consultPF(document, consultOptions);
   } catch (err) {
-    // ── SCR pendente: a deps já (re)enviou o e-mail; deixa a consulta aguardando ──
+    // ── SCR pendente (400): a deps já (re)enviou o e-mail; deixa aguardando ──
     if (err instanceof DepsScrPendingError) {
-      await supabase
-        .from("queries")
-        .update({ status: "pending_authorization" })
-        .eq("id", queryId);
-
-      // Atualiza o registro SCR mais recente do documento ou cria um novo pendente.
-      await upsertScrAuthorization(supabase, {
-        document,
-        type: input.type,
-        status: "pending",
-        name: input.documentName,
-        email,
-        queryId,
-        crmClientId: input.crmClientId,
-        requestedBy: userId,
-      });
-
-      // Persiste o e-mail no cadastro do cliente quando ainda não havia.
-      if (email) {
-        await supabase
-          .from("crm_clients")
-          .update({ email })
-          .eq("id", input.crmClientId)
-          .is("email", null);
-      }
-
-      await supabase.from("timeline_events").insert({
-        entity_type: "crm_client",
-        entity_id: input.crmClientId,
-        event_type: "scr.requested",
-        title: "Autorização SCR solicitada",
-        description: `Documento ${document}`,
-        created_by: userId,
-      });
-
-      revalidatePath("/consultations");
-      revalidatePath("/scr");
-      return {
-        error: null,
-        status: "pending_scr",
-        queryId,
-        message:
-          "Autorização SCR pendente. Conceda a autorização no portal da deps e depois clique em Tentar novamente.",
-      };
+      return markPending();
     }
 
     await supabase
@@ -210,6 +266,13 @@ export async function runConsultation(
       })
       .eq("id", queryId);
     return { error: "Falha ao executar a consulta no bureau." };
+  }
+
+  // A deps pode responder 200 com o mix vazio (sem dados / SCR não autorizado,
+  // sobretudo no modo "deps"). Sem dados mapeáveis, não conclui em branco:
+  // trata como pendente (mesmo caminho do 400).
+  if (!hasMappableResult(input.type, result)) {
+    return markPending();
   }
 
   // ── Sucesso (200): grava o resultado e conclui a consulta ──
@@ -279,12 +342,19 @@ export async function reprocessQuery(
   const supabase = db();
   const { data: q } = await supabase
     .from("queries")
-    .select("id, type, document")
+    .select("id, type, document, scr_mode")
     .eq("id", queryId)
     .maybeSingle();
   if (!q) return { error: "Consulta não encontrada." };
-  const query = q as { id: string; type: EntityKind; document: string };
+  const query = q as {
+    id: string;
+    type: EntityKind;
+    document: string;
+    scr_mode: string | null;
+  };
   const product = depsProductName(query.type);
+  // Honra o modo escolhido na consulta original (default internal).
+  const autorizacaoScr = query.scr_mode !== "deps";
   const deps = getDepsClient();
 
   await supabase
@@ -296,7 +366,20 @@ export async function reprocessQuery(
   const admin = createServiceClient();
   try {
     if (query.type === "PJ") {
-      const r = await deps.consultPJ(query.document, { product });
+      const r = await deps.consultPJ(query.document, { product, autorizacaoScr });
+      // 200 com mix vazio → não conclui em branco; deixa pendente.
+      if (!hasMappableResult("PJ", r)) {
+        await supabase
+          .from("queries")
+          .update({ status: "pending_authorization" })
+          .eq("id", queryId);
+        return {
+          error: null,
+          status: "pending_scr",
+          queryId,
+          message: "Consulta sem dados/SCR pendente. Verifique a autorização e tente novamente.",
+        };
+      }
       await admin.from("query_results_pj").delete().eq("query_id", queryId);
       await admin.from("query_results_pj").insert(mapPjResult(queryId, r));
       await supabase
@@ -313,7 +396,20 @@ export async function reprocessQuery(
         })
         .eq("id", queryId);
     } else {
-      const r = await deps.consultPF(query.document, { product });
+      const r = await deps.consultPF(query.document, { product, autorizacaoScr });
+      // 200 com mix vazio → não conclui em branco; deixa pendente.
+      if (!hasMappableResult("PF", r)) {
+        await supabase
+          .from("queries")
+          .update({ status: "pending_authorization" })
+          .eq("id", queryId);
+        return {
+          error: null,
+          status: "pending_scr",
+          queryId,
+          message: "Consulta sem dados/SCR pendente. Verifique a autorização e tente novamente.",
+        };
+      }
       await admin.from("query_results_pf").delete().eq("query_id", queryId);
       await admin.from("query_results_pf").insert(mapPfResult(queryId, r));
       await supabase

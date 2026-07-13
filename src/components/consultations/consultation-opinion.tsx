@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { Bot, Loader2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 
 import { generateOpinion } from "@/actions/ai";
+import { OpenOpportunityButton } from "@/components/opportunities/open-opportunity-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -182,6 +183,17 @@ export function ConsultationOpinion({ queryId, report }: Props) {
       <CardContent className="space-y-6">
         {/* Resumo executivo */}
         <p className="text-sm text-muted-foreground">{parecer.resumo_executivo}</p>
+
+        {/* CTA: abrir oportunidade quando apto / apto com ressalvas */}
+        {(report!.aptitude_status === "apt" ||
+          report!.aptitude_status === "apt_with_caveats") && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 p-3">
+            <p className="text-sm font-medium">
+              Cliente apto — avance para a intermediação.
+            </p>
+            <OpenOpportunityButton queryId={queryId} />
+          </div>
+        )}
 
         {/* Notas */}
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">

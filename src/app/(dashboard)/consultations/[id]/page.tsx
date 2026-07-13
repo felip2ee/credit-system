@@ -67,6 +67,8 @@ function buildView(row: Record<string, unknown>, type: "PF" | "PJ"): ResultView 
   }
 
   return {
+    // politicamente_exposta só existe na PF; na PJ o flag é sempre false.
+    isPep: type === "PF" && Boolean(row.politicamente_exposta),
     score: {
       valor: (row.score_valor as number | null) ?? null,
       risco: (row.score_risco as string | null) ?? null,

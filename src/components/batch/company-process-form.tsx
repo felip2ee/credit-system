@@ -32,6 +32,9 @@ export function CompanyProcessForm() {
   const [email, setEmail] = useState("");
   const [socios, setSocios] = useState<SocioRow[]>([emptySocio()]);
   const [reuseExisting, setReuseExisting] = useState(true);
+  // Origem da autorização SCR das consultas do processo (mesma escolha da consulta
+  // avulsa): "internal" = nosso termo; "deps" = autorização gerida pela deps.
+  const [scrMode, setScrMode] = useState<"internal" | "deps">("internal");
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -70,6 +73,7 @@ export function CompanyProcessForm() {
           email: s.email.trim() || null,
         })),
         reuseExisting,
+        scrMode,
       });
       if (res.error || !res.batchId || !res.memberQueryIds) {
         setError(res.error ?? "Falha ao criar o processo.");
@@ -193,6 +197,47 @@ export function CompanyProcessForm() {
             Digite o CPF completo de cada sócio — o bureau mascara o CPF no quadro
             societário, então não dá para puxar automaticamente.
           </p>
+        </div>
+
+        {/* Origem da autorização SCR (vale para todas as consultas do processo) */}
+        <div className="space-y-2">
+          <Label>Autorização SCR</Label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setScrMode("internal")}
+              aria-pressed={scrMode === "internal"}
+              className={
+                "rounded-md border p-3 text-left text-sm transition-colors " +
+                (scrMode === "internal"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                  : "hover:bg-muted/50")
+              }
+            >
+              <span className="font-medium">Autorização própria</span>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Nosso termo por e-mail + código. Cada consulta só roda se o titular
+                já autorizou no nosso sistema.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setScrMode("deps")}
+              aria-pressed={scrMode === "deps"}
+              className={
+                "rounded-md border p-3 text-left text-sm transition-colors " +
+                (scrMode === "deps"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                  : "hover:bg-muted/50")
+              }
+            >
+              <span className="font-medium">Autorização da deps</span>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                A deps verifica a autorização dela. Não usa nosso termo; sem
+                autorização, a consulta fica pendente.
+              </p>
+            </button>
+          </div>
         </div>
 
         {/* Reutilizar dados existentes */}

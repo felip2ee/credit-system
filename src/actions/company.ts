@@ -6,9 +6,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getDepsClient } from "@/lib/deps/client";
 import { DepsScrPendingError } from "@/lib/deps/errors";
-import { mapPfResult, mapPjResult, resultDisplayName } from "@/lib/deps/map";
+import {
+  hasMappableResult,
+  mapPfResult,
+  mapPjResult,
+  resultDisplayName,
+} from "@/lib/deps/map";
 import { DEPS_PRODUCT_PJ, depsProductName } from "@/lib/deps/products";
-import { upsertScrAuthorization } from "@/lib/deps/scr-auth";
+import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/deps/scr-auth";
+import type { ScrMode } from "@/actions/consultations";
 import { generateCompanyParecer } from "@/lib/ai/opinion";
 import { recordAudit } from "@/lib/audit";
 import { COMPANY_PROMPT_VERSION } from "@/lib/ai/prompt";
@@ -89,14 +95,56 @@ async function consultExistingMember(args: {
   documentName: string;
   email: string | null;
   reuseExisting?: boolean;
+  scrMode: ScrMode;
 }): Promise<MemberOutcome> {
-  const { supabase, admin, deps, userId, queryId, type, document, documentName, email } = args;
+  const { supabase, admin, deps, userId, queryId, type, document, documentName, email, scrMode } = args;
   const product = depsProductName(type);
+
+  // Modo internal: só consulta se houver autorização própria vigente no nosso BD.
+  // Sem ela, não chama a deps — marca a consulta pendente e registra a pendência
+  // SCR (mesmo tratamento do 400 da deps).
+  if (scrMode === "internal" && !(await hasValidInternalScr(supabase, document))) {
+    await supabase
+      .from("queries")
+      .update({ status: "pending_authorization" })
+      .eq("id", queryId);
+    await upsertScrAuthorization(supabase, {
+      document,
+      type,
+      status: "pending",
+      name: documentName,
+      email,
+      queryId,
+      requestedBy: userId,
+    });
+    return "pending";
+  }
 
   const consultOptions = {
     product,
     reuseExisting: args.reuseExisting,
     authorization: { name: documentName, email: email ?? undefined },
+    // internal → true (autogestão); deps → false (deps verifica a própria autorização).
+    autorizacaoScr: scrMode === "internal",
+  };
+
+  // Marca a consulta-membro pendente e registra a pendência SCR. Reutilizado no
+  // 400 da deps e quando a deps devolve 200 sem dados mapeáveis (mix vazio).
+  const markPending = async (): Promise<MemberOutcome> => {
+    await supabase
+      .from("queries")
+      .update({ status: "pending_authorization" })
+      .eq("id", queryId);
+    await upsertScrAuthorization(supabase, {
+      document,
+      type,
+      status: "pending",
+      name: documentName,
+      email,
+      queryId,
+      requestedBy: userId,
+    });
+    return "pending";
   };
 
   let result: DepsConsultResultPF | DepsConsultResultPJ;
@@ -107,22 +155,7 @@ async function consultExistingMember(args: {
         : await deps.consultPF(document, consultOptions);
   } catch (err) {
     if (err instanceof DepsScrPendingError) {
-      await supabase
-        .from("queries")
-        .update({ status: "pending_authorization" })
-        .eq("id", queryId);
-
-      // Registro de pendência SCR (atualiza o mais recente do documento ou cria).
-      await upsertScrAuthorization(supabase, {
-        document,
-        type,
-        status: "pending",
-        name: documentName,
-        email,
-        queryId,
-        requestedBy: userId,
-      });
-      return "pending";
+      return markPending();
     }
 
     await supabase
@@ -133,6 +166,12 @@ async function consultExistingMember(args: {
       })
       .eq("id", queryId);
     return "error";
+  }
+
+  // A deps pode responder 200 com o mix vazio (sem dados / SCR não autorizado,
+  // sobretudo no modo "deps"). Sem dados mapeáveis, trata como pendente.
+  if (!hasMappableResult(type, result)) {
+    return markPending();
   }
 
   // Sucesso (200) → grava resultado (service-role) e conclui.
@@ -192,6 +231,8 @@ export interface CreateCompanyProcessInput {
   email?: string | null;
   socios: CompanyProcessSocioInput[];
   reuseExisting?: boolean;
+  // Como a autorização SCR é gerida nas consultas do processo. Default "internal".
+  scrMode?: ScrMode;
 }
 
 export interface CreateCompanyProcessResult {
@@ -223,6 +264,7 @@ export async function createCompanyProcess(
   const userId = await currentUserId();
   if (!userId) return { error: "Sessão expirada." };
 
+  const scrMode: ScrMode = input.scrMode ?? "internal";
   const total = 1 + socios.length;
   const { data: batchRow, error: batchErr } = await supabase
     .from("batches")
@@ -284,6 +326,7 @@ export async function createCompanyProcess(
         status: "processing",
         requires_auth: true,
         scr_email: m.email,
+        scr_mode: scrMode,
       })
       .select("id")
       .single();
@@ -316,7 +359,7 @@ export async function processCompanyMember(
 
   const { data: q } = await supabase
     .from("queries")
-    .select("id, type, document, document_name, status, batch_id, scr_email")
+    .select("id, type, document, document_name, status, batch_id, scr_email, scr_mode")
     .eq("id", queryId)
     .maybeSingle();
   if (!q) return { outcome: "error" };
@@ -328,6 +371,7 @@ export async function processCompanyMember(
     status: string;
     batch_id: string | null;
     scr_email: string | null;
+    scr_mode: string | null;
   };
 
   // Já saiu da fila (concluída/pendente/erro) → não refaz.
@@ -353,6 +397,7 @@ export async function processCompanyMember(
     documentName: query.document_name ?? query.document,
     email: query.scr_email,
     reuseExisting,
+    scrMode: query.scr_mode === "deps" ? "deps" : "internal",
   });
 
   if (query.batch_id) {

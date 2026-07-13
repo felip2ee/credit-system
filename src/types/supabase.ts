@@ -1024,6 +1024,7 @@ export type Database = {
           product_version: string | null
           requires_auth: boolean
           scr_email: string | null
+          scr_mode: string
           share_link: string | null
           status: Database["public"]["Enums"]["query_status"]
           type: Database["public"]["Enums"]["query_type"]
@@ -1048,6 +1049,7 @@ export type Database = {
           product_version?: string | null
           requires_auth?: boolean
           scr_email?: string | null
+          scr_mode?: string
           share_link?: string | null
           status?: Database["public"]["Enums"]["query_status"]
           type: Database["public"]["Enums"]["query_type"]
@@ -1072,6 +1074,7 @@ export type Database = {
           product_version?: string | null
           requires_auth?: boolean
           scr_email?: string | null
+          scr_mode?: string
           share_link?: string | null
           status?: Database["public"]["Enums"]["query_status"]
           type?: Database["public"]["Enums"]["query_type"]
@@ -1832,6 +1835,13 @@ export type Database = {
       scr_authorizations: {
         Row: {
           authorized_at: string | null
+          channel: string
+          consent_document: string | null
+          consent_ip: string | null
+          consent_name: string | null
+          consent_text: string | null
+          consented_at: string | null
+          auth_code: string | null
           created_at: string
           crm_client_id: string | null
           document: string
@@ -1840,7 +1850,9 @@ export type Database = {
           id: string
           last_checked_at: string | null
           name: string | null
+          public_token: string | null
           query_id: string | null
+          refused_at: string | null
           requested_at: string
           requested_by: string | null
           status: Database["public"]["Enums"]["scr_status"]
@@ -1849,6 +1861,13 @@ export type Database = {
         }
         Insert: {
           authorized_at?: string | null
+          channel?: string
+          consent_document?: string | null
+          consent_ip?: string | null
+          consent_name?: string | null
+          consent_text?: string | null
+          consented_at?: string | null
+          auth_code?: string | null
           created_at?: string
           crm_client_id?: string | null
           document: string
@@ -1857,7 +1876,9 @@ export type Database = {
           id?: string
           last_checked_at?: string | null
           name?: string | null
+          public_token?: string | null
           query_id?: string | null
+          refused_at?: string | null
           requested_at?: string
           requested_by?: string | null
           status?: Database["public"]["Enums"]["scr_status"]
@@ -1866,6 +1887,13 @@ export type Database = {
         }
         Update: {
           authorized_at?: string | null
+          channel?: string
+          consent_document?: string | null
+          consent_ip?: string | null
+          consent_name?: string | null
+          consent_text?: string | null
+          consented_at?: string | null
+          auth_code?: string | null
           created_at?: string
           crm_client_id?: string | null
           document?: string
@@ -1874,7 +1902,9 @@ export type Database = {
           id?: string
           last_checked_at?: string | null
           name?: string | null
+          public_token?: string | null
           query_id?: string | null
+          refused_at?: string | null
           requested_at?: string
           requested_by?: string | null
           status?: Database["public"]["Enums"]["scr_status"]

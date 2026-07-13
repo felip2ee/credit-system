@@ -219,6 +219,12 @@ export interface ConsultOptions {
   // e-mail), a consulta inclui `autorizacaoConsulta` no corpo: se o SCR ainda não
   // foi aceito, a deps (re)envia o e-mail de autorização e retorna HTTP 400.
   authorization?: { name?: string; email?: string };
+  // Valor de `autorizacaoScr` no corpo da consulta (doc §4.2). Default true.
+  //   true  → NÓS somos responsáveis pela autorização (autogestão): a deps a
+  //           cadastra automaticamente no momento da consulta.
+  //   false → a deps verifica se já existe autorização registrada nela; se não
+  //           existir, a consulta não é feita (retorna 400).
+  autorizacaoScr?: boolean;
 }
 
 // ─── SCR (autorização) ─────────────────────────────────────────────────

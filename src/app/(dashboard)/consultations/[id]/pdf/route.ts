@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { createClient } from "@/lib/supabase/server";
+import { letterheadDataUri } from "@/lib/pdf/letterhead";
 import {
   renderConsultationPdf,
   type ConsultationPdfData,
@@ -37,14 +35,6 @@ interface QueryRow {
   status: QueryStatus;
   consulted_at: string | null;
   created_at: string;
-}
-
-let cachedLetterhead: string | null = null;
-function letterheadDataUri(): string {
-  if (cachedLetterhead) return cachedLetterhead;
-  const buf = readFileSync(join(process.cwd(), "public", "letterhead.png"));
-  cachedLetterhead = `data:image/png;base64,${buf.toString("base64")}`;
-  return cachedLetterhead;
 }
 
 function buildData(query: QueryRow, row: Record<string, unknown>): ConsultationPdfData {

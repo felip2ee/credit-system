@@ -39,6 +39,8 @@ export async function updateSession(request: NextRequest) {
   const isUpdatePw = pathname.startsWith("/update-password");
   const isAuthCallback = pathname.startsWith("/auth");
   const isMfa = pathname.startsWith("/mfa");
+  // Página pública de autogestão de SCR (titular autoriza por código).
+  const isScrAuth = pathname.startsWith("/autorizacao-scr");
 
   const redirectTo = (path: string) => {
     const url = request.nextUrl.clone();
@@ -48,7 +50,7 @@ export async function updateSession(request: NextRequest) {
 
   // Sem sessão: só permite rotas públicas.
   if (!user) {
-    if (isLogin || isReset || isAuthCallback) return supabaseResponse;
+    if (isLogin || isReset || isAuthCallback || isScrAuth) return supabaseResponse;
     return redirectTo("/login");
   }
 
@@ -65,6 +67,15 @@ export async function updateSession(request: NextRequest) {
   const mfaBypass = isMfa || isAuthCallback || isUpdatePw;
   if (needsMfa && !mfaBypass) {
     return redirectTo("/mfa");
+  }
+
+  // Primeiro acesso (ex.: cliente do portal com senha padrão): obriga a trocar
+  // a senha antes de qualquer outra rota. A flag é limpa em /update-password.
+  const mustChangePassword = Boolean(
+    user.user_metadata?.must_change_password
+  );
+  if (mustChangePassword && !isUpdatePw && !isAuthCallback && !isMfa) {
+    return redirectTo("/update-password");
   }
 
   // Sessão completa: não faz sentido ficar em login/reset/mfa.

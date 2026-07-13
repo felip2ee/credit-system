@@ -61,7 +61,7 @@ export default async function ScrPage({
     <div className="space-y-6">
       <PageHeader
         title="Autorizações SCR"
-        description="Consentimento dos consultados (deps.com.br)"
+        description="Consentimento dos consultados — autogestão Rainha do Crédito (termo + código por e-mail)"
       />
 
       <div className="flex gap-1 border-b">
@@ -131,13 +131,7 @@ export default async function ScrPage({
                           {waiting} {waiting === 1 ? "dia" : "dias"}
                         </TableCell>
                         <TableCell>
-                          <ScrRowActions
-                            id={r.id}
-                            document={r.document}
-                            type={r.type}
-                            name={r.name}
-                            email={r.email}
-                          />
+                          <ScrRowActions id={r.id} />
                         </TableCell>
                       </>
                     )}

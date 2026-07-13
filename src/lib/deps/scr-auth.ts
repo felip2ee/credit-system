@@ -8,6 +8,26 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 import type { EntityKind, ScrStatus } from "@/types/app";
 
+// Há autorização SCR vigente no nosso BD para este documento?
+// Vale para os dois canais: linha `authorized` sem expiração ou ainda no prazo.
+// Usada pelo modo de consulta "internal" (autogestão) para só disparar a deps
+// quando o titular já autorizou no nosso sistema.
+export async function hasValidInternalScr(
+  supabase: SupabaseClient<Database>,
+  document: string
+): Promise<boolean> {
+  const nowIso = new Date().toISOString();
+  const { data } = await supabase
+    .from("scr_authorizations")
+    .select("id")
+    .eq("document", document)
+    .eq("status", "authorized")
+    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+    .limit(1)
+    .maybeSingle();
+  return !!data;
+}
+
 export interface ScrAuthUpsert {
   document: string;
   type: EntityKind;

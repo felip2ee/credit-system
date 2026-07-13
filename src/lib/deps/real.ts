@@ -181,25 +181,33 @@ async function executeConsult(
     identificadorProduto,
     // true = reaproveita dados existentes na deps (sem nova cobrança).
     reutilizarDadosExistentes: options?.reuseExisting ?? true,
-    autorizacaoScr: false,
+    // Gestão da autorização SCR (doc §4.2). Default true (autogestão):
+    //   true  → NÓS gerimos o consentimento (termo + código por e-mail, ver
+    //           actions/scr-self.ts); a deps cadastra a autorização no momento
+    //           da consulta e não dispara o próprio e-mail.
+    //   false → a deps verifica se já existe autorização registrada nela; se não
+    //           houver, a consulta não é feita (retorna 400 → SCR pendente).
+    autorizacaoScr: options?.autorizacaoScr ?? true,
   };
   if (cfg.centroCusto && cfg.centroCusto.length > 0) {
     body.codigoCentroCustos = cfg.centroCusto;
   }
-  // Com o e-mail do titular, embute a solicitação de autorização SCR: se o aceite
-  // ainda não existir, a deps dispara o e-mail e responde 400 (doc §4.1).
-  const email = options?.authorization?.email?.trim();
-  if (email) {
-    body.autorizacaoConsulta = {
-      documento: document,
-      nome: options?.authorization?.name ?? "",
-      email,
-    };
-  }
 
   const res = await postWithAuth(cfg, `${cfg.baseUrl}/api/v3/consultas/depsmix`, body);
+  // DIAGNÓSTICO temporário — enviado à deps (documento + flags).
+  console.log(
+    "[deps] POST depsmix →",
+    res.status,
+    JSON.stringify({
+      documento: document,
+      autorizacaoScr: body.autorizacaoScr,
+      reutilizarDadosExistentes: body.reutilizarDadosExistentes,
+    })
+  );
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
+    // DIAGNÓSTICO temporário — corpo do erro (400 = SCR pendente / sem dados).
+    console.log("[deps] resposta não-OK:", res.status, txt.slice(0, 500));
     // 400 = autorização SCR pendente / documento sem dados (doc §4.2). Tratado
     // como pendente pelo fluxo de consulta, não como falha.
     if (res.status === 400) {
@@ -211,6 +219,34 @@ async function executeConsult(
   }
   const json = await res.json();
   const mix = extractMix(json);
+  // DIAGNÓSTICO temporário — mapa de preenchimento de TODOS os blocos do mix,
+  // para levantar quais vêm vazios por tipo/perfil (PF/PJ, PEP, sem histórico).
+  if (!mix) {
+    console.log(
+      "[deps] 200 SEM `mix`. Chaves de topo:",
+      JSON.stringify(json).slice(0, 800)
+    );
+  } else {
+    // Classifica cada bloco: "cheio" | "vazio" (null / data null / array vazio).
+    const fill: Record<string, string> = {};
+    for (const [k, v] of Object.entries(mix as Record<string, unknown>)) {
+      if (v == null) {
+        fill[k] = "vazio";
+      } else if (Array.isArray(v)) {
+        fill[k] = v.length > 0 ? `cheio[${v.length}]` : "vazio[]";
+      } else if (typeof v === "object" && "data" in (v as object)) {
+        const d = (v as { data?: unknown }).data;
+        fill[k] =
+          d == null || (Array.isArray(d) && d.length === 0) ? "vazio" : "cheio";
+      } else {
+        fill[k] = "cheio";
+      }
+    }
+    console.log(
+      "[deps] 200 mapa de blocos:",
+      JSON.stringify({ documento: document, blocos: fill })
+    );
+  }
   if (!mix) throw new Error("Resposta da deps não contém `mix`.");
   return mix;
 }

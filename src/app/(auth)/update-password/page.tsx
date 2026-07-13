@@ -44,8 +44,10 @@ export default function UpdatePasswordPage() {
 
   const onSubmit = async (values: FormValues) => {
     setError(null);
+    // Limpa a flag de primeiro acesso (cliente do portal) ao definir a senha.
     const { error } = await supabase.auth.updateUser({
       password: values.password,
+      data: { must_change_password: false },
     });
     if (error) {
       setError("Não foi possível atualizar a senha. O link pode ter expirado.");

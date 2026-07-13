@@ -41,7 +41,8 @@ export interface GenerateParecerResult {
 // pelo consolidado (mesmo formato de saída).
 async function runParecer(
   systemPrompt: string,
-  userPayload: string
+  userPayload: string,
+  maxTokens = 8000
 ): Promise<GenerateParecerResult> {
   const client = getClient();
   const model = OPENAI_MODEL;
@@ -53,16 +54,24 @@ async function runParecer(
       { role: "user", content: userPayload },
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 8000,
+    max_completion_tokens: maxTokens,
   };
   if (supportsTemperature(model)) {
     params.temperature = 0.2;
   }
 
   const completion = await client.chat.completions.create(params);
-  const content = completion.choices[0]?.message?.content;
+  const choice = completion.choices[0];
+  const content = choice?.message?.content;
   if (!content) {
     throw new Error("A IA não retornou conteúdo.");
+  }
+  // Sem isto, um relatório que estoura o teto volta como JSON cortado e o erro
+  // que chega ao operador é "JSON inválido" — que não diz o que fazer.
+  if (choice?.finish_reason === "length") {
+    throw new Error(
+      "O parecer excedeu o limite de tamanho do modelo e veio incompleto. Tente novamente ou reduza a quantidade de sócios do processo."
+    );
   }
 
   let raw: unknown;
@@ -94,9 +103,11 @@ export async function generateParecer(
 }
 
 // Parecer técnico consolidado do grupo (empresa + sócios do quadro societário).
+// Teto de saída maior: o relatório soma a análise PJ completa da empresa com uma
+// análise PF completa por sócio — com 3+ sócios, 8000 tokens truncam o JSON.
 export async function generateCompanyParecer(
   input: CompanyParecerInput,
   systemPrompt: string = COMPANY_SYSTEM_PROMPT
 ): Promise<GenerateParecerResult> {
-  return runParecer(systemPrompt, buildCompanyPayload(input));
+  return runParecer(systemPrompt, buildCompanyPayload(input), 16000);
 }

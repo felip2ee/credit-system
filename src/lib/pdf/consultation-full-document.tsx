@@ -477,24 +477,33 @@ function ScrBlock({ block }: { block?: ScrTotalBlock }) {
   );
 }
 
-function Bg({ letterhead }: { letterhead: string }) {
+export function Bg({ letterhead }: { letterhead: string }) {
   // eslint-disable-next-line jsx-a11y/alt-text
   return <Image src={letterhead} style={s.bg} fixed />;
 }
 
+// Estilos compartilhados com o PDF do processamento de empresa (mesma capa /
+// margens do timbrado em todas as páginas).
+export const pdfStyles = s;
+
 // ── Documento ──────────────────────────────────────────────────────────
 
-function FullDocument({
-  mix,
-  header,
-  letterhead,
-  opinion,
-}: {
+export interface FullConsultationPageProps {
   mix: PfMix;
   header: FullPdfHeader;
   letterhead: string;
   opinion?: OpinionForPdf | null;
-}) {
+}
+
+// Página completa de uma consulta (empresa ou sócio). Exportada para que o PDF
+// do processamento de empresa a reaproveite — cada consulta vira uma <Page>, o
+// que já garante a quebra de página entre uma e outra.
+export function FullConsultationPage({
+  mix,
+  header,
+  letterhead,
+  opinion,
+}: FullConsultationPageProps) {
   const pessoa = mix.pessoa?.data;
   const empresa = mix.empresa?.data;
   const quadro = mix.quadroSocietario?.data?.quadroSocietario;
@@ -510,10 +519,8 @@ function FullDocument({
   const riscoTotal = scr?.vencimentoPorModalidade?.riscoTotal?.valor ?? null;
 
   return (
-    <Document>
-      {/* ── PÁGINA 1 — RESUMO (decisão de crédito) ── */}
-      <Page size="A4" style={s.page}>
-        <Bg letterhead={letterhead} />
+    <Page size="A4" style={s.page}>
+      <Bg letterhead={letterhead} />
 
         {/* Cabeçalho à esquerda + selo de Parecer compacto à direita. */}
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -988,7 +995,14 @@ function FullDocument({
         <Text style={{ fontSize: 7, color: muted, marginTop: 20, textAlign: "right" }}>
           Documento gerado automaticamente · Reino do Crédito
         </Text>
-      </Page>
+    </Page>
+  );
+}
+
+function FullDocument(props: FullConsultationPageProps) {
+  return (
+    <Document>
+      <FullConsultationPage {...props} />
     </Document>
   );
 }

@@ -9,6 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 
 export interface ResultView {
+  // Pessoa politicamente exposta (só PF). Quando true e algum bloco vier vazio,
+  // a deps costuma omitir score/smart — exibimos "Cliente PEP" no lugar de "—".
+  isPep: boolean;
   score: {
     valor: number | null;
     risco: string | null;
@@ -32,16 +35,24 @@ export interface ResultView {
 }
 
 export function ConsultationResult({ view }: { view: ResultView }) {
+  // Rótulo para campos vazios: "Cliente PEP" quando é pessoa politicamente
+  // exposta (a deps omite o score nesses casos); "—" caso contrário.
+  const na = view.isPep ? "Cliente PEP" : "—";
+  const scoreEmptyPep = view.score.valor == null && view.isPep;
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader className="pb-2">
           <CardDescription>Score</CardDescription>
-          <CardTitle className="text-4xl">{view.score.valor ?? "—"}</CardTitle>
+          <CardTitle className={scoreEmptyPep ? "text-xl" : "text-4xl"}>
+            {view.score.valor ?? na}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 text-sm">
-          <p className="font-medium">{view.score.risco ?? "—"}</p>
-          <p className="text-muted-foreground">{view.score.descricao}</p>
+          <p className="font-medium">{view.score.risco ?? na}</p>
+          <p className="text-muted-foreground">
+            {view.score.descricao ?? (view.isPep ? "Cliente PEP" : "")}
+          </p>
           {view.score.prob != null && (
             <p className="text-muted-foreground">
               Probabilidade de pagamento: {view.score.prob}%
@@ -54,7 +65,7 @@ export function ConsultationResult({ view }: { view: ResultView }) {
         <CardHeader className="pb-2">
           <CardDescription>Smart</CardDescription>
           <CardTitle className="flex items-center gap-2 text-2xl">
-            {view.smart.classificacao ?? "—"}
+            {view.smart.classificacao ?? na}
             {view.smart.aprovado != null &&
               (view.smart.aprovado ? (
                 <Badge variant="success">Aprovado</Badge>

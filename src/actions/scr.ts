@@ -5,7 +5,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getDepsClient } from "@/lib/deps/client";
-import { mapPfResult, mapPjResult, resultDisplayName } from "@/lib/deps/map";
+import {
+  hasMappableResult,
+  mapPfResult,
+  mapPjResult,
+  resultDisplayName,
+} from "@/lib/deps/map";
 import { depsProductName } from "@/lib/deps/products";
 import { refreshBatchCounters } from "@/actions/company";
 import { recordAudit } from "@/lib/audit";
@@ -55,6 +60,19 @@ export async function verifyScr(
   const doc = onlyDigits(document);
   const product = depsProductName(scr.type);
 
+  // Honra o modo de autorização SCR da consulta vinculada (default internal).
+  // deps → autorizacaoScr=false (a deps checa a própria autorização); internal →
+  // true (autogestão). Sem query vinculada, mantém o default internal.
+  let autorizacaoScr = true;
+  if (scr.query_id) {
+    const { data: qm } = await supabase
+      .from("queries")
+      .select("scr_mode")
+      .eq("id", scr.query_id)
+      .maybeSingle();
+    autorizacaoScr = (qm as { scr_mode: string | null } | null)?.scr_mode !== "deps";
+  }
+
   // E-mail do titular: usa o da linha SCR ou, na falta, o do cadastro do cliente.
   let email = scr.email?.trim() || null;
   if (!email && scr.crm_client_id) {
@@ -92,6 +110,7 @@ export async function verifyScr(
     product,
     reuseExisting: true,
     authorization: { name: scr.name ?? undefined, email: email ?? undefined },
+    autorizacaoScr,
   };
   let result;
   try {
@@ -105,13 +124,9 @@ export async function verifyScr(
 
   // Valida que vieram dados de fato — a deps pode responder 200 com mix vazio
   // (documento sem dados/ainda não autorizado). Sem isso, marcávamos "concluída"
-  // sem nenhum resultado (PDF e IA em branco).
-  const mix = result.mix as unknown as Record<string, unknown>;
-  const hasData =
-    !!mix &&
-    (scr.type === "PJ" ? mix.empresa != null : mix.pessoa != null) &&
-    mix.score != null;
-  if (!hasData || !scr.query_id) {
+  // sem nenhum resultado (PDF e IA em branco). O guard checa o `.data` dos blocos
+  // essenciais (identidade + score), não só a presença do módulo.
+  if (!hasMappableResult(scr.type, result) || !scr.query_id) {
     return stayPending();
   }
   const queryId = scr.query_id;

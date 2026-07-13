@@ -4,6 +4,7 @@ import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentProfile } from "@/lib/auth";
 
 export default async function DashboardLayout({
   children,
@@ -17,6 +18,12 @@ export default async function DashboardLayout({
 
   if (!user) {
     redirect("/login");
+  }
+
+  // Clientes não acessam o painel interno — vão para o portal externo.
+  const profile = await getCurrentProfile();
+  if (profile?.role === "client") {
+    redirect("/portal");
   }
 
   return (

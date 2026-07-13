@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Download } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
@@ -9,6 +10,7 @@ import {
   type CompanyReportData,
 } from "@/components/batch/company-report-panel";
 import { ProcessPendingButton } from "@/components/batch/process-pending-button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -76,6 +78,7 @@ export default async function BatchDetailPage({
   const report = (reportData as CompanyReportData | null) ?? null;
 
   const canGenerate = members.some((m) => m.type === "PJ" && m.status === "completed");
+  const hasCompleted = members.some((m) => m.status === "completed");
   const pendingIds = members
     .filter((m) => m.status === "processing")
     .map((m) => m.id);
@@ -85,7 +88,16 @@ export default async function BatchDetailPage({
       <PageHeader
         title={b.name ?? "Processo de empresa"}
         description={`${b.document ? formatCNPJ(b.document) : "CNPJ não informado"} · ${b.success_items}/${b.total_items} consultas concluídas`}
-      />
+      >
+        {hasCompleted && (
+          <Button asChild variant="outline">
+            <a href={`/batch/${b.id}/pdf`} target="_blank" rel="noopener noreferrer">
+              <Download className="h-4 w-4" />
+              Baixar PDF do processo
+            </a>
+          </Button>
+        )}
+      </PageHeader>
 
       {/* Consultas ainda na fila (ex.: aba fechada durante o processamento) */}
       {pendingIds.length > 0 && <ProcessPendingButton queryIds={pendingIds} />}

@@ -34,6 +34,9 @@ export function ConsultationForm() {
   const [scrEmail, setScrEmail] = useState("");
   // Reaproveita dados já existentes na deps (não gera nova cobrança). Default ligado.
   const [reuseExisting, setReuseExisting] = useState(true);
+  // Origem da autorização SCR: "internal" = nosso termo (e-mail + código);
+  // "deps" = autorização gerida pela própria deps. Default "internal".
+  const [scrMode, setScrMode] = useState<"internal" | "deps">("internal");
 
   const [error, setError] = useState<string | null>(null);
   // Resultado "aguardando autorização SCR" (HTTP 400 da deps).
@@ -73,6 +76,7 @@ export function ConsultationForm() {
         observations,
         email: scrEmail.trim() || null,
         reuseExisting,
+        scrMode,
       });
       if (result.error) {
         setError(result.error);
@@ -194,6 +198,49 @@ export function ConsultationForm() {
           </div>
         )}
 
+        {/* Origem da autorização SCR */}
+        {selected && (
+          <div className="space-y-2">
+            <Label>Autorização SCR</Label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setScrMode("internal")}
+                aria-pressed={scrMode === "internal"}
+                className={
+                  "rounded-md border p-3 text-left text-sm transition-colors " +
+                  (scrMode === "internal"
+                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                    : "hover:bg-muted/50")
+                }
+              >
+                <span className="font-medium">Autorização própria</span>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Nosso termo por e-mail + código. Só consulta se o titular já
+                  autorizou no nosso sistema.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setScrMode("deps")}
+                aria-pressed={scrMode === "deps"}
+                className={
+                  "rounded-md border p-3 text-left text-sm transition-colors " +
+                  (scrMode === "deps"
+                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                    : "hover:bg-muted/50")
+                }
+              >
+                <span className="font-medium">Autorização da deps</span>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  A deps verifica a autorização dela. Não usa nosso termo; se não
+                  houver autorização, a consulta não é feita.
+                </p>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* E-mail do titular (autorização SCR) */}
         {selected && (
           <div className="space-y-1">
@@ -206,8 +253,8 @@ export function ConsultationForm() {
               onChange={(e) => setScrEmail(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Fica registrado no cadastro do titular. A autorização SCR é concedida
-              no portal da deps. Opcional.
+              Fica registrado no cadastro do titular e é usado para enviar o termo
+              de autorização SCR quando necessário. Opcional.
             </p>
           </div>
         )}
@@ -299,8 +346,8 @@ export function ConsultationForm() {
             </p>
             <p className="text-sm text-amber-800">{pending}</p>
             <p className="text-sm text-amber-800">
-              A consulta será concluída após a autorização ser concedida no portal
-              da deps. Acompanhe em Autorizações SCR.
+              A consulta poderá ser concluída após a autorização ser concedida.
+              Acompanhe em Autorizações SCR.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" asChild>
