@@ -117,7 +117,11 @@ describe.sequential("transaction-scoped RLS identity", () => {
     await pool.end();
   });
 
-  it("limits client rows while both consultants retain staff visibility", async () => {
+  it("limits client rows while administrators and consultants retain staff visibility", async () => {
+    await expect(visibleClientNames(identities.admin)).resolves.toEqual([
+      "RLS client one",
+      "RLS client two",
+    ]);
     await expect(visibleClientNames(identities.clientOne)).resolves.toEqual([
       "RLS client one",
     ]);

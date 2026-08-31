@@ -13,6 +13,7 @@ export async function withUserTransaction<T>(
 ): Promise<T> {
   const client = await pool.connect();
   let started = false;
+  let releaseError: Error | boolean | undefined;
 
   try {
     await client.query("begin");
@@ -29,9 +30,15 @@ export async function withUserTransaction<T>(
     started = false;
     return result;
   } catch (error) {
-    if (started) await client.query("rollback");
+    if (started) {
+      try {
+        await client.query("rollback");
+      } catch (rollbackError) {
+        releaseError = rollbackError instanceof Error ? rollbackError : true;
+      }
+    }
     throw error;
   } finally {
-    client.release();
+    client.release(releaseError);
   }
 }

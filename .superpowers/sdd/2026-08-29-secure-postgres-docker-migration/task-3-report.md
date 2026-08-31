@@ -63,3 +63,37 @@ Reviewed the complete diff against the Task 3 requirements. Findings: none. The 
 - The required real RLS integration gate is blocked, not skipped: no PostgreSQL process accepts connections on port 54329, and Docker/psql remain unavailable.
 - Consequently, schema migration, `app_runtime` role/ownership checks, actual RLS visibility, rollback cleanup, and same-backend reuse require rerun in the disposable PostgreSQL environment.
 - No production deployment, migration, or Docker command was attempted.
+
+## Fix Round 1/5
+
+### Fix Changes
+
+- `transaction.ts`: if `ROLLBACK` itself fails, `withUserTransaction()` now releases the `pg` client with that error (or `true` for a non-`Error` rejection), causing `pg` to discard the potentially contaminated connection. The original callback/query error remains the rejection.
+- `transaction.test.ts`: regression test proves a rollback failure invalidates the client and does not replace the original failure.
+- `permissions.test.ts`: covers all 42 role-permission decisions (every permission for admin, consultant, and client).
+- `rls.integration.test.ts`: asserts `identities.admin` can read both seeded client rows, in addition to the existing consultant/client checks.
+
+### RED/GREEN
+
+- RED: `npx vitest run src/lib/db/transaction.test.ts src/lib/db/permissions.test.ts` failed the new transaction regression exactly as expected: it received `rollback failed` instead of the callback error; the prior implementation also called `release()` without the rollback error. The expanded permission matrix was already green because its production mapping was correct; no artificial mutation was made to manufacture a RED state.
+- RED environmental gate: the real RLS integration test, including the new admin assertion, could not execute because PostgreSQL refused both `::1:54329` and `127.0.0.1:54329`.
+- GREEN: after the transaction patch, the focused suite passed: 43/43 tests.
+
+### Commands and Results
+
+| Command | Result |
+| --- | --- |
+| `npx vitest run src/lib/db/transaction.test.ts src/lib/db/permissions.test.ts` (RED) | 1 expected transaction failure; 42 permission decisions passed. |
+| `npx vitest run src/lib/db/rls.integration.test.ts` | Environmental gate blocked: `ECONNREFUSED ::1:54329` and `127.0.0.1:54329`. |
+| `npx vitest run src/lib/db/transaction.test.ts src/lib/db/permissions.test.ts` (GREEN) | 2 files, 43/43 passed. |
+| `npm test` | 90 passed, 2 skipped; suite fails only from the same unavailable PostgreSQL RLS integration gate. |
+| `npm run type-check` | Passed (`tsc --noEmit`). |
+| `git diff --check` | Passed. |
+
+### Self-Review
+
+`release(error)` is the `pg` pool invalidation path and is used only when rollback cannot establish transaction cleanup. Successful commits and successful rollbacks still call the normal no-error release. The matrix uses literal expected decisions rather than reusing the production role map; the admin integration assertion reads real RLS-protected rows.
+
+### Concerns
+
+- PostgreSQL/Docker remains unavailable locally, so the new admin visibility assertion and the complete RLS flow require rerun in the disposable PostgreSQL environment.
