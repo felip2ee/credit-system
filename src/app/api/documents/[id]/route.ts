@@ -31,8 +31,8 @@ export async function GET(
     row = await withUserTransaction(identity, async (client) => {
       const result = await client.query(
         `select object_key, file_name, detected_mime
-           from opportunity_documents
-          where id = $1`,
+          from opportunity_documents
+          where id = $1 and scan_result = 'clean'`,
         [params.id],
       );
       return result.rows[0];

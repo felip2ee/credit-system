@@ -1,24 +1,31 @@
-import { createClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
+
+import { auth } from "@/lib/auth/server";
+import { getRequiredSession } from "@/lib/auth/session";
 import type { Profile } from "@/types/app";
 
 export async function getCurrentProfile(): Promise<Profile | null> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  try {
+    const session = await getRequiredSession();
+    const current = await auth.api.getSession({
+      headers: new Headers(headers()),
+    });
+    if (!current || current.user.id !== session.userId) return null;
 
-  if (!user) return null;
-
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, role, avatar_url, is_active, mfa_enabled")
-    .eq("id", user.id)
-    .single();
-
-  return (data as Profile | null) ?? null;
+    return {
+      id: session.userId,
+      full_name: current.user.name,
+      email: current.user.email,
+      role: session.role,
+      avatar_url: null,
+      is_active: true,
+      mfa_enabled: session.mfaComplete,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function isAdmin(): Promise<boolean> {
-  const profile = await getCurrentProfile();
-  return profile?.role === "admin";
+  return (await getCurrentProfile())?.role === "admin";
 }
