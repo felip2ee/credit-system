@@ -3,14 +3,9 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDepsClient } from "@/lib/deps/client";
-import {
-  hasMappableResult,
-  mapPfResult,
-  mapPjResult,
-  resultDisplayName,
-} from "@/lib/deps/map";
+import { executeConsultation } from "@/lib/consultations/service";
 import { depsProductName } from "@/lib/deps/products";
 import { refreshBatchCounters } from "@/actions/company";
 import { recordAudit } from "@/lib/audit";
@@ -20,6 +15,13 @@ import type { EntityKind, ScrStatus } from "@/types/app";
 
 function db(): SupabaseClient<Database> {
   return createClient();
+}
+
+async function currentUserId(): Promise<string | null> {
+  const {
+    data: { user },
+  } = await createClient().auth.getUser();
+  return user?.id ?? null;
 }
 
 const SCR_VALIDITY_DAYS = 90;
@@ -122,48 +124,35 @@ export async function verifyScr(
     return stayPending();
   }
 
-  // Valida que vieram dados de fato — a deps pode responder 200 com mix vazio
-  // (documento sem dados/ainda não autorizado). Sem isso, marcávamos "concluída"
-  // sem nenhum resultado (PDF e IA em branco). O guard checa o `.data` dos blocos
-  // essenciais (identidade + score), não só a presença do módulo.
-  if (!hasMappableResult(scr.type, result) || !scr.query_id) {
+  // Sem consulta vinculada não há o que persistir; mantém pendente.
+  if (!scr.query_id) {
     return stayPending();
   }
   const queryId = scr.query_id;
 
-  // Grava o resultado via service-role (query_results_* não têm política de
-  // escrita RLS). Branches concretos por tipo + checagem de erro.
-  const admin = createServiceClient();
-  let insErr: { message: string } | null = null;
-  if (scr.type === "PJ") {
-    await admin.from("query_results_pj").delete().eq("query_id", queryId);
-    const { error } = await admin
-      .from("query_results_pj")
-      .insert(mapPjResult(queryId, result as Parameters<typeof mapPjResult>[1]));
-    insErr = error;
-  } else {
-    await admin.from("query_results_pf").delete().eq("query_id", queryId);
-    const { error } = await admin
-      .from("query_results_pf")
-      .insert(mapPfResult(queryId, result as Parameters<typeof mapPfResult>[1]));
-    insErr = error;
+  const userId = await currentUserId();
+  if (!userId) return { status: "pending", message: "Sessão expirada." };
+
+  // Persistência atômica: payload bruto + adapter versionado + resultado
+  // canônico/status numa única transação. 200 sem os blocos essenciais
+  // (identidade) → payload_incompatible, não "concluída" em branco.
+  const outcome = await executeConsultation({
+    identity: { userId, role: "consultant" },
+    consultationId: queryId,
+    entityKind: scr.type,
+    consult: async () => result,
+  });
+  if (outcome.status === "payload_incompatible") {
+    await supabase
+      .from("queries")
+      .update({ status: "payload_incompatible" })
+      .eq("id", queryId);
+    return {
+      status: "pending",
+      message:
+        "A consulta retornou sem os dados essenciais. Verifique a autorização e tente novamente.",
+    };
   }
-  if (insErr) {
-    return { status: "pending", message: `Falha ao salvar o resultado: ${insErr.message}` };
-  }
-  await supabase
-    .from("queries")
-    .update({
-      status: "completed",
-      document_name: resultDisplayName(scr.type, result) ?? undefined,
-      consulted_at: result.consultedAt,
-      historico_consulta_id: result.historicoConsultaId,
-      api_version: result.apiVersion,
-      product_version: result.productVersion,
-      is_partial: result.isPartial,
-      share_link: result.shareLink,
-    })
-    .eq("id", queryId);
 
   // Sucesso → autorização confirmada.
   const now = new Date().toISOString();

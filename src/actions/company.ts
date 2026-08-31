@@ -6,12 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getDepsClient } from "@/lib/deps/client";
 import { DepsScrPendingError } from "@/lib/deps/errors";
-import {
-  hasMappableResult,
-  mapPfResult,
-  mapPjResult,
-  resultDisplayName,
-} from "@/lib/deps/map";
+import { executeConsultation } from "@/lib/consultations/service";
 import { DEPS_PRODUCT_PJ, depsProductName } from "@/lib/deps/products";
 import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/deps/scr-auth";
 import type { ScrMode } from "@/actions/consultations";
@@ -22,7 +17,7 @@ import { getAiPrompt } from "@/actions/settings";
 import { toAptitudeStatus } from "@/types/ai";
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 import type { Database, Json } from "@/types/supabase";
-import type { DepsConsultResultPF, DepsConsultResultPJ } from "@/types/deps";
+import type { DepsRawConsult } from "@/types/deps";
 import type { EntityKind } from "@/types/app";
 
 // Alias curto para o client server-side (ver clients.ts / server.ts).
@@ -143,7 +138,6 @@ async function ensureCrmClient(
 // ─────────────────────────────────────────────────────────────────────────
 async function consultExistingMember(args: {
   supabase: SupabaseClient<Database>;
-  admin: SupabaseClient<Database>;
   deps: Deps;
   userId: string;
   queryId: string;
@@ -155,7 +149,7 @@ async function consultExistingMember(args: {
   scrMode: ScrMode;
   crmClientId: string | null;
 }): Promise<MemberOutcome> {
-  const { supabase, admin, deps, userId, queryId, type, document, documentName, email, scrMode } = args;
+  const { supabase, deps, userId, queryId, type, document, documentName, email, scrMode } = args;
   const product = depsProductName(type);
 
   // Modo internal: só consulta se houver autorização própria vigente no nosso BD.
@@ -205,7 +199,7 @@ async function consultExistingMember(args: {
     return "pending";
   };
 
-  let result: DepsConsultResultPF | DepsConsultResultPJ;
+  let result: DepsRawConsult;
   try {
     result =
       type === "PJ"
@@ -226,37 +220,29 @@ async function consultExistingMember(args: {
     return "error";
   }
 
-  // A deps pode responder 200 com o mix vazio (sem dados / SCR não autorizado,
-  // sobretudo no modo "deps"). Sem dados mapeáveis, trata como pendente.
-  if (!hasMappableResult(type, result)) {
-    return markPending();
+  // Persistência atômica: payload bruto + adapter versionado + resultado
+  // canônico/status numa única transação user-scoped.
+  const outcome = await executeConsultation({
+    identity: { userId, role: "consultant" },
+    consultationId: queryId,
+    entityKind: type,
+    consult: async () => result,
+  });
+
+  // 200 sem os blocos essenciais (identidade) → não conclui em branco.
+  if (outcome.status === "payload_incompatible") {
+    await supabase
+      .from("queries")
+      .update({ status: "payload_incompatible" })
+      .eq("id", queryId);
+    return "pending";
   }
 
-  // Sucesso (200) → grava resultado (service-role) e conclui.
-  if (type === "PJ") {
-    await admin
-      .from("query_results_pj")
-      .insert(mapPjResult(queryId, result as DepsConsultResultPJ));
-  } else {
-    await admin
-      .from("query_results_pf")
-      .insert(mapPfResult(queryId, result as DepsConsultResultPF));
-  }
-  // Nome real do bureau (PF: nome completo; PJ: razão social) vira o nome de exibição.
-  const displayName = resultDisplayName(type, result) ?? documentName;
-  await supabase
-    .from("queries")
-    .update({
-      status: "completed",
-      document_name: displayName,
-      consulted_at: result.consultedAt,
-      historico_consulta_id: result.historicoConsultaId,
-      api_version: result.apiVersion,
-      product_version: result.productVersion,
-      is_partial: result.isPartial,
-      share_link: result.shareLink,
-    })
-    .eq("id", queryId);
+  // Nome real do bureau (canônico) vira o nome de exibição.
+  const displayName =
+    outcome.status === "completed"
+      ? outcome.canonical.subject.name || documentName
+      : documentName;
 
   // O cliente do CRM foi criado com o nome que o operador digitou — que muitas
   // vezes é o próprio documento. Agora que o bureau devolveu o nome real, troca
@@ -487,10 +473,8 @@ export async function processCompanyMember(
   }
 
   const deps = getDepsClient();
-  const admin = createServiceClient();
   const outcome = await consultExistingMember({
     supabase,
-    admin,
     deps,
     userId,
     queryId: query.id,

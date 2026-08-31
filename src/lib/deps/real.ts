@@ -4,6 +4,7 @@
 
 import type {
   ConsultOptions,
+  DepsRawConsult,
   ScrAuthorizationCheck,
   ScrRequestInput,
   ScrRequestResult,
@@ -11,15 +12,7 @@ import type {
 import { DepsScrPendingError } from "./errors";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "./products";
 
-// Raw provider response handed to the versioned adapter (src/lib/deps/adapter.ts).
-// No provider-shaped parsing happens here — the adapter is the single trust
-// boundary. `body` is the untouched decoded JSON.
-export interface DepsRawConsult {
-  httpStatus: number;
-  product: string;
-  body: unknown;
-  receivedAt: string;
-}
+export type { DepsRawConsult };
 
 export interface RealDepsClient {
   readonly mode: "real";

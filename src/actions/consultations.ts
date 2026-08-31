@@ -3,21 +3,16 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDepsClient } from "@/lib/deps/client";
 import { DepsScrPendingError } from "@/lib/deps/errors";
-import {
-  hasMappableResult,
-  mapPfResult,
-  mapPjResult,
-  resultDisplayName,
-} from "@/lib/deps/map";
+import { executeConsultation } from "@/lib/consultations/service";
 import { depsProductName } from "@/lib/deps/products";
 import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/deps/scr-auth";
 import { recordAudit } from "@/lib/audit";
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 import type { Database } from "@/types/supabase";
-import type { DepsConsultResultPF, DepsConsultResultPJ } from "@/types/deps";
+import type { DepsRawConsult } from "@/types/deps";
 import type { EntityKind } from "@/types/app";
 
 // Alias curto para o client server-side (ver clients.ts / server.ts).
@@ -246,7 +241,7 @@ export async function runConsultation(
     autorizacaoScr: scrMode === "internal",
   };
 
-  let result: DepsConsultResultPF | DepsConsultResultPJ;
+  let result: DepsRawConsult;
   try {
     result =
       input.type === "PJ"
@@ -268,40 +263,35 @@ export async function runConsultation(
     return { error: "Falha ao executar a consulta no bureau." };
   }
 
-  // A deps pode responder 200 com o mix vazio (sem dados / SCR não autorizado,
-  // sobretudo no modo "deps"). Sem dados mapeáveis, não conclui em branco:
-  // trata como pendente (mesmo caminho do 400).
-  if (!hasMappableResult(input.type, result)) {
-    return markPending();
+  // Persistência atômica: guarda o payload bruto, roda o adapter versionado e
+  // grava o resultado canônico + status numa única transação user-scoped.
+  const outcome = await executeConsultation({
+    identity: { userId, role: "consultant" },
+    consultationId: queryId,
+    entityKind: input.type,
+    consult: async () => result,
+  });
+
+  if (outcome.status === "payload_incompatible") {
+    // 200 sem os blocos essenciais (identidade). Não conclui em branco.
+    await supabase
+      .from("queries")
+      .update({ status: "payload_incompatible" })
+      .eq("id", queryId);
+    return {
+      error: null,
+      status: "pending_scr",
+      queryId,
+      message:
+        "A consulta retornou sem os dados essenciais (identidade). Verifique a autorização SCR e reprocesse a consulta.",
+    };
   }
 
-  // ── Sucesso (200): grava o resultado e conclui a consulta ──
-  // query_results_* não têm política de escrita RLS → grava via service-role.
-  const admin = createServiceClient();
-  if (input.type === "PJ") {
-    await admin
-      .from("query_results_pj")
-      .insert(mapPjResult(queryId, result as DepsConsultResultPJ));
-  } else {
-    await admin
-      .from("query_results_pf")
-      .insert(mapPfResult(queryId, result as DepsConsultResultPF));
-  }
-  // Nome real do bureau (PF: nome completo; PJ: razão social) vira o nome de exibição.
-  const displayName = resultDisplayName(input.type, result) ?? input.documentName;
-  await supabase
-    .from("queries")
-    .update({
-      status: "completed",
-      document_name: displayName,
-      consulted_at: result.consultedAt,
-      historico_consulta_id: result.historicoConsultaId,
-      api_version: result.apiVersion,
-      product_version: result.productVersion,
-      is_partial: result.isPartial,
-      share_link: result.shareLink,
-    })
-    .eq("id", queryId);
+  // Nome real do bureau (canônico) vira o nome de exibição.
+  const displayName =
+    outcome.status === "completed"
+      ? outcome.canonical.subject.name || input.documentName
+      : input.documentName;
 
   // Registra o SCR como concedido (a consulta só retorna 200 com autorização vigente).
   await upsertScrAuthorization(supabase, {
@@ -357,74 +347,39 @@ export async function reprocessQuery(
   const autorizacaoScr = query.scr_mode !== "deps";
   const deps = getDepsClient();
 
+  const userId = await currentUserId();
+  if (!userId) return { error: "Sessão expirada." };
+
   await supabase
     .from("queries")
     .update({ status: "processing", error_message: null })
     .eq("id", queryId);
 
-  // query_results_* não têm política de escrita RLS → grava via service-role.
-  const admin = createServiceClient();
   try {
-    if (query.type === "PJ") {
-      const r = await deps.consultPJ(query.document, { product, autorizacaoScr });
-      // 200 com mix vazio → não conclui em branco; deixa pendente.
-      if (!hasMappableResult("PJ", r)) {
-        await supabase
-          .from("queries")
-          .update({ status: "pending_authorization" })
-          .eq("id", queryId);
-        return {
-          error: null,
-          status: "pending_scr",
-          queryId,
-          message: "Consulta sem dados/SCR pendente. Verifique a autorização e tente novamente.",
-        };
-      }
-      await admin.from("query_results_pj").delete().eq("query_id", queryId);
-      await admin.from("query_results_pj").insert(mapPjResult(queryId, r));
+    const raw =
+      query.type === "PJ"
+        ? await deps.consultPJ(query.document, { product, autorizacaoScr })
+        : await deps.consultPF(query.document, { product, autorizacaoScr });
+
+    const outcome = await executeConsultation({
+      identity: { userId, role: "consultant" },
+      consultationId: queryId,
+      entityKind: query.type,
+      consult: async () => raw,
+    });
+
+    if (outcome.status === "payload_incompatible") {
       await supabase
         .from("queries")
-        .update({
-          status: "completed",
-          document_name: resultDisplayName("PJ", r) ?? undefined,
-          consulted_at: r.consultedAt,
-          historico_consulta_id: r.historicoConsultaId,
-          api_version: r.apiVersion,
-          product_version: r.productVersion,
-          is_partial: r.isPartial,
-          share_link: r.shareLink,
-        })
+        .update({ status: "payload_incompatible" })
         .eq("id", queryId);
-    } else {
-      const r = await deps.consultPF(query.document, { product, autorizacaoScr });
-      // 200 com mix vazio → não conclui em branco; deixa pendente.
-      if (!hasMappableResult("PF", r)) {
-        await supabase
-          .from("queries")
-          .update({ status: "pending_authorization" })
-          .eq("id", queryId);
-        return {
-          error: null,
-          status: "pending_scr",
-          queryId,
-          message: "Consulta sem dados/SCR pendente. Verifique a autorização e tente novamente.",
-        };
-      }
-      await admin.from("query_results_pf").delete().eq("query_id", queryId);
-      await admin.from("query_results_pf").insert(mapPfResult(queryId, r));
-      await supabase
-        .from("queries")
-        .update({
-          status: "completed",
-          document_name: resultDisplayName("PF", r) ?? undefined,
-          consulted_at: r.consultedAt,
-          historico_consulta_id: r.historicoConsultaId,
-          api_version: r.apiVersion,
-          product_version: r.productVersion,
-          is_partial: r.isPartial,
-          share_link: r.shareLink,
-        })
-        .eq("id", queryId);
+      return {
+        error: null,
+        status: "pending_scr",
+        queryId,
+        message:
+          "Consulta sem os dados essenciais. Verifique a autorização e tente novamente.",
+      };
     }
   } catch (err) {
     await supabase
