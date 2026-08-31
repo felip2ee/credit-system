@@ -19,6 +19,8 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
   const start = async () => {
     setBusy(true);
     setError(null);
+    // better-auth keeps user.twoFactorEnabled=false until the first verifyTotp
+    // below succeeds, so a failed enrollment can't lock the account out.
     const result = await authClient.twoFactor.enable({ password });
     const data = result.data;
     if (result.error || !data || !("totpURI" in data)) {

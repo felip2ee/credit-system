@@ -2,7 +2,9 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
+import { config } from "@/lib/config";
 import { auth } from "@/lib/auth/server";
 import {
   changeRoleAndRevokeSessions,
@@ -19,6 +21,8 @@ export interface CreateConsultantResult {
   email?: string;
 }
 
+const roleSchema = z.enum(["consultant", "admin", "client"]);
+
 async function requireUserManagement() {
   const session = await getRequiredSession();
   if (!hasPermission(session.role, "users:manage")) {
@@ -33,6 +37,7 @@ export async function createConsultant(
   role: "consultant" | "admin" = "consultant",
 ): Promise<CreateConsultantResult> {
   const actor = await requireUserManagement();
+  const safeRole = roleSchema.parse(role);
   const cleanEmail = email.trim().toLowerCase();
   const cleanName = fullName.trim();
   if (cleanName.length < 3) return { error: "Nome muito curto." };
@@ -49,11 +54,14 @@ export async function createConsultant(
       );
       await client.query(
         "insert into profiles (id, auth_user_id, full_name, email, role) values ($1, $1, $2, $3, $4)",
-        [userId, cleanName, cleanEmail, role],
+        [userId, cleanName, cleanEmail, safeRole],
       );
     });
     await auth.api.requestPasswordReset({
-      body: { email: cleanEmail, redirectTo: `${process.env.BETTER_AUTH_URL}/update-password` },
+      body: {
+        email: cleanEmail,
+        redirectTo: `${config.betterAuthUrl}/update-password`,
+      },
     });
   } catch {
     return { error: "Falha ao enviar o convite." };
@@ -63,7 +71,7 @@ export async function createConsultant(
     action: "user.invite",
     tableName: "profiles",
     recordId: userId,
-    data: { role, email: cleanEmail },
+    data: { role: safeRole, email: cleanEmail },
   });
   revalidatePath("/settings/users");
   return { error: null, email: cleanEmail };
@@ -74,8 +82,9 @@ export async function setUserRole(
   role: "consultant" | "admin" | "client",
 ): Promise<{ error: string | null }> {
   const actor = await requireUserManagement();
+  const safeRole = roleSchema.parse(role);
   try {
-    await changeRoleAndRevokeSessions(actor.userId, userId, role);
+    await changeRoleAndRevokeSessions(actor.userId, userId, safeRole);
   } catch {
     return { error: "Falha ao alterar o perfil." };
   }
@@ -83,7 +92,7 @@ export async function setUserRole(
     action: "user.role_change",
     tableName: "profiles",
     recordId: userId,
-    data: { role },
+    data: { role: safeRole },
   });
   revalidatePath("/settings/users");
   return { error: null };

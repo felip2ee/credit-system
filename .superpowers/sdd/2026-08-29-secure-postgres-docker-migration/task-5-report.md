@@ -62,3 +62,39 @@
    web-server wiring is a Task 15 concern.
 5. `recordAudit` still writes through the Supabase service client (Task 9/11 territory);
    it is best-effort/silent, so the audit calls are harmless no-ops until that migrates.
+
+## Fix round 1
+
+Applied all review findings:
+
+1. `login/page.tsx` + `reset-password/page.tsx` — ran `npx prettier -w`; the collapsed
+   one-line JSX `return (...)` is now normal multi-line formatted.
+2. `e2e/auth.spec.ts`:
+   - (a) new case "completes forced password setup from a reset link" — visits
+     `/update-password?token=<AUTH_E2E_RESET_TOKEN>`, sets a new password, asserts
+     landing on `/login` (or `/` / `/portal`).
+   - (b) "optional client TOTP" case now drives `<MfaEnrollment>` on
+     `/settings/security`: fills the password, clicks "Adicionar autenticador",
+     asserts the QR + recovery-codes block render, submits a bad TOTP and asserts the
+     "Código inválido" error.
+3. `src/actions/users.ts` — `const roleSchema = z.enum(["consultant","admin","client"])`;
+   `createConsultant` and `setUserRole` now `roleSchema.parse(role)` at the top and use
+   the parsed `safeRole` for the insert / `changeRoleAndRevokeSessions` / audit.
+4. `login/page.tsx` `callbackPath` — also rejects a leading `/\` (backslash).
+5. `src/actions/users.ts` — `redirectTo` now uses `config.betterAuthUrl` from
+   `@/lib/config` instead of `process.env.BETTER_AUTH_URL`.
+6. `e2e/auth.spec.ts` disabled-user assertion — now signs in, navigates to `/`, and
+   expects a redirect to `/login` (deactivation is caught at protected-page load, not
+   at the login form).
+7. `mfa-enrollment.tsx` — added a comment noting better-auth keeps
+   `twoFactorEnabled=false` until the first `verifyTotp`, so a failed enrollment can't
+   lock the account out.
+
+### Commands (fix round 1)
+- `npm run type-check` — clean, no errors.
+- `npx vitest run src/lib/auth` — 3 passed, 9 skipped; `auth.integration.test.ts` still
+  `ECONNREFUSED 127.0.0.1:54329` (no DB in-loop, pre-existing, unchanged).
+- `npx playwright test e2e/auth.spec.ts --list` — compiles, 5 tests listed.
+
+New env var for the Task 15 seed step: `AUTH_E2E_RESET_TOKEN` (a fresh unexpired
+better-auth reset token).
