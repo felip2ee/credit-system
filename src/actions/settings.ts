@@ -135,6 +135,8 @@ export async function saveAiPrompts(input: SaveAiPromptsInput): Promise<SaveResu
 const COMMISSION_RATE_KEY = "default_commission_rate";
 const DEFAULT_COMMISSION_RATE = 6; // % do valor aprovado
 
+// Assumes request scope (reads the session via readerIdentity). A future
+// non-request caller must be given an explicit identity parameter instead.
 export async function getCommissionRate(): Promise<number> {
   const raw = await readSetting(await readerIdentity(), COMMISSION_RATE_KEY);
   const num =
@@ -184,6 +186,8 @@ export interface ScrTermSettings {
   city: string;
 }
 
+// Assumes request scope (reads the session via readerIdentity). A future
+// non-request caller must be given an explicit identity parameter instead.
 export async function getScrTermSettings(): Promise<ScrTermSettings> {
   const stored = await readSettings(await readerIdentity(), [
     SCR_SETTING_KEYS.authorizedName,

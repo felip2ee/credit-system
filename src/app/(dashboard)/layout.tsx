@@ -4,7 +4,7 @@ import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { getRequiredSession } from "@/lib/auth/session";
-import { withUserTransaction } from "@/lib/db/transaction";
+import { getTopbarEmail } from "@/lib/dashboard/queries";
 
 export default async function DashboardLayout({
   children,
@@ -18,13 +18,7 @@ export default async function DashboardLayout({
     redirect("/portal");
   }
 
-  const { rows } = await withUserTransaction(session, (client) =>
-    client.query<{ email: string }>(
-      "select email from profiles where id = $1",
-      [session.userId],
-    ),
-  );
-  const email = rows[0]?.email ?? null;
+  const email = await getTopbarEmail(session);
 
   return (
     <div className="flex min-h-screen">

@@ -16,23 +16,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getRequiredSession } from "@/lib/auth/session";
-import { withUserTransaction } from "@/lib/db/transaction";
+import { listAuditLogs } from "@/lib/audit/read";
 import { formatCNPJ, formatCPF, formatDateTime } from "@/lib/utils";
 
 const ACTION_LABEL: Record<string, string> = {
   "bureau.consult": "Consulta ao bureau",
 };
-
-interface AuditRow {
-  id: string;
-  action: string;
-  metadata: Record<string, unknown> | null;
-  new_data: Record<string, unknown> | null;
-  ip_address: string | null;
-  created_at: string;
-  actor_name: string | null;
-  actor_email: string | null;
-}
 
 // Formata o documento (CPF/CNPJ) guardado nos metadados, quando houver.
 function describeDocument(data: Record<string, unknown> | null): string {
@@ -49,17 +38,7 @@ export default async function AuditPage() {
     redirect("/settings");
   }
 
-  const { rows: logs } = await withUserTransaction(session, (client) =>
-    client.query<AuditRow>(
-      `select a.id, a.action, a.metadata, a.new_data, a.ip_address::text,
-              a.created_at::text,
-              p.full_name as actor_name, p.email as actor_email
-         from audit_logs a
-         left join profiles p on p.id = a.user_id
-        order by a.created_at desc
-        limit 200`,
-    ),
-  );
+  const logs = await listAuditLogs(session);
 
   return (
     <div className="space-y-6">

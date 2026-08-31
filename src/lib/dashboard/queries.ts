@@ -114,6 +114,18 @@ export async function getDashboardMetrics(
   });
 }
 
+export async function getTopbarEmail(
+  identity: DbIdentity,
+): Promise<string | null> {
+  return withUserTransaction(identity, async (client) => {
+    const { rows } = await client.query<{ email: string }>(
+      "select email from profiles where id = $1",
+      [identity.userId],
+    );
+    return rows[0]?.email ?? null;
+  });
+}
+
 export async function getConsultantNames(
   identity: DbIdentity,
   ids: string[],

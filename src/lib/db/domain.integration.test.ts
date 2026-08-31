@@ -56,11 +56,23 @@ import type { ClientInput } from "@/lib/validators/client";
 
 const admin: DbIdentity = { userId: randomUUID(), role: "admin" };
 
+// Re-runnable without a truncate step: app_runtime has no DELETE/TRUNCATE grant
+// on crm_clients / audit_logs, so every run uses fresh identifiers — a random
+// admin uuid and per-run document numbers — the way the Task 7 integration test
+// does. `settings` (which does have a delete grant) is cleaned in-test.
+const RUN = String(Date.now()).slice(-7);
+let docSeq = 0;
+const nextDoc = (len = 11): string =>
+  (RUN + String(++docSeq).padStart(Math.max(1, len - RUN.length), "0")).slice(
+    0,
+    len,
+  );
+
 const baseClient = (over: Partial<ClientInput> = {}): ClientInput =>
   ({
     type: "PF",
     name: "Cliente Integração",
-    document: "39053344705",
+    document: nextDoc(),
     email: null,
     phone: null,
     address: null,
@@ -107,25 +119,24 @@ describe.sequential("Task 9 domain data access", () => {
   });
 
   it("createClientRecord rejects a duplicate document", async () => {
-    await createClientRecord(admin, baseClient({ document: "11144477735" }));
+    const document = nextDoc();
+    await createClientRecord(admin, baseClient({ document }));
     const dup = await createClientRecord(
       admin,
-      baseClient({ document: "11144477735", name: "Outro" }),
+      baseClient({ document, name: "Outro" }),
     );
     expect(dup).toEqual({ ok: false, reason: "duplicate_document" });
   });
 
   it("updateClientRecord and updateClientStatus mutate the row", async () => {
-    const created = await createClientRecord(
-      admin,
-      baseClient({ document: "22255588846" }),
-    );
+    const document = nextDoc();
+    const created = await createClientRecord(admin, baseClient({ document }));
     if (!created.ok) throw new Error("setup failed");
 
     await updateClientRecord(
       admin,
       created.id,
-      baseClient({ document: "22255588846", name: "Nome Novo", notes: "obs" }),
+      baseClient({ document, name: "Nome Novo", notes: "obs" }),
     );
     await updateClientStatus(admin, created.id, "active");
 
@@ -135,10 +146,7 @@ describe.sequential("Task 9 domain data access", () => {
   });
 
   it("addClientNote writes a note and a timeline event in one transaction", async () => {
-    const created = await createClientRecord(
-      admin,
-      baseClient({ document: "33366699957" }),
-    );
+    const created = await createClientRecord(admin, baseClient());
     if (!created.ok) throw new Error("setup failed");
 
     await addClientNote(admin, created.id, "primeira anotação");
@@ -149,24 +157,20 @@ describe.sequential("Task 9 domain data access", () => {
   it("linkPartner attaches a partner and refuses a duplicate link", async () => {
     const pj = await createClientRecord(
       admin,
-      baseClient({ type: "PJ", name: "Empresa X", document: "11222333000181" }),
+      baseClient({ type: "PJ", name: "Empresa X", document: nextDoc(14) }),
     );
     if (!pj.ok) throw new Error("setup failed");
 
-    const first = await linkPartner(admin, pj.id, {
-      document: "98765432100",
+    const partner = {
+      document: nextDoc(),
       name: "Sócio Um",
       percentage: 50,
       role: "socio",
-    });
+    };
+    const first = await linkPartner(admin, pj.id, partner);
     expect(first.ok).toBe(true);
 
-    const again = await linkPartner(admin, pj.id, {
-      document: "98765432100",
-      name: "Sócio Um",
-      percentage: 50,
-      role: "socio",
-    });
+    const again = await linkPartner(admin, pj.id, partner);
     expect(again).toEqual({ ok: false, reason: "already_linked" });
   });
 
@@ -177,19 +181,16 @@ describe.sequential("Task 9 domain data access", () => {
   });
 
   it("upsertSettings / readSetting / deleteSettings round-trip a value", async () => {
+    const key = `test_setting_${RUN}`;
     await upsertSettings(
       admin,
-      [{ key: "default_commission_rate", value: 7.5 }],
+      [{ key, value: 7.5 }],
       "settings.commission_update",
     );
-    expect(await readSetting(admin, "default_commission_rate")).toBe(7.5);
+    expect(await readSetting(admin, key)).toBe(7.5);
 
-    await deleteSettings(
-      admin,
-      ["default_commission_rate"],
-      "settings.commission_reset",
-    );
-    expect(await readSetting(admin, "default_commission_rate")).toBeNull();
+    await deleteSettings(admin, [key], "settings.commission_reset");
+    expect(await readSetting(admin, key)).toBeNull();
   });
 
   it("writeAuditEvent appends a redacted, append-only row", async () => {

@@ -138,3 +138,49 @@ npx vitest run src/lib/deps src/lib/consultations
    `getScrTermSettings` (scr actions) now call `getRequiredSession()` internally. Fine
    inside a server-action request; if Task 10/11 calls them from a bg job without
    request scope they'll throw — those files are Task 10/11's to reconcile.
+
+---
+
+## Fix round 1
+
+Review verdict: migration sound, one binding-constraint breach (raw `PoolClient`
+SQL in the view layer). All items addressed.
+
+### Binding constraint — domain SQL out of the view layer
+- `src/lib/dashboard/queries.ts` — new `getTopbarEmail(identity)`.
+  `src/app/(dashboard)/layout.tsx` now calls it; no longer imports
+  `withUserTransaction`.
+- `src/lib/audit/read.ts` — new `listAuditLogs(identity, limit = 200)` (the
+  `audit_logs` ⨝ `profiles` join). `src/app/(dashboard)/settings/audit/page.tsx`
+  now calls it; no longer imports `withUserTransaction`.
+- Verified: `grep -n "withUserTransaction|db/pool|@/lib/db/transaction"` over both
+  pages → no matches.
+
+### Minor
+- `src/lib/db/domain.integration.test.ts` — made re-runnable without a truncate
+  step (app_runtime has no DELETE/TRUNCATE grant on `crm_clients` / `audit_logs`):
+  per-run `RUN` prefix + `nextDoc()` sequence for all client documents (fresh admin
+  uuid already per-run, matching the Task 7 pattern); the `settings` key is now
+  `test_setting_${RUN}` and deleted in-test. Fixed CPF/CNPJ literals removed.
+- `src/actions/settings.ts` — one-line comment on `getCommissionRate` and
+  `getScrTermSettings` noting they assume request scope (`getRequiredSession()` via
+  `readerIdentity`); a future non-request caller must pass an explicit identity.
+
+### Commands
+
+```
+npm run type-check
+  → unchanged: only the 4 carried Task 7 errors
+    (company.ts:255, consultations.ts:292 & :408, scr.ts:158).
+    getTopbarEmail / listAuditLogs / both pages type-clean.
+
+npx vitest run src/lib/deps src/lib/consultations
+  → Test Files 1 failed | 3 passed (4);  Tests 21 passed | 7 skipped (28)
+    deps green (adapter protest assertions unaffected);
+    src/lib/consultations/service.integration.test.ts fails only on
+    `connect ECONNREFUSED …:54329` — the pre-existing deferred DB gate.
+```
+
+### Not changed (acknowledged in review)
+- Audit "Documento" column renders "—" for new rows.
+- Extra per-request round-trip for the topbar email.
