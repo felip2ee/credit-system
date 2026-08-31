@@ -1,0 +1,92 @@
+{
+  "mix": {
+    "historicoConsultaId": "00000000-0000-0000-0000-000000000002",
+    "dataConsulta": "2024-05-04T09:10:00Z",
+    "versao": 2,
+    "pessoa": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "cpf": "52998224725",
+        "nome": "Sicrano Anonimo Da Silva",
+        "nomeMae": "Fulana Anonima",
+        "dataNascimento": "1979-03-01",
+        "idade": 46,
+        "situacaoCadastral": "REGULAR",
+        "obito": false,
+        "politicamenteExposta": true,
+        "municipio": "Outra Cidade",
+        "uf": "RJ"
+      }
+    },
+    "score": {
+      "success": true,
+      "message": "ok",
+      "data": { "valor": 615, "risco": "Alto", "descricao": "Risco alto", "probabilidadePagamento": 61 }
+    },
+    "smart": {
+      "success": true,
+      "message": "ok",
+      "classificacao": { "classificacao": "C", "limiteSugerido": 1500, "limiteRequisitado": 2000, "pontuacaoAtingida": 44, "porte": "Pequeno" },
+      "parecer": { "aprovado": false, "motivo": "Fora da politica", "limiteRequisitado": 2000 },
+      "positivas": [],
+      "negativas": [
+        { "metrica": "N1", "descricao": "Pendencia recente", "pontuacao": -8, "impacto": "NEGATIVO" }
+      ]
+    },
+    "rendaPresumida": {
+      "success": true,
+      "message": "ok",
+      "data": { "descricao": "ate R$ 3.000,00", "valor": 2500, "valorMinimo": 1500, "valorMaximo": 3000 }
+    },
+    "scr": {
+      "success": true,
+      "message": "ok",
+      "data": { "riscoTotal": 12000, "carteiraAtiva": 8000, "limiteCredito": 5000, "aVencerTotal": 7000, "vencidoTotal": 1000 }
+    },
+    "pendenciasRestricoes": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "total": 2,
+        "totalCredores": 2,
+        "valorTotal": 900,
+        "ocorrencias": [
+          { "informante": "Banco Anonimo", "tipo": "Cartao", "valor": "500,00", "data": "2023-12-01", "cidade": "Outra Cidade", "uf": "RJ" },
+          { "informante": "Loja Anonima", "tipo": "Crediario", "valor": 400, "data": "2024-01-20", "cidade": "Outra Cidade", "uf": "RJ" }
+        ]
+      }
+    },
+    "acoesJudiciais": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "total": 1,
+        "valorTotal": 15000,
+        "ocorrencias": [
+          { "acao": "Execucao", "valor": 15000, "foro": "Foro Anonimo", "vara": "1 Vara", "processo": "0000000-00.0000.0.00.0000", "distribuicao": "2022-06-15" }
+        ]
+      }
+    },
+    "protestos": {
+      "success": true,
+      "message": "ok",
+      "data": [
+        { "cartorio": "2 Oficio Anonimo", "uf": "RJ", "data": "2023-08-11", "valor": 1200 }
+      ]
+    },
+    "restricoesCheques": { "possuiInformacao": true, "devolvidosSemFundo": 1, "sustados": 0 },
+    "consultas": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "contagemUltimos30Dias": 0,
+        "contagemUltimos31a60Dias": 0,
+        "contagemUltimos61a90Dias": 1,
+        "contagem90DiasMais": 2,
+        "detalhes": []
+      }
+    },
+    "participacaoEmpresa": { "success": true, "message": "Nada consta", "data": [] }
+  }
+}

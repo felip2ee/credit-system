@@ -4,15 +4,30 @@
 
 import type {
   ConsultOptions,
-  DepsClient,
-  DepsConsultResultPF,
-  DepsConsultResultPJ,
   ScrAuthorizationCheck,
   ScrRequestInput,
   ScrRequestResult,
 } from "@/types/deps";
 import { DepsScrPendingError } from "./errors";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "./products";
+
+// Raw provider response handed to the versioned adapter (src/lib/deps/adapter.ts).
+// No provider-shaped parsing happens here — the adapter is the single trust
+// boundary. `body` is the untouched decoded JSON.
+export interface DepsRawConsult {
+  httpStatus: number;
+  product: string;
+  body: unknown;
+  receivedAt: string;
+}
+
+export interface RealDepsClient {
+  readonly mode: "real";
+  consultPF(cpf: string, options?: ConsultOptions): Promise<DepsRawConsult>;
+  consultPJ(cnpj: string, options?: ConsultOptions): Promise<DepsRawConsult>;
+  checkScrAuthorization(document: string): Promise<ScrAuthorizationCheck>;
+  requestScrAuthorization(input: ScrRequestInput): Promise<ScrRequestResult>;
+}
 
 interface RealClientConfig {
   baseUrl: string;
@@ -119,60 +134,12 @@ async function getProductId(
   return id;
 }
 
-function extractMix(json: unknown): Record<string, unknown> | null {
-  if (
-    Array.isArray(json) &&
-    json.length > 0 &&
-    typeof json[0] === "object" &&
-    json[0] !== null &&
-    "mix" in json[0]
-  ) {
-    return (json[0] as { mix: Record<string, unknown> }).mix;
-  }
-  if (typeof json === "object" && json !== null && "mix" in json) {
-    return (json as { mix: Record<string, unknown> }).mix;
-  }
-  return null;
-}
-
-function buildEnvelopePF(document: string, mix: Record<string, unknown>): DepsConsultResultPF {
-  return {
-    historicoConsultaId:
-      (mix.historicoConsultaId as string | undefined) ?? crypto.randomUUID(),
-    type: "PF",
-    document,
-    consultedAt: (mix.dataConsulta as string | undefined) ?? new Date().toISOString(),
-    apiVersion: typeof mix.versao === "number" ? (mix.versao as number) : 2,
-    productVersion: (mix.produto as string | undefined) ?? DEPS_PRODUCT_PF,
-    isPartial: (mix.isParcial as boolean | undefined) ?? false,
-    shareLink: (mix.linkCompartilhamento as string | null | undefined) ?? null,
-    mix: mix as unknown as DepsConsultResultPF["mix"],
-    raw: mix,
-  };
-}
-
-function buildEnvelopePJ(document: string, mix: Record<string, unknown>): DepsConsultResultPJ {
-  return {
-    historicoConsultaId:
-      (mix.historicoConsultaId as string | undefined) ?? crypto.randomUUID(),
-    type: "PJ",
-    document,
-    consultedAt: (mix.dataConsulta as string | undefined) ?? new Date().toISOString(),
-    apiVersion: typeof mix.versao === "number" ? (mix.versao as number) : 2,
-    productVersion: (mix.produto as string | undefined) ?? DEPS_PRODUCT_PJ,
-    isPartial: (mix.isParcial as boolean | undefined) ?? false,
-    shareLink: (mix.linkCompartilhamento as string | null | undefined) ?? null,
-    mix: mix as unknown as DepsConsultResultPJ["mix"],
-    raw: mix,
-  };
-}
-
 async function executeConsult(
   cfg: RealClientConfig,
   document: string,
   identificadorProduto: string,
   options?: ConsultOptions
-): Promise<Record<string, unknown>> {
+): Promise<{ httpStatus: number; body: unknown }> {
   // Body mínimo verificado em produção (n8n). `version` e `codigoCentroCustos`
   // são descritos como obrigatórios na doc mas a API aceita sem eles — só
   // enviamos quando explicitamente configurados.
@@ -194,20 +161,18 @@ async function executeConsult(
   }
 
   const res = await postWithAuth(cfg, `${cfg.baseUrl}/api/v3/consultas/depsmix`, body);
-  // DIAGNÓSTICO temporário — enviado à deps (documento + flags).
+  // Log apenas o status e flags — nunca o documento consultado nem o corpo da
+  // resposta (dados pessoais). URLs/query params não são logados.
   console.log(
     "[deps] POST depsmix →",
     res.status,
     JSON.stringify({
-      documento: document,
       autorizacaoScr: body.autorizacaoScr,
       reutilizarDadosExistentes: body.reutilizarDadosExistentes,
     })
   );
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    // DIAGNÓSTICO temporário — corpo do erro (400 = SCR pendente / sem dados).
-    console.log("[deps] resposta não-OK:", res.status, txt.slice(0, 500));
     // 400 = autorização SCR pendente / documento sem dados (doc §4.2). Tratado
     // como pendente pelo fluxo de consulta, não como falha.
     if (res.status === 400) {
@@ -215,56 +180,36 @@ async function executeConsult(
         `Autorização SCR pendente (400): ${txt.slice(0, 200)}`
       );
     }
-    throw new Error(`Consulta deps falhou (${res.status}): ${txt.slice(0, 300)}`);
+    throw new Error(`Consulta deps falhou (${res.status}).`);
   }
-  const json = await res.json();
-  const mix = extractMix(json);
-  // DIAGNÓSTICO temporário — mapa de preenchimento de TODOS os blocos do mix,
-  // para levantar quais vêm vazios por tipo/perfil (PF/PJ, PEP, sem histórico).
-  if (!mix) {
-    console.log(
-      "[deps] 200 SEM `mix`. Chaves de topo:",
-      JSON.stringify(json).slice(0, 800)
-    );
-  } else {
-    // Classifica cada bloco: "cheio" | "vazio" (null / data null / array vazio).
-    const fill: Record<string, string> = {};
-    for (const [k, v] of Object.entries(mix as Record<string, unknown>)) {
-      if (v == null) {
-        fill[k] = "vazio";
-      } else if (Array.isArray(v)) {
-        fill[k] = v.length > 0 ? `cheio[${v.length}]` : "vazio[]";
-      } else if (typeof v === "object" && "data" in (v as object)) {
-        const d = (v as { data?: unknown }).data;
-        fill[k] =
-          d == null || (Array.isArray(d) && d.length === 0) ? "vazio" : "cheio";
-      } else {
-        fill[k] = "cheio";
-      }
-    }
-    console.log(
-      "[deps] 200 mapa de blocos:",
-      JSON.stringify({ documento: document, blocos: fill })
-    );
-  }
-  if (!mix) throw new Error("Resposta da deps não contém `mix`.");
-  return mix;
+  const json: unknown = await res.json().catch(() => null);
+  return { httpStatus: res.status, body: json };
 }
 
-export function createRealDepsClient(cfg: RealClientConfig): DepsClient {
+export function createRealDepsClient(cfg: RealClientConfig): RealDepsClient {
   return {
     mode: "real",
     async consultPF(cpf, options) {
       const document = onlyDigits(cpf);
       const produtoId = await getProductId(cfg, "PF");
-      const mix = await executeConsult(cfg, document, produtoId, options);
-      return buildEnvelopePF(document, mix);
+      const { httpStatus, body } = await executeConsult(cfg, document, produtoId, options);
+      return {
+        httpStatus,
+        product: cfg.produtoPfNome ?? DEPS_PRODUCT_PF,
+        body,
+        receivedAt: new Date().toISOString(),
+      };
     },
     async consultPJ(cnpj, options) {
       const document = onlyDigits(cnpj);
       const produtoId = await getProductId(cfg, "PJ");
-      const mix = await executeConsult(cfg, document, produtoId, options);
-      return buildEnvelopePJ(document, mix);
+      const { httpStatus, body } = await executeConsult(cfg, document, produtoId, options);
+      return {
+        httpStatus,
+        product: cfg.produtoPjNome ?? DEPS_PRODUCT_PJ,
+        body,
+        receivedAt: new Date().toISOString(),
+      };
     },
     async checkScrAuthorization(document: string): Promise<ScrAuthorizationCheck> {
       // A deps não expõe consulta de status do SCR (doc §4.2). Status é mantido

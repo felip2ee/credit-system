@@ -1,0 +1,73 @@
+{
+  "mix": {
+    "historicoConsultaId": "00000000-0000-0000-0000-000000000003",
+    "dataConsulta": "2026-03-22T18:00:00Z",
+    "versao": 3,
+    "empresa": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "cnpj": "11.444.777/0001-61",
+        "razaoSocial": "Empresa Corrente Anonima Ltda",
+        "nomeFantasia": "Corrente Anonima",
+        "situacaoCadastral": "ATIVA",
+        "dataInicioAtividade": "2010-02-01",
+        "cnaePrincipal": "6201-5/01",
+        "naturezaJuridica": "206-2 Sociedade Empresaria Limitada",
+        "capitalSocial": "150.000,00",
+        "porte": "ME",
+        "municipio": "Cidade Corrente",
+        "uf": "MG"
+      }
+    },
+    "score": {
+      "success": true,
+      "message": "ok",
+      "data": { "score": 880, "risco": "Baixo", "descricao": "Risco baixo", "probabilidadePagamento": "94" }
+    },
+    "smart": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "classificacao": { "classificacao": "AA", "limiteSugerido": 50000, "pontuacaoAtingida": 82 },
+        "parecer": { "aprovado": true, "motivo": "Aprovado" },
+        "positivas": [],
+        "negativas": []
+      }
+    },
+    "pendenciasRestricoes": { "success": true, "message": "Nada consta", "data": null },
+    "acoesJudiciais": { "success": true, "message": "Nada consta", "data": null },
+    "protestos": {
+      "success": true,
+      "message": "ok",
+      "data": { "quantidadeTotal": 0, "valorTotal": 0, "cartorios": [], "ultimasOcorrencias": [] }
+    },
+    "restricoesCheques": {
+      "chequesDevolvidosSemFundo": { "message": "Nada consta" },
+      "chequesDevolvidosOutrosMotivos": { "message": "Nada consta" }
+    },
+    "scr": { "success": true, "message": "ok", "data": { "possuiOperacoes": true } },
+    "quadroSocietario": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "comParticipacao": true,
+        "quadroSocietario": [
+          { "nome": "Socio Um Anonimo", "documento": "390.533.447-05", "participacao": 60, "cargoSociedade": "Administrador", "situacao": "ATIVO", "dataEntrada": "2010-02-01" },
+          { "nome": "Socio Dois Anonimo", "documento": "52998224725", "participacao": 40, "cargoSociedade": "Socio", "situacao": "ATIVO", "dataEntrada": "2012-06-01" }
+        ]
+      }
+    },
+    "consultas": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "contagemUltimos30Dias": 1,
+        "contagemUltimos31a60Dias": 0,
+        "contagemUltimos61a90Dias": 0,
+        "contagem90DiasMais": 0,
+        "detalhes": [{ "dataConsulta": "2026-03-01", "quantidadeConsultas": 1, "segmento": "Comercio" }]
+      }
+    }
+  }
+}
