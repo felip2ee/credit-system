@@ -33,6 +33,27 @@ grant execute on function app_user_id() to app_runtime;
 grant execute on function app_user_role() to app_runtime;
 grant execute on function app_context_present() to app_runtime;
 
+create function auth_profile_for_session(auth_id text)
+returns table (
+  user_id uuid,
+  role text,
+  is_active boolean,
+  mfa_enabled boolean
+)
+language sql
+security definer
+set search_path = pg_catalog, public
+as $$
+  select p.id, p.role::text, p.is_active, p.mfa_enabled
+  from public.profiles p
+  where p.auth_user_id = auth_id
+$$;
+
+alter function auth_profile_for_session(text) owner to auth_profile_lookup;
+revoke all on function auth_profile_for_session(text) from public;
+grant execute on function auth_profile_for_session(text) to app_runtime;
+grant select (id, auth_user_id, role, is_active, mfa_enabled) on profiles to auth_profile_lookup;
+
 create or replace function protect_profile_identity()
 returns trigger
 language plpgsql
@@ -238,7 +259,7 @@ create policy audit_logs_staff_insert on audit_logs for insert
 revoke all on all tables in schema public from public, app_runtime, backup_reader;
 
 grant select, insert, update, delete
-  on "user", "session", account, verification, two_factor
+  on "user", "session", account, verification, rate_limit, two_factor
   to app_runtime;
 grant select, insert, update on profiles to app_runtime;
 grant select on credit_products to app_runtime;

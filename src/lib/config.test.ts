@@ -45,6 +45,12 @@ describe("readConfig", () => {
     ).toThrow("BETTER_AUTH_URL must be a valid URL");
   });
 
+  it("requires one explicit Traefik proxy CIDR in production", () => {
+    expect(() =>
+      readConfig({ ...valid, NODE_ENV: "production", TRAEFIK_PROXY_CIDR: " " }),
+    ).toThrow("TRAEFIK_PROXY_CIDR is required in production");
+  });
+
   it.each(["0", "65536"])("rejects ClamAV port %s outside its range", (port) => {
     expect(() => readConfig({ ...valid, CLAMAV_PORT: port })).toThrow(
       "CLAMAV_PORT must be an integer between 1 and 65535",

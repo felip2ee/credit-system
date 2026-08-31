@@ -59,6 +59,12 @@ create table verification (
 
 create index verification_identifier_idx on verification(identifier);
 
+create table rate_limit (
+  key text primary key,
+  count integer not null,
+  last_request bigint not null
+);
+
 create table two_factor (
   id text primary key,
   secret text not null,
@@ -76,4 +82,5 @@ alter table "user" owner to schema_owner;
 alter table "session" owner to schema_owner;
 alter table account owner to schema_owner;
 alter table verification owner to schema_owner;
+alter table rate_limit owner to schema_owner;
 alter table two_factor owner to schema_owner;

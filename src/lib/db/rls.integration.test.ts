@@ -138,6 +138,15 @@ describe.sequential("transaction-scoped RLS identity", () => {
     ]);
   });
 
+  it("keeps profiles deny-by-default outside the narrow auth lookup function", async () => {
+    const { rows } = await pool.query<{ id: string }>(
+      "select id from profiles where id = any($1::uuid[])",
+      [Object.values(identities).map(({ userId }) => userId)],
+    );
+
+    expect(rows).toEqual([]);
+  });
+
   it("clears the sole pooled connection after commit, rollback, and callback errors", async () => {
     const committedBackend = await withUserTransaction(
       identities.clientOne,

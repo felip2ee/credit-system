@@ -48,6 +48,10 @@ export function readConfig(env: Environment) {
   }
 
   const smtpUser = required(env, "SMTP_USER");
+  const traefikProxyCidr = env.TRAEFIK_PROXY_CIDR?.trim();
+  if (env.NODE_ENV === "production" && !traefikProxyCidr) {
+    throw new Error("TRAEFIK_PROXY_CIDR is required in production");
+  }
 
   return Object.freeze({
     databaseUrl: url(env, "DATABASE_URL"),
@@ -62,6 +66,7 @@ export function readConfig(env: Environment) {
     smtpUser,
     smtpPass: required(env, "SMTP_PASS"),
     smtpFrom: env.SMTP_FROM?.trim() || `Rainha do Crédito <${smtpUser}>`,
+    traefikProxyCidr: traefikProxyCidr || undefined,
   });
 }
 
