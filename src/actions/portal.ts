@@ -10,8 +10,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { sendMail } from "@/lib/email/mailer";
 import { buildPortalInviteEmail } from "@/lib/email/portal-invite-email";
 import { recordAudit } from "@/lib/audit";
+import { DocumentRejectedError, storeDocument } from "@/lib/documents/service";
 
-const BUCKET = "opportunity-docs";
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15 MB por arquivo
 
 // Senha padrão de primeiro acesso ao portal. O cliente é OBRIGADO a trocá-la no
@@ -300,33 +300,34 @@ export async function uploadPortalDocument(
     return { error: "Este documento já foi aprovado e não pode ser alterado." };
   }
 
-  const service = createServiceClient();
-  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-  const path = `${doc.opportunity_id}/${doc.id}-${safeName}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-
-  const { error: upErr } = await service.storage
-    .from(BUCKET)
-    .upload(path, buffer, {
-      upsert: true,
-      contentType: file.type || "application/octet-stream",
+  // Binary now goes through the private scanned-document service: magic-byte
+  // validation, ClamAV scan (fail closed), quarantine -> objects move, and the
+  // metadata row persisted under RLS. No Supabase Storage.
+  try {
+    await storeDocument({
+      buffer: Buffer.from(await file.arrayBuffer()),
+      declaredName: file.name,
+      declaredMime: file.type || "application/octet-stream",
+      uploaderId: user.id,
+      identity: { userId: user.id, role: "client" },
+      link: {
+        opportunityId: doc.opportunity_id,
+        docType: doc.label,
+        docId: doc.id,
+        docLabel: doc.label,
+      },
     });
-  if (upErr) return { error: upErr.message };
+  } catch (err) {
+    return {
+      error:
+        err instanceof DocumentRejectedError
+          ? err.message
+          : "Falha ao processar o arquivo.",
+    };
+  }
 
-  const { error: updErr } = await service
-    .from("opportunity_documents")
-    .update({
-      status: "uploaded",
-      file_name: file.name,
-      file_path: path,
-      file_size: file.size,
-      file_mime: file.type || "application/octet-stream",
-      uploaded_by: user.id,
-      uploaded_at: new Date().toISOString(),
-      rejection_reason: null,
-    })
-    .eq("id", doc.id);
-  if (updErr) return { error: updErr.message };
+  // Timeline mirror stays on Supabase until Task 11 (carried path).
+  const service = createServiceClient();
 
   // Timeline da oportunidade (e espelho na do cliente) — autor é o cliente.
   await service.from("timeline_events").insert([
@@ -384,12 +385,7 @@ export async function getPortalDocUrl(docId: string): Promise<SignedUrlResult> {
   if (owned.error !== null) return { error: owned.error };
   if (!owned.doc.file_path) return { error: "Documento ainda não enviado." };
 
-  const service = createServiceClient();
-  const { data, error } = await service.storage
-    .from(BUCKET)
-    .createSignedUrl(owned.doc.file_path, 60 * 10);
-  if (error || !data) {
-    return { error: error?.message ?? "Falha ao gerar o link." };
-  }
-  return { error: null, url: data.signedUrl };
+  // Downloads go through the authorized streaming route; RLS on the route
+  // re-checks visibility.
+  return { error: null, url: `/api/documents/${docId}` };
 }

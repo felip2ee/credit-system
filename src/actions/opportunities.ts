@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { getCurrentProfile } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
+import { DocumentRejectedError, storeDocument } from "@/lib/documents/service";
 import { onlyDigits } from "@/lib/utils";
 import {
   opportunityDetailsSchema,
@@ -731,6 +733,8 @@ export interface RecordUploadInput {
   fileMime: string;
 }
 
+// ponytail: superseded by uploadOpportunityDocument (binary through the scanned
+// storage service). Kept until Task 11 removes the last Supabase-Storage refs.
 export async function recordOpportunityDocUpload(
   input: RecordUploadInput
 ): Promise<ActionResult> {
@@ -852,14 +856,76 @@ export interface SignedUrlResult {
 }
 
 export async function getOpportunityDocUrl(
-  filePath: string
+  docId: string
 ): Promise<SignedUrlResult> {
-  const admin = createServiceClient();
-  const { data, error } = await admin.storage
-    .from("opportunity-docs")
-    .createSignedUrl(filePath, 60 * 10);
-  if (error || !data) {
-    return { error: error?.message ?? "Falha ao gerar o link." };
+  // Downloads stream through the authorized route; RLS there re-checks access.
+  return { error: null, url: `/api/documents/${docId}` };
+}
+
+// Staff upload: binary flows through the private scanned-document service
+// (magic-byte checks, ClamAV fail-closed, quarantine -> objects, RLS metadata).
+export async function uploadOpportunityDocument(
+  formData: FormData
+): Promise<ActionResult> {
+  const profile = await getCurrentProfile();
+  if (!profile || !["admin", "consultant"].includes(profile.role)) {
+    return { error: "Apenas a equipe pode enviar documentos." };
   }
-  return { error: null, url: data.signedUrl };
+
+  const docId = String(formData.get("docId") ?? "");
+  const opportunityId = String(formData.get("opportunityId") ?? "");
+  const docLabel = String(formData.get("docLabel") ?? "");
+  const file = formData.get("file");
+  if (!docId || !opportunityId || !(file instanceof File) || file.size === 0) {
+    return { error: "Selecione um arquivo válido." };
+  }
+
+  try {
+    await storeDocument({
+      buffer: Buffer.from(await file.arrayBuffer()),
+      declaredName: file.name,
+      declaredMime: file.type || "application/octet-stream",
+      uploaderId: profile.id,
+      identity: { userId: profile.id, role: profile.role },
+      link: { opportunityId, docType: docLabel, docId, docLabel },
+    });
+  } catch (err) {
+    return {
+      error:
+        err instanceof DocumentRejectedError
+          ? err.message
+          : "Falha ao processar o arquivo.",
+    };
+  }
+
+  const supabase = db();
+  const crmClientId = await clientIdOfOpportunity(supabase, opportunityId);
+  await supabase.from("timeline_events").insert([
+    {
+      entity_type: "opportunity" as const,
+      entity_id: opportunityId,
+      event_type: "document.uploaded",
+      title: `Documento enviado: ${docLabel}`,
+      description: file.name,
+      created_by: profile.id,
+    },
+    ...(crmClientId
+      ? [
+          {
+            entity_type: "crm_client" as const,
+            entity_id: crmClientId,
+            event_type: "document.uploaded",
+            title: `Documento enviado: ${docLabel}`,
+            description: file.name,
+            metadata: { opportunity_id: opportunityId },
+            created_by: profile.id,
+          },
+        ]
+      : []),
+  ]);
+  await autoAdvanceFromDocs(supabase, opportunityId, profile.id);
+
+  revalidatePath(`/opportunities/${opportunityId}`);
+  if (crmClientId) revalidatePath(`/clients/${crmClientId}`);
+  return { error: null, id: docId };
 }

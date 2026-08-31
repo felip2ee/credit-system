@@ -1,0 +1,107 @@
+// ClamAV INSTREAM client. Fails CLOSED: any timeout, connection error or
+// malformed reply is treated as "scanner unavailable" and rejects -- an
+// unscanned file is never accepted.
+
+import net from "node:net";
+
+import { config } from "@/lib/config";
+
+export class ScannerUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScannerUnavailableError";
+  }
+}
+
+export interface ScanOptions {
+  host?: string;
+  port?: number;
+  connectTimeoutMs?: number;
+  scanTimeoutMs?: number;
+}
+
+const DEFAULTS = { connectTimeoutMs: 5_000, scanTimeoutMs: 30_000 };
+
+/**
+ * Scan `data` via `zINSTREAM`. Resolves `null` when clean, the signature name
+ * when infected. Throws ScannerUnavailableError on any other outcome.
+ */
+export function scanBuffer(data: Buffer, opts: ScanOptions = {}): Promise<string | null> {
+  const host = opts.host ?? config.clamavHost;
+  const port = opts.port ?? config.clamavPort;
+  const connectTimeoutMs = opts.connectTimeoutMs ?? DEFAULTS.connectTimeoutMs;
+  const scanTimeoutMs = opts.scanTimeoutMs ?? DEFAULTS.scanTimeoutMs;
+
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host, port });
+    let response = Buffer.alloc(0);
+    let settled = false;
+    let timer = setTimeout(() => fail("clamav connect timeout"), connectTimeoutMs);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.destroy();
+    };
+    const done = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const fail = (message: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new ScannerUnavailableError(message));
+    };
+
+    socket.on("connect", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fail("clamav scan timeout"), scanTimeoutMs);
+      const size = Buffer.alloc(4);
+      size.writeUInt32BE(data.length, 0);
+      socket.write(Buffer.from("zINSTREAM\0"));
+      socket.write(size);
+      socket.write(data);
+      socket.write(Buffer.from([0, 0, 0, 0]));
+    });
+    socket.on("data", (chunk) => {
+      response = Buffer.concat([response, chunk]);
+    });
+    socket.on("error", () => fail("clamav connection error"));
+    socket.on("close", () => {
+      const text = response.toString("utf8").replace(/\0/g, "").trim();
+      if (/stream: OK$/.test(text)) return done(null);
+      const found = text.match(/stream: (.+) FOUND$/);
+      if (found) return done(found[1]);
+      fail(`malformed clamav reply: ${text || "<empty>"}`);
+    });
+  });
+}
+
+/** Best-effort signature DB version (`zVERSION`). Null on any failure. */
+export function scannerVersion(opts: ScanOptions = {}): Promise<string | null> {
+  const host = opts.host ?? config.clamavHost;
+  const port = opts.port ?? config.clamavPort;
+  const connectTimeoutMs = opts.connectTimeoutMs ?? DEFAULTS.connectTimeoutMs;
+
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+    let response = "";
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(null);
+    }, connectTimeoutMs);
+    const finish = (value: string | null) => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(value);
+    };
+    socket.on("connect", () => socket.write(Buffer.from("zVERSION\0")));
+    socket.on("data", (chunk) => {
+      response += chunk.toString("utf8");
+    });
+    socket.on("error", () => finish(null));
+    socket.on("close", () => finish(response.replace(/\0/g, "").trim() || null));
+  });
+}

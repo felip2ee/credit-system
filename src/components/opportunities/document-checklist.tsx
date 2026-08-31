@@ -6,12 +6,11 @@ import { Check, Download, Loader2, Upload, X } from "lucide-react";
 
 import {
   getOpportunityDocUrl,
-  recordOpportunityDocUpload,
   setOpportunityDocStatus,
+  uploadOpportunityDocument,
 } from "@/actions/opportunities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import {
   OPPORTUNITY_DOC_STATUS_LABEL,
@@ -29,8 +28,6 @@ const DOC_VARIANT: Record<
   rejected: "destructive",
 };
 
-const BUCKET = "opportunity-docs";
-
 function DocRow({ doc }: { doc: OpportunityDocument }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -44,25 +41,12 @@ function DocRow({ doc }: { doc: OpportunityDocument }) {
     setError(null);
     setUploading(true);
     try {
-      const supabase = createClient();
-      const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-      const path = `${doc.opportunity_id}/${doc.id}-${safeName}`;
-      const { error: upErr } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, file, { upsert: true });
-      if (upErr) {
-        setError(upErr.message);
-        return;
-      }
-      const res = await recordOpportunityDocUpload({
-        docId: doc.id,
-        opportunityId: doc.opportunity_id,
-        docLabel: doc.label,
-        fileName: file.name,
-        filePath: path,
-        fileSize: file.size,
-        fileMime: file.type || "application/octet-stream",
-      });
+      const formData = new FormData();
+      formData.append("docId", doc.id);
+      formData.append("opportunityId", doc.opportunity_id);
+      formData.append("docLabel", doc.label);
+      formData.append("file", file);
+      const res = await uploadOpportunityDocument(formData);
       if (res.error) {
         setError(res.error);
         return;
@@ -79,7 +63,7 @@ function DocRow({ doc }: { doc: OpportunityDocument }) {
   const handleDownload = () => {
     if (!doc.file_path) return;
     startTransition(async () => {
-      const res = await getOpportunityDocUrl(doc.file_path!);
+      const res = await getOpportunityDocUrl(doc.id);
       if (res.url) window.open(res.url, "_blank", "noopener,noreferrer");
       else setError(res.error);
     });
