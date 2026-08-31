@@ -12,15 +12,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { getPortalOpportunityDetail } from "@/lib/opportunities/queries";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   OPPORTUNITY_PIPELINE,
   OPPORTUNITY_STATUS_LABEL,
-  type Opportunity,
-  type OpportunityDocument,
   type OpportunityStatus,
-  type TimelineEvent,
 } from "@/types/app";
 
 // Mensagem amigável por status, voltada ao cliente.
@@ -83,31 +82,12 @@ export default async function PortalOpportunityPage({
 }: {
   params: { id: string };
 }) {
-  const supabase = createClient();
-
-  // RLS garante que o cliente só lê a própria oportunidade.
-  const { data: oppData } = await supabase
-    .from("opportunities")
-    .select("*")
-    .eq("id", params.id)
-    .maybeSingle();
-  if (!oppData) notFound();
-  const opp = oppData as Opportunity;
-
-  const { data: docsData } = await supabase
-    .from("opportunity_documents")
-    .select("*")
-    .eq("opportunity_id", opp.id)
-    .order("created_at", { ascending: true });
-  const docs = (docsData ?? []) as OpportunityDocument[];
-
-  const { data: eventsData } = await supabase
-    .from("timeline_events")
-    .select("*")
-    .eq("entity_type", "opportunity")
-    .eq("entity_id", opp.id)
-    .order("created_at", { ascending: false });
-  const events = (eventsData ?? []) as TimelineEvent[];
+  const session = await getRequiredSession().catch(() => notFound());
+  if (!hasPermission(session.role, "portal:read")) notFound();
+  // RLS inside getPortalOpportunityDetail keeps ownership scoped to this identity.
+  const detail = await getPortalOpportunityDetail(session, params.id);
+  if (!detail) notFound();
+  const { opportunity: opp, documents: docs, events } = detail;
 
   return (
     <div className="space-y-6">

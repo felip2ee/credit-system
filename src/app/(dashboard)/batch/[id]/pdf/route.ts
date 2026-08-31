@@ -1,5 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
 import { getRequiredSession } from "@/lib/auth/session";
+import { getBatchPdfDetail } from "@/lib/batch/queries";
+import { hasPermission } from "@/lib/db/permissions";
 import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
 import {
   toConsultationView,
@@ -14,50 +15,28 @@ import type { FullPdfHeader } from "@/lib/pdf/consultation-full-document";
 import type { OpinionForPdf } from "@/lib/pdf/markdown-pdf";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
 import { formatCNPJ } from "@/lib/utils";
-import type { EntityKind } from "@/types/app";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-interface MemberRow {
-  id: string;
-  type: EntityKind;
-  document: string;
-  document_name: string | null;
-  product: string | null;
-  consulted_at: string | null;
-  created_at: string;
-}
 
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createClient();
-
   let identity;
   try {
     const session = await getRequiredSession();
     identity = { userId: session.userId, role: session.role };
+    if (!hasPermission(session.role, "consultations:read")) {
+      return new Response("Sem permissão.", { status: 403 });
+    }
   } catch {
     return new Response("Sessão expirada.", { status: 401 });
   }
 
-  const { data: batchData } = await supabase
-    .from("batches")
-    .select("id, document, name")
-    .eq("id", params.id)
-    .maybeSingle();
-  if (!batchData) return new Response("Processo não encontrado.", { status: 404 });
-  const batch = batchData as { id: string; document: string | null; name: string | null };
-
-  const { data: membersData } = await supabase
-    .from("queries")
-    .select("id, type, document, document_name, product, consulted_at, created_at")
-    .eq("batch_id", params.id)
-    .eq("status", "completed")
-    .order("created_at", { ascending: true });
-  const members = (membersData ?? []) as MemberRow[];
+  const detail = await getBatchPdfDetail(identity, params.id);
+  if (!detail) return new Response("Processo não encontrado.", { status: 404 });
+  const { batch, members, report: reportRow } = detail;
 
   // Empresa (PJ) primeiro, depois os sócios (PF) — mesma ordem da tela.
   const ordered = [...members].sort((a, b) =>
@@ -89,13 +68,6 @@ export async function GET(
   if (entries.length === 0) {
     return new Response("Consultas sem resultado disponível.", { status: 409 });
   }
-
-  // Parecer consolidado — vai no final, em página própria. (Supabase — Tasks 9/11.)
-  const { data: reportRow } = await supabase
-    .from("company_reports")
-    .select("status, aptitude_status, report_markdown, full_report, model_used")
-    .eq("batch_id", params.id)
-    .maybeSingle();
 
   let report: OpinionForPdf | null = null;
   const r = reportRow as Record<string, unknown> | null;

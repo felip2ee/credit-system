@@ -7,7 +7,6 @@ import { QueryStatusBadge } from "@/components/consultations/query-status-badge"
 import { RetryScrButton } from "@/components/consultations/retry-scr-button";
 import {
   CompanyReportPanel,
-  type CompanyReportData,
 } from "@/components/batch/company-report-panel";
 import { ProcessPendingButton } from "@/components/batch/process-pending-button";
 import { Button } from "@/components/ui/button";
@@ -20,62 +19,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { getBatchDetail } from "@/lib/batch/queries";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
-import type { EntityKind, QueryStatus } from "@/types/app";
-
-interface MemberRow {
-  id: string;
-  type: EntityKind;
-  document: string;
-  document_name: string | null;
-  status: QueryStatus;
-  consulted_at: string | null;
-}
 
 export default async function BatchDetailPage({
   params,
 }: {
   params: { id: string };
 }) {
-  const supabase = createClient();
-
-  const { data: batch } = await supabase
-    .from("batches")
-    .select("id, document, name, status, total_items, success_items, created_at")
-    .eq("id", params.id)
-    .maybeSingle();
-  if (!batch) notFound();
-  const b = batch as {
-    id: string;
-    document: string | null;
-    name: string | null;
-    status: string;
-    total_items: number;
-    success_items: number;
-    created_at: string;
-  };
-
-  const { data: membersData } = await supabase
-    .from("queries")
-    .select("id, type, document, document_name, status, consulted_at")
-    .eq("batch_id", params.id)
-    .order("type", { ascending: true }) // PF antes de PJ; reordenamos abaixo
-    .order("created_at", { ascending: true });
-  const members = (membersData ?? []) as MemberRow[];
+  const session = await getRequiredSession().catch(() => notFound());
+  if (!hasPermission(session.role, "consultations:read")) notFound();
+  const detail = await getBatchDetail(session, params.id);
+  if (!detail) notFound();
+  const { batch: b, members, report } = detail;
   // Empresa (PJ) primeiro, depois sócios (PF).
   const ordered = [...members].sort((a, b2) =>
     a.type === b2.type ? 0 : a.type === "PJ" ? -1 : 1
   );
-
-  const { data: reportData } = await supabase
-    .from("company_reports")
-    .select(
-      "status, aptitude_status, generation_error, report_markdown, full_report, model_used, generated_at"
-    )
-    .eq("batch_id", params.id)
-    .maybeSingle();
-  const report = (reportData as CompanyReportData | null) ?? null;
 
   const canGenerate = members.some((m) => m.type === "PJ" && m.status === "completed");
   const hasCompleted = members.some((m) => m.status === "completed");

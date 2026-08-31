@@ -12,7 +12,9 @@ import { OpportunityPipeline } from "@/components/opportunities/opportunity-pipe
 import { OpportunityStatusBadge } from "@/components/opportunities/opportunity-status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { getOpportunityDetail } from "@/lib/opportunities/queries";
 import {
   readScenario,
   REAL_ESTATE_PRODUCT_NAME,
@@ -20,11 +22,6 @@ import {
 import { readRealEstateOrder } from "@/lib/orders/real-estate-order";
 import { formatCNPJ, formatCPF, formatCurrency } from "@/lib/utils";
 import type {
-  CreditProduct,
-  CrmClient,
-  Opportunity,
-  OpportunityDocument,
-  TimelineEvent,
 } from "@/types/app";
 
 export default async function OpportunityDetailPage({
@@ -32,52 +29,15 @@ export default async function OpportunityDetailPage({
 }: {
   params: { id: string };
 }) {
-  const supabase = createClient();
-
-  const { data: oppData } = await supabase
-    .from("opportunities")
-    .select("*")
-    .eq("id", params.id)
-    .maybeSingle();
-  if (!oppData) notFound();
-  const opportunity = oppData as Opportunity;
-
-  const { data: clientData } = await supabase
-    .from("crm_clients")
-    .select("id, type, name, document")
-    .eq("id", opportunity.crm_client_id)
-    .maybeSingle();
-  const client = clientData as Pick<
-    CrmClient,
-    "id" | "type" | "name" | "document"
-  > | null;
-
-  const { data: productData } = await supabase
-    .from("credit_products")
-    .select("id, name, type, description, is_active")
-    .eq("is_active", true)
-    .order("type", { ascending: true })
-    .order("name", { ascending: true });
-  const products = (productData ?? []) as CreditProduct[];
+  const session = await getRequiredSession().catch(() => notFound());
+  if (!hasPermission(session.role, "opportunities:read")) notFound();
+  const detail = await getOpportunityDetail(session, params.id);
+  if (!detail) notFound();
+  const { opportunity, client, products, documents: docs, events } = detail;
 
   const currentProductName =
     products.find((p) => p.id === opportunity.credit_product_id)?.name ?? null;
   const isRealEstate = currentProductName === REAL_ESTATE_PRODUCT_NAME;
-
-  const { data: docsData } = await supabase
-    .from("opportunity_documents")
-    .select("*")
-    .eq("opportunity_id", opportunity.id)
-    .order("created_at", { ascending: true });
-  const docs = (docsData ?? []) as OpportunityDocument[];
-
-  const { data: eventsData } = await supabase
-    .from("timeline_events")
-    .select("*")
-    .eq("entity_type", "opportunity")
-    .eq("entity_id", opportunity.id)
-    .order("created_at", { ascending: false });
-  const events = (eventsData ?? []) as TimelineEvent[];
 
   const documentLabel = client?.document
     ? client.type === "PJ"
