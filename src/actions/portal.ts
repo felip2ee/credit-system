@@ -305,7 +305,9 @@ export async function uploadPortalDocument(
   // metadata row persisted under RLS. No Supabase Storage.
   try {
     await storeDocument({
-      buffer: Buffer.from(await file.arrayBuffer()),
+      // Stream the body: the 15 MiB cap is enforced chunk-by-chunk in
+      // writeQuarantine, before the whole file is ever in RAM.
+      stream: file.stream() as unknown as AsyncIterable<Uint8Array>,
       declaredName: file.name,
       declaredMime: file.type || "application/octet-stream",
       uploaderId: user.id,

@@ -6,7 +6,7 @@
 
 import net from "node:net";
 import { randomUUID } from "node:crypto";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -75,14 +75,15 @@ const silentServer = (socket: net.Socket) => {
   socket.on("error", () => {});
 };
 
-const rudeServer = (socket: net.Socket) => socket.destroy();
-
 afterEach(async () => {
   await Promise.all(
     servers.splice(0).map(
       (s) => new Promise<void>((r) => s.close(() => r())),
     ),
   );
+  // Isolate each test: wipe both trees so file-count assertions are absolute.
+  rmSync(path.join(DOC_ROOT, "quarantine"), { recursive: true, force: true });
+  rmSync(path.join(DOC_ROOT, "objects"), { recursive: true, force: true });
 });
 
 // ---- fixtures ------------------------------------------------------------------
@@ -126,7 +127,16 @@ function run(over: Partial<StoreDocumentInput>, port?: number) {
   });
 }
 
-const quarantineFiles = () => readdirSync(path.join(DOC_ROOT, "quarantine"));
+const dirFiles = (sub: string) => {
+  const dir = path.join(DOC_ROOT, sub);
+  return existsSync(dir)
+    ? readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((e) => e.isFile())
+        .map((e) => e.name)
+    : [];
+};
+const quarantineFiles = () => dirFiles("quarantine");
+const objectFiles = () => dirFiles("objects");
 
 // ---- tests ------------------------------------------------------------------
 
@@ -136,6 +146,7 @@ describe("storeDocument – validation (no scanner needed)", () => {
       run({ buffer: Buffer.alloc(15 * 1024 * 1024 + 1, 0x20) }),
     ).rejects.toThrow(/15 MiB/);
     expect(quarantineFiles()).toHaveLength(0);
+    expect(objectFiles()).toHaveLength(0);
   });
 
   it("rejects extension / signature mismatch", async () => {
@@ -143,12 +154,23 @@ describe("storeDocument – validation (no scanner needed)", () => {
       run({ buffer: PNG, declaredName: "documento.pdf", declaredMime: "application/pdf" }),
     ).rejects.toBeInstanceOf(DocumentRejectedError);
     expect(quarantineFiles()).toHaveLength(0);
+    expect(objectFiles()).toHaveLength(0);
   });
 
   it("rejects declared-mime / signature mismatch", async () => {
     await expect(
       run({ buffer: PDF, declaredName: "documento.pdf", declaredMime: "image/png" }),
     ).rejects.toThrow(/tipo declarado/);
+    expect(objectFiles()).toHaveLength(0);
+  });
+
+  it("accepts an empty / octet-stream declared MIME (relies on magic + ext)", async () => {
+    const port = await listen(replyingServer("stream: OK\0"));
+    const stored = await run(
+      { buffer: PDF, declaredName: "documento.pdf", declaredMime: "application/octet-stream" },
+      port,
+    );
+    expect(stored.detectedMime).toBe("application/pdf");
   });
 
   it("rejects polyglot prefixes", async () => {
@@ -156,6 +178,7 @@ describe("storeDocument – validation (no scanner needed)", () => {
       run({ buffer: Buffer.concat([Buffer.from("GIF89a"), PDF]) }),
     ).rejects.toThrow(/não suportado/);
     expect(quarantineFiles()).toHaveLength(0);
+    expect(objectFiles()).toHaveLength(0);
   });
 
   it("rejects path-traversal names", async () => {
@@ -168,18 +191,21 @@ describe("storeDocument – scanner (fake ClamAV TCP server)", () => {
     const port = await listen(silentServer);
     await expect(run({}, port)).rejects.toThrow(/antivírus/);
     expect(quarantineFiles()).toHaveLength(0);
+    expect(objectFiles()).toHaveLength(0);
   });
 
   it("fails closed on scanner connection error", async () => {
     // port 1: nothing listening -> ECONNREFUSED
     await expect(run({})).rejects.toThrow(/antivírus/);
     expect(quarantineFiles()).toHaveLength(0);
+    expect(objectFiles()).toHaveLength(0);
   });
 
   it("rejects an infected result and deletes the quarantine file", async () => {
     const port = await listen(replyingServer("stream: Eicar-Test-Signature FOUND\0"));
     await expect(run({}, port)).rejects.toThrow(/segurança/);
     expect(quarantineFiles()).toHaveLength(0);
+    expect(objectFiles()).toHaveLength(0);
   });
 
   it("accepts a clean PDF: moves to objects/ and persists metadata", async () => {
@@ -213,12 +239,26 @@ describe("storeDocument – scanner (fake ClamAV TCP server)", () => {
     );
     expect(stored.detectedMime).toBe("image/png");
   });
+
+  it("rolls back the committed object when persist fails", async () => {
+    const port = await listen(replyingServer("stream: OK\0"));
+    await expect(
+      storeDocument(baseInput({}), {
+        scan: { host: "127.0.0.1", port, connectTimeoutMs: 300, scanTimeoutMs: 300 },
+        persist: async () => {
+          throw new Error("row not found");
+        },
+      }),
+    ).rejects.toThrow(/row not found/);
+    expect(objectFiles()).toHaveLength(0);
+    expect(quarantineFiles()).toHaveLength(0);
+  });
 });
 
 describe("openObject – traversal protection", () => {
   it("refuses keys that resolve outside objects/", async () => {
     await expect(openObject("../../../etc/passwd")).rejects.toThrow(/traversal/);
-    await expect(openObject("..\\..\\secret")).rejects.toThrow(/traversal/);
+    await expect(openObject("aa/../../../escape")).rejects.toThrow(/traversal/);
   });
 
   // Deferred to Task 15 (needs real Postgres): GET /api/documents/[id] returns

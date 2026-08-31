@@ -30,3 +30,34 @@
 - **Carried Supabase paths (Task 11)**: timeline-event inserts in both actions still use the Supabase service client; `recordOpportunityDocUpload` and `SignedUrlResult`-style Supabase calls elsewhere in these two files remain. Scope guard honoured — only the document upload/download binary paths were rewired.
 - **Orphan objects**: if the persist transaction throws after `commitQuarantine`, the committed object file is left on disk (quarantine already renamed away). Cleanup is a Task 15 concern; noted with a comment.
 - `handle.readableWebStream()` used in the route (Node ≥ 20); cast to `ReadableStream` for the Response type.
+
+## Fix round 1
+
+Addressed the 3 Important + 5 minor findings.
+
+| # | Fix |
+|---|---|
+| IMPORTANT 1 | `route.ts`: replaced `handle.readableWebStream()` with `Readable.toWeb(handle.createReadStream())` and an explicit `handle.close()` on the node stream's `close` event (fires on end / error / client cancel). No leaked fd per download. |
+| IMPORTANT 2 | Both wired upload paths (`portal.ts`, `opportunities.ts`) now pass `file.stream()` into `storeDocument` instead of `Buffer.from(await file.arrayBuffer())` — the 15 MiB cap is enforced chunk-by-chunk in `writeQuarantine`'s `inspect` callback before the whole body is in RAM. `clamav.ts`: `scanBuffer` → `scanStream(AsyncIterable)`, sends `zINSTREAM` in length-prefixed chunks. `service.ts` scans via `quarantineStream(id)` (a `createReadStream`), never `readQuarantine` (removed). `storage.ts`: added `quarantineStream`, dropped `readQuarantine`. |
+| IMPORTANT 3 | (a) `storeDocument` tracks `committedKey`; on any post-commit failure it calls `removeObject(committedKey)` (traversal-guarded, added to `storage.ts`) so a failed persist no longer leaks a file in `objects/`. (b) `persistMetadata` now asserts `result.rowCount === 1` and throws otherwise — a wrong or RLS-invisible `docId` (0 rows) is a failure, not a phantom success. **Task 15 must exercise this `update ... where id = $1` + `rowCount` check against real Postgres with RLS active.** |
+| MINOR 4 | Empty / `application/octet-stream` declared MIME now skips the MIME-vs-signature check (extension + magic bytes still gate). New test: `"accepts an empty / octet-stream declared MIME"`. |
+| MINOR 5 | Traversal test second case switched from Windows-only `..\..\secret` to POSIX `aa/../../../escape`. |
+| MINOR 6 | `afterEach` wipes both `quarantine/` and `objects/` for per-test isolation; every rejection test (oversize / mismatch / declared-mime / polyglot / timeout / conn-error / infected) now also asserts `objectFiles()` is empty. New test `"rolls back the committed object when persist fails"` covers IMPORTANT 3(a). |
+| MINOR 7 | `auditFailure` bare `catch {}` → `console.error` with event reason only (no contents / paths). Fail-closed unchanged. |
+| MINOR 8 | `sanitizeDisplayName` dropped the doubled control-char strip; keeps spaces/hyphens ("Meu RG.pdf" stays intact), still collapses path separators / control chars / non-safe chars to `_`. |
+
+### Commands
+
+```
+$ npx vitest run src/lib/documents/service.test.ts
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+
+$ npm run type-check
+src/actions/company.ts(255,17): error TS2322: '"payload_incompatible"' ...
+src/actions/consultations.ts(292,17): error TS2322: '"payload_incompatible"' ...
+src/actions/consultations.ts(408,19): error TS2322: '"payload_incompatible"' ...
+src/actions/scr.ts(158,17): error TS2322: '"payload_incompatible"' ...
+```
+
+Only the 4 pre-existing carried Task 7 errors remain; no new errors from documents code or the rewired paths.

@@ -23,10 +23,14 @@ export interface ScanOptions {
 const DEFAULTS = { connectTimeoutMs: 5_000, scanTimeoutMs: 30_000 };
 
 /**
- * Scan `data` via `zINSTREAM`. Resolves `null` when clean, the signature name
- * when infected. Throws ScannerUnavailableError on any other outcome.
+ * Scan a byte stream via `zINSTREAM`, sending it to ClamAV in chunks (never
+ * buffering the whole file). Resolves `null` when clean, the signature name when
+ * infected. Throws ScannerUnavailableError on any other outcome.
  */
-export function scanBuffer(data: Buffer, opts: ScanOptions = {}): Promise<string | null> {
+export function scanStream(
+  source: AsyncIterable<Uint8Array>,
+  opts: ScanOptions = {},
+): Promise<string | null> {
   const host = opts.host ?? config.clamavHost;
   const port = opts.port ?? config.clamavPort;
   const connectTimeoutMs = opts.connectTimeoutMs ?? DEFAULTS.connectTimeoutMs;
@@ -55,15 +59,24 @@ export function scanBuffer(data: Buffer, opts: ScanOptions = {}): Promise<string
       reject(new ScannerUnavailableError(message));
     };
 
-    socket.on("connect", () => {
+    socket.on("connect", async () => {
       clearTimeout(timer);
       timer = setTimeout(() => fail("clamav scan timeout"), scanTimeoutMs);
-      const size = Buffer.alloc(4);
-      size.writeUInt32BE(data.length, 0);
-      socket.write(Buffer.from("zINSTREAM\0"));
-      socket.write(size);
-      socket.write(data);
-      socket.write(Buffer.from([0, 0, 0, 0]));
+      try {
+        socket.write(Buffer.from("zINSTREAM\0"));
+        for await (const chunk of source) {
+          if (settled) return;
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          if (buf.length === 0) continue;
+          const size = Buffer.alloc(4);
+          size.writeUInt32BE(buf.length, 0);
+          socket.write(size);
+          socket.write(buf);
+        }
+        if (!settled) socket.write(Buffer.from([0, 0, 0, 0]));
+      } catch {
+        fail("clamav stream read error");
+      }
     });
     socket.on("data", (chunk) => {
       response = Buffer.concat([response, chunk]);

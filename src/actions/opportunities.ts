@@ -882,7 +882,8 @@ export async function uploadOpportunityDocument(
 
   try {
     await storeDocument({
-      buffer: Buffer.from(await file.arrayBuffer()),
+      // Streamed: 15 MiB cap enforced chunk-by-chunk in writeQuarantine.
+      stream: file.stream() as unknown as AsyncIterable<Uint8Array>,
       declaredName: file.name,
       declaredMime: file.type || "application/octet-stream",
       uploaderId: profile.id,

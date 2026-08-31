@@ -8,6 +8,8 @@
 // The RLS 404 behaviour needs a real Postgres and is verified at the Task 15
 // release gate.
 
+import { Readable } from "node:stream";
+
 import { getCurrentProfile } from "@/lib/auth";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { SAFE_DOWNLOAD_MIMES, sanitizeDisplayName } from "@/lib/documents/service";
@@ -54,7 +56,13 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  return new Response(handle.readableWebStream() as unknown as ReadableStream, {
+  // Stream the file, closing the underlying fd when the stream ends/errors/cancels.
+  const nodeStream = handle.createReadStream();
+  nodeStream.on("close", () => {
+    handle.close().catch(() => {});
+  });
+
+  return new Response(Readable.toWeb(nodeStream) as unknown as ReadableStream, {
     status: 200,
     headers: {
       "Content-Type": mime,

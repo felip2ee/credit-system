@@ -7,8 +7,8 @@
 // Absolute paths never leave this module -- callers hold the relative object key
 // (`<first-two>/<uuid>`) only.
 
-import { constants } from "node:fs";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { constants, createReadStream, type ReadStream } from "node:fs";
+import { mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { config } from "@/lib/config";
@@ -52,8 +52,9 @@ export async function writeQuarantine(
   return total;
 }
 
-export async function readQuarantine(id: string): Promise<Buffer> {
-  return readFile(path.join(quarantineRoot(), id));
+/** Chunked read stream over a quarantine file (for streaming to the scanner). */
+export function quarantineStream(id: string): ReadStream {
+  return createReadStream(path.join(quarantineRoot(), id));
 }
 
 /** Atomic move quarantine/<id> -> objects/<key>. Returns the relative key. */
@@ -67,6 +68,15 @@ export async function commitQuarantine(id: string): Promise<string> {
 
 export async function removeQuarantine(id: string): Promise<void> {
   await rm(path.join(quarantineRoot(), id), { force: true });
+}
+
+/** Delete a committed object by key (traversal-guarded). Used to roll back a
+ *  commit when the metadata persist fails. */
+export async function removeObject(key: string): Promise<void> {
+  const resolved = path.resolve(objectsRoot(), key);
+  const base = objectsRoot();
+  if (resolved !== base && !resolved.startsWith(base + path.sep)) return;
+  await rm(resolved, { force: true });
 }
 
 /**
