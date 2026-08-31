@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit",
+    "check:no-supabase": "node scripts/check-no-supabase.mjs",
     "db:migrate": "node scripts/db/migrate.mjs",
     "db:migrate:test": "node --test scripts/db/migrate.test.mjs"
   },
