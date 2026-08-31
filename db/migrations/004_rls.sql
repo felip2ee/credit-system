@@ -101,7 +101,7 @@ alter table audit_logs force row level security;
 create policy profiles_select on profiles for select
   using (
     app_context_present()
-    and (app_user_role() = 'admin' or id = app_user_id())
+    and app_user_role() in ('admin', 'consultant')
   );
 create policy profiles_update on profiles for update
   using (
@@ -116,7 +116,10 @@ create policy profiles_insert on profiles for insert
   with check (app_context_present() and app_user_role() = 'admin');
 
 create policy credit_products_select on credit_products for select
-  using (app_context_present());
+  using (
+    app_context_present()
+    and app_user_role() in ('admin', 'consultant')
+  );
 
 create policy crm_clients_select on crm_clients for select
   using (

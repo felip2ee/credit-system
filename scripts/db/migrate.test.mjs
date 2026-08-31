@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -31,5 +31,18 @@ test("rejects an applied migration missing from disk", () => {
   assert.throws(
     () => pendingMigrations([], new Map([["001_removed.sql", "a".repeat(64)]])),
     /applied migration 001_removed\.sql is missing from disk/,
+  );
+});
+
+test("limits profile and credit-product SELECT policies to staff", async () => {
+  const sql = await readFile("db/migrations/004_rls.sql", "utf8");
+
+  assert.match(
+    sql,
+    /create policy profiles_select on profiles for select\s+using \(\s+app_context_present\(\)\s+and app_user_role\(\) in \('admin', 'consultant'\)\s+\);/s,
+  );
+  assert.match(
+    sql,
+    /create policy credit_products_select on credit_products for select\s+using \(\s+app_context_present\(\)\s+and app_user_role\(\) in \('admin', 'consultant'\)\s+\);/s,
   );
 });

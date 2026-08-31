@@ -150,3 +150,50 @@ Temporary files removed: `scripts/db/auth-schema.config.ts`, `.tmp-auth-schema.t
 3. Source counts—including the three unused legacy tables—must be recorded from Supabase before rehearsal/cutover. Their absence here is not evidence of zero rows.
 4. Database role passwords are deliberately not committed in migrations. Bootstrap/dev/prod must inject them via Docker secrets or an out-of-repository provisioning step.
 5. Current application code still reads Supabase `queries`/wide result tables. Compatibility facades were intentionally not added; later planned tasks migrate those consumers before cutover.
+
+## Review 1 fix: client RLS boundary
+
+### Changes
+
+- Restricted `profiles_select` and `credit_products_select` to `admin` and `consultant`; a client has no matching `SELECT` policy on either table.
+- Kept the existing `app_runtime` grants because the runtime role is shared by staff and client requests; forced RLS is the role-aware boundary. Profile updates retain their existing behavior and were not expanded.
+- Added a static Node test that requires both SELECT policies to express the staff-only condition. It is static because no PostgreSQL target is available; Task 3's RLS integration test remains the executable policy gate.
+
+### RED / GREEN
+
+```text
+RED  rtk npm run db:migrate:test
+tests 3; pass 2; fail 1
+AssertionError: profiles_select did not match the required admin/consultant condition
+
+GREEN  rtk npm run db:migrate:test
+tests 3; pass 3; fail 0
+```
+
+### Commands and outputs
+
+```text
+rtk npm test
+Test Files 6 passed (6)
+Tests 47 passed (47)
+
+rtk npm run type-check
+tsc --noEmit
+# exit 0
+
+rtk git diff --check
+# exit 0, no output
+
+rtk npm run db:migrate
+DATABASE_OWNER_URL is required
+```
+
+### Files and self-review
+
+- Changed: `db/migrations/004_rls.sql`, `scripts/db/migrate.test.mjs`, this report.
+- No client SELECT policy remains for `profiles` or `credit_products`; staff SELECT remains constrained to `admin`/`consultant`.
+- No compatibility facade, ORM, speculative table, or document-byte handling was added.
+
+### Remaining concerns
+
+PostgreSQL is unavailable in this shell: `DATABASE_OWNER_URL` is required, so apply/no-op, SQL syntax, grants, triggers, and real RLS behavior remain unexecuted. Direct Better Auth CLI SQL generation and document-byte copy/hash verification remain deferred gates owned by later tasks (10/14).
