@@ -7,13 +7,25 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { generateParecer } from "@/lib/ai/opinion";
 import { PROMPT_VERSION } from "@/lib/ai/prompt";
 import { getAiPrompt } from "@/actions/settings";
+import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import { getRequiredSession } from "@/lib/auth/session";
 import { toAptitudeStatus } from "@/types/ai";
 import type { Database, Json } from "@/types/supabase";
+import type { DbIdentity } from "@/lib/db/transaction";
 import type { EntityKind } from "@/types/app";
 
 // Alias curto para o client server-side (ver clients.ts / server.ts).
 function db(): SupabaseClient<Database> {
   return createClient();
+}
+
+async function currentIdentity(): Promise<DbIdentity | null> {
+  try {
+    const s = await getRequiredSession();
+    return { userId: s.userId, role: s.role };
+  } catch {
+    return null;
+  }
 }
 
 async function currentUserId(): Promise<string | null> {
@@ -65,15 +77,12 @@ export async function generateOpinion(
     if (row && row.status === "completed") return { error: null };
   }
 
-  // Carrega o resultado bruto da consulta.
-  const table = query.type === "PJ" ? "query_results_pj" : "query_results_pf";
-  const { data: resultRow } = await supabase
-    .from(table)
-    .select("*")
-    .eq("query_id", queryId)
-    .maybeSingle();
-  if (!resultRow) {
-    return { error: "Resultado da consulta não encontrado." };
+  // Carrega o resultado canônico (Task 7) — a IA lê SÓ o contrato canônico.
+  const identity = await currentIdentity();
+  if (!identity) return { error: "Sessão expirada." };
+  const canonical = await loadCanonicalResult(identity, queryId);
+  if (!canonical) {
+    return { error: "Resultado canônico da consulta não encontrado." };
   }
 
   try {
@@ -82,7 +91,7 @@ export async function generateOpinion(
       {
         type: query.type,
         dataAnalise: new Date().toISOString().slice(0, 10),
-        resultRow: resultRow as Record<string, unknown>,
+        canonical,
       },
       systemPrompt
     );

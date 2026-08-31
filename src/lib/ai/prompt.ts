@@ -4,6 +4,8 @@
 // Na Fase 3 (catálogo de settings) este texto poderá ser editado pelo admin e
 // lido da tabela `settings`. Por ora vive aqui como fonte da verdade.
 
+import type { CanonicalBureauResult } from "@/types/bureau";
+
 export const PROMPT_VERSION = "parecer-v1";
 
 // Modelo OpenAI — configurável por env, com fallback seguro.
@@ -270,17 +272,104 @@ function buildPfBureau(row: Record<string, unknown>): Record<string, unknown> {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// EXPLICIT canonical allow-list for the AI input. Only these fields cross to
+// OpenAI. Document numbers, addresses, phones, e-mail, raw provider messages and
+// the stored payload are NEVER included — they are simply not read here.
+// ─────────────────────────────────────────────────────────────────────────
+
+function buildCanonicalBureau(c: CanonicalBureauResult): Record<string, unknown> {
+  const s = c.subject;
+  const debts = c.debts.items.filter((i) => i.source !== "acao_judicial");
+  const lawsuits = c.debts.items.filter((i) => i.source === "acao_judicial");
+  const centsToReais = (n: number | null) => (n == null ? undefined : n / 100);
+  const occ = (i: (typeof c.debts.items)[number]) =>
+    compact({
+      credor: i.source,
+      tipo: i.kind,
+      valor: centsToReais(i.amountCents),
+      data: i.date,
+      cidade: i.city,
+      uf: i.state,
+    });
+
+  return compact({
+    cadastro: compact({
+      tipo: s.kind,
+      nome: s.name,
+      nomeFantasia: s.tradeName,
+      situacaoCadastral: s.registrationStatus,
+      idade: s.age,
+      obito: s.isDeceased,
+      politicamenteExposta: s.isPoliticallyExposed,
+      naturezaJuridica: s.legalNature,
+      cnaePrincipal: s.mainActivity,
+      porte: s.companySize,
+      capitalSocial: centsToReais(s.capitalCents),
+      dataInicioAtividade: s.startDate,
+      cidade: s.city,
+      uf: s.state,
+    }),
+    score: compact({
+      valor: c.score.value,
+      risco: c.score.riskBand,
+      descricao: c.score.description,
+      probabilidadePagamento: c.score.paymentProbability,
+    }),
+    pendencias: c.debts.items.length
+      ? compact({
+          total: debts.length,
+          valorTotal: centsToReais(
+            debts.reduce<number | null>(
+              (a, i) => (i.amountCents == null ? a : (a ?? 0) + i.amountCents),
+              null,
+            ),
+          ),
+          ocorrencias: debts.length ? debts.map(occ) : undefined,
+        })
+      : undefined,
+    acoesJudiciais: lawsuits.length
+      ? { total: lawsuits.length, ocorrencias: lawsuits.map(occ) }
+      : undefined,
+    protestos: c.protests.total
+      ? compact({
+          total: c.protests.total,
+          valorTotal: centsToReais(c.protests.amountCents),
+          ocorrencias: c.protests.items.map((p) =>
+            compact({ cartorio: p.registry, uf: p.state, data: p.date, valor: centsToReais(p.amountCents) }),
+          ),
+        })
+      : undefined,
+    cheques: compact({
+      possuiInformacao: c.checks.hasInfo,
+      devolvidosSemFundo: c.checks.returnedNoFunds,
+      sustados: c.checks.stopped,
+    }),
+    consultasAnteriores: compact({
+      ultimos30Dias: c.queries.last30Days,
+      ultimos31a60Dias: c.queries.last31To60Days,
+      ultimos61a90Dias: c.queries.last61To90Days,
+      mais90Dias: c.queries.over90Days,
+    }),
+    quadroSocietario: c.companyOwnership.length
+      ? c.companyOwnership.map((o) =>
+          compact({ nome: o.name, participacao: o.sharePct, cargo: o.role }),
+        )
+      : undefined,
+    participacaoEmpresas: c.participation.length
+      ? c.participation.map((p) => compact({ nome: p.name, participacao: p.sharePct, cargo: p.role }))
+      : undefined,
+  });
+}
+
 export interface ParecerInput {
   type: "PF" | "PJ";
   dataAnalise: string; // ISO date
-  resultRow: Record<string, unknown>;
+  canonical: CanonicalBureauResult;
 }
 
 export function buildUserPayload(input: ParecerInput): string {
-  const dados_bureau =
-    input.type === "PJ"
-      ? buildPjBureau(input.resultRow)
-      : buildPfBureau(input.resultRow);
+  const dados_bureau = buildCanonicalBureau(input.canonical);
 
   return JSON.stringify(
     {

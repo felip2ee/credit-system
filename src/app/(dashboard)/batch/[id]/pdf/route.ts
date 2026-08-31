@@ -1,13 +1,19 @@
 import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import {
+  toConsultationView,
+  formatSubjectDocument,
+} from "@/lib/consultations/view-model";
 import { letterheadDataUri } from "@/lib/pdf/letterhead";
 import {
   renderCompanyProcessPdf,
   type CompanyProcessEntry,
 } from "@/lib/pdf/company-process-document";
-import type { FullPdfHeader, PfMix } from "@/lib/pdf/consultation-full-document";
+import type { FullPdfHeader } from "@/lib/pdf/consultation-full-document";
 import type { OpinionForPdf } from "@/lib/pdf/markdown-pdf";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
-import { formatCNPJ, formatCPF } from "@/lib/utils";
+import { formatCNPJ } from "@/lib/utils";
 import type { EntityKind } from "@/types/app";
 
 export const runtime = "nodejs";
@@ -23,23 +29,19 @@ interface MemberRow {
   created_at: string;
 }
 
-function addressOf(mix: PfMix): string | undefined {
-  const emp = mix.empresa?.data;
-  const cad = mix.pessoa?.data?.dadosCadastrais;
-  const parts = emp
-    ? [emp.endereco, emp.numero, emp.bairro, emp.municipio && emp.uf ? `${emp.municipio}/${emp.uf}` : undefined, emp.cep ? `CEP ${emp.cep}` : undefined]
-    : cad
-      ? [cad.endereco, cad.numero, cad.bairro, cad.cidade && cad.uf ? `${cad.cidade}/${cad.uf}` : undefined, cad.cep ? `CEP ${cad.cep}` : undefined]
-      : [];
-  const joined = parts.filter(Boolean).join(", ");
-  return joined || undefined;
-}
-
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
   const supabase = createClient();
+
+  let identity;
+  try {
+    const session = await getRequiredSession();
+    identity = { userId: session.userId, role: session.role };
+  } catch {
+    return new Response("Sessão expirada.", { status: 401 });
+  }
 
   const { data: batchData } = await supabase
     .from("batches")
@@ -67,35 +69,28 @@ export async function GET(
 
   const entries: CompanyProcessEntry[] = [];
   for (const m of ordered) {
-    const table = m.type === "PJ" ? "query_results_pj" : "query_results_pf";
-    const { data: resultRow } = await supabase
-      .from(table)
-      .select("raw_response")
-      .eq("query_id", m.id)
-      .maybeSingle();
+    const canonical = await loadCanonicalResult(identity, m.id);
+    if (!canonical) continue;
 
-    const raw = (resultRow as { raw_response?: Record<string, unknown> } | null)?.raw_response;
-    if (!raw || typeof raw !== "object") continue;
-
-    const mix = raw as PfMix;
+    const view = toConsultationView(canonical);
     const header: FullPdfHeader = {
-      name: m.document_name ?? "—",
-      cpf: m.type === "PJ" ? formatCNPJ(m.document) : formatCPF(m.document),
-      docLabel: m.type === "PJ" ? "CNPJ" : "CPF",
+      name: m.document_name ?? (view.subject.name || "—"),
+      cpf: formatSubjectDocument(canonical),
+      docLabel: view.subject.documentLabel,
       produto: m.product ?? (m.type === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
       data: new Date(m.consulted_at ?? m.created_at).toLocaleString("pt-BR"),
-      consultante: (raw.consultante as string) ?? "Reino do Crédito",
-      usuario: (raw.usuario as string) ?? "—",
-      endereco: addressOf(mix),
+      consultante: "Reino do Crédito",
+      usuario: identity.userId,
+      endereco: view.subject.location ?? undefined,
     };
-    entries.push({ mix, header, role: m.type === "PJ" ? "Empresa" : "Sócio" });
+    entries.push({ view, header, role: m.type === "PJ" ? "Empresa" : "Sócio" });
   }
 
   if (entries.length === 0) {
     return new Response("Consultas sem resultado disponível.", { status: 409 });
   }
 
-  // Parecer consolidado — vai no final, em página própria.
+  // Parecer consolidado — vai no final, em página própria. (Supabase — Tasks 9/11.)
   const { data: reportRow } = await supabase
     .from("company_reports")
     .select("status, aptitude_status, report_markdown, full_report, model_used")

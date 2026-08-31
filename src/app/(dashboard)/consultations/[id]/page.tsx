@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
 import {
   ConsultationResult,
-  type ResultView,
+  ConsultationUnavailable,
 } from "@/components/consultations/consultation-result";
 import { ReprocessButton } from "@/components/consultations/reprocess-button";
 import { RetryScrButton } from "@/components/consultations/retry-scr-button";
@@ -18,15 +18,15 @@ import type { Parecer } from "@/types/ai";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
-import { countProtestos } from "@/lib/deps/protestos";
+import { getRequiredSession } from "@/lib/auth/session";
+import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import {
+  toConsultationView,
+  incompatibleView,
+  type ConsultationView,
+  type IncompatibleView,
+} from "@/lib/consultations/view-model";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
-import type {
-  AcoesJudiciaisData,
-  PendenciasData,
-  SmartClassificacao,
-  SmartMetrica,
-  SmartParecer,
-} from "@/types/deps";
 import type { QueryStatus } from "@/types/app";
 
 interface QueryRow {
@@ -40,51 +40,6 @@ interface QueryRow {
   consulted_at: string | null;
   created_at: string;
   error_message: string | null;
-}
-
-function buildView(row: Record<string, unknown>, type: "PF" | "PJ"): ResultView {
-  const classificacao = row.smart_classificacao as SmartClassificacao | null;
-  const parecer = row.smart_parecer as SmartParecer | null;
-  const positivas = (row.smart_positivas as SmartMetrica[] | null) ?? [];
-  const negativas = (row.smart_negativas as SmartMetrica[] | null) ?? [];
-
-  let pendenciasTotal = 0;
-  let pendenciasValor = 0;
-  let protestos = 0;
-  let acoes = 0;
-
-  if (type === "PJ") {
-    const pend = row.pendencias_data as PendenciasData | null;
-    pendenciasTotal = pend?.total ?? 0;
-    pendenciasValor = pend?.valorTotal ?? 0;
-    protestos = countProtestos(row.protestos_data);
-    acoes = (row.acoes_judiciais_data as AcoesJudiciaisData | null)?.total ?? 0;
-  } else {
-    pendenciasTotal = (row.pendencias_total as number | null) ?? 0;
-    pendenciasValor = (row.pendencias_valor_total as number | null) ?? 0;
-    protestos = countProtestos(row.protestos_data);
-    acoes = (row.acoes_judiciais_total as number | null) ?? 0;
-  }
-
-  return {
-    // politicamente_exposta só existe na PF; na PJ o flag é sempre false.
-    isPep: type === "PF" && Boolean(row.politicamente_exposta),
-    score: {
-      valor: (row.score_valor as number | null) ?? null,
-      risco: (row.score_risco as string | null) ?? null,
-      descricao: (row.score_descricao as string | null) ?? null,
-      prob: (row.score_probabilidade_pagamento as number | null) ?? null,
-    },
-    smart: {
-      classificacao: classificacao?.classificacao ?? null,
-      aprovado: parecer?.aprovado ?? null,
-      motivo: parecer?.motivo ?? null,
-      limiteSugerido: classificacao?.limiteSugerido ?? null,
-    },
-    restricoes: { pendenciasTotal, pendenciasValor, protestos, acoes },
-    positivas: positivas.map((p) => p.descricao),
-    negativas: negativas.map((n) => n.descricao),
-  };
 }
 
 export default async function ConsultationDetailPage({
@@ -108,17 +63,27 @@ export default async function ConsultationDetailPage({
   const docLabel =
     query.type === "PJ" ? formatCNPJ(query.document) : formatCPF(query.document);
 
-  let view: ResultView | null = null;
+  // `payload_incompatible` não faz parte do enum tipado de `queries` (Tasks 9/11).
+  const rawStatus = query.status as string;
+  let view: ConsultationView | IncompatibleView | null = null;
   let opinion: OpinionData | null = null;
-  if (query.status === "completed") {
-    const table = query.type === "PJ" ? "query_results_pj" : "query_results_pf";
-    const { data: resultRow } = await supabase
-      .from(table)
-      .select("*")
-      .eq("query_id", query.id)
-      .maybeSingle();
-    if (resultRow) {
-      view = buildView(resultRow as Record<string, unknown>, query.type);
+  if (query.status === "completed" || rawStatus === "payload_incompatible") {
+    let identity;
+    try {
+      const session = await getRequiredSession();
+      identity = { userId: session.userId, role: session.role };
+    } catch {
+      identity = null;
+    }
+
+    const canonical = identity
+      ? await loadCanonicalResult(identity, query.id)
+      : null;
+    if (canonical) {
+      view = toConsultationView(canonical);
+    } else {
+      // payload_incompatible, ou consulta histórica ainda não migrada (Task 14).
+      view = incompatibleView(query.id);
     }
 
     const { data: reportRow } = await supabase
@@ -194,7 +159,15 @@ export default async function ConsultationDetailPage({
         </Card>
       )}
 
-      {view && <ConsultationResult view={view} />}
+      {view &&
+        (view.incompatible ? (
+          <ConsultationUnavailable
+            consultationId={view.consultationId}
+            message={view.message}
+          />
+        ) : (
+          <ConsultationResult view={view} />
+        ))}
 
       {query.status === "completed" && (
         <ConsultationOpinion queryId={query.id} report={opinion} />
