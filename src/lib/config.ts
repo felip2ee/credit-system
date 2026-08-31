@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import path from "node:path";
 
 type Environment = Record<string, string | undefined>;
@@ -16,6 +17,27 @@ function url(env: Environment, name: string): string {
     throw new Error(`${name} must be a valid URL`);
   }
   return value;
+}
+
+function authUrl(env: Environment): string {
+  const value = url(env, "BETTER_AUTH_URL");
+  const protocol = new URL(value).protocol;
+  if (
+    protocol !== "https:" &&
+    (protocol !== "http:" || (env.NODE_ENV !== "development" && env.NODE_ENV !== "test"))
+  ) {
+    throw new Error("BETTER_AUTH_URL must use HTTPS outside development and test");
+  }
+  return value;
+}
+
+function isCidr(value: string): boolean {
+  const [address, prefix, extra] = value.split("/");
+  const version = address && isIP(address);
+  if (!version || !prefix || extra !== undefined || !/^\d+$/.test(prefix)) {
+    return false;
+  }
+  return Number(prefix) <= (version === 4 ? 32 : 128);
 }
 
 function port(env: Environment, name: string): number {
@@ -52,11 +74,14 @@ export function readConfig(env: Environment) {
   if (env.NODE_ENV === "production" && !traefikProxyCidr) {
     throw new Error("TRAEFIK_PROXY_CIDR is required in production");
   }
+  if (traefikProxyCidr && !isCidr(traefikProxyCidr)) {
+    throw new Error("TRAEFIK_PROXY_CIDR must be a valid IPv4 or IPv6 CIDR");
+  }
 
   return Object.freeze({
     databaseUrl: url(env, "DATABASE_URL"),
     betterAuthSecret,
-    betterAuthUrl: url(env, "BETTER_AUTH_URL"),
+    betterAuthUrl: authUrl(env),
     documentRoot,
     clamavHost: required(env, "CLAMAV_HOST"),
     clamavPort: port(env, "CLAMAV_PORT"),

@@ -13,6 +13,7 @@ const valid = vi.hoisted(() => {
     SMTP_SECURE: "true",
     SMTP_USER: "credit-system",
     SMTP_PASS: "test-password",
+    NODE_ENV: "test",
   };
   Object.assign(process.env, value);
   return value;
@@ -45,10 +46,46 @@ describe("readConfig", () => {
     ).toThrow("BETTER_AUTH_URL must be a valid URL");
   });
 
+  it("requires an HTTPS Better Auth URL in production", () => {
+    expect(() =>
+      readConfig({
+        ...valid,
+        NODE_ENV: "production",
+        TRAEFIK_PROXY_CIDR: "10.0.0.0/8",
+        BETTER_AUTH_URL: "http://credit-system.example.test",
+      }),
+    ).toThrow("BETTER_AUTH_URL must use HTTPS outside development and test");
+  });
+
   it("requires one explicit Traefik proxy CIDR in production", () => {
     expect(() =>
       readConfig({ ...valid, NODE_ENV: "production", TRAEFIK_PROXY_CIDR: " " }),
     ).toThrow("TRAEFIK_PROXY_CIDR is required in production");
+  });
+
+  it.each(["10.0.0.0", "10.0.0.0/33", "2001:db8::/129", "not-a-cidr/24"])(
+    "rejects malformed Traefik proxy CIDR %s",
+    (traefikProxyCidr) => {
+      expect(() =>
+        readConfig({
+          ...valid,
+          NODE_ENV: "production",
+          BETTER_AUTH_URL: "https://credit-system.example.test",
+          TRAEFIK_PROXY_CIDR: traefikProxyCidr,
+        }),
+      ).toThrow("TRAEFIK_PROXY_CIDR must be a valid IPv4 or IPv6 CIDR");
+    },
+  );
+
+  it("accepts an IPv6 Traefik proxy CIDR in production", () => {
+    expect(
+      readConfig({
+        ...valid,
+        NODE_ENV: "production",
+        BETTER_AUTH_URL: "https://credit-system.example.test",
+        TRAEFIK_PROXY_CIDR: "2001:db8::/32",
+      }).traefikProxyCidr,
+    ).toBe("2001:db8::/32");
   });
 
   it.each(["0", "65536"])("rejects ClamAV port %s outside its range", (port) => {

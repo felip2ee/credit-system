@@ -106,3 +106,47 @@ run and there was no temporary file to delete.
    do not import protected legacy-auth data.
 3. Legacy Supabase consumers remain outside this Task 4 file scope and must be
    migrated by their owning follow-up task before removing Supabase packages.
+
+## Fix round 1/5 — auth transport and production configuration
+
+### Changes
+
+- `authHandler()` now parses `application/x-www-form-urlencoded` POST bodies,
+  normalizes form-encoded password changes to JSON with
+  `revokeOtherSessions: true`, and continues rejecting form-encoded
+  trusted-device MFA requests.
+- `BETTER_AUTH_URL` permits `http:` only for `development` and `test`; all
+  other environments require `https:`.
+- `TRAEFIK_PROXY_CIDR` now requires a Node-stdlib `isIP()` IPv4/IPv6 address
+  plus an in-range decimal prefix (0–32 or 0–128) whenever supplied.
+
+### RED → GREEN
+
+1. RED: the production-URL test accepted `http://` under `NODE_ENV=production`.
+   GREEN: it now rejects with the HTTPS-only error; the test also preserves
+   `http://localhost:3000` under `NODE_ENV=test`.
+2. RED: malformed CIDRs (`10.0.0.0`, `/33`, IPv6 `/129`, and non-IP) passed.
+   GREEN: all reject; a valid IPv6 `/32` is accepted.
+3. RED: a form-encoded `/change-password` reached Better Auth without
+   `revokeOtherSessions`; a form-encoded trusted-device TOTP request also
+   reached the handler. GREEN: the transport tests observe normalized JSON
+   with revocation and a `400 TRUST_DEVICE_DISABLED` response, respectively.
+
+### Commands and results
+
+| Command | Result |
+| --- | --- |
+| `npx vitest run src/lib/auth/server.test.ts src/lib/config.test.ts` | PASS — 24 tests |
+| `npx vitest run src/lib/auth/auth.integration.test.ts` | 1 transport test passed; 9 lifecycle tests skipped after PostgreSQL `ECONNREFUSED ::1/127.0.0.1:54329` |
+| `npm test` | 100 passed, 12 skipped; auth and RLS database suites failed only with the same `ECONNREFUSED` |
+| `npm run type-check` | PASS |
+| `git diff --check` | PASS |
+| `npm run build` | PASS with safe Better Auth and legacy Supabase placeholder environment values; the pre-existing `next/core-web-vitals` ESLint resolution warning remains |
+
+### Self-review / concerns
+
+- Form decoding is limited to `application/x-www-form-urlencoded`; JSON and
+  unrelated content types retain their prior paths. No cookie, TOTP, rate-limit,
+  RLS, or secret configuration was relaxed.
+- DB integration remains blocked by the unavailable local PostgreSQL service;
+  start it on port 54329 to close that existing gate.

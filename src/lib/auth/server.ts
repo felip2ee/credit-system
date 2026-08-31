@@ -14,7 +14,19 @@ function authPath(request: Request): string {
   return new URL(request.url).pathname.replace(/^.*\/api\/auth/, "");
 }
 
-async function jsonBody(request: Request): Promise<Record<string, unknown> | null> {
+async function requestBody(request: Request): Promise<Record<string, unknown> | null> {
+  const contentType = request.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+
+  if (contentType === "application/x-www-form-urlencoded") {
+    return Object.fromEntries(new URLSearchParams(await request.clone().text()));
+  }
+
+  if (contentType !== "application/json") return null;
+
   try {
     const body: unknown = await request.clone().json();
     return body && typeof body === "object" && !Array.isArray(body)
@@ -38,9 +50,12 @@ function requestWithBody(request: Request, body: Record<string, unknown>): Reque
 
 export async function authHandler(request: Request): Promise<Response> {
   const path = authPath(request);
-  const body = request.method === "POST" ? await jsonBody(request) : null;
+  const body = request.method === "POST" ? await requestBody(request) : null;
 
-  if (twoFactorTrustPaths.has(path) && body?.trustDevice === true) {
+  if (
+    twoFactorTrustPaths.has(path) &&
+    (body?.trustDevice === true || body?.trustDevice === "true")
+  ) {
     return Response.json({ code: "TRUST_DEVICE_DISABLED" }, { status: 400 });
   }
 
