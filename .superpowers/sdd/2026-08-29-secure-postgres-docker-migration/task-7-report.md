@@ -119,3 +119,109 @@ Task 8 files).
    (SCR not yet authorized) now resolves to `payload_incompatible` rather than the
    old `pending_scr`. The SCR-pending UX nuance is a Tasks 9/11 concern once the
    actions are fully on Postgres.
+
+---
+
+## Fix round 1
+
+### IMPORTANT 1 — empty-`mix` 200 no longer drops SCR-pending bookkeeping
+`executeConsultation` now returns a third outcome, `no_data`, distinct from
+`payload_incompatible`. Discriminator (`service.ts` `isNoData`): the adapter
+failed with `root_not_object` or `missing_identity` → no recognizable subject
+identity block → the DEPS "documento sem dados / SCR ainda não autorizado" case
+(old `deps/map.ts` `hasMappableResult`). Any other adapter failure = real data
+that failed schema validation.
+
+- `no_data`: raw payload is still stored (immutable evidence), left at
+  `validation_status='pending'`; **consultation status is not touched**. Callers
+  route it to the existing recovery path:
+  - `consultations.ts` `runConsultation` → `markPending()` (status
+    `pending_authorization`, `upsertScrAuthorization({status:"pending"})`, email
+    persist to `crm_clients`, `scr.requested` timeline event).
+  - `consultations.ts` `reprocessQuery` → `queries.status='pending_authorization'`
+    + pending-SCR message (mirrors the old reprocess behaviour, which never did
+    the full `upsertScrAuthorization`).
+  - `scr.ts` `verifyScr` → `stayPending()` (scr row back to `pending`,
+    `last_checked_at` bumped, returns `{status:"pending"}`). Caller and DB now
+    agree — no more `{status:"pending"}` while writing `'payload_incompatible'`.
+  - `company.ts` `consultExistingMember` → `markPending()`.
+- `payload_incompatible` (real data, failed schema): unchanged — payload
+  `'incompatible'` + JSON-path errors, `consultations.status='payload_incompatible'`,
+  and the legacy `queries` dual-write. Actions now return a hard error
+  ("dados incompatíveis com o formato esperado do bureau") rather than a
+  soft pending. `verifyScr` returns `{status:"not_authorized"}` here.
+- Retry of an already-stored payload: no writes; the terminal outcome is
+  re-derived from the pure adapter (`terminal()`), so a `no_data` / incompatible
+  retry is classified correctly instead of a blanket "idempotent".
+
+### IMPORTANT 2 — `queries` `completed` dual-write restored
+All four success paths (`runConsultation`, `reprocessQuery`, `verifyScr`,
+`consultExistingMember`) again write
+`supabase.from("queries").update({ status:"completed", document_name,
+consulted_at, historico_consulta_id, api_version })` after `executeConsultation`
+commits. Values come from the canonical result
+(`outcome.canonical.subject.name` / `.provider.*`). `product_version`,
+`is_partial`, `share_link` are no longer available from the canonical shape and
+are left unset (not load-bearing; the whole dual-write is deleted at Task 9/11).
+Matches the migration dual-write pattern the `payload_incompatible` branch
+already used.
+
+### MINOR fixes
+3. `service.ts`: extracted `sha256Of(serialized)`, reused for both
+   `payloadSha256()` and the insert hash.
+4. Action callers derive identity from `getRequiredSession()` (a new
+   `currentIdentity(): Promise<DbIdentity | null>` helper per action file,
+   mirroring the existing `currentUserId` pattern) — `{ userId, role }` from the
+   session instead of a hardcoded `role: "consultant"`. A non-staff role now
+   fails closed at the RLS boundary.
+5. **Not applied — cannot.** `004_rls.sql:270-273` grants `app_runtime` INSERT
+   only on `(id, consultation_id, provider, product, received_at, http_status,
+   payload, payload_sha256)`; naming `validation_status` in the INSERT column
+   list raises `permission denied for column validation_status`. The value is
+   pinned by the column `DEFAULT 'pending'` + the CHECK constraint + the
+   `enforce_bureau_payload_transition` trigger (which rejects any first
+   transition that is not `pending → valid|incompatible`), so relying on the
+   default is the only correct option here.
+6. `company.ts` `processCompanyMember` status map: added
+   `payload_incompatible: "error"` so a re-dispatched batch member row no longer
+   returns `"skipped"`.
+
+### Test changes
+`service.integration.test.ts`: `incompatibleBody` is now an identity block with a
+wrong-typed `nome` (real data → `payload_incompatible`); added `noDataBody`
+(no identity → `no_data`) and a new case asserting the payload is stored
+`'pending'` with the consultation status untouched; the retry case now asserts
+the re-derived `completed` outcome.
+
+### Verify — commands + output
+
+```
+$ npm run type-check
+> tsc --noEmit
+src/actions/company.ts(255,17): error TS2322: Type '"payload_incompatible"' is not assignable to type '"completed" | "rejected" | "processing" | "pending_authorization" | "authorized" | "error" | undefined'.
+src/actions/consultations.ts(292,17): error TS2322: Type '"payload_incompatible"' is not assignable to type ... .
+src/actions/consultations.ts(408,19): error TS2322: Type '"payload_incompatible"' is not assignable to type ... .
+src/actions/scr.ts(158,17): error TS2322: Type '"payload_incompatible"' is not assignable to type ... .
+```
+Same 4 carried errors as round 1 — all `supabase.from("queries").update({status:"payload_incompatible"})`
+on the stale Supabase-generated `queries` enum (Tasks 9/11 remove these writes).
+`service.ts`, the test, and the transactional persist path are type-clean.
+
+```
+$ npx vitest run src/lib/deps src/lib/consultations
+ ❯ src/lib/consultations/service.integration.test.ts (7 tests | 7 skipped)
+ FAIL  src/lib/consultations/service.integration.test.ts > executeConsultation
+ Error: connect ECONNREFUSED 127.0.0.1:54329
+ Test Files  1 failed | 3 passed (4)
+      Tests  18 passed | 7 skipped (25)
+```
+`src/lib/deps` — 18/18 green. The integration suite cannot connect to Postgres
+(no Docker daemon) — execution deferred to the Task 15 release gate, as before.
+
+## Concerns (round 1)
+1. Deferred integration run → Task 15 (unchanged).
+2. 4 carried type-check errors, legacy Supabase `queries` enum:
+   `src/actions/company.ts:255`, `src/actions/consultations.ts:292`,
+   `src/actions/consultations.ts:408`, `src/actions/scr.ts:158`. Permitted by the
+   context scope-guard; removed at Tasks 9/11.
+3. MINOR 5 not applied — column-level INSERT grant forbids it; see above.

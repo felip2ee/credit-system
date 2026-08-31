@@ -8,20 +8,24 @@ import { getDepsClient } from "@/lib/deps/client";
 import { executeConsultation } from "@/lib/consultations/service";
 import { depsProductName } from "@/lib/deps/products";
 import { refreshBatchCounters } from "@/actions/company";
+import { getRequiredSession } from "@/lib/auth/session";
 import { recordAudit } from "@/lib/audit";
 import { onlyDigits } from "@/lib/utils";
 import type { Database } from "@/types/supabase";
+import type { DbIdentity } from "@/lib/db/transaction";
 import type { EntityKind, ScrStatus } from "@/types/app";
 
 function db(): SupabaseClient<Database> {
   return createClient();
 }
 
-async function currentUserId(): Promise<string | null> {
-  const {
-    data: { user },
-  } = await createClient().auth.getUser();
-  return user?.id ?? null;
+async function currentIdentity(): Promise<DbIdentity | null> {
+  try {
+    const s = await getRequiredSession();
+    return { userId: s.userId, role: s.role };
+  } catch {
+    return null;
+  }
 }
 
 const SCR_VALIDITY_DAYS = 90;
@@ -130,29 +134,48 @@ export async function verifyScr(
   }
   const queryId = scr.query_id;
 
-  const userId = await currentUserId();
-  if (!userId) return { status: "pending", message: "Sessão expirada." };
+  const identity = await currentIdentity();
+  if (!identity) return { status: "pending", message: "Sessão expirada." };
 
-  // Persistência atômica: payload bruto + adapter versionado + resultado
-  // canônico/status numa única transação. 200 sem os blocos essenciais
-  // (identidade) → payload_incompatible, não "concluída" em branco.
+  // Persistência atômica: payload bruto (evidência imutável) + adapter
+  // versionado + resultado canônico/status numa única transação user-scoped.
   const outcome = await executeConsultation({
-    identity: { userId, role: "consultant" },
+    identity,
     consultationId: queryId,
     entityKind: scr.type,
     consult: async () => result,
   });
+
+  // 200 sem bloco de identidade = documento sem dados / SCR ainda não aceito.
+  // Recuperável: mantém pendente (o payload já foi guardado como evidência).
+  if (outcome.status === "no_data") {
+    return stayPending();
+  }
+
   if (outcome.status === "payload_incompatible") {
     await supabase
       .from("queries")
       .update({ status: "payload_incompatible" })
       .eq("id", queryId);
     return {
-      status: "pending",
+      status: "not_authorized",
       message:
-        "A consulta retornou sem os dados essenciais. Verifique a autorização e tente novamente.",
+        "A consulta retornou dados incompatíveis com o formato esperado do bureau.",
     };
   }
+
+  // Dual-write para a tabela legada `queries` (a UI ainda lê dela; some no
+  // Task 9/11). O resultado canônico já foi persistido em `consultations`.
+  await supabase
+    .from("queries")
+    .update({
+      status: "completed",
+      document_name: outcome.canonical.subject.name || undefined,
+      consulted_at: outcome.canonical.provider.consultedAt,
+      historico_consulta_id: outcome.canonical.provider.consultationId,
+      api_version: outcome.canonical.provider.apiVersion,
+    })
+    .eq("id", queryId);
 
   // Sucesso → autorização confirmada.
   const now = new Date().toISOString();

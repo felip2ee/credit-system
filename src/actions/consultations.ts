@@ -9,10 +9,12 @@ import { DepsScrPendingError } from "@/lib/deps/errors";
 import { executeConsultation } from "@/lib/consultations/service";
 import { depsProductName } from "@/lib/deps/products";
 import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/deps/scr-auth";
+import { getRequiredSession } from "@/lib/auth/session";
 import { recordAudit } from "@/lib/audit";
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 import type { Database } from "@/types/supabase";
 import type { DepsRawConsult } from "@/types/deps";
+import type { DbIdentity } from "@/lib/db/transaction";
 import type { EntityKind } from "@/types/app";
 
 // Alias curto para o client server-side (ver clients.ts / server.ts).
@@ -20,11 +22,14 @@ function db(): SupabaseClient<Database> {
   return createClient();
 }
 
-async function currentUserId(): Promise<string | null> {
-  const {
-    data: { user },
-  } = await createClient().auth.getUser();
-  return user?.id ?? null;
+// Identidade (userId + role) para as transações user-scoped do Postgres.
+async function currentIdentity(): Promise<DbIdentity | null> {
+  try {
+    const s = await getRequiredSession();
+    return { userId: s.userId, role: s.role };
+  } catch {
+    return null;
+  }
 }
 
 export interface ClientPick {
@@ -121,8 +126,9 @@ export async function runConsultation(
   if (!valid) return { error: "Documento inválido." };
 
   const supabase = db();
-  const userId = await currentUserId();
-  if (!userId) return { error: "Sessão expirada." };
+  const identity = await currentIdentity();
+  if (!identity) return { error: "Sessão expirada." };
+  const userId = identity.userId;
   const deps = getDepsClient();
 
   const product = depsProductName(input.type);
@@ -263,35 +269,49 @@ export async function runConsultation(
     return { error: "Falha ao executar a consulta no bureau." };
   }
 
-  // Persistência atômica: guarda o payload bruto, roda o adapter versionado e
-  // grava o resultado canônico + status numa única transação user-scoped.
+  // Persistência atômica: guarda o payload bruto (evidência imutável), roda o
+  // adapter versionado e grava o resultado canônico + status numa única
+  // transação user-scoped.
   const outcome = await executeConsultation({
-    identity: { userId, role: "consultant" },
+    identity,
     consultationId: queryId,
     entityKind: input.type,
     consult: async () => result,
   });
 
+  // 200 sem bloco de identidade = documento sem dados / SCR ainda não aceito.
+  // Recuperável: mesmo caminho do 400 (payload já foi guardado como evidência).
+  if (outcome.status === "no_data") {
+    return markPending();
+  }
+
   if (outcome.status === "payload_incompatible") {
-    // 200 sem os blocos essenciais (identidade). Não conclui em branco.
+    // Resposta com dados reais que não bateram com o formato canônico.
     await supabase
       .from("queries")
       .update({ status: "payload_incompatible" })
       .eq("id", queryId);
     return {
-      error: null,
-      status: "pending_scr",
-      queryId,
-      message:
-        "A consulta retornou sem os dados essenciais (identidade). Verifique a autorização SCR e reprocesse a consulta.",
+      error:
+        "A consulta retornou dados incompatíveis com o formato esperado do bureau.",
     };
   }
 
   // Nome real do bureau (canônico) vira o nome de exibição.
-  const displayName =
-    outcome.status === "completed"
-      ? outcome.canonical.subject.name || input.documentName
-      : input.documentName;
+  const displayName = outcome.canonical.subject.name || input.documentName;
+
+  // Dual-write para a tabela legada `queries` (a UI ainda lê dela; some no
+  // Task 9/11). O resultado canônico já foi persistido em `consultations`.
+  await supabase
+    .from("queries")
+    .update({
+      status: "completed",
+      document_name: displayName,
+      consulted_at: outcome.canonical.provider.consultedAt,
+      historico_consulta_id: outcome.canonical.provider.consultationId,
+      api_version: outcome.canonical.provider.apiVersion,
+    })
+    .eq("id", queryId);
 
   // Registra o SCR como concedido (a consulta só retorna 200 com autorização vigente).
   await upsertScrAuthorization(supabase, {
@@ -347,8 +367,8 @@ export async function reprocessQuery(
   const autorizacaoScr = query.scr_mode !== "deps";
   const deps = getDepsClient();
 
-  const userId = await currentUserId();
-  if (!userId) return { error: "Sessão expirada." };
+  const identity = await currentIdentity();
+  if (!identity) return { error: "Sessão expirada." };
 
   await supabase
     .from("queries")
@@ -362,11 +382,25 @@ export async function reprocessQuery(
         : await deps.consultPF(query.document, { product, autorizacaoScr });
 
     const outcome = await executeConsultation({
-      identity: { userId, role: "consultant" },
+      identity,
       consultationId: queryId,
       entityKind: query.type,
       consult: async () => raw,
     });
+
+    if (outcome.status === "no_data") {
+      await supabase
+        .from("queries")
+        .update({ status: "pending_authorization" })
+        .eq("id", queryId);
+      return {
+        error: null,
+        status: "pending_scr",
+        queryId,
+        message:
+          "Consulta sem dados/SCR pendente. Verifique a autorização e tente novamente.",
+      };
+    }
 
     if (outcome.status === "payload_incompatible") {
       await supabase
@@ -374,13 +408,22 @@ export async function reprocessQuery(
         .update({ status: "payload_incompatible" })
         .eq("id", queryId);
       return {
-        error: null,
-        status: "pending_scr",
-        queryId,
-        message:
-          "Consulta sem os dados essenciais. Verifique a autorização e tente novamente.",
+        error:
+          "A consulta retornou dados incompatíveis com o formato esperado do bureau.",
       };
     }
+
+    // Dual-write para a tabela legada `queries` (some no Task 9/11).
+    await supabase
+      .from("queries")
+      .update({
+        status: "completed",
+        document_name: outcome.canonical.subject.name || undefined,
+        consulted_at: outcome.canonical.provider.consultedAt,
+        historico_consulta_id: outcome.canonical.provider.consultationId,
+        api_version: outcome.canonical.provider.apiVersion,
+      })
+      .eq("id", queryId);
   } catch (err) {
     await supabase
       .from("queries")

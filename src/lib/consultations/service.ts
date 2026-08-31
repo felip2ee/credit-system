@@ -3,13 +3,18 @@
 // consultation status, all in a single user-scoped transaction.
 //
 // Spec: 2026-08-29-postgres-docker-security-design.md. Rules:
-//  - Raw response is stored (bureau_payloads, status 'pending') BEFORE adaptation.
+//  - The raw response is ALWAYS stored (bureau_payloads) before adaptation —
+//    immutable evidence, even when it carries no usable data.
 //  - Success  -> bureau_results + consultation 'completed', same transaction.
-//  - Incompatible -> payload 'incompatible' + JSON-path errors (no values) +
-//    consultation 'payload_incompatible'. Never fabricate a bureau_results row.
+//  - Real data that fails schema validation -> payload 'incompatible' +
+//    JSON-path errors (no values) + consultation 'payload_incompatible'.
+//    Never fabricate a bureau_results row.
+//  - No recognizable identity block (DEPS "documento sem dados / SCR ainda não
+//    autorizado") -> 'no_data': payload kept at 'pending', consultation status
+//    left untouched so the caller routes it to the SCR-pending flow.
 //  - Any DB failure after the raw insert rolls the whole thing back.
-//  - Retry with the same payload hits unique (consultation_id, payload_sha256)
-//    -> idempotent no-op.
+//  - Retry with the same payload hits unique (consultation_id, payload_sha256):
+//    no writes, the terminal state is re-derived from the (pure) adapter.
 //  - Network/provider failure BEFORE a response propagates untouched — no
 //    bureau_payloads row with a fake HTTP response.
 
@@ -18,6 +23,7 @@ import { createHash } from "node:crypto";
 import { adapt } from "@/lib/deps/adapter";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import type {
+  AdaptResult,
   AdapterError,
   BureauEntityKind,
   CanonicalBureauResult,
@@ -36,7 +42,10 @@ export interface ExecuteConsultationInput {
 export type ExecuteConsultationResult =
   | { status: "completed"; canonical: CanonicalBureauResult }
   | { status: "payload_incompatible"; errors: AdapterError[] }
-  | { status: "idempotent" };
+  | { status: "no_data" };
+
+const sha256Of = (s: string): string =>
+  createHash("sha256").update(s, "utf8").digest("hex");
 
 // Deterministic UTF-8 JSON serialization: object keys sorted recursively,
 // `undefined` dropped exactly as JSON.stringify does. Same value in -> same
@@ -56,7 +65,24 @@ export function canonicalJson(value: unknown): string {
 }
 
 export function payloadSha256(body: unknown): string {
-  return createHash("sha256").update(canonicalJson(body), "utf8").digest("hex");
+  return sha256Of(canonicalJson(body));
+}
+
+// A DEPS 200 whose body has no recognizable subject-identity block is the
+// "documento sem dados / SCR ainda não autorizado" case (old deps/map.ts
+// `hasMappableResult`) — recoverable. Every other adapter failure means real
+// data that did not match the canonical schema.
+function isNoData(errors: AdapterError[]): boolean {
+  return errors.some(
+    (e) => e.code === "root_not_object" || e.code === "missing_identity",
+  );
+}
+
+function terminal(result: AdaptResult): ExecuteConsultationResult {
+  if (result.ok) return { status: "completed", canonical: result.value };
+  return isNoData(result.errors)
+    ? { status: "no_data" }
+    : { status: "payload_incompatible", errors: result.errors };
 }
 
 export async function executeConsultation(
@@ -66,11 +92,16 @@ export async function executeConsultation(
   const raw = await input.consult();
 
   const serialized = canonicalJson(raw.body);
-  const sha256 = createHash("sha256").update(serialized, "utf8").digest("hex");
+  const sha256 = sha256Of(serialized);
+  const ctx = {
+    product: raw.product,
+    httpStatus: raw.httpStatus,
+    receivedAt: raw.receivedAt,
+  };
 
   return withUserTransaction(input.identity, async (client) => {
-    // Raw evidence first. On retry the unique (consultation_id, payload_sha256)
-    // constraint turns this into a no-op.
+    // Raw evidence first (validation_status defaults to 'pending'). On retry the
+    // unique (consultation_id, payload_sha256) constraint makes this a no-op.
     const inserted = await client.query<{ id: string }>(
       `insert into bureau_payloads
          (consultation_id, provider, product, received_at, http_status, payload, payload_sha256)
@@ -86,18 +117,19 @@ export async function executeConsultation(
         sha256,
       ],
     );
-    if (inserted.rowCount === 0) {
-      return { status: "idempotent" };
-    }
+
+    const result = adapt(raw.body, ctx);
+
+    // Retry of an already-stored payload: no writes, re-derive the outcome.
+    if (inserted.rowCount === 0) return terminal(result);
     const payloadId = inserted.rows[0].id;
 
-    const result = adapt(raw.body, {
-      product: raw.product,
-      httpStatus: raw.httpStatus,
-      receivedAt: raw.receivedAt,
-    });
-
     if (!result.ok) {
+      if (isNoData(result.errors)) {
+        // Evidence kept at 'pending'; consultation status untouched so the
+        // caller can route to the SCR-pending flow.
+        return { status: "no_data" };
+      }
       // JSON paths only — validation_errors never carries a payload value.
       await client.query(
         `update bureau_payloads

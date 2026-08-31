@@ -12,12 +12,14 @@ import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/deps/scr-auth
 import type { ScrMode } from "@/actions/consultations";
 import { generateCompanyParecer } from "@/lib/ai/opinion";
 import { recordAudit } from "@/lib/audit";
+import { getRequiredSession } from "@/lib/auth/session";
 import { COMPANY_PROMPT_VERSION } from "@/lib/ai/prompt";
 import { getAiPrompt } from "@/actions/settings";
 import { toAptitudeStatus } from "@/types/ai";
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 import type { Database, Json } from "@/types/supabase";
 import type { DepsRawConsult } from "@/types/deps";
+import type { DbIdentity } from "@/lib/db/transaction";
 import type { EntityKind } from "@/types/app";
 
 // Alias curto para o client server-side (ver clients.ts / server.ts).
@@ -30,6 +32,16 @@ async function currentUserId(): Promise<string | null> {
     data: { user },
   } = await createClient().auth.getUser();
   return user?.id ?? null;
+}
+
+// Identidade (userId + role) para as transações user-scoped do Postgres.
+async function currentIdentity(): Promise<DbIdentity | null> {
+  try {
+    const s = await getRequiredSession();
+    return { userId: s.userId, role: s.role };
+  } catch {
+    return null;
+  }
 }
 
 const json = (v: unknown): Json => v as Json;
@@ -139,7 +151,7 @@ async function ensureCrmClient(
 async function consultExistingMember(args: {
   supabase: SupabaseClient<Database>;
   deps: Deps;
-  userId: string;
+  identity: DbIdentity;
   queryId: string;
   type: EntityKind;
   document: string;
@@ -149,7 +161,8 @@ async function consultExistingMember(args: {
   scrMode: ScrMode;
   crmClientId: string | null;
 }): Promise<MemberOutcome> {
-  const { supabase, deps, userId, queryId, type, document, documentName, email, scrMode } = args;
+  const { supabase, deps, identity, queryId, type, document, documentName, email, scrMode } = args;
+  const userId = identity.userId;
   const product = depsProductName(type);
 
   // Modo internal: só consulta se houver autorização própria vigente no nosso BD.
@@ -220,29 +233,45 @@ async function consultExistingMember(args: {
     return "error";
   }
 
-  // Persistência atômica: payload bruto + adapter versionado + resultado
-  // canônico/status numa única transação user-scoped.
+  // Persistência atômica: payload bruto (evidência imutável) + adapter
+  // versionado + resultado canônico/status numa única transação user-scoped.
   const outcome = await executeConsultation({
-    identity: { userId, role: "consultant" },
+    identity,
     consultationId: queryId,
     entityKind: type,
     consult: async () => result,
   });
 
-  // 200 sem os blocos essenciais (identidade) → não conclui em branco.
+  // 200 sem bloco de identidade = documento sem dados / SCR ainda não aceito.
+  // Recuperável: mesmo caminho do 400 (payload já guardado como evidência).
+  if (outcome.status === "no_data") {
+    return markPending();
+  }
+
   if (outcome.status === "payload_incompatible") {
+    // Dados reais que não bateram com o formato canônico.
     await supabase
       .from("queries")
       .update({ status: "payload_incompatible" })
       .eq("id", queryId);
-    return "pending";
+    return "error";
   }
 
   // Nome real do bureau (canônico) vira o nome de exibição.
-  const displayName =
-    outcome.status === "completed"
-      ? outcome.canonical.subject.name || documentName
-      : documentName;
+  const displayName = outcome.canonical.subject.name || documentName;
+
+  // Dual-write para a tabela legada `queries` (a UI ainda lê dela; some no
+  // Task 9/11). O resultado canônico já foi persistido em `consultations`.
+  await supabase
+    .from("queries")
+    .update({
+      status: "completed",
+      document_name: displayName,
+      consulted_at: outcome.canonical.provider.consultedAt,
+      historico_consulta_id: outcome.canonical.provider.consultationId,
+      api_version: outcome.canonical.provider.apiVersion,
+    })
+    .eq("id", queryId);
 
   // O cliente do CRM foi criado com o nome que o operador digitou — que muitas
   // vezes é o próprio documento. Agora que o bureau devolveu o nome real, troca
@@ -439,8 +468,8 @@ export async function processCompanyMember(
   reuseExisting = true
 ): Promise<ProcessMemberResult> {
   const supabase = db();
-  const userId = await currentUserId();
-  if (!userId) return { outcome: "error" };
+  const identity = await currentIdentity();
+  if (!identity) return { outcome: "error" };
 
   const { data: q } = await supabase
     .from("queries")
@@ -467,6 +496,7 @@ export async function processCompanyMember(
     const map: Record<string, MemberOutcome> = {
       completed: "completed",
       pending_authorization: "pending",
+      payload_incompatible: "error",
       error: "error",
     };
     return { outcome: map[query.status] ?? "skipped" };
@@ -476,7 +506,7 @@ export async function processCompanyMember(
   const outcome = await consultExistingMember({
     supabase,
     deps,
-    userId,
+    identity,
     queryId: query.id,
     type: query.type,
     document: query.document,

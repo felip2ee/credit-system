@@ -41,8 +41,13 @@ const staff: DbIdentity = { userId: randomUUID(), role: "consultant" };
 
 // A valid PF body straight from the adapter fixture (array-wrapped envelope).
 const validBody: unknown = pfCurrent;
-// No pessoa / empresa identity block -> adapter fails closed.
-const incompatibleBody: unknown = { mix: { score: { data: { valor: 700 } } } };
+// Identity block present but wrong-typed name -> real data that fails schema
+// validation -> payload_incompatible.
+const incompatibleBody: unknown = {
+  mix: { pessoa: { data: { cpf: "39053344705", nome: 12345 } } },
+};
+// No identity block at all -> DEPS "documento sem dados / SCR pendente" -> no_data.
+const noDataBody: unknown = { mix: { score: { data: { valor: 700 } } } };
 
 const rawOf = (body: unknown): DepsRawConsult => ({
   httpStatus: 200,
@@ -55,6 +60,7 @@ const rawOf = (body: unknown): DepsRawConsult => ({
 const consultationIds = {
   valid: randomUUID(),
   incompatible: randomUUID(),
+  noData: randomUUID(),
   rollback: randomUUID(),
   idempotent: randomUUID(),
   network: randomUUID(),
@@ -181,9 +187,29 @@ describe.sequential("executeConsultation", () => {
     expect(payloads[0].validation_status).toBe("incompatible");
     expect(payloads[0].validation_errors.length).toBeGreaterThan(0);
     // Paths only — no payload values leaked into the error blob.
-    expect(JSON.stringify(payloads[0].validation_errors)).not.toContain("700");
+    expect(JSON.stringify(payloads[0].validation_errors)).not.toContain("12345");
 
     expect(await consultationStatus(id)).toBe("payload_incompatible");
+    expect(await resultRow(id)).toBeNull();
+  });
+
+  it("keeps a no-identity response as recoverable: payload stored 'pending', status untouched", async () => {
+    const id = consultationIds.noData;
+    const out = await executeConsultation({
+      identity: staff,
+      consultationId: id,
+      entityKind: "PF",
+      consult: async () => rawOf(noDataBody),
+    });
+
+    expect(out.status).toBe("no_data");
+
+    const payloads = await payloadRows(id);
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].validation_status).toBe("pending");
+
+    // Consultation status left for the caller's SCR-pending flow.
+    expect(await consultationStatus(id)).toBe("processing");
     expect(await resultRow(id)).toBeNull();
   });
 
@@ -220,7 +246,7 @@ describe.sequential("executeConsultation", () => {
     expect(await consultationStatus(id)).toBe("completed");
   });
 
-  it("treats a retry with the same payload as an idempotent no-op", async () => {
+  it("does not duplicate on a retry with the same payload; re-derives the outcome", async () => {
     const id = consultationIds.idempotent;
     const first = await executeConsultation({
       identity: staff,
@@ -236,7 +262,7 @@ describe.sequential("executeConsultation", () => {
       entityKind: "PF",
       consult: async () => rawOf(validBody),
     });
-    expect(second.status).toBe("idempotent");
+    expect(second.status).toBe("completed");
 
     expect(await payloadRows(id)).toHaveLength(1);
   });
