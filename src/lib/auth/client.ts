@@ -5,5 +5,5 @@ import { twoFactorClient } from "better-auth/client/plugins";
 
 export const authClient = createAuthClient({
   baseURL: "/api/auth",
-  plugins: [twoFactorClient({ twoFactorPage: "/auth/mfa" })],
+  plugins: [twoFactorClient({ twoFactorPage: "/mfa/verify" })],
 });

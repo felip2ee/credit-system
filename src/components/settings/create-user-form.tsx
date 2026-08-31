@@ -18,15 +18,10 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-interface CreatedUser {
-  email: string;
-  tempPassword: string;
-}
-
 export function CreateUserForm() {
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
-  const [created, setCreated] = useState<CreatedUser | null>(null);
+  const [created, setCreated] = useState<{ email: string } | null>(null);
 
   const {
     register,
@@ -51,7 +46,7 @@ export function CreateUserForm() {
         setServerError(result.error);
         return;
       }
-      setCreated({ email: result.email!, tempPassword: result.tempPassword! });
+      setCreated({ email: result.email! });
       reset();
     });
   };
@@ -99,17 +94,9 @@ export function CreateUserForm() {
 
       {created && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm">
-          <p className="font-medium text-emerald-900">
-            Usuário criado: {created.email}
-          </p>
+          <p className="font-medium text-emerald-900">Convite enviado</p>
           <p className="mt-1 text-emerald-800">
-            Senha temporária:{" "}
-            <code className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono">
-              {created.tempPassword}
-            </code>
-          </p>
-          <p className="mt-1 text-emerald-700">
-            Repasse com segurança — o usuário deve trocá-la no primeiro acesso.
+            Um link para definir a senha foi enviado para {created.email}.
           </p>
         </div>
       )}
