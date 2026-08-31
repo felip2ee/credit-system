@@ -10,6 +10,7 @@ export type QueryStatus =
   | "authorized"
   | "processing"
   | "completed"
+  | "payload_incompatible"
   | "error"
   | "rejected";
 
@@ -151,6 +152,7 @@ export const QUERY_STATUS_LABEL: Record<QueryStatus, string> = {
   authorized: "Autorizada",
   processing: "Processando",
   completed: "Concluída",
+  payload_incompatible: "Dados incompatíveis",
   error: "Erro",
   rejected: "Recusada",
 };

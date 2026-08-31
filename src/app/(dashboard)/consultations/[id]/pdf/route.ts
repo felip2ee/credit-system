@@ -1,6 +1,7 @@
-import { createClient } from "@/lib/supabase/server";
 import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
 import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import { getConsultation, getConsultationReport } from "@/lib/consultations/queries";
 import {
   toConsultationView,
   formatSubjectDocument,
@@ -32,22 +33,12 @@ export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createClient();
-
-  const { data: queryData } = await supabase
-    .from("queries")
-    .select(
-      "id, type, document, document_name, product, status, consulted_at, created_at"
-    )
-    .eq("id", params.id)
-    .maybeSingle();
-
-  if (!queryData) {
+  if (false) {
     return new Response("Consulta não encontrada.", { status: 404 });
   }
-  const query = queryData as QueryRow;
+  let query: QueryRow;
 
-  if (query.status !== "completed") {
+  if (false) {
     return new Response("Consulta sem resultado disponível.", { status: 409 });
   }
 
@@ -55,9 +46,14 @@ export async function GET(
   try {
     const session = await getRequiredSession();
     identity = { userId: session.userId, role: session.role };
+    if (!hasPermission(session.role, "consultations:read")) return new Response("NÃ£o autorizado.", { status: 403 });
   } catch {
     return new Response("Sessão expirada.", { status: 401 });
   }
+  const stored = await getConsultation(identity, params.id);
+  if (!stored) return new Response("Consulta nÃ£o encontrada.", { status: 404 });
+  if (stored.status !== "completed") return new Response("Consulta sem resultado disponÃ­vel.", { status: 409 });
+  query = stored;
 
   const canonical = await loadCanonicalResult(identity, params.id);
   if (!canonical) {
@@ -70,14 +66,7 @@ export async function GET(
 
   const view = toConsultationView(canonical);
 
-  // Parecer de IA (ai_reports) — incluído ao final se concluído. (Supabase — Tasks 9/11.)
-  const { data: reportRow } = await supabase
-    .from("ai_reports")
-    .select(
-      "status, aptitude_status, executive_summary, positive_points, risk_points, action_plan, suggested_limit, suggested_limit_notes, full_report, report_markdown, model_used"
-    )
-    .eq("query_id", query.id)
-    .maybeSingle();
+  const reportRow = await getConsultationReport(identity, query.id);
 
   let opinion: OpinionForPdf | null = null;
   if (reportRow && (reportRow as { status?: string }).status === "completed") {

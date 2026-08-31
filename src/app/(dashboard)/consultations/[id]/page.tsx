@@ -17,9 +17,10 @@ import {
 import type { Parecer } from "@/types/ai";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
 import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
 import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import { getConsultation, getConsultationReport } from "@/lib/consultations/queries";
 import {
   toConsultationView,
   incompatibleView,
@@ -47,38 +48,20 @@ export default async function ConsultationDetailPage({
 }: {
   params: { id: string };
 }) {
-  const supabase = createClient();
-
-  const { data: queryData } = await supabase
-    .from("queries")
-    .select(
-      "id, type, document, document_name, product, status, crm_client_id, consulted_at, created_at, error_message"
-    )
-    .eq("id", params.id)
-    .maybeSingle();
-
-  if (!queryData) notFound();
-  const query = queryData as QueryRow;
+  const session = await getRequiredSession();
+  if (!hasPermission(session.role, "consultations:read")) notFound();
+  const identity = { userId: session.userId, role: session.role } as const;
+  const query = await getConsultation(identity, params.id);
+  if (!query) notFound();
 
   const docLabel =
     query.type === "PJ" ? formatCNPJ(query.document) : formatCPF(query.document);
 
   // `payload_incompatible` não faz parte do enum tipado de `queries` (Tasks 9/11).
-  const rawStatus = query.status as string;
   let view: ConsultationView | IncompatibleView | null = null;
   let opinion: OpinionData | null = null;
-  if (query.status === "completed" || rawStatus === "payload_incompatible") {
-    let identity;
-    try {
-      const session = await getRequiredSession();
-      identity = { userId: session.userId, role: session.role };
-    } catch {
-      identity = null;
-    }
-
-    const canonical = identity
-      ? await loadCanonicalResult(identity, query.id)
-      : null;
+  if (query.status === "completed" || query.status === "payload_incompatible") {
+    const canonical = await loadCanonicalResult(identity, query.id);
     if (canonical) {
       view = toConsultationView(canonical);
     } else {
@@ -86,13 +69,7 @@ export default async function ConsultationDetailPage({
       view = incompatibleView(query.id);
     }
 
-    const { data: reportRow } = await supabase
-      .from("ai_reports")
-      .select(
-        "status, aptitude_status, generation_error, report_markdown, full_report, model_used, generated_at"
-      )
-      .eq("query_id", query.id)
-      .maybeSingle();
+    const reportRow = await getConsultationReport(identity, query.id);
     if (reportRow) {
       const r = reportRow as Record<string, unknown>;
       opinion = {
