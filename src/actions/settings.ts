@@ -1,10 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { isAdmin } from "@/lib/auth";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import type { DbIdentity } from "@/lib/db/transaction";
+import {
+  deleteSettings,
+  readSetting,
+  readSettings,
+  upsertSettings,
+} from "@/lib/settings/queries";
 import {
   AI_PROMPT_KINDS,
   AI_PROMPT_LABEL,
@@ -16,24 +22,32 @@ import {
   SCR_SETTING_KEYS,
   SCR_TERM_DEFAULTS,
 } from "@/lib/scr/consent-term";
-import type { Database } from "@/types/supabase";
 
-function db(): SupabaseClient<Database> {
-  return createClient();
+async function readerIdentity(): Promise<DbIdentity> {
+  const session = await getRequiredSession();
+  return { userId: session.userId, role: session.role };
 }
 
-// Lê o valor bruto armazenado para uma chave de prompt (ou null).
-async function readStored(kind: AiPromptKind): Promise<string | null> {
-  const { data } = await db()
-    .from("settings")
-    .select("value")
-    .eq("key", aiPromptKey(kind))
-    .maybeSingle();
-  const value = (data as { value: unknown } | null)?.value;
+async function adminIdentity(): Promise<DbIdentity | null> {
+  try {
+    const session = await getRequiredSession();
+    if (!hasPermission(session.role, "settings:write")) return null;
+    return { userId: session.userId, role: session.role };
+  } catch {
+    return null;
+  }
+}
+
+function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
-// Prompt efetivo (customizado no banco ou default em código). Usado na geração.
+// ── AI prompts ────────────────────────────────────────────────────────────
+
+async function readStored(kind: AiPromptKind): Promise<string | null> {
+  return asString(await readSetting(await readerIdentity(), aiPromptKey(kind)));
+}
+
 export async function getAiPrompt(kind: AiPromptKind): Promise<string> {
   return (await readStored(kind)) ?? DEFAULT_AI_PROMPTS[kind];
 }
@@ -41,26 +55,26 @@ export async function getAiPrompt(kind: AiPromptKind): Promise<string> {
 export interface AiPromptEntry {
   kind: AiPromptKind;
   label: string;
-  value: string; // efetivo (customizado ou default)
-  defaultValue: string; // default em código (para "restaurar padrão")
+  value: string;
+  defaultValue: string;
   isCustom: boolean;
 }
 
-// Todos os prompts para a tela de edição.
 export async function getAiPrompts(): Promise<AiPromptEntry[]> {
-  const entries = await Promise.all(
-    AI_PROMPT_KINDS.map(async (kind) => {
-      const stored = await readStored(kind);
-      return {
-        kind,
-        label: AI_PROMPT_LABEL[kind],
-        value: stored ?? DEFAULT_AI_PROMPTS[kind],
-        defaultValue: DEFAULT_AI_PROMPTS[kind],
-        isCustom: stored !== null,
-      };
-    })
+  const stored = await readSettings(
+    await readerIdentity(),
+    AI_PROMPT_KINDS.map(aiPromptKey),
   );
-  return entries;
+  return AI_PROMPT_KINDS.map((kind) => {
+    const value = asString(stored.get(aiPromptKey(kind)));
+    return {
+      kind,
+      label: AI_PROMPT_LABEL[kind],
+      value: value ?? DEFAULT_AI_PROMPTS[kind],
+      defaultValue: DEFAULT_AI_PROMPTS[kind],
+      isCustom: value !== null,
+    };
+  });
 }
 
 export interface SaveAiPromptsInput {
@@ -73,47 +87,43 @@ export interface SaveResult {
   error: string | null;
 }
 
-// Salva os 3 prompts (admin). Texto igual ao default (ou vazio) remove a chave,
-// mantendo o prompt "ligado" ao default do código. settings não tem política de
-// escrita RLS → grava via service-role após checar admin.
 export async function saveAiPrompts(input: SaveAiPromptsInput): Promise<SaveResult> {
-  if (!(await isAdmin())) {
+  const identity = await adminIdentity();
+  if (!identity) {
     return { error: "Apenas administradores podem editar os prompts." };
   }
 
-  const {
-    data: { user },
-  } = await createClient().auth.getUser();
-
-  const admin = createServiceClient();
   const values: Record<AiPromptKind, string> = {
     pf: input.pf,
     pj: input.pj,
     empresa: input.empresa,
   };
 
+  const toWrite: { key: string; value: unknown; description?: string }[] = [];
+  const toDelete: string[] = [];
   for (const kind of AI_PROMPT_KINDS) {
     const trimmed = values[kind].trim();
     const key = aiPromptKey(kind);
-
-    // Vazio ou idêntico ao default → remove (volta a seguir o default do código).
     if (trimmed.length === 0 || trimmed === DEFAULT_AI_PROMPTS[kind].trim()) {
-      const { error } = await admin.from("settings").delete().eq("key", key);
-      if (error) return { error: error.message };
-      continue;
-    }
-
-    const { error } = await admin.from("settings").upsert(
-      {
+      toDelete.push(key);
+    } else {
+      toWrite.push({
         key,
         value: trimmed,
         description: `System prompt — ${AI_PROMPT_LABEL[kind]}`,
-        updated_by: user?.id ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "key" }
-    );
-    if (error) return { error: error.message };
+      });
+    }
+  }
+
+  try {
+    if (toWrite.length > 0) {
+      await upsertSettings(identity, toWrite, "settings.prompts_update");
+    }
+    if (toDelete.length > 0) {
+      await deleteSettings(identity, toDelete, "settings.prompts_reset");
+    }
+  } catch {
+    return { error: "Falha ao salvar os prompts." };
   }
 
   revalidatePath("/settings/prompts");
@@ -125,14 +135,8 @@ export async function saveAiPrompts(input: SaveAiPromptsInput): Promise<SaveResu
 const COMMISSION_RATE_KEY = "default_commission_rate";
 const DEFAULT_COMMISSION_RATE = 6; // % do valor aprovado
 
-// Taxa efetiva (configurada no banco ou default em código). Usada no Dashboard.
 export async function getCommissionRate(): Promise<number> {
-  const { data } = await createServiceClient()
-    .from("settings")
-    .select("value")
-    .eq("key", COMMISSION_RATE_KEY)
-    .maybeSingle();
-  const raw = (data as { value: unknown } | null)?.value;
+  const raw = await readSetting(await readerIdentity(), COMMISSION_RATE_KEY);
   const num =
     typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
   return Number.isFinite(num) && num >= 0 && num <= 100
@@ -141,30 +145,30 @@ export async function getCommissionRate(): Promise<number> {
 }
 
 export async function saveCommissionRate(rate: number): Promise<SaveResult> {
-  if (!(await isAdmin())) {
+  const identity = await adminIdentity();
+  if (!identity) {
     return { error: "Apenas administradores podem editar a comissão." };
   }
   if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
     return { error: "Informe um percentual entre 0 e 100." };
   }
-  const {
-    data: { user },
-  } = await createClient().auth.getUser();
 
-  const { error } = await createServiceClient()
-    .from("settings")
-    .upsert(
-      {
-        key: COMMISSION_RATE_KEY,
-        value: rate,
-        description:
-          "Comissão bruta padrão estimada (% do valor aprovado) usada no Dashboard",
-        updated_by: user?.id ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "key" }
+  try {
+    await upsertSettings(
+      identity,
+      [
+        {
+          key: COMMISSION_RATE_KEY,
+          value: rate,
+          description:
+            "Comissão bruta padrão estimada (% do valor aprovado) usada no Dashboard",
+        },
+      ],
+      "settings.commission_update",
     );
-  if (error) return { error: error.message };
+  } catch {
+    return { error: "Falha ao salvar a comissão." };
+  }
 
   revalidatePath("/settings/commission");
   revalidatePath("/");
@@ -180,84 +184,67 @@ export interface ScrTermSettings {
   city: string;
 }
 
-// Lê um setting de texto (jsonb string) com fallback.
-async function readSettingString(
-  supabase: SupabaseClient<Database>,
-  key: string,
-  fallback: string
-): Promise<string> {
-  const { data } = await supabase
-    .from("settings")
-    .select("value")
-    .eq("key", key)
-    .maybeSingle();
-  const value = (data as { value: unknown } | null)?.value;
-  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
-}
-
-// Configurações efetivas do termo SCR (usadas no disparo da autorização).
 export async function getScrTermSettings(): Promise<ScrTermSettings> {
-  const supabase = createServiceClient();
-  const [authorizedName, authorizedDocument, institutionName, city] =
-    await Promise.all([
-      readSettingString(
-        supabase,
-        SCR_SETTING_KEYS.authorizedName,
-        SCR_TERM_DEFAULTS.authorizedName
-      ),
-      readSettingString(
-        supabase,
-        SCR_SETTING_KEYS.authorizedDocument,
-        SCR_TERM_DEFAULTS.authorizedDocument
-      ),
-      readSettingString(
-        supabase,
-        SCR_SETTING_KEYS.institutionName,
-        SCR_TERM_DEFAULTS.institutionName
-      ),
-      readSettingString(supabase, SCR_SETTING_KEYS.city, SCR_TERM_DEFAULTS.city),
-    ]);
-  return { authorizedName, authorizedDocument, institutionName, city };
+  const stored = await readSettings(await readerIdentity(), [
+    SCR_SETTING_KEYS.authorizedName,
+    SCR_SETTING_KEYS.authorizedDocument,
+    SCR_SETTING_KEYS.institutionName,
+    SCR_SETTING_KEYS.city,
+  ]);
+  const pick = (key: string, fallback: string) =>
+    asString(stored.get(key)) ?? fallback;
+  return {
+    authorizedName: pick(
+      SCR_SETTING_KEYS.authorizedName,
+      SCR_TERM_DEFAULTS.authorizedName,
+    ),
+    authorizedDocument: pick(
+      SCR_SETTING_KEYS.authorizedDocument,
+      SCR_TERM_DEFAULTS.authorizedDocument,
+    ),
+    institutionName: pick(
+      SCR_SETTING_KEYS.institutionName,
+      SCR_TERM_DEFAULTS.institutionName,
+    ),
+    city: pick(SCR_SETTING_KEYS.city, SCR_TERM_DEFAULTS.city),
+  };
 }
 
 export async function saveScrTermSettings(
   input: ScrTermSettings
 ): Promise<SaveResult> {
-  if (!(await isAdmin())) {
+  const identity = await adminIdentity();
+  if (!identity) {
     return { error: "Apenas administradores podem editar o termo SCR." };
   }
-  const {
-    data: { user },
-  } = await createClient().auth.getUser();
 
-  const admin = createServiceClient();
-  // CNPJ do operador é opcional; nome, instituição e cidade são obrigatórios.
-  const required: { key: string; value: string }[] = [
-    { key: SCR_SETTING_KEYS.authorizedName, value: input.authorizedName.trim() },
-    { key: SCR_SETTING_KEYS.institutionName, value: input.institutionName.trim() },
-    { key: SCR_SETTING_KEYS.city, value: input.city.trim() },
-  ];
-  if (required.some((e) => e.value.length === 0)) {
+  const authorizedName = input.authorizedName.trim();
+  const institutionName = input.institutionName.trim();
+  const city = input.city.trim();
+  if (
+    authorizedName.length === 0 ||
+    institutionName.length === 0 ||
+    city.length === 0
+  ) {
     return { error: "Preencha nome, instituição e cidade do termo." };
   }
-  const entries: { key: string; value: string }[] = [
-    ...required,
-    {
-      key: SCR_SETTING_KEYS.authorizedDocument,
-      value: input.authorizedDocument.trim(),
-    },
-  ];
-  for (const e of entries) {
-    const { error } = await admin.from("settings").upsert(
-      {
-        key: e.key,
-        value: e.value,
-        updated_by: user?.id ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "key" }
+
+  try {
+    await upsertSettings(
+      identity,
+      [
+        { key: SCR_SETTING_KEYS.authorizedName, value: authorizedName },
+        { key: SCR_SETTING_KEYS.institutionName, value: institutionName },
+        { key: SCR_SETTING_KEYS.city, value: city },
+        {
+          key: SCR_SETTING_KEYS.authorizedDocument,
+          value: input.authorizedDocument.trim(),
+        },
+      ],
+      "settings.scr_update",
     );
-    if (error) return { error: error.message };
+  } catch {
+    return { error: "Falha ao salvar o termo SCR." };
   }
 
   revalidatePath("/settings/scr");

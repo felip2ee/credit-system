@@ -15,11 +15,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { getCurrentProfile } from "@/lib/auth";
+import { redirect } from "next/navigation";
+
+import { getRequiredSession } from "@/lib/auth/session";
 
 export default async function SettingsPage() {
-  const profile = await getCurrentProfile();
-  const admin = profile?.role === "admin";
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  const admin = session.role === "admin";
 
   return (
     <div>

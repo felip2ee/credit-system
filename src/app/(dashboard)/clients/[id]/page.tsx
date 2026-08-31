@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ChevronRight, Pencil, Plus } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -21,33 +21,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { getClientDetail } from "@/lib/clients/queries";
 import { formatCNPJ, formatCPF, formatCurrency, formatDate } from "@/lib/utils";
 import type {
-  CrmClient,
-  Opportunity,
   OpportunityStatus,
   QueryStatus,
   TimelineEvent,
 } from "@/types/app";
-
-interface RelationRow {
-  client_id: string;
-  related_id: string;
-  percentage: number | null;
-  role: string | null;
-}
-
-interface ClientConsultation {
-  id: string;
-  type: "PF" | "PJ";
-  document: string;
-  document_name: string | null;
-  product: string | null;
-  status: QueryStatus;
-  consulted_at: string | null;
-  created_at: string;
-}
 
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
@@ -63,51 +44,18 @@ export default async function ClientDetailPage({
 }: {
   params: { id: string };
 }) {
-  const supabase = createClient();
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  const detail = await getClientDetail(session, params.id);
+  if (!detail) notFound();
 
-  const { data: clientData } = await supabase
-    .from("crm_clients")
-    .select("*")
-    .eq("id", params.id)
-    .maybeSingle();
-
-  if (!clientData) notFound();
-  const client = clientData as CrmClient;
-
-  // Relações de sociedade nos dois sentidos.
-  const { data: relData } = await supabase
-    .from("crm_client_relations")
-    .select("client_id, related_id, percentage, role")
-    .eq("relation_type", "socio")
-    .or(`client_id.eq.${client.id},related_id.eq.${client.id}`);
-  const relations = (relData ?? []) as RelationRow[];
+  const { client, relations, people, events: eventRows, consultations, opportunities } =
+    detail;
+  const events = eventRows as unknown as TimelineEvent[];
 
   const socioRels = relations.filter((r) => r.client_id === client.id);
   const participationRels = relations.filter((r) => r.related_id === client.id);
 
-  const referencedIds = Array.from(
-    new Set([
-      ...socioRels.map((r) => r.related_id),
-      ...participationRels.map((r) => r.client_id),
-    ])
-  );
-
-  const peopleMap = new Map<
-    string,
-    Pick<CrmClient, "id" | "name" | "document" | "type">
-  >();
-  if (referencedIds.length > 0) {
-    const { data: people } = await supabase
-      .from("crm_clients")
-      .select("id, name, document, type")
-      .in("id", referencedIds);
-    for (const p of (people ?? []) as Pick<
-      CrmClient,
-      "id" | "name" | "document" | "type"
-    >[]) {
-      peopleMap.set(p.id, p);
-    }
-  }
+  const peopleMap = new Map(people.map((p) => [p.id, p]));
 
   const partners: PartnerItem[] = socioRels.map((r) => {
     const person = peopleMap.get(r.related_id);
@@ -128,37 +76,6 @@ export default async function ClientDetailPage({
       document: person?.document ?? null,
     };
   });
-
-  const { data: eventsData } = await supabase
-    .from("timeline_events")
-    .select("*")
-    .eq("entity_type", "crm_client")
-    .eq("entity_id", client.id)
-    .order("created_at", { ascending: false });
-  const events = (eventsData ?? []) as TimelineEvent[];
-
-  // Consultas deste cliente (mais recentes primeiro) — abrem direto na ficha.
-  const { data: queriesData } = await supabase
-    .from("queries")
-    .select(
-      "id, type, document, document_name, product, status, consulted_at, created_at"
-    )
-    .eq("crm_client_id", client.id)
-    .order("created_at", { ascending: false })
-    .limit(50);
-  const consultations = (queriesData ?? []) as ClientConsultation[];
-
-  // Oportunidades deste cliente.
-  const { data: oppData } = await supabase
-    .from("opportunities")
-    .select("id, status, requested_amount, partner_name, created_at")
-    .eq("crm_client_id", client.id)
-    .order("created_at", { ascending: false })
-    .limit(50);
-  const opportunities = (oppData ?? []) as Pick<
-    Opportunity,
-    "id" | "status" | "requested_amount" | "partner_name" | "created_at"
-  >[];
 
   const documentLabel = client.document
     ? client.type === "PJ"
@@ -288,7 +205,7 @@ export default async function ClientDetailPage({
                               .join(" · ")}
                           </p>
                         </div>
-                        <QueryStatusBadge status={c.status} />
+                        <QueryStatusBadge status={c.status as QueryStatus} />
                         <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                       </Link>
                     </li>

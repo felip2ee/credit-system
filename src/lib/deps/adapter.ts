@@ -11,7 +11,6 @@
 
 import { z } from "zod";
 
-import { summarizeProtestos } from "./protestos";
 import {
   ADAPTER_VERSION,
   type AdaptContext,
@@ -181,6 +180,82 @@ function mapDebts(mix: Record<string, unknown>): CanonicalBureauResult["debts"] 
   }
 
   return { total: items.length, amountCents: sumCents(items), items };
+}
+
+// ── protestos: DEPS returns a consolidated OBJECT (not a list); normalize both
+// the current object shape and the legacy array shape. Inlined from the former
+// deps/protestos.ts (its only importer).
+interface ProtestoOcorrencia {
+  cartorio: string | null;
+  uf: string | null;
+  data: string | null;
+  valor: number | null;
+}
+interface ProtestosSummary {
+  total: number;
+  valorTotal: number | null;
+  ocorrencias: ProtestoOcorrencia[];
+}
+
+function summarizeProtestos(data: unknown): ProtestosSummary {
+  const EMPTY: ProtestosSummary = { total: 0, valorTotal: null, ocorrencias: [] };
+  const pStr = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  const pNum = (v: unknown): number | null => (typeof v === "number" ? v : null);
+
+  if (data == null) return EMPTY;
+
+  if (Array.isArray(data)) {
+    const ocorrencias = data.map((o) => {
+      const r = (o ?? {}) as Record<string, unknown>;
+      return {
+        cartorio: pStr(r.cartorio),
+        uf: pStr(r.uf),
+        data: pStr(r.data),
+        valor: pNum(r.valor),
+      };
+    });
+    const soma = ocorrencias.reduce((acc, o) => acc + (o.valor ?? 0), 0);
+    return { total: ocorrencias.length, valorTotal: soma || null, ocorrencias };
+  }
+
+  if (typeof data !== "object") return EMPTY;
+  const d = data as Record<string, unknown>;
+
+  const ocorrencias: ProtestoOcorrencia[] = [];
+  const cartorios = Array.isArray(d.cartorios) ? d.cartorios : [];
+  for (const c of cartorios) {
+    const cr = (c ?? {}) as Record<string, unknown>;
+    const lista = Array.isArray(cr.protestos) ? cr.protestos : [];
+    for (const p of lista) {
+      const pr = (p ?? {}) as Record<string, unknown>;
+      ocorrencias.push({
+        cartorio: pStr(cr.nome),
+        uf: pStr(cr.uf),
+        data: pStr(pr.data),
+        valor: pNum(pr.valor),
+      });
+    }
+  }
+  if (ocorrencias.length === 0 && Array.isArray(d.ultimasOcorrencias)) {
+    for (const o of d.ultimasOcorrencias) {
+      const r = (o ?? {}) as Record<string, unknown>;
+      ocorrencias.push({
+        cartorio: pStr(r.cartorio),
+        uf: pStr(r.uf),
+        data: pStr(r.data),
+        valor: pNum(r.valor),
+      });
+    }
+  }
+
+  const total = pNum(d.quantidadeTotal) ?? ocorrencias.length;
+  const valorTotal =
+    pNum(d.valorTotal) ??
+    (ocorrencias.length > 0
+      ? ocorrencias.reduce((acc, o) => acc + (o.valor ?? 0), 0) || null
+      : null);
+
+  return { total, valorTotal, ocorrencias };
 }
 
 function mapProtests(mix: Record<string, unknown>): CanonicalBureauResult["protests"] {

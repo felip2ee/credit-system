@@ -24,9 +24,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+
 import { getCommissionRate } from "@/actions/settings";
-import { getCurrentProfile } from "@/lib/auth";
+import { getRequiredSession } from "@/lib/auth/session";
+import { getConsultantNames, getDashboardMetrics } from "@/lib/dashboard/queries";
 import { formatCurrency } from "@/lib/utils";
 import {
   OPPORTUNITY_STATUS_LABEL,
@@ -167,70 +169,23 @@ interface ConsultantStat {
 }
 
 export default async function DashboardPage() {
-  const supabase = createClient();
-  const profile = await getCurrentProfile();
-  const isAdmin = profile?.role === "admin";
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  const isAdmin = session.role === "admin";
   const commissionRate = await getCommissionRate();
 
   const { startToday, startMonth } = brBoundaries();
   const months = lastSixMonths();
   const start6mo = monthStartISO(months[0].year, months[0].month);
 
-  const baseQueries = () =>
-    supabase.from("queries").select("*", { count: "exact", head: true });
-
-  const [
-    hoje,
-    mes,
-    scrPend,
-    clientes,
-    pareceres,
-    processos,
-    cCompleted,
-    cPending,
-    cProcessing,
-    cError,
-    oppRes,
-    scrRes,
-    aiRes,
-    queriesRes,
-  ] = await Promise.all([
-    baseQueries().gte("created_at", startToday),
-    baseQueries().gte("created_at", startMonth),
-    supabase
-      .from("scr_authorizations")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "pending"),
-    supabase.from("crm_clients").select("*", { count: "exact", head: true }),
-    supabase
-      .from("ai_reports")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "completed"),
-    supabase
-      .from("batches")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "processing"),
-    baseQueries().eq("status", "completed"),
-    baseQueries().eq("status", "pending_authorization"),
-    baseQueries().eq("status", "processing"),
-    baseQueries().eq("status", "error"),
-    supabase
-      .from("opportunities")
-      .select(
-        "status, assigned_to, approved_amount, commission_rate, commission_amount"
-      ),
-    supabase.from("scr_authorizations").select("status"),
-    supabase.from("ai_reports").select("aptitude_status"),
-    supabase
-      .from("queries")
-      .select("created_at, type")
-      .gte("created_at", start6mo),
-  ]);
-
-  const n = (r: { count: number | null }) => r.count ?? 0;
+  const metrics = await getDashboardMetrics(session, {
+    startToday,
+    startMonth,
+    start6mo,
+  });
+  const { counts } = metrics;
 
   // ── Oportunidades / conversão / comissões ──────────────────
-  const oppRows = (oppRes.data ?? []) as OppRow[];
+  const oppRows = metrics.opportunities as OppRow[];
   const oppCounts = {} as Record<OpportunityStatus, number>;
   for (const s of OPP_ORDER) oppCounts[s] = 0;
   for (const r of oppRows) {
@@ -273,16 +228,9 @@ export default async function DashboardPage() {
   // Nomes dos consultores (só admin lê profiles de terceiros via RLS).
   let consultants: ConsultantStat[] = [];
   if (isAdmin && statByConsultant.size > 0) {
-    const ids = Array.from(statByConsultant.keys());
-    const { data: profs } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", ids);
-    const nameById = new Map(
-      ((profs ?? []) as { id: string; full_name: string }[]).map((p) => [
-        p.id,
-        p.full_name,
-      ])
+    const nameById = await getConsultantNames(
+      session,
+      Array.from(statByConsultant.keys())
     );
     consultants = Array.from(statByConsultant.values())
       .map((c) => ({ ...c, name: nameById.get(c.id) ?? "—" }))
@@ -290,7 +238,9 @@ export default async function DashboardPage() {
   }
 
   // ── Compliance SCR ─────────────────────────────────────────
-  const scrRows = (scrRes.data ?? []) as { status: ScrStatus }[];
+  const scrRows = metrics.scrStatuses.map((status) => ({
+    status: status as ScrStatus,
+  }));
   const scrCounts = {} as Record<ScrStatus, number>;
   for (const s of SCR_ORDER) scrCounts[s] = 0;
   for (const r of scrRows) {
@@ -300,7 +250,9 @@ export default async function DashboardPage() {
   const scrCompliance = pct(scrCounts.authorized, scrTotal);
 
   // ── Aptidão dos pareceres ──────────────────────────────────
-  const aiRows = (aiRes.data ?? []) as { aptitude_status: Aptitude | null }[];
+  const aiRows = metrics.aptitudes.map((aptitude_status) => ({
+    aptitude_status: aptitude_status as Aptitude | null,
+  }));
   const aptCounts = {} as Record<Aptitude, number>;
   for (const a of APTITUDE_ORDER) aptCounts[a] = 0;
   for (const r of aiRows) {
@@ -309,7 +261,7 @@ export default async function DashboardPage() {
   }
 
   // ── Consultas por mês (PF/PJ) ──────────────────────────────
-  const queryRows = (queriesRes.data ?? []) as {
+  const queryRows = metrics.monthlyQueries as {
     created_at: string;
     type: EntityKind;
   }[];
@@ -332,22 +284,22 @@ export default async function DashboardPage() {
 
   // ── KPIs ───────────────────────────────────────────────────
   const primary = [
-    { label: "Consultas hoje", value: String(n(hoje)), hint: "Criadas hoje", href: "/consultations", icon: Search },
-    { label: "Consultas no mês", value: String(n(mes)), hint: "Mês corrente", href: "/consultations", icon: Search },
+    { label: "Consultas hoje", value: String(counts.today), hint: "Criadas hoje", href: "/consultations", icon: Search },
+    { label: "Consultas no mês", value: String(counts.month), hint: "Mês corrente", href: "/consultations", icon: Search },
     { label: "Taxa de conversão", value: convRate === null ? "—" : `${convRate}%`, hint: `${won} ganhas de ${decided} decididas`, href: "/opportunities", icon: Briefcase },
-    { label: "Aguardando SCR", value: String(n(scrPend)), hint: "Autorizações pendentes", href: "/scr", icon: ShieldCheck },
+    { label: "Aguardando SCR", value: String(counts.scrPending), hint: "Autorizações pendentes", href: "/scr", icon: ShieldCheck },
   ];
   const secondary = [
-    { label: "Clientes", value: String(n(clientes)), hint: "Cadastrados", href: "/clients", icon: Users },
-    { label: "Pareceres de IA", value: String(n(pareceres)), hint: "Gerados", href: "/consultations", icon: Bot },
-    { label: "Processos em andamento", value: String(n(processos)), hint: "Empresas em análise", href: "/batch", icon: Layers },
+    { label: "Clientes", value: String(counts.clients), hint: "Cadastrados", href: "/clients", icon: Users },
+    { label: "Pareceres de IA", value: String(counts.aiCompleted), hint: "Gerados", href: "/consultations", icon: Bot },
+    { label: "Processos em andamento", value: String(counts.batchesProcessing), hint: "Empresas em análise", href: "/batch", icon: Layers },
   ];
 
   const pipeline = {
-    completed: n(cCompleted),
-    pending_authorization: n(cPending),
-    processing: n(cProcessing),
-    error: n(cError),
+    completed: counts.cCompleted,
+    pending_authorization: counts.cPending,
+    processing: counts.cProcessing,
+    error: counts.cError,
   } as Record<QueryStatus, number>;
   const pipelineTotal = PIPELINE_ORDER.reduce((acc, s) => acc + pipeline[s], 0);
 

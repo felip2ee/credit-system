@@ -14,9 +14,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createClient } from "@/lib/supabase/server";
-import { formatCNPJ, formatCPF, formatDate, onlyDigits } from "@/lib/utils";
-import type { CrmClient } from "@/types/app";
+import { redirect } from "next/navigation";
+
+import { getRequiredSession } from "@/lib/auth/session";
+import { listClients } from "@/lib/clients/queries";
+import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
 
 interface SearchParams {
   q?: string;
@@ -29,35 +31,8 @@ export default async function ClientsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const supabase = createClient();
-
-  let query = supabase
-    .from("crm_clients")
-    .select(
-      "id, type, name, document, status, city, state, updated_at"
-    )
-    .order("updated_at", { ascending: false })
-    .limit(100);
-
-  if (searchParams.type === "PF" || searchParams.type === "PJ") {
-    query = query.eq("type", searchParams.type);
-  }
-  if (searchParams.status) {
-    query = query.eq("status", searchParams.status);
-  }
-  if (searchParams.q) {
-    const term = searchParams.q.trim();
-    const docTerm = onlyDigits(term);
-    const clauses = [`name.ilike.%${term}%`];
-    if (docTerm.length > 0) clauses.push(`document.ilike.%${docTerm}%`);
-    query = query.or(clauses.join(","));
-  }
-
-  const { data } = await query;
-  const clients = (data ?? []) as Pick<
-    CrmClient,
-    "id" | "type" | "name" | "document" | "status" | "city" | "state" | "updated_at"
-  >[];
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  const clients = await listClients(session, searchParams);
 
   return (
     <div className="space-y-6">

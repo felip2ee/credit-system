@@ -1,28 +1,24 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { ClientForm } from "@/components/clients/client-form";
-import { createClient } from "@/lib/supabase/server";
-import type { CrmClient } from "@/types/app";
+import { getRequiredSession } from "@/lib/auth/session";
+import { getClientForEdit } from "@/lib/clients/queries";
 
 export default async function EditClientPage({
   params,
 }: {
   params: { id: string };
 }) {
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("crm_clients")
-    .select("*")
-    .eq("id", params.id)
-    .maybeSingle();
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  const client = await getClientForEdit(session, params.id);
 
-  if (!data) notFound();
+  if (!client) notFound();
 
   return (
     <div className="max-w-3xl">
-      <PageHeader title="Editar cliente" description={(data as CrmClient).name} />
-      <ClientForm initial={data as CrmClient} />
+      <PageHeader title="Editar cliente" description={client.name} />
+      <ClientForm initial={client} />
     </div>
   );
 }
