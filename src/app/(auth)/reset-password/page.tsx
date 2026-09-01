@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-
+import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,40 +16,30 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createClient } from "@/lib/supabase/client";
 
 const schema = z.object({
   email: z.string().email("Informe um e-mail válido."),
 });
-
 type FormValues = z.infer<typeof schema>;
 
 export default function ResetPasswordPage() {
-  const supabase = createClient();
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: { email: "" },
-  });
-
-  const onSubmit = async (values: FormValues) => {
+  } = useForm<FormValues>({ resolver: zodResolver(schema) });
+  const onSubmit = async ({ email }: FormValues) => {
     setError(null);
-    const { error } = await supabase.auth.resetPasswordForEmail(values.email, {
-      redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
+    const result = await authClient.requestPasswordReset({
+      email,
+      redirectTo: `${window.location.origin}/update-password`,
     });
-    if (error) {
-      setError("Não foi possível enviar o e-mail. Tente novamente.");
-      return;
-    }
+    if (result.error)
+      return setError("Não foi possível enviar o e-mail. Tente novamente.");
     setSent(true);
   };
-
   return (
     <Card className="w-full max-w-sm">
       <CardHeader className="space-y-1 text-center">

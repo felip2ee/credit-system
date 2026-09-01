@@ -12,9 +12,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { listScrAuthorizations } from "@/lib/scr/queries";
 import { cn, formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
-import type { ScrAuthorization } from "@/types/app";
 
 type Tab = "pending" | "granted" | "history";
 
@@ -42,20 +43,9 @@ export default async function ScrPage({
       ? searchParams.tab
       : "pending";
 
-  const supabase = createClient();
-  let query = supabase
-    .from("scr_authorizations")
-    .select(
-      "id, document, type, name, email, status, requested_at, authorized_at, expires_at, last_checked_at"
-    )
-    .order("requested_at", { ascending: false })
-    .limit(200);
-
-  if (tab === "pending") query = query.eq("status", "pending");
-  else if (tab === "granted") query = query.eq("status", "authorized");
-
-  const { data } = await query;
-  const rows = (data ?? []) as ScrAuthorization[];
+  const session = await getRequiredSession();
+  if (!hasPermission(session.role, "consultations:read")) return null;
+  const rows = await listScrAuthorizations({ userId: session.userId, role: session.role }, tab === "pending" ? "pending" : tab === "granted" ? "authorized" : undefined);
 
   return (
     <div className="space-y-6">

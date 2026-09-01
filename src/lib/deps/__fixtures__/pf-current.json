@@ -1,0 +1,111 @@
+[
+  {
+    "mix": {
+      "historicoConsultaId": "00000000-0000-0000-0000-000000000001",
+      "dataConsulta": "2026-02-10T13:45:00Z",
+      "versao": 3,
+      "pessoa": {
+        "success": true,
+        "message": "Consulta realizada com sucesso",
+        "data": {
+          "cpf": "390.533.447-05",
+          "nome": "Fulano De Tal Anonimo",
+          "nomeMae": "Beltrana De Tal Anonima",
+          "dataNascimento": "1985-07-12",
+          "idade": 40,
+          "situacaoCadastral": "REGULAR",
+          "obito": false,
+          "politicamenteExposta": false,
+          "dadosCadastrais": {
+            "cidade": "Cidade Exemplo",
+            "uf": "SP",
+            "endereco": "Rua Anonima",
+            "numero": "100",
+            "bairro": "Bairro Exemplo",
+            "cep": "00000-000"
+          }
+        }
+      },
+      "score": {
+        "success": true,
+        "message": "ok",
+        "data": {
+          "score": 742,
+          "risco": "Medio",
+          "descricao": "Risco medio de inadimplencia",
+          "probabilidadePagamento": 88
+        }
+      },
+      "smart": {
+        "success": true,
+        "message": "ok",
+        "data": {
+          "classificacao": {
+            "classificacao": "B",
+            "limiteSugerido": 3500,
+            "pontuacaoAtingida": 61
+          },
+          "parecer": { "aprovado": true, "motivo": "Dentro da politica" },
+          "positivas": [
+            { "metrica": "M1", "descricao": "Historico positivo", "pontuacao": 10, "impacto": 5, "percentualMetrica": 12 }
+          ],
+          "negativas": []
+        }
+      },
+      "rendaPresumida": {
+        "success": true,
+        "message": "ok",
+        "data": { "descricao": "R$ 4.000,00 a R$ 6.000,00", "valor": 5000, "valorMinimo": 4000, "valorMaximo": 6000 }
+      },
+      "scr": { "success": true, "message": "Sem operacoes", "data": null },
+      "pendenciasRestricoes": {
+        "success": true,
+        "message": "ok",
+        "data": {
+          "totalPendencias": 1,
+          "totalCredores": 1,
+          "valor": 1250.5,
+          "ocorrencias": [
+            { "informante": "Credor Anonimo", "tipo": "Financiamento", "valor": 1250.5, "dataDebito": "2025-11-03", "uf": "SP", "cidade": "Cidade Exemplo" }
+          ]
+        }
+      },
+      "acoesJudiciais": { "success": true, "message": "Nada consta", "data": null },
+      "protestos": {
+        "success": true,
+        "message": "ok",
+        "data": {
+          "quantidadeTotal": 1,
+          "valorTotal": 812.34,
+          "cartorios": [
+            { "nome": "1 Tabelionato Anonimo", "uf": "SP", "protestos": [{ "data": "2025-09-20", "valor": 812.34 }] }
+          ]
+        }
+      },
+      "restricoesCheques": {
+        "chequesDevolvidosSemFundo": { "message": "Nada consta" },
+        "chequesDevolvidosOutrosMotivos": { "message": "Nada consta" }
+      },
+      "consultas": {
+        "success": true,
+        "message": "ok",
+        "data": {
+          "contagemUltimos30Dias": 2,
+          "contagemUltimos31a60Dias": 1,
+          "contagemUltimos61a90Dias": 0,
+          "contagem90DiasMais": 4,
+          "detalhes": [
+            { "dataConsulta": "2026-01-15", "quantidadeConsultas": 1, "segmento": "Financeiro" }
+          ]
+        }
+      },
+      "participacaoEmpresa": {
+        "success": true,
+        "message": "ok",
+        "data": [
+          { "cnpj": "11.222.333/0001-81", "nome": "Empresa Anonima Ltda", "cargo": "Socio", "percentualParticipacao": 50 }
+        ]
+      }
+    }
+  }
+]

@@ -18,8 +18,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getCurrentProfile } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { withUserTransaction } from "@/lib/db/transaction";
 import { formatDate } from "@/lib/utils";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -38,18 +39,17 @@ interface UserRow {
 }
 
 export default async function UsersPage() {
-  const profile = await getCurrentProfile();
-  if (profile?.role !== "admin") {
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  if (!hasPermission(session.role, "users:manage")) {
     redirect("/settings");
   }
 
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, role, is_active, created_at")
-    .order("created_at", { ascending: true });
-
-  const users = (data ?? []) as UserRow[];
+  const { rows } = await withUserTransaction(session, (client) =>
+    client.query<UserRow>(
+      "select id, full_name, email, role, is_active, created_at::text from profiles order by created_at asc",
+    ),
+  );
+  const users = rows;
 
   return (
     <div className="space-y-6">
@@ -103,7 +103,7 @@ export default async function UsersPage() {
                     <UserRowActions
                       userId={user.id}
                       isActive={user.is_active}
-                      disabled={user.id === profile.id}
+                      disabled={user.id === session.userId}
                     />
                   </TableCell>
                 </TableRow>

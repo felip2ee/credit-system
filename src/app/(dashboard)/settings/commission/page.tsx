@@ -3,10 +3,11 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { CommissionForm } from "@/components/settings/commission-form";
 import { getCommissionRate } from "@/actions/settings";
-import { isAdmin } from "@/lib/auth";
+import { getRequiredSession } from "@/lib/auth/session";
 
 export default async function CommissionSettingsPage() {
-  if (!(await isAdmin())) redirect("/settings");
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  if (session.role !== "admin") redirect("/settings");
   const rate = await getCommissionRate();
 
   return (

@@ -1,0 +1,66 @@
+{
+  "mix": {
+    "historicoConsultaId": "00000000-0000-0000-0000-000000000004",
+    "dataConsulta": "2023-10-09T11:30:00Z",
+    "versao": 2,
+    "empresa": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "cnpj": "40688134000180",
+        "razaoSocial": "Empresa Legada Anonima SA",
+        "nomeFantasia": null,
+        "situacaoCadastral": "ATIVA",
+        "dataInicioAtividade": "2001-08-15",
+        "cnaePrincipal": "4712-1/00",
+        "naturezaJuridica": "205-4 Sociedade Anonima Fechada",
+        "capitalSocial": 500000,
+        "porte": "DEMAIS",
+        "municipio": "Cidade Legada",
+        "uf": "BA"
+      }
+    },
+    "score": {
+      "success": true,
+      "message": "ok",
+      "data": { "valor": 430, "risco": "Muito alto", "descricao": "Risco muito alto", "probabilidadePagamento": 30 }
+    },
+    "smart": {
+      "success": false,
+      "message": "Sem dados suficientes",
+      "classificacao": { "classificacao": "E", "limiteSugerido": 0, "limiteRequisitado": 0, "pontuacaoAtingida": 5, "porte": "Demais" },
+      "parecer": { "aprovado": false, "motivo": "Reprovado", "limiteRequisitado": 0 },
+      "positivas": [],
+      "negativas": []
+    },
+    "pendenciasRestricoes": {
+      "success": true,
+      "message": "ok",
+      "data": {
+        "total": 1,
+        "totalCredores": 1,
+        "valorTotal": 30000,
+        "ocorrencias": [
+          { "informante": "Fornecedor Anonimo", "tipo": "Duplicata", "valor": 30000, "data": "2022-04-10", "cidade": "Cidade Legada", "uf": "BA" }
+        ]
+      }
+    },
+    "acoesJudiciais": { "success": true, "message": "Nada consta", "data": null },
+    "protestos": {
+      "success": true,
+      "message": "ok",
+      "data": [
+        { "cartorio": "3 Tabelionato Legado", "uf": "BA", "data": "2021-11-30", "valor": 4500 },
+        { "cartorio": "3 Tabelionato Legado", "uf": "BA", "data": "2022-01-15", "valor": 2200 }
+      ]
+    },
+    "restricoesCheques": { "possuiInformacao": false, "devolvidosSemFundo": 0, "sustados": 0 },
+    "scr": { "success": true, "message": "ok", "data": { "possuiOperacoes": false } },
+    "quadroSocietario": {
+      "comParticipacao": false,
+      "socios": [
+        { "nome": "Diretor Anonimo", "documento": "39053344705", "participacao": 100, "cargoSociedade": "Diretor" }
+      ]
+    }
+  }
+}

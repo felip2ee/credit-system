@@ -15,9 +15,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createClient } from "@/lib/supabase/server";
-import { formatCNPJ, formatCPF, formatDate, onlyDigits } from "@/lib/utils";
-import { QUERY_STATUS_LABEL, type QueryStatus, type QuerySummary } from "@/types/app";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { listConsultations } from "@/lib/consultations/queries";
+import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
+import { QUERY_STATUS_LABEL, type QueryStatus } from "@/types/app";
 
 interface SearchParams {
   q?: string;
@@ -32,34 +34,14 @@ export default async function ConsultationsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const supabase = createClient();
-
-  let query = supabase
-    .from("queries")
-    .select(
-      "id, type, document, document_name, product, status, crm_client_id, consulted_at, created_at"
-    )
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  if (searchParams.type === "PF" || searchParams.type === "PJ") {
-    query = query.eq("type", searchParams.type);
-  }
-  if (searchParams.status && searchParams.status in QUERY_STATUS_LABEL) {
-    query = query.eq("status", searchParams.status as QueryStatus);
-  }
-  if (searchParams.from) query = query.gte("created_at", searchParams.from);
-  if (searchParams.to) query = query.lte("created_at", `${searchParams.to}T23:59:59`);
-  if (searchParams.q) {
-    const term = searchParams.q.trim();
-    const docTerm = onlyDigits(term);
-    const clauses = [`document_name.ilike.%${term}%`];
-    if (docTerm.length > 0) clauses.push(`document.ilike.%${docTerm}%`);
-    query = query.or(clauses.join(","));
-  }
-
-  const { data } = await query;
-  const queries = (data ?? []) as QuerySummary[];
+  const session = await getRequiredSession();
+  if (!hasPermission(session.role, "consultations:read")) return null;
+  const queries = await listConsultations({ userId: session.userId, role: session.role }, {
+    q: searchParams.q,
+    type: searchParams.type === "PF" || searchParams.type === "PJ" ? searchParams.type : undefined,
+    status: searchParams.status && searchParams.status in QUERY_STATUS_LABEL ? searchParams.status as QueryStatus : undefined,
+    from: searchParams.from, to: searchParams.to,
+  });
 
   const exportQs = new URLSearchParams(
     Object.entries(searchParams).filter(([, v]) => v) as [string, string][]

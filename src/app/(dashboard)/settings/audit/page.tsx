@@ -15,26 +15,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getCurrentProfile } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { listAuditLogs } from "@/lib/audit/read";
 import { formatCNPJ, formatCPF, formatDateTime } from "@/lib/utils";
 
 const ACTION_LABEL: Record<string, string> = {
   "bureau.consult": "Consulta ao bureau",
 };
 
-interface AuditRow {
-  id: string;
-  action: string;
-  table_name: string | null;
-  record_id: string | null;
-  new_data: Record<string, unknown> | null;
-  ip_address: string | null;
-  created_at: string;
-  profiles: { full_name: string | null; email: string | null } | null;
-}
-
-// Formata o documento (CPF/CNPJ) guardado em new_data, quando houver.
+// Formata o documento (CPF/CNPJ) guardado nos metadados, quando houver.
 function describeDocument(data: Record<string, unknown> | null): string {
   if (!data) return "—";
   const doc = typeof data.document === "string" ? data.document : null;
@@ -44,21 +33,12 @@ function describeDocument(data: Record<string, unknown> | null): string {
 }
 
 export default async function AuditPage() {
-  const profile = await getCurrentProfile();
-  if (profile?.role !== "admin") {
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  if (session.role !== "admin") {
     redirect("/settings");
   }
 
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("audit_logs")
-    .select(
-      "id, action, table_name, record_id, new_data, ip_address, created_at, profiles(full_name, email)"
-    )
-    .order("created_at", { ascending: false })
-    .limit(200);
-
-  const logs = (data ?? []) as unknown as AuditRow[];
+  const logs = await listAuditLogs(session);
 
   return (
     <div className="space-y-6">
@@ -91,10 +71,12 @@ export default async function AuditPage() {
                     {formatDateTime(log.created_at)}
                   </TableCell>
                   <TableCell className="font-medium">
-                    {log.profiles?.full_name ?? log.profiles?.email ?? "—"}
+                    {log.actor_name ?? log.actor_email ?? "—"}
                   </TableCell>
                   <TableCell>{ACTION_LABEL[log.action] ?? log.action}</TableCell>
-                  <TableCell>{describeDocument(log.new_data)}</TableCell>
+                  <TableCell>
+                    {describeDocument(log.metadata ?? log.new_data)}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {log.ip_address ?? "—"}
                   </TableCell>

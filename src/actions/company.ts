@@ -1,630 +1,75 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getDepsClient } from "@/lib/deps/client";
 import { DepsScrPendingError } from "@/lib/deps/errors";
-import {
-  hasMappableResult,
-  mapPfResult,
-  mapPjResult,
-  resultDisplayName,
-} from "@/lib/deps/map";
+import { executeConsultation } from "@/lib/consultations/service";
 import { DEPS_PRODUCT_PJ, depsProductName } from "@/lib/deps/products";
-import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/deps/scr-auth";
-import type { ScrMode } from "@/actions/consultations";
 import { generateCompanyParecer } from "@/lib/ai/opinion";
-import { recordAudit } from "@/lib/audit";
 import { COMPANY_PROMPT_VERSION } from "@/lib/ai/prompt";
 import { getAiPrompt } from "@/actions/settings";
+import { getRequiredSession } from "@/lib/auth/session";
+import { withUserTransaction } from "@/lib/db/transaction";
+import { hasPermission } from "@/lib/db/permissions";
+import { createCompanyBatch, companyCanonicalResults, getCompanyMember, refreshCompanyBatchCounters } from "@/lib/company/queries";
+import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/scr/queries";
 import { toAptitudeStatus } from "@/types/ai";
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
-import type { Database, Json } from "@/types/supabase";
-import type { DepsConsultResultPF, DepsConsultResultPJ } from "@/types/deps";
 import type { EntityKind } from "@/types/app";
+import type { ScrMode } from "@/actions/consultations";
 
-// Alias curto para o client server-side (ver clients.ts / server.ts).
-function db(): SupabaseClient<Database> {
-  return createClient();
-}
-
-async function currentUserId(): Promise<string | null> {
-  const {
-    data: { user },
-  } = await createClient().auth.getUser();
-  return user?.id ?? null;
-}
-
-const json = (v: unknown): Json => v as Json;
-
-type Deps = ReturnType<typeof getDepsClient>;
+const identity = async () => { try { const s = await getRequiredSession(); return { userId: s.userId, role: s.role } as const; } catch { return null; } };
+export async function refreshBatchCounters(batchId: string): Promise<void> { const i = await identity(); if (i) await refreshCompanyBatchCounters(i, batchId); }
 type MemberOutcome = "completed" | "pending" | "error";
+export interface CompanyProcessSocioInput { cpf: string; name?: string; email?: string | null; }
+export interface CreateCompanyProcessInput { cnpj: string; name?: string; email?: string | null; socios: CompanyProcessSocioInput[]; reuseExisting?: boolean; scrMode?: ScrMode; }
+export interface CreateCompanyProcessResult { error: string | null; batchId?: string; memberQueryIds?: string[]; }
 
-// Recalcula os contadores/status do processo a partir das consultas-membro.
-// Fonte da verdade: a tabela `queries` (que muda quando um SCR pendente é
-// resolvido depois, via verifyScr). Mantém o batch sempre coerente.
-export async function refreshBatchCounters(batchId: string): Promise<void> {
-  const supabase = db();
-  const { data: b } = await supabase
-    .from("batches")
-    .select("total_items")
-    .eq("id", batchId)
-    .maybeSingle();
-  if (!b) return;
-  const totalItems = (b as { total_items: number }).total_items;
-
-  const { data } = await supabase
-    .from("queries")
-    .select("status")
-    .eq("batch_id", batchId);
-  const rows = (data ?? []) as { status: string }[];
-  const success = rows.filter((r) => r.status === "completed").length;
-  const errors = rows.filter((r) => r.status === "error").length;
-  const total = Math.max(totalItems, rows.length);
-  const resolved = success + errors;
-  const done = resolved >= total;
-  const status = errors > 0 ? "completed_with_errors" : done ? "completed" : "processing";
-
-  await supabase
-    .from("batches")
-    .update({
-      success_items: success,
-      error_items: errors,
-      processed_items: resolved,
-      status,
-      completed_at: done ? new Date().toISOString() : null,
-    })
-    .eq("id", batchId);
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Cliente do CRM por documento: reaproveita o existente ou cadastra um novo.
-// O processamento de empresa é a única entrada que digita documentos sem passar
-// pelo cadastro de clientes — sem isto, CNPJ e CPFs ficavam só nas consultas.
-// Devolve null se o cadastro falhar (o processo segue sem vínculo, não trava).
-// ─────────────────────────────────────────────────────────────────────────
-async function ensureCrmClient(
-  supabase: SupabaseClient<Database>,
-  args: {
-    type: EntityKind;
-    document: string;
-    name: string;
-    email: string | null;
-    userId: string;
-  }
-): Promise<string | null> {
-  const { data: existing } = await supabase
-    .from("crm_clients")
-    .select("id, email")
-    .eq("document", args.document)
-    .maybeSingle();
-
-  if (existing) {
-    const row = existing as { id: string; email: string | null };
-    // Só preenche o e-mail se o cadastro ainda não tinha um (não sobrescreve).
-    if (args.email && !row.email) {
-      await supabase.from("crm_clients").update({ email: args.email }).eq("id", row.id);
-    }
-    return row.id;
-  }
-
-  const { data: inserted } = await supabase
-    .from("crm_clients")
-    .insert({
-      type: args.type,
-      name: args.name,
-      document: args.document,
-      email: args.email,
-      status: "prospect",
-      created_by: args.userId,
-      assigned_to: args.userId,
-    })
-    .select("id")
-    .single();
-  if (!inserted) return null;
-
-  const id = (inserted as { id: string }).id;
-  await supabase.from("crm_client_documents").insert({
-    client_id: id,
-    type: args.type,
-    document: args.document,
-    label: args.type === "PJ" ? "CNPJ" : "CPF",
-    is_primary: true,
-  });
-  return id;
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Roda a consulta de uma query JÁ existente (status 'processing') e grava o
-// resultado. Espelha o fluxo unificado de `runConsultation`, vinculado ao batch.
-// 200 → conclui; DepsScrPendingError (400) → pendente; erro → erro.
-// ─────────────────────────────────────────────────────────────────────────
-async function consultExistingMember(args: {
-  supabase: SupabaseClient<Database>;
-  admin: SupabaseClient<Database>;
-  deps: Deps;
-  userId: string;
-  queryId: string;
-  type: EntityKind;
-  document: string;
-  documentName: string;
-  email: string | null;
-  reuseExisting?: boolean;
-  scrMode: ScrMode;
-  crmClientId: string | null;
-}): Promise<MemberOutcome> {
-  const { supabase, admin, deps, userId, queryId, type, document, documentName, email, scrMode } = args;
-  const product = depsProductName(type);
-
-  // Modo internal: só consulta se houver autorização própria vigente no nosso BD.
-  // Sem ela, não chama a deps — marca a consulta pendente e registra a pendência
-  // SCR (mesmo tratamento do 400 da deps).
-  if (scrMode === "internal" && !(await hasValidInternalScr(supabase, document))) {
-    await supabase
-      .from("queries")
-      .update({ status: "pending_authorization" })
-      .eq("id", queryId);
-    await upsertScrAuthorization(supabase, {
-      document,
-      type,
-      status: "pending",
-      name: documentName,
-      email,
-      queryId,
-      requestedBy: userId,
-    });
-    return "pending";
-  }
-
-  const consultOptions = {
-    product,
-    reuseExisting: args.reuseExisting,
-    authorization: { name: documentName, email: email ?? undefined },
-    // internal → true (autogestão); deps → false (deps verifica a própria autorização).
-    autorizacaoScr: scrMode === "internal",
-  };
-
-  // Marca a consulta-membro pendente e registra a pendência SCR. Reutilizado no
-  // 400 da deps e quando a deps devolve 200 sem dados mapeáveis (mix vazio).
-  const markPending = async (): Promise<MemberOutcome> => {
-    await supabase
-      .from("queries")
-      .update({ status: "pending_authorization" })
-      .eq("id", queryId);
-    await upsertScrAuthorization(supabase, {
-      document,
-      type,
-      status: "pending",
-      name: documentName,
-      email,
-      queryId,
-      requestedBy: userId,
-    });
-    return "pending";
-  };
-
-  let result: DepsConsultResultPF | DepsConsultResultPJ;
+export async function createCompanyProcess(input: CreateCompanyProcessInput): Promise<CreateCompanyProcessResult> {
+  const cnpj = onlyDigits(input.cnpj); if (!isValidCNPJ(cnpj)) return { error: "CNPJ inv\u00e1lido." };
+  const socios = input.socios.map((s) => ({ ...s, cpf: onlyDigits(s.cpf) })).filter((s) => s.cpf);
+  if (socios.some((s) => !isValidCPF(s.cpf))) return { error: "CPF de s\u00f3cio inv\u00e1lido." };
+  const i = await identity(); if (!i) return { error: "Sess\u00e3o expirada." };
+  if (!hasPermission(i.role, "consultations:write")) return { error: "N\u00e3o autorizado." };
   try {
-    result =
-      type === "PJ"
-        ? await deps.consultPJ(document, consultOptions)
-        : await deps.consultPF(document, consultOptions);
-  } catch (err) {
-    if (err instanceof DepsScrPendingError) {
-      return markPending();
-    }
-
-    await supabase
-      .from("queries")
-      .update({
-        status: "error",
-        error_message: err instanceof Error ? err.message : "Erro na consulta.",
-      })
-      .eq("id", queryId);
-    return "error";
-  }
-
-  // A deps pode responder 200 com o mix vazio (sem dados / SCR não autorizado,
-  // sobretudo no modo "deps"). Sem dados mapeáveis, trata como pendente.
-  if (!hasMappableResult(type, result)) {
-    return markPending();
-  }
-
-  // Sucesso (200) → grava resultado (service-role) e conclui.
-  if (type === "PJ") {
-    await admin
-      .from("query_results_pj")
-      .insert(mapPjResult(queryId, result as DepsConsultResultPJ));
-  } else {
-    await admin
-      .from("query_results_pf")
-      .insert(mapPfResult(queryId, result as DepsConsultResultPF));
-  }
-  // Nome real do bureau (PF: nome completo; PJ: razão social) vira o nome de exibição.
-  const displayName = resultDisplayName(type, result) ?? documentName;
-  await supabase
-    .from("queries")
-    .update({
-      status: "completed",
-      document_name: displayName,
-      consulted_at: result.consultedAt,
-      historico_consulta_id: result.historicoConsultaId,
-      api_version: result.apiVersion,
-      product_version: result.productVersion,
-      is_partial: result.isPartial,
-      share_link: result.shareLink,
-    })
-    .eq("id", queryId);
-
-  // O cliente do CRM foi criado com o nome que o operador digitou — que muitas
-  // vezes é o próprio documento. Agora que o bureau devolveu o nome real, troca
-  // (só quando o nome ainda é o placeholder, para não sobrescrever edição manual).
-  if (args.crmClientId && displayName !== document) {
-    await supabase
-      .from("crm_clients")
-      .update({ name: displayName })
-      .eq("id", args.crmClientId)
-      .eq("name", document);
-  }
-
-  await upsertScrAuthorization(supabase, {
-    document,
-    type,
-    status: "authorized",
-    name: displayName,
-    queryId,
-    requestedBy: userId,
-  });
-
-  await recordAudit({
-    action: "bureau.consult",
-    tableName: "queries",
-    recordId: queryId,
-    data: { document, type, product, via: "company_process" },
-  });
-
-  return "completed";
+    const email = input.email?.trim() || null;
+    const created = await createCompanyBatch(i, { cnpj, name: input.name ?? null, product: DEPS_PRODUCT_PJ, scrMode: input.scrMode ?? "internal", members: [{ type: "PJ", document: cnpj, documentName: input.name ?? cnpj, email }, ...socios.map((s) => ({ type: "PF" as EntityKind, document: s.cpf, documentName: s.name ?? s.cpf, email: s.email?.trim() || email }))] });
+    revalidatePath("/batch"); revalidatePath("/clients"); return { error: null, ...created };
+  } catch { return { error: "Falha ao criar o processo." }; }
 }
 
-export interface CompanyProcessSocioInput {
-  cpf: string;
-  name?: string;
-  email?: string | null;
+export interface ProcessMemberResult { outcome: MemberOutcome | "skipped"; }
+export async function processCompanyMember(queryId: string, reuseExisting = true): Promise<ProcessMemberResult> {
+  const i = await identity(); if (!i) return { outcome: "error" };
+  if (!hasPermission(i.role, "consultations:write")) return { outcome: "error" };
+  const member = await getCompanyMember(i, queryId); if (!member) return { outcome: "error" };
+  if (member.status !== "processing") return { outcome: member.status === "completed" ? "completed" : member.status === "pending_authorization" ? "pending" : member.status === "error" || member.status === "payload_incompatible" ? "error" : "skipped" };
+  const pending = async () => { await withUserTransaction(i, (client) => client.query(`update consultations set status='pending_authorization' where id=$1`, [queryId])); await upsertScrAuthorization(i, { document: member.document, type: member.type, status: "pending", name: member.document_name ?? member.document, email: member.scr_email, queryId, crmClientId: member.crm_client_id, requestedBy: i.userId }); return "pending" as const; };
+  let outcome: MemberOutcome;
+  if (member.scr_mode === "internal" && !(await hasValidInternalScr(i, member.document))) outcome = await pending();
+  else try {
+    const product = depsProductName(member.type); const raw = member.type === "PJ" ? await getDepsClient().consultPJ(member.document, { product, reuseExisting, authorization: { name: member.document_name ?? member.document, email: member.scr_email ?? undefined }, autorizacaoScr: member.scr_mode === "internal" }) : await getDepsClient().consultPF(member.document, { product, reuseExisting, authorization: { name: member.document_name ?? member.document, email: member.scr_email ?? undefined }, autorizacaoScr: member.scr_mode === "internal" });
+    const saved = await executeConsultation({ identity: i, consultationId: queryId, entityKind: member.type, consult: async () => raw });
+    if (saved.status === "no_data") outcome = await pending();
+    else if (saved.status === "payload_incompatible") outcome = "error";
+    else { await upsertScrAuthorization(i, { document: member.document, type: member.type, status: "authorized", name: saved.canonical.subject.name || member.document_name, queryId, crmClientId: member.crm_client_id, requestedBy: i.userId }); outcome = "completed"; }
+  } catch (error) { if (error instanceof DepsScrPendingError) outcome = await pending(); else { await withUserTransaction(i, (client) => client.query(`update consultations set status='error',error_message=$2 where id=$1`, [queryId,error instanceof Error ? error.message : "Erro na consulta."])); outcome = "error"; } }
+  if (member.batch_id) { await refreshCompanyBatchCounters(i, member.batch_id); revalidatePath(`/batch/${member.batch_id}`); revalidatePath("/batch"); }
+  revalidatePath("/consultations"); revalidatePath("/clients"); return { outcome };
 }
 
-export interface CreateCompanyProcessInput {
-  cnpj: string;
-  name?: string;
-  email?: string | null;
-  socios: CompanyProcessSocioInput[];
-  reuseExisting?: boolean;
-  // Como a autorização SCR é gerida nas consultas do processo. Default "internal".
-  scrMode?: ScrMode;
-}
-
-export interface CreateCompanyProcessResult {
-  error: string | null;
-  batchId?: string;
-  // Ids das consultas enfileiradas (status 'processing'); o cliente dispara uma
-  // a uma. O e-mail do titular já fica gravado em queries.scr_email.
-  memberQueryIds?: string[];
-}
-
-// Cria o processo e ENFILEIRA as consultas (CNPJ + sócios) como queries
-// 'processing', SEM consultar a deps aqui. O processamento real acontece em
-// `processCompanyMember` (uma consulta por requisição), dirigido pelo cliente —
-// assim nenhuma requisição roda N chamadas à deps em série (evita timeout).
-export async function createCompanyProcess(
-  input: CreateCompanyProcessInput
-): Promise<CreateCompanyProcessResult> {
-  const cnpj = onlyDigits(input.cnpj);
-  if (!isValidCNPJ(cnpj)) return { error: "CNPJ inválido." };
-
-  const socios = (input.socios ?? [])
-    .map((s) => ({ ...s, cpf: onlyDigits(s.cpf) }))
-    .filter((s) => s.cpf.length > 0);
-  for (const s of socios) {
-    if (!isValidCPF(s.cpf)) return { error: `CPF de sócio inválido: ${s.cpf}` };
-  }
-
-  const supabase = db();
-  const userId = await currentUserId();
-  if (!userId) return { error: "Sessão expirada." };
-
-  const scrMode: ScrMode = input.scrMode ?? "internal";
-  const total = 1 + socios.length;
-  const { data: batchRow, error: batchErr } = await supabase
-    .from("batches")
-    .insert({
-      type: "PJ",
-      document: cnpj,
-      name: input.name ?? null,
-      product: DEPS_PRODUCT_PJ,
-      created_by: userId,
-      status: "processing",
-      total_items: total,
-      started_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single();
-  if (batchErr || !batchRow) {
-    return { error: batchErr?.message ?? "Falha ao criar o processo." };
-  }
-  const batchId = (batchRow as { id: string }).id;
-
-  // E-mail da empresa serve de fallback para os sócios que não informarem o seu.
-  const companyEmail = input.email?.trim() || null;
-
-  // Lista a enfileirar: empresa (PJ) + sócios (PF). O e-mail do titular (sócio
-  // herda o da empresa quando ausente) é gravado em queries.scr_email já aqui,
-  // para não depender do cliente no reprocessamento/retomada.
-  const toQueue: {
-    type: EntityKind;
-    document: string;
-    documentName: string;
-    email: string | null;
-  }[] = [
-    {
-      type: "PJ",
-      document: cnpj,
-      documentName: input.name ?? cnpj,
-      email: companyEmail,
-    },
-    ...socios.map((s) => ({
-      type: "PF" as EntityKind,
-      document: s.cpf,
-      documentName: s.name ?? s.cpf,
-      email: (s.email?.trim() || null) ?? companyEmail,
-    })),
-  ];
-
-  // Cadastra (ou reaproveita) a empresa e cada sócio no CRM e vincula os sócios
-  // à empresa. O nome aqui pode ser o próprio documento — quando a consulta
-  // concluir, `consultExistingMember` troca pelo nome real do bureau.
-  const crmIdByDocument = new Map<string, string>();
-  for (const m of toQueue) {
-    const crmId = await ensureCrmClient(supabase, {
-      type: m.type,
-      document: m.document,
-      name: m.documentName,
-      email: m.email,
-      userId,
-    });
-    if (crmId) crmIdByDocument.set(m.document, crmId);
-  }
-
-  const companyCrmId = crmIdByDocument.get(cnpj);
-  if (companyCrmId) {
-    for (const s of socios) {
-      const socioCrmId = crmIdByDocument.get(s.cpf);
-      if (!socioCrmId || socioCrmId === companyCrmId) continue;
-      // 23505 = vínculo já existe (processo repetido) — não é erro.
-      await supabase.from("crm_client_relations").insert({
-        client_id: companyCrmId,
-        related_id: socioCrmId,
-        relation_type: "socio",
-      });
-    }
-  }
-
-  const memberQueryIds: string[] = [];
-  for (const m of toQueue) {
-    const { data: inserted, error } = await supabase
-      .from("queries")
-      .insert({
-        type: m.type,
-        document: m.document,
-        document_name: m.documentName,
-        product: depsProductName(m.type),
-        batch_id: batchId,
-        crm_client_id: crmIdByDocument.get(m.document) ?? null,
-        created_by: userId,
-        status: "processing",
-        requires_auth: true,
-        scr_email: m.email,
-        scr_mode: scrMode,
-      })
-      .select("id")
-      .single();
-    if (error || !inserted) {
-      return { error: error?.message ?? "Falha ao criar as consultas do processo." };
-    }
-    memberQueryIds.push((inserted as { id: string }).id);
-  }
-
-  await refreshBatchCounters(batchId);
-  revalidatePath("/batch");
-  revalidatePath("/clients");
-  return { error: null, batchId, memberQueryIds };
-}
-
-export interface ProcessMemberResult {
-  outcome: MemberOutcome | "skipped";
-}
-
-// Processa UMA consulta enfileirada (uma chamada à deps). Idempotente: só roda
-// se a query ainda estiver 'processing' (na fila). O e-mail do titular vem de
-// queries.scr_email (gravado na criação) — não depende do cliente. Atualiza os
-// contadores do batch.
-export async function processCompanyMember(
-  queryId: string,
-  reuseExisting = true
-): Promise<ProcessMemberResult> {
-  const supabase = db();
-  const userId = await currentUserId();
-  if (!userId) return { outcome: "error" };
-
-  const { data: q } = await supabase
-    .from("queries")
-    .select(
-      "id, type, document, document_name, status, batch_id, scr_email, scr_mode, crm_client_id"
-    )
-    .eq("id", queryId)
-    .maybeSingle();
-  if (!q) return { outcome: "error" };
-  const query = q as {
-    id: string;
-    type: EntityKind;
-    document: string;
-    document_name: string | null;
-    status: string;
-    batch_id: string | null;
-    scr_email: string | null;
-    scr_mode: string | null;
-    crm_client_id: string | null;
-  };
-
-  // Já saiu da fila (concluída/pendente/erro) → não refaz.
-  if (query.status !== "processing") {
-    const map: Record<string, MemberOutcome> = {
-      completed: "completed",
-      pending_authorization: "pending",
-      error: "error",
-    };
-    return { outcome: map[query.status] ?? "skipped" };
-  }
-
-  const deps = getDepsClient();
-  const admin = createServiceClient();
-  const outcome = await consultExistingMember({
-    supabase,
-    admin,
-    deps,
-    userId,
-    queryId: query.id,
-    type: query.type,
-    document: query.document,
-    documentName: query.document_name ?? query.document,
-    email: query.scr_email,
-    reuseExisting,
-    scrMode: query.scr_mode === "deps" ? "deps" : "internal",
-    crmClientId: query.crm_client_id,
-  });
-
-  if (query.batch_id) {
-    await refreshBatchCounters(query.batch_id);
-    revalidatePath(`/batch/${query.batch_id}`);
-    revalidatePath("/batch");
-  }
-  revalidatePath("/consultations");
-  revalidatePath("/clients");
-  return { outcome };
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Parecer técnico consolidado do processo (empresa + sócios concluídos).
-// ─────────────────────────────────────────────────────────────────────────
-export interface GenerateCompanyReportResult {
-  error: string | null;
-}
-
-export async function generateCompanyReport(
-  batchId: string,
-  force = false
-): Promise<GenerateCompanyReportResult> {
-  const supabase = db();
-
-  const { data: batch } = await supabase
-    .from("batches")
-    .select("id, document")
-    .eq("id", batchId)
-    .maybeSingle();
-  if (!batch) return { error: "Processo não encontrado." };
-
-  if (!force) {
-    const { data: existing } = await supabase
-      .from("company_reports")
-      .select("status")
-      .eq("batch_id", batchId)
-      .maybeSingle();
-    const row = existing as { status: string } | null;
-    if (row && row.status === "completed") return { error: null };
-  }
-
-  // Membros concluídos do processo.
-  const { data: members } = await supabase
-    .from("queries")
-    .select("id, type")
-    .eq("batch_id", batchId)
-    .eq("status", "completed");
-  const rows = (members ?? []) as { id: string; type: EntityKind }[];
-  const empresaQuery = rows.find((r) => r.type === "PJ");
-  if (!empresaQuery) {
-    return { error: "A consulta da empresa (CNPJ) ainda não foi concluída." };
-  }
-
-  // Carrega os resultados brutos.
-  const { data: empresaRow } = await supabase
-    .from("query_results_pj")
-    .select("*")
-    .eq("query_id", empresaQuery.id)
-    .maybeSingle();
-  if (!empresaRow) return { error: "Resultado da empresa não encontrado." };
-
-  const socioQueryIds = rows.filter((r) => r.type === "PF").map((r) => r.id);
-  const socios: { type: "PF" | "PJ"; resultRow: Record<string, unknown> }[] = [];
-  if (socioQueryIds.length > 0) {
-    const { data: pfRows } = await supabase
-      .from("query_results_pf")
-      .select("*")
-      .in("query_id", socioQueryIds);
-    for (const pf of (pfRows ?? []) as Record<string, unknown>[]) {
-      socios.push({ type: "PF", resultRow: pf });
-    }
-  }
-
+export interface GenerateCompanyReportResult { error: string | null; }
+export async function generateCompanyReport(batchId: string, force = false): Promise<GenerateCompanyReportResult> {
+  const i = await identity(); if (!i) return { error: "Sess\u00e3o expirada." };
+  if (!hasPermission(i.role, "reports:write")) return { error: "N\u00e3o autorizado." };
+  const existing = await withUserTransaction(i, async (client) => (await client.query<{ status: string }>(`select status from company_reports where batch_id=$1`, [batchId])).rows[0]);
+  if (!force && existing?.status === "completed") return { error: null };
+  const rows = await companyCanonicalResults(i, batchId); const company = rows.find((row) => row.type === "PJ");
+  if (!company) return { error: "A consulta da empresa (CNPJ) ainda n\u00e3o foi conclu\u00edda." };
   try {
-    const systemPrompt = await getAiPrompt("empresa");
-    const { parecer, model } = await generateCompanyParecer(
-      {
-        dataAnalise: new Date().toISOString().slice(0, 10),
-        empresaRow: empresaRow as Record<string, unknown>,
-        socios,
-      },
-      systemPrompt
-    );
-
-    const admin = createServiceClient();
-    const { error: upsertErr } = await admin.from("company_reports").upsert(
-      {
-        batch_id: batchId,
-        aptitude_status: toAptitudeStatus(parecer.apto),
-        executive_summary: parecer.resumo_executivo,
-        positive_points: json(parecer.pontos_fortes),
-        risk_points: json(parecer.pontos_atencao),
-        action_plan: json(parecer.plano_acao),
-        suggested_products: json(parecer.produtos_sugeridos),
-        suggested_limit: parecer.limite_sugerido,
-        suggested_limit_notes: parecer.limite_sugerido_notas,
-        report_markdown: parecer.relatorio_markdown,
-        full_report: json(parecer),
-        model_used: model,
-        prompt_version: COMPANY_PROMPT_VERSION,
-        generated_at: new Date().toISOString(),
-        generation_error: null,
-        status: "completed",
-        created_by: await currentUserId(),
-      },
-      { onConflict: "batch_id" }
-    );
-    if (upsertErr) return { error: upsertErr.message };
-  } catch (err) {
-    await createServiceClient().from("company_reports").upsert(
-      {
-        batch_id: batchId,
-        status: "error",
-        generation_error:
-          err instanceof Error ? err.message : "Erro ao gerar o parecer.",
-      },
-      { onConflict: "batch_id" }
-    );
-    return {
-      error: err instanceof Error ? err.message : "Erro ao gerar o parecer.",
-    };
-  }
-
-  revalidatePath(`/batch/${batchId}`);
-  return { error: null };
+    const { parecer, model } = await generateCompanyParecer({ dataAnalise: new Date().toISOString().slice(0, 10), empresaRow: JSON.parse(JSON.stringify(company.canonical_result)), socios: rows.filter((row) => row.type === "PF").map((row) => ({ type: "PF" as const, resultRow: JSON.parse(JSON.stringify(row.canonical_result)) })) }, await getAiPrompt("empresa"));
+    await withUserTransaction(i, (client) => client.query(`insert into company_reports (batch_id,aptitude_status,executive_summary,positive_points,risk_points,action_plan,suggested_products,suggested_limit,suggested_limit_notes,report_markdown,full_report,model_used,prompt_version,generated_at,generation_error,status,created_by) values ($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11::jsonb,$12,$13,now(),null,'completed',$14) on conflict (batch_id) do update set aptitude_status=excluded.aptitude_status,executive_summary=excluded.executive_summary,positive_points=excluded.positive_points,risk_points=excluded.risk_points,action_plan=excluded.action_plan,suggested_products=excluded.suggested_products,suggested_limit=excluded.suggested_limit,suggested_limit_notes=excluded.suggested_limit_notes,report_markdown=excluded.report_markdown,full_report=excluded.full_report,model_used=excluded.model_used,prompt_version=excluded.prompt_version,generated_at=excluded.generated_at,generation_error=null,status='completed'`, [batchId,toAptitudeStatus(parecer.apto),parecer.resumo_executivo,JSON.stringify(parecer.pontos_fortes),JSON.stringify(parecer.pontos_atencao),JSON.stringify(parecer.plano_acao),JSON.stringify(parecer.produtos_sugeridos),parecer.limite_sugerido,parecer.limite_sugerido_notas,parecer.relatorio_markdown,JSON.stringify(parecer),model,COMPANY_PROMPT_VERSION,i.userId]));
+  } catch (error) { await withUserTransaction(i, (client) => client.query(`insert into company_reports (batch_id,status,generation_error) values ($1,'error',$2) on conflict (batch_id) do update set status='error',generation_error=excluded.generation_error`, [batchId,error instanceof Error ? error.message : "Erro ao gerar o parecer."])); return { error: error instanceof Error ? error.message : "Erro ao gerar o parecer." }; }
+  revalidatePath(`/batch/${batchId}`); return { error: null };
 }

@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
+import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,11 +17,10 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createClient } from "@/lib/supabase/client";
 
 const schema = z
   .object({
-    password: z.string().min(8, "A senha deve ter ao menos 8 caracteres."),
+    password: z.string().min(12, "A senha deve ter ao menos 12 caracteres."),
     confirm: z.string(),
   })
   .refine((data) => data.password === data.confirm, {
@@ -30,7 +31,7 @@ const schema = z
 type FormValues = z.infer<typeof schema>;
 
 export default function UpdatePasswordPage() {
-  const supabase = createClient();
+  const token = useSearchParams().get("token");
   const [error, setError] = useState<string | null>(null);
 
   const {
@@ -44,16 +45,19 @@ export default function UpdatePasswordPage() {
 
   const onSubmit = async (values: FormValues) => {
     setError(null);
-    // Limpa a flag de primeiro acesso (cliente do portal) ao definir a senha.
-    const { error } = await supabase.auth.updateUser({
-      password: values.password,
-      data: { must_change_password: false },
-    });
-    if (error) {
+    if (!token) {
       setError("Não foi possível atualizar a senha. O link pode ter expirado.");
       return;
     }
-    window.location.href = "/";
+    const result = await authClient.resetPassword({
+      newPassword: values.password,
+      token,
+    });
+    if (result.error) {
+      setError("Não foi possível atualizar a senha. O link pode ter expirado.");
+      return;
+    }
+    window.location.href = "/login";
   };
 
   return (

@@ -13,7 +13,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { listBatches } from "@/lib/batch/queries";
+import { redirect } from "next/navigation";
 import { formatCNPJ, formatDate } from "@/lib/utils";
 
 const BATCH_STATUS: Record<string, { label: string; variant: BadgeProps["variant"] }> = {
@@ -24,24 +27,10 @@ const BATCH_STATUS: Record<string, { label: string; variant: BadgeProps["variant
   cancelled: { label: "Cancelado", variant: "muted" },
 };
 
-interface BatchRow {
-  id: string;
-  document: string | null;
-  name: string | null;
-  status: string;
-  total_items: number;
-  success_items: number;
-  created_at: string;
-}
-
 export default async function BatchPage() {
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("batches")
-    .select("id, document, name, status, total_items, success_items, created_at")
-    .order("created_at", { ascending: false })
-    .limit(100);
-  const rows = (data ?? []) as BatchRow[];
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  if (!hasPermission(session.role, "consultations:read")) redirect("/");
+  const rows = await listBatches(session);
 
   return (
     <div className="space-y-6">

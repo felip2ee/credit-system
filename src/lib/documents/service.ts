@@ -1,0 +1,298 @@
+// Private scanned document service.
+//
+// storeDocument: validate size while streaming -> validate magic bytes and that
+// declared extension/MIME agree with the detected signature -> quarantine+fsync
+// -> ClamAV scan (fail closed) -> on clean, atomic move + persist metadata in a
+// withUserTransaction (+ audit); on infected/unavailable, delete quarantine,
+// best-effort audit, throw a safe error.
+//
+// The metadata-persist transaction hits Postgres; its DB assertions are deferred
+// to the Task 15 release gate. Everything up to and including the atomic move is
+// unit-tested here with temp dirs + a fake ClamAV TCP server.
+
+import { createHash, randomUUID } from "node:crypto";
+
+import { writeAuditEvent } from "@/lib/audit/write";
+import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+
+import {
+  ScannerUnavailableError,
+  scanStream,
+  scannerVersion,
+  type ScanOptions,
+} from "./clamav";
+import {
+  commitQuarantine,
+  quarantineStream,
+  removeObject,
+  removeQuarantine,
+  writeQuarantine,
+} from "./storage";
+
+export const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024; // 15 MiB
+
+export class DocumentRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DocumentRejectedError";
+  }
+}
+
+interface Signature {
+  mime: string;
+  ext: string[];
+  magic: Buffer;
+}
+
+const SIGNATURES: Signature[] = [
+  { mime: "application/pdf", ext: ["pdf"], magic: Buffer.from("%PDF-") },
+  { mime: "image/jpeg", ext: ["jpg", "jpeg"], magic: Buffer.from([0xff, 0xd8, 0xff]) },
+  {
+    mime: "image/png",
+    ext: ["png"],
+    magic: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  },
+];
+
+export const SAFE_DOWNLOAD_MIMES = new Set(SIGNATURES.map((s) => s.mime));
+
+const HEADER_BYTES = 16;
+
+function detectSignature(header: Buffer): Signature | null {
+  return (
+    SIGNATURES.find((s) => header.subarray(0, s.magic.length).equals(s.magic)) ?? null
+  );
+}
+
+/** Display-only. Never used to build a path: keeps spaces/hyphens, strips path
+ *  separators / control chars / anything outside a safe printable set. */
+export function sanitizeDisplayName(name: string): string {
+  const base = name.replace(/^.*[\\/]/, "");
+  const cleaned = base
+    .replace(/[^\w.\- ]+/g, "_")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^[.\s_]+/, "")
+    .trim();
+  return cleaned.slice(0, 200) || "documento";
+}
+
+export interface StoreDocumentInput {
+  stream?: AsyncIterable<Uint8Array> | Iterable<Uint8Array>;
+  buffer?: Buffer;
+  declaredName: string;
+  declaredMime: string;
+  uploaderId: string;
+  identity: DbIdentity;
+  link: {
+    opportunityId: string;
+    docType: string;
+    docId: string;
+    docLabel?: string;
+  };
+}
+
+export interface StoredDocument {
+  id: string;
+  objectKey: string;
+  sha256: string;
+  byteSize: number;
+  detectedMime: string;
+  scanResult: "clean";
+  scanVersion: string | null;
+  displayName: string;
+}
+
+export interface StoreDocumentOptions {
+  scan?: ScanOptions;
+  /** Injection seam for the DB persist step (default hits Postgres via RLS). */
+  persist?: (stored: StoredDocument, input: StoreDocumentInput) => Promise<void>;
+}
+
+async function* fromBuffer(buffer: Buffer): AsyncIterable<Uint8Array> {
+  yield buffer;
+}
+
+async function persistMetadata(
+  stored: StoredDocument,
+  input: StoreDocumentInput,
+): Promise<void> {
+  await withUserTransaction(input.identity, async (client) => {
+    const result = await client.query(
+      `update opportunity_documents
+          set status = 'uploaded',
+              file_name = $2,
+              file_path = $3,
+              object_key = $3,
+              sha256 = $4,
+              byte_size = $5,
+              file_size = $5,
+              detected_mime = $6,
+              file_mime = $6,
+              scan_result = 'clean',
+              scan_version = $7,
+              uploaded_by = $8,
+              uploaded_at = now(),
+              rejection_reason = null,
+              updated_at = now()
+        where id = $1`,
+      [
+        input.link.docId,
+        stored.displayName,
+        stored.objectKey,
+        stored.sha256,
+        stored.byteSize,
+        stored.detectedMime,
+        stored.scanVersion,
+        input.uploaderId,
+      ],
+    );
+    // A wrong docId, or one RLS makes invisible to this user, updates 0 rows --
+    // treat that as a failure so storeDocument never reports a phantom success.
+    if (result.rowCount !== 1) {
+      throw new Error("documento não encontrado ou sem permissão de escrita");
+    }
+    await writeAuditEvent(client, {
+      actorId: input.uploaderId,
+      action: "document.upload",
+      targetTable: "opportunity_documents",
+      targetId: input.link.docId,
+      outcome: "success",
+      metadata: {
+        opportunityId: input.link.opportunityId,
+        objectKey: stored.objectKey,
+        sha256: stored.sha256,
+        byteSize: stored.byteSize,
+        detectedMime: stored.detectedMime,
+        scanVersion: stored.scanVersion,
+      },
+    });
+  });
+}
+
+async function auditFailure(
+  input: StoreDocumentInput,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  // Fail closed regardless of whether the audit write succeeds.
+  try {
+    await withUserTransaction(input.identity, (client) =>
+      writeAuditEvent(client, {
+        actorId: input.uploaderId,
+        action: "document.upload",
+        targetTable: "opportunity_documents",
+        targetId: input.link.docId,
+        outcome: "failure",
+        metadata: { opportunityId: input.link.opportunityId, ...metadata },
+      }),
+    );
+  } catch (err) {
+    // Fail-closed already happened (quarantine deleted, upload rejected). Surface
+    // the audit gap without leaking file contents or paths.
+    console.error(
+      `document upload failure audit not written (reason=${String(
+        metadata.reason,
+      )}): ${err instanceof Error ? err.message : "unknown"}`,
+    );
+  }
+}
+
+export async function storeDocument(
+  input: StoreDocumentInput,
+  options: StoreDocumentOptions = {},
+): Promise<StoredDocument> {
+  if (/[\\/]|\.\./.test(input.declaredName)) {
+    throw new DocumentRejectedError("nome de arquivo inválido");
+  }
+
+  const source =
+    input.buffer !== undefined ? fromBuffer(input.buffer) : input.stream;
+  if (!source) throw new DocumentRejectedError("arquivo ausente");
+
+  const id = randomUUID();
+  const hash = createHash("sha256");
+  let header = Buffer.alloc(0);
+  let committedKey: string | null = null;
+
+  const byteSize = await writeQuarantine(id, source, (chunk, bytesSoFar) => {
+    if (bytesSoFar > MAX_DOCUMENT_BYTES) {
+      throw new DocumentRejectedError("arquivo excede o limite de 15 MiB");
+    }
+    hash.update(chunk);
+    if (header.length < HEADER_BYTES) {
+      header = Buffer.concat([header, chunk]).subarray(0, HEADER_BYTES);
+    }
+  }).catch((error) => {
+    if (error instanceof DocumentRejectedError) throw error;
+    throw new DocumentRejectedError("falha ao gravar o arquivo");
+  });
+
+  try {
+    if (byteSize === 0) throw new DocumentRejectedError("arquivo vazio");
+
+    const signature = detectSignature(header);
+    if (!signature) {
+      throw new DocumentRejectedError("tipo de arquivo não suportado");
+    }
+
+    const ext = (input.declaredName.match(/\.([A-Za-z0-9]+)$/)?.[1] ?? "").toLowerCase();
+    if (!signature.ext.includes(ext)) {
+      throw new DocumentRejectedError("a extensão não confere com o conteúdo");
+    }
+    // Browsers routinely omit file.type or send octet-stream -- only enforce an
+    // actually-declared, specific MIME. Extension + magic bytes still gate.
+    const declaredMime = input.declaredMime?.trim();
+    if (
+      declaredMime &&
+      declaredMime !== "application/octet-stream" &&
+      declaredMime !== signature.mime
+    ) {
+      throw new DocumentRejectedError("o tipo declarado não confere com o conteúdo");
+    }
+
+    let infectedWith: string | null;
+    try {
+      infectedWith = await scanStream(
+        quarantineStream(id) as unknown as AsyncIterable<Uint8Array>,
+        options.scan,
+      );
+    } catch (error) {
+      if (error instanceof ScannerUnavailableError) {
+        await removeQuarantine(id);
+        await auditFailure(input, { reason: "scanner_unavailable" });
+        throw new DocumentRejectedError(
+          "não foi possível verificar o arquivo com o antivírus",
+        );
+      }
+      throw error;
+    }
+
+    if (infectedWith) {
+      await removeQuarantine(id);
+      await auditFailure(input, { reason: "infected", signature: infectedWith });
+      throw new DocumentRejectedError("arquivo reprovado na verificação de segurança");
+    }
+
+    const scanVersion = await scannerVersion(options.scan);
+    committedKey = await commitQuarantine(id);
+
+    const stored: StoredDocument = {
+      id,
+      objectKey: committedKey,
+      sha256: hash.digest("hex"),
+      byteSize,
+      detectedMime: signature.mime,
+      scanResult: "clean",
+      scanVersion,
+      displayName: sanitizeDisplayName(input.declaredName),
+    };
+
+    await (options.persist ?? persistMetadata)(stored, input);
+    return stored;
+  } catch (error) {
+    // Roll back whichever artifact exists: the committed object if the move
+    // succeeded, otherwise the quarantine file.
+    if (committedKey) await removeObject(committedKey).catch(() => {});
+    else await removeQuarantine(id).catch(() => {});
+    throw error;
+  }
+}

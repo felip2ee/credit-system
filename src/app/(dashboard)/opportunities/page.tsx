@@ -11,12 +11,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createClient } from "@/lib/supabase/server";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { listOpportunities } from "@/lib/opportunities/queries";
+import { redirect } from "next/navigation";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import {
   OPPORTUNITY_STATUS_LABEL,
-  type CrmClient,
-  type Opportunity,
   type OpportunityStatus,
 } from "@/types/app";
 
@@ -24,57 +25,18 @@ interface SearchParams {
   status?: string;
 }
 
-type OppRow = Pick<
-  Opportunity,
-  | "id"
-  | "crm_client_id"
-  | "status"
-  | "requested_amount"
-  | "partner_name"
-  | "updated_at"
->;
-
 export default async function OpportunitiesPage({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
-  const supabase = createClient();
-
-  let query = supabase
-    .from("opportunities")
-    .select(
-      "id, crm_client_id, status, requested_amount, partner_name, updated_at"
-    )
-    .order("updated_at", { ascending: false })
-    .limit(100);
-
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  if (!hasPermission(session.role, "opportunities:read")) redirect("/");
   const activeStatus =
     searchParams.status && searchParams.status in OPPORTUNITY_STATUS_LABEL
       ? (searchParams.status as OpportunityStatus)
       : null;
-  if (activeStatus) query = query.eq("status", activeStatus);
-
-  const { data } = await query;
-  const opportunities = (data ?? []) as OppRow[];
-
-  // Resolve nomes dos clientes em uma segunda consulta (evita join aninhado).
-  const clientIds = Array.from(
-    new Set(opportunities.map((o) => o.crm_client_id))
-  );
-  const clientMap = new Map<string, Pick<CrmClient, "name" | "type">>();
-  if (clientIds.length > 0) {
-    const { data: people } = await supabase
-      .from("crm_clients")
-      .select("id, name, type")
-      .in("id", clientIds);
-    for (const p of (people ?? []) as Pick<
-      CrmClient,
-      "id" | "name" | "type"
-    >[]) {
-      clientMap.set(p.id, { name: p.name, type: p.type });
-    }
-  }
+  const opportunities = await listOpportunities(session, activeStatus);
 
   const filters: { value: OpportunityStatus | "all"; label: string }[] = [
     { value: "all", label: "Todas" },
@@ -129,7 +91,6 @@ export default async function OpportunitiesPage({
             </TableHeader>
             <TableBody>
               {opportunities.map((o) => {
-                const client = clientMap.get(o.crm_client_id);
                 return (
                   <TableRow key={o.id}>
                     <TableCell className="font-medium">
@@ -137,10 +98,10 @@ export default async function OpportunitiesPage({
                         href={`/opportunities/${o.id}`}
                         className="hover:underline"
                       >
-                        {client?.name ?? "—"}
+                        {o.client_name}
                       </Link>
                     </TableCell>
-                    <TableCell>{client?.type ?? "—"}</TableCell>
+                    <TableCell>{o.client_type}</TableCell>
                     <TableCell>{formatCurrency(o.requested_amount)}</TableCell>
                     <TableCell>{o.partner_name ?? "—"}</TableCell>
                     <TableCell>

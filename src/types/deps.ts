@@ -259,10 +259,20 @@ export interface ScrRequestResult {
 
 // ─── Interface do client ─────────────────────────────────────────────────
 
+// Resposta bruta entregue ao adapter versionado (src/lib/deps/adapter.ts).
+// Nenhum parsing no formato do provider acontece no client — o adapter é a
+// única fronteira de confiança. `body` é o JSON decodificado sem alterações.
+export interface DepsRawConsult {
+  httpStatus: number;
+  product: string;
+  body: unknown;
+  receivedAt: string;
+}
+
 export interface DepsClient {
   readonly mode: "real";
-  consultPF(cpf: string, options?: ConsultOptions): Promise<DepsConsultResultPF>;
-  consultPJ(cnpj: string, options?: ConsultOptions): Promise<DepsConsultResultPJ>;
+  consultPF(cpf: string, options?: ConsultOptions): Promise<DepsRawConsult>;
+  consultPJ(cnpj: string, options?: ConsultOptions): Promise<DepsRawConsult>;
   checkScrAuthorization(document: string): Promise<ScrAuthorizationCheck>;
   requestScrAuthorization(input: ScrRequestInput): Promise<ScrRequestResult>;
 }

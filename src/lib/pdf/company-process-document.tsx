@@ -5,8 +5,8 @@ import {
   FullConsultationPage,
   pdfStyles as s,
   type FullPdfHeader,
-  type PfMix,
 } from "./consultation-full-document";
+import type { ConsultationView } from "@/lib/consultations/view-model";
 import { OpinionBlock, type OpinionForPdf } from "./markdown-pdf";
 
 // PDF único do processamento de empresa: uma página por consulta (empresa
@@ -15,7 +15,7 @@ import { OpinionBlock, type OpinionForPdf } from "./markdown-pdf";
 // e todas repetem o timbrado — pronto para impressão.
 
 export interface CompanyProcessEntry {
-  mix: PfMix;
+  view: ConsultationView;
   header: FullPdfHeader;
   // "Empresa" ou "Sócio" — exibido na abertura da página.
   role: string;
@@ -42,7 +42,7 @@ function CompanyProcessDocument({
       {data.entries.map((e, i) => (
         <FullConsultationPage
           key={i}
-          mix={e.mix}
+          view={e.view}
           header={{ ...e.header, produto: `${e.role} · ${e.header.produto}` }}
           letterhead={letterhead}
         />

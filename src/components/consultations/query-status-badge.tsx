@@ -6,6 +6,7 @@ const VARIANT: Record<QueryStatus, BadgeProps["variant"]> = {
   authorized: "default",
   processing: "secondary",
   completed: "success",
+  payload_incompatible: "destructive",
   error: "destructive",
   rejected: "muted",
 };

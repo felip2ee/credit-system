@@ -1,73 +1,19 @@
-import { createClient } from "@/lib/supabase/server";
-import { formatCNPJ, formatCPF, onlyDigits } from "@/lib/utils";
+import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
+import { listConsultations } from "@/lib/consultations/queries";
+import { formatCNPJ, formatCPF } from "@/lib/utils";
 import { QUERY_STATUS_LABEL, type QueryStatus } from "@/types/app";
-
-interface QueryRow {
-  type: "PF" | "PJ";
-  document: string;
-  document_name: string | null;
-  product: string | null;
-  status: QueryStatus;
-  created_at: string;
-}
 
 const csvField = (v: string) => `"${v.replace(/"/g, '""')}"`;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const supabase = createClient();
-
-  let query = supabase
-    .from("queries")
-    .select("type, document, document_name, product, status, created_at")
-    .order("created_at", { ascending: false })
-    .limit(5000);
-
-  const type = searchParams.get("type");
-  if (type === "PF" || type === "PJ") query = query.eq("type", type);
-
-  const status = searchParams.get("status");
-  if (status && status in QUERY_STATUS_LABEL) {
-    query = query.eq("status", status as QueryStatus);
-  }
-
-  const from = searchParams.get("from");
-  if (from) query = query.gte("created_at", from);
-  const to = searchParams.get("to");
-  if (to) query = query.lte("created_at", `${to}T23:59:59`);
-
-  const q = searchParams.get("q");
-  if (q) {
-    const docTerm = onlyDigits(q);
-    const clauses = [`document_name.ilike.%${q}%`];
-    if (docTerm.length > 0) clauses.push(`document.ilike.%${docTerm}%`);
-    query = query.or(clauses.join(","));
-  }
-
-  const { data } = await query;
-  const rows = (data ?? []) as QueryRow[];
-
+  let session;
+  try { session = await getRequiredSession(); } catch { return new Response("Sess\u00e3o expirada.", { status: 401 }); }
+  if (!hasPermission(session.role, "consultations:read")) return new Response("N\u00e3o autorizado.", { status: 403 });
+  const type = searchParams.get("type"); const status = searchParams.get("status");
+  const rows = await listConsultations({ userId: session.userId, role: session.role }, { q: searchParams.get("q") ?? undefined, type: type === "PF" || type === "PJ" ? type : undefined, status: status && status in QUERY_STATUS_LABEL ? status as QueryStatus : undefined, from: searchParams.get("from") ?? undefined, to: searchParams.get("to") ?? undefined, limit: 5000 });
   const header = ["Data", "Tipo", "Documento", "Nome", "Produto", "Status"];
-  const lines = rows.map((r) =>
-    [
-      new Date(r.created_at).toLocaleString("pt-BR"),
-      r.type,
-      r.type === "PJ" ? formatCNPJ(r.document) : formatCPF(r.document),
-      r.document_name ?? "",
-      r.product ?? "",
-      QUERY_STATUS_LABEL[r.status] ?? r.status,
-    ]
-      .map((v) => csvField(String(v)))
-      .join(";")
-  );
-
-  // BOM para o Excel reconhecer UTF-8.
-  const csv = "﻿" + [header.map(csvField).join(";"), ...lines].join("\r\n");
-
-  return new Response(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="consultas-${new Date().toISOString().slice(0, 10)}.csv"`,
-    },
-  });
+  const lines = rows.map((row) => [new Date(row.created_at).toLocaleString("pt-BR"), row.type, row.type === "PJ" ? formatCNPJ(row.document) : formatCPF(row.document), row.document_name ?? "", row.product ?? "", QUERY_STATUS_LABEL[row.status] ?? row.status].map((value) => csvField(String(value))).join(";"));
+  return new Response("\ufeff" + [header.map(csvField).join(";"), ...lines].join("\r\n"), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="consultas-${new Date().toISOString().slice(0, 10)}.csv"` } });
 }

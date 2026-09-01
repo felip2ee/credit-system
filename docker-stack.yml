@@ -1,107 +1,239 @@
-# Reino do Crédito — stack para Docker Swarm (Portainer > Stacks > Web editor).
-#
-# Ambiente: mesma rede (RainhaNet) e mesmo Traefik (letsencryptresolver) da
-# stack do Chatwoot.
-#
-# Antes de subir:
-#   1. A imagem já deve estar no GHCR — .github/workflows/docker-image.yml.
-#   2. Se o pacote do GHCR for privado, cadastre o registry no Portainer.
-#   3. Preencha as variáveis na aba "Environment variables" do Portainer
-#      (nada de segredo dentro deste arquivo — ele vai para o Git).
-#
-# Lembrete: as NEXT_PUBLIC_* são embutidas no BUILD da imagem. Trocá-las aqui
-# não muda o que o browser recebe — é preciso rebuildar a imagem.
-
-version: "3.7"
-
 services:
-
-## --------------------------- REINO DO CRÉDITO --------------------------- ##
-
   reino_app:
-    image: ghcr.io/${GHCR_OWNER}/reino-credito:${IMAGE_TAG:-latest}
-
-    networks:
-      - RainhaNet ## mesma rede do Traefik / Chatwoot
-
+    # Digest-only: owner + sha256 digest are both required, so a mutable tag or
+    # `latest` can never satisfy stack config. Digest comes from the GHCR build.
+    image: &app_image ghcr.io/${REINO_IMAGE_OWNER:?REINO_IMAGE_OWNER is required}/reino-credito@sha256:${REINO_IMAGE_DIGEST:?REINO_IMAGE_DIGEST must be the 64-hex sha256 digest of the release image}
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    stop_grace_period: 30s
+    networks: [RainhaNet, private]
     environment:
-    ## ⚡ Runtime
-      - NODE_ENV=production
-      - PORT=3000
-      - HOSTNAME=0.0.0.0
-      - TZ=America/Sao_Paulo
-
-    ## 🗄️ Supabase
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY} ## SECRETO
-
-    ## 🌐 URL pública (links dos e-mails de SCR e do portal do cliente)
-      - NEXT_PUBLIC_SITE_URL=https://${APP_DOMAIN}
-
-    ## 🤖 OpenAI (parecer de IA)
-      - OPENAI_API_KEY=${OPENAI_API_KEY} ## SECRETO
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
-
-    ## 🏦 Bureau deps.com.br
-      - DEPS_API_BASE_URL=${DEPS_API_BASE_URL:-https://api-portal.deps.com.br}
-      - DEPS_API_EMAIL=${DEPS_API_EMAIL}
-      - DEPS_API_PASSWORDL=${DEPS_API_PASSWORDL} ## SECRETO
-      - DEPS_API_CENTRO_CUSTOS=${DEPS_API_CENTRO_CUSTOS}
-      - DEPS_PRODUTO_PF=${DEPS_PRODUTO_PF:-Smart PF 002}
-      - DEPS_PRODUTO_PJ=${DEPS_PRODUTO_PJ:-Smart PJ 010}
-
-    ## 📧 SMTP (termo de autorização SCR + convite do portal)
-      - SMTP_HOST=${SMTP_HOST:-smtp.hostinger.com}
-      - SMTP_PORT=${SMTP_PORT:-465} ## 465 = SSL implícito | 587 = STARTTLS
-      - SMTP_SECURE=${SMTP_SECURE:-true} ## true p/ 465, false p/ 587
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASS=${SMTP_PASS} ## SECRETO
-      - SMTP_FROM=${SMTP_FROM}
-
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      TZ: America/Sao_Paulo
+      BETTER_AUTH_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
+      TRAEFIK_PROXY_CIDR: ${TRAEFIK_PROXY_CIDR:?TRAEFIK_PROXY_CIDR is required}
+      DOCUMENT_ROOT: /var/lib/reino/documents
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:?SMTP_USER is required}
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
+      DEPS_API_BASE_URL: ${DEPS_API_BASE_URL:-https://api-portal.deps.com.br}
+      DEPS_API_EMAIL: ${DEPS_API_EMAIL:?DEPS_API_EMAIL is required}
+      DEPS_API_CENTRO_CUSTOS: ${DEPS_API_CENTRO_CUSTOS:-}
+      DEPS_PRODUTO_PF: ${DEPS_PRODUTO_PF:-Smart PF 002}
+      DEPS_PRODUTO_PJ: ${DEPS_PRODUTO_PJ:-Smart PJ 010}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      SMTP_PASS_FILE: /run/secrets/smtp_pass
+      DEPS_API_PASSWORDL_FILE: /run/secrets/deps_api_password
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+    secrets: [database_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key]
+    volumes:
+      - documents:/var/lib/reino/documents
     healthcheck:
-      ## /login é pública e não redireciona — serve de sinal de vida.
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/login"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 40s
-
     deploy:
-      mode: replicated
       replicas: 1
       placement:
-        constraints:
-          - node.role == manager
+        constraints: [node.role == manager]
       update_config:
-        order: start-first ## sobe a nova antes de derrubar a antiga (deploy sem queda)
+        order: stop-first
         failure_action: rollback
         delay: 10s
       rollback_config:
-        order: start-first
+        order: stop-first
       restart_policy:
         condition: on-failure
         delay: 10s
+        max_attempts: 3
       resources:
-        limits:
-          cpus: "1"
-          memory: 1024M
+        limits: { cpus: "1", memory: 1024M }
+        reservations: { cpus: "0.25", memory: 512M }
       labels:
         - traefik.enable=true
         - traefik.docker.network=RainhaNet
-        - traefik.http.routers.reino_app.rule=Host(`${APP_DOMAIN}`)
+        - traefik.http.routers.reino_app.rule=Host(`${APP_DOMAIN:?APP_DOMAIN is required}`)
         - traefik.http.routers.reino_app.entrypoints=websecure
         - traefik.http.routers.reino_app.tls.certresolver=letsencryptresolver
-        - traefik.http.routers.reino_app.priority=1
-        - traefik.http.routers.reino_app.service=reino_app
         - traefik.http.services.reino_app.loadbalancer.server.port=3000
-        - traefik.http.services.reino_app.loadbalancer.passHostHeader=true
-        - traefik.http.middlewares.sslheader.headers.customrequestheaders.X-Forwarded-Proto=https
-        - traefik.http.routers.reino_app.middlewares=sslheader
+    logging: &json-logs
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
 
-## --------------------------- REINO DO CRÉDITO --------------------------- ##
+  postgres:
+    image: postgres:18.6-alpine3.23
+    stop_grace_period: 60s
+    networks: [private]
+    environment:
+      POSTGRES_DB: credit_system
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, schema_owner_password, app_runtime_password, backup_reader_password]
+    configs:
+      - source: postgres-init-users
+        target: /docker-entrypoint-initdb.d/001-users.sh
+        mode: 0555
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d credit_system"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    deploy:
+      restart_policy: { condition: on-failure, delay: 5s, max_attempts: 3 }
+      resources:
+        limits: { cpus: "2", memory: 4G }
+        reservations: { cpus: "0.5", memory: 1G }
+    logging: *json-logs
+
+  clamav:
+    image: clamav/clamav:1.4.6_base-debian13-slim
+    stop_grace_period: 60s
+    networks: [private]
+    volumes: [clamav_data:/var/lib/clamav]
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    deploy:
+      restart_policy: { condition: on-failure, delay: 10s, max_attempts: 3 }
+      resources:
+        limits: { cpus: "2", memory: 5G }
+        reservations: { cpus: "0.5", memory: 4G }
+    logging: *json-logs
+
+  migrate:
+    image: *app_image
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    command: ["node", "scripts/db/migrate.mjs"]
+    networks: [private]
+    environment:
+      DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
+    secrets: [database_owner_url]
+    deploy:
+      # ponytail: operator-invoked one-shot. Swarm has no run-once-before-app
+      # ordering; Task 15 cutover runbook must `docker service scale
+      # <stack>_migrate=1`, verify exit 0, then scale back before app routing.
+      # Compose `depends_on` is not a Swarm ordering primitive — do not add it.
+      replicas: 0
+      restart_policy: { condition: none }
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+        reservations: { cpus: "0.1", memory: 128M }
+    logging: *json-logs
+
+  backup:
+    # Own multi-stage image (PG18 client + Restic 0.18.1 + curl SMTP). Same
+    # digest-pin rule as reino_app: owner + 64-hex sha256 both required.
+    image: ghcr.io/${REINO_IMAGE_OWNER:?REINO_IMAGE_OWNER is required}/reino-backup@sha256:${REINO_BACKUP_DIGEST:?REINO_BACKUP_DIGEST must be the 64-hex sha256 digest of the backup image}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /run/lock:rw,noexec,nosuid,nodev,size=1m
+    stop_grace_period: 30s
+    # Internal encrypted overlay only. No Traefik, no published port, no Docker
+    # socket. Reaches postgres for pg_dump and the S3 endpoint for Restic.
+    networks: [private]
+    environment:
+      TZ: America/Sao_Paulo
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: backup_reader
+      PGDATABASE: credit_system
+      PGPASSWORD_FILE: /run/secrets/backup_reader_password
+      DOCUMENT_ROOT: /var/lib/reino/documents
+      # e.g. s3:https://s3.<region>.amazonaws.com/<bucket> -- bucket MUST have
+      # object versioning on and all public access denied (operator prereq).
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:?RESTIC_REPOSITORY is required}
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
+      AWS_ACCESS_KEY_ID_FILE: /run/secrets/backup_s3_access_key
+      AWS_SECRET_ACCESS_KEY_FILE: /run/secrets/backup_s3_secret_key
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:?SMTP_USER is required}
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
+      SMTP_PASS_FILE: /run/secrets/smtp_pass
+      BACKUP_ALERT_TO: ${BACKUP_ALERT_TO:?BACKUP_ALERT_TO is required}
+      # Core tables the monthly restore drill must find in the restored dump.
+      RESTORE_REQUIRED_TABLES: >-
+        schema_migrations user session account profiles
+        crm_clients crm_client_documents batches consultations
+        scr_authorizations bureau_payloads bureau_results ai_reports
+        company_reports opportunities opportunity_documents timeline_events
+        crm_notes settings audit_logs
+      REINO_IMAGE_DIGEST: ${REINO_IMAGE_DIGEST}
+    secrets: [backup_reader_password, restic_password, backup_s3_access_key, backup_s3_secret_key, smtp_pass]
+    volumes:
+      - documents:/var/lib/reino/documents:ro
+      - backup_state:/var/lib/backup
+      - backup_work:/work
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep crond >/dev/null"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy: { condition: on-failure, delay: 15s, max_attempts: 3 }
+      resources:
+        limits: { cpus: "1", memory: 1024M }
+        reservations: { cpus: "0.1", memory: 128M }
+    logging: *json-logs
 
 networks:
   RainhaNet:
     external: true
     name: RainhaNet
+  private:
+    driver: overlay
+    internal: true
+    driver_opts:
+      encrypted: "true"
+
+volumes:
+  postgres_data:
+  documents:
+  clamav_data:
+  backup_state:
+  backup_work:
+
+configs:
+  postgres-init-users:
+    file: ./docker/postgres/init/001-users.sh
+
+secrets:
+  database_url: { external: true }
+  database_owner_url: { external: true }
+  better_auth_secret: { external: true }
+  smtp_pass: { external: true }
+  deps_api_password: { external: true }
+  openai_api_key: { external: true }
+  postgres_password: { external: true }
+  schema_owner_password: { external: true }
+  app_runtime_password: { external: true }
+  backup_reader_password: { external: true }
+  restic_password: { external: true }
+  backup_s3_access_key: { external: true }
+  backup_s3_secret_key: { external: true }

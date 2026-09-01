@@ -5,57 +5,29 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { formatCurrency } from "@/lib/utils";
+import type { ConsultationView } from "@/lib/consultations/view-model";
 
-export interface ResultView {
-  // Pessoa politicamente exposta (só PF). Quando true e algum bloco vier vazio,
-  // a deps costuma omitir score/smart — exibimos "Cliente PEP" no lugar de "—".
-  isPep: boolean;
-  score: {
-    valor: number | null;
-    risco: string | null;
-    descricao: string | null;
-    prob: number | null;
-  };
-  smart: {
-    classificacao: string | null;
-    aprovado: boolean | null;
-    motivo: string | null;
-    limiteSugerido: number | null;
-  };
-  restricoes: {
-    pendenciasTotal: number;
-    pendenciasValor: number;
-    protestos: number;
-    acoes: number;
-  };
-  positivas: string[];
-  negativas: string[];
-}
+export function ConsultationResult({ view }: { view: ConsultationView }) {
+  const { subject, score } = view;
+  const na = subject.isPoliticallyExposed ? "Cliente PEP" : "—";
 
-export function ConsultationResult({ view }: { view: ResultView }) {
-  // Rótulo para campos vazios: "Cliente PEP" quando é pessoa politicamente
-  // exposta (a deps omite o score nesses casos); "—" caso contrário.
-  const na = view.isPep ? "Cliente PEP" : "—";
-  const scoreEmptyPep = view.score.valor == null && view.isPep;
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader className="pb-2">
           <CardDescription>Score</CardDescription>
-          <CardTitle className={scoreEmptyPep ? "text-xl" : "text-4xl"}>
-            {view.score.valor ?? na}
+          <CardTitle className={score.value == null ? "text-xl" : "text-4xl"}>
+            {score.value ?? na}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 text-sm">
-          <p className="font-medium">{view.score.risco ?? na}</p>
-          <p className="text-muted-foreground">
-            {view.score.descricao ?? (view.isPep ? "Cliente PEP" : "")}
-          </p>
-          {view.score.prob != null && (
+          <p className="font-medium">{score.riskBand ?? na}</p>
+          {score.description && (
+            <p className="text-muted-foreground">{score.description}</p>
+          )}
+          {score.paymentProbability != null && (
             <p className="text-muted-foreground">
-              Probabilidade de pagamento: {view.score.prob}%
+              Probabilidade de pagamento: {score.paymentProbability}%
             </p>
           )}
         </CardContent>
@@ -63,27 +35,21 @@ export function ConsultationResult({ view }: { view: ResultView }) {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>Smart</CardDescription>
-          <CardTitle className="flex items-center gap-2 text-2xl">
-            {view.smart.classificacao ?? na}
-            {view.smart.aprovado != null &&
-              (view.smart.aprovado ? (
-                <Badge variant="success">Aprovado</Badge>
-              ) : (
-                <Badge variant="destructive">Reprovado</Badge>
-              ))}
-          </CardTitle>
+          <CardDescription>
+            {view.kind === "PJ" ? "Empresa" : "Pessoa"}
+          </CardDescription>
+          <CardTitle className="text-2xl">{subject.name}</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm">
-          <p className="text-muted-foreground">{view.smart.motivo}</p>
-          {view.smart.limiteSugerido != null && (
-            <p>
-              Limite sugerido:{" "}
-              <span className="font-medium">
-                {formatCurrency(view.smart.limiteSugerido)}
-              </span>
-            </p>
+        <CardContent className="space-y-1 text-sm text-muted-foreground">
+          {subject.tradeName && <p>{subject.tradeName}</p>}
+          {subject.registrationStatus && <p>Situação: {subject.registrationStatus}</p>}
+          {view.kind === "PF" && subject.age != null && <p>{subject.age} anos</p>}
+          {view.kind === "PJ" && subject.mainActivity && (
+            <p>CNAE: {subject.mainActivity}</p>
           )}
+          {subject.location && <p>{subject.location}</p>}
+          {subject.isDeceased && <p className="text-destructive">Indicação de óbito</p>}
+          {subject.isPoliticallyExposed && <p>Pessoa politicamente exposta</p>}
         </CardContent>
       </Card>
 
@@ -92,54 +58,47 @@ export function ConsultationResult({ view }: { view: ResultView }) {
           <CardTitle className="text-lg">Restrições</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Metric
-            label="Pendências"
-            value={String(view.restricoes.pendenciasTotal)}
-          />
-          <Metric
-            label="Valor pendências"
-            value={formatCurrency(view.restricoes.pendenciasValor)}
-          />
-          <Metric label="Protestos" value={String(view.restricoes.protestos)} />
-          <Metric
-            label="Ações judiciais"
-            value={String(view.restricoes.acoes)}
-          />
+          <Metric label="Pendências" value={String(view.debts.total)} />
+          <Metric label="Valor pendências" value={view.debts.amount} />
+          <Metric label="Protestos" value={String(view.protests.total)} />
+          <Metric label="Ações judiciais" value={String(view.lawsuits.total)} />
         </CardContent>
       </Card>
 
-      {(view.positivas.length > 0 || view.negativas.length > 0) && (
+      {view.messages.length > 0 && (
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-lg">Fatores Smart</CardTitle>
+            <CardTitle className="text-lg">Mensagens do bureau</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <p className="mb-2 text-sm font-medium text-emerald-700">
-                Positivos
-              </p>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                {view.positivas.map((p, i) => (
-                  <li key={i}>• {p}</li>
-                ))}
-                {view.positivas.length === 0 && <li>—</li>}
-              </ul>
-            </div>
-            <div>
-              <p className="mb-2 text-sm font-medium text-destructive">
-                Atenção
-              </p>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                {view.negativas.map((n, i) => (
-                  <li key={i}>• {n}</li>
-                ))}
-                {view.negativas.length === 0 && <li>—</li>}
-              </ul>
-            </div>
+          <CardContent>
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {view.messages.map((m, i) => (
+                <li key={i}>• {m}</li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}
     </div>
+  );
+}
+
+export function ConsultationUnavailable({
+  consultationId,
+  message,
+}: {
+  consultationId: string;
+  message: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="space-y-2 p-6">
+        <p className="text-sm text-muted-foreground">{message}</p>
+        <p className="text-xs text-muted-foreground">
+          Código da consulta: <span className="font-mono">{consultationId}</span>
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -3,10 +3,11 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { ScrTermForm } from "@/components/settings/scr-term-form";
 import { getScrTermSettings } from "@/actions/settings";
-import { isAdmin } from "@/lib/auth";
+import { getRequiredSession } from "@/lib/auth/session";
 
 export default async function ScrSettingsPage() {
-  if (!(await isAdmin())) redirect("/settings");
+  const session = await getRequiredSession().catch(() => redirect("/login"));
+  if (session.role !== "admin") redirect("/settings");
   const settings = await getScrTermSettings();
 
   return (

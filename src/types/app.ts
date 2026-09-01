@@ -1,5 +1,5 @@
 // Tipos de domínio do Reino do Crédito.
-// Refletem os enums e tabelas de supabase/migrations/001_initial_schema.sql.
+// Refletem os enums e tabelas do esquema legado preservado em docs/legacy.
 
 export type UserRole = "admin" | "consultant" | "client";
 
@@ -10,6 +10,7 @@ export type QueryStatus =
   | "authorized"
   | "processing"
   | "completed"
+  | "payload_incompatible"
   | "error"
   | "rejected";
 
@@ -151,6 +152,7 @@ export const QUERY_STATUS_LABEL: Record<QueryStatus, string> = {
   authorized: "Autorizada",
   processing: "Processando",
   completed: "Concluída",
+  payload_incompatible: "Dados incompatíveis",
   error: "Erro",
   rejected: "Recusada",
 };
