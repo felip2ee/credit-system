@@ -228,7 +228,21 @@ describe.sequential("transaction-scoped RLS identity", () => {
       confirmPublicScrAuthorization(refusedScrToken, "", "refuse", null),
     ).resolves.toMatchObject({ status: "refused" });
 
+    await expect(
+      pool.query<{ rolbypassrls: boolean }>(
+        "select rolbypassrls from pg_roles where rolname = 'auth_profile_lookup'",
+      ),
+    ).resolves.toMatchObject({ rows: [{ rolbypassrls: false }] });
     await expect(pool.query("select id from scr_authorizations")).resolves.toMatchObject({ rows: [] });
+    await expect(
+      pool.query("update scr_authorizations set status = 'authorized' where public_token = $1", [publicScrToken]),
+    ).resolves.toMatchObject({ rowCount: 0 });
+    await expect(
+      pool.query(
+        "insert into timeline_events (entity_type, entity_id, event_type, title) values ('crm_client', $1, 'scr.self_authorized', 'forged')",
+        [clientRows[0].id],
+      ),
+    ).rejects.toThrow();
   });
 
   it("clears the sole pooled connection after commit, rollback, and callback errors", async () => {

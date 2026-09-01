@@ -63,3 +63,24 @@ Apply `007_client_document_upload.sql` with the owner migration URL, then run th
 ### Remaining gates
 
 Apply migrations through `008_public_scr_authorization.sql` with the owner URL, supply the production build environment (including `BETTER_AUTH_SECRET`), and run the real PostgreSQL RLS suite. The external Supabase source and all source data remain untouched.
+
+## Review fix 2 — RLS-constrained SCR gateway
+
+### Changes
+
+- Added forward-only `009_public_scr_gateway_privileges.sql`; migrations `001..008` are unchanged.
+- `auth_profile_lookup` is now `NOLOGIN NOINHERIT NOBYPASSRLS`. `backup_reader` remains the only BypassRLS role.
+- The gateway role receives only profile lookup columns, SCR internal-channel read/update columns, and the four columns required to append either allowed SCR timeline event. Role-specific RLS policies enforce these limits; `app_runtime` receives no new table policy or privilege, only function execute.
+- The confirmation function is replaced under the same signature with explicit locked SCR variables, removing `SELECT *` so its column ACL is executable. It retains fixed search path, schema qualification, parameterized caller boundary, replay/invalid-code behavior, and atomic update/event insertion.
+- Portal invite/revoke now require `users:manage`, matching the user lifecycle permission and profile-admin rule.
+
+### RED / GREEN and verification
+
+- RED: the new portal permission assertion failed while invitation checked `clients:write`. GREEN: focused portal tests pass 2/2 after requiring `users:manage`.
+- Migration static/checksum tests pass 4/4, including `NOBYPASSRLS`, restricted column grants/policies, and no obsolete broad SCR record selection.
+- Type-check and `git diff --check` pass.
+- Extended RLS integration proof covers gateway role `rolbypassrls = false`, token gateway behavior under actual ACL/policies, zero direct SCR visibility/update, and rejected forged timeline insert. It is blocked only by `ECONNREFUSED ::1/127.0.0.1:54329` and `127.0.0.1:54329`; no mock/skip was added.
+
+### Remaining gate
+
+Apply through migration `009` and run the real RLS suite against PostgreSQL. No external Supabase source, source data, or prior migration checksum was changed.

@@ -46,3 +46,14 @@ test("limits profile and credit-product SELECT policies to staff", async () => {
     /create policy credit_products_select on credit_products for select\s+using \(\s+app_context_present\(\)\s+and app_user_role\(\) in \('admin', 'consultant'\)\s+\);/s,
   );
 });
+
+test("restricts the public SCR gateway role to RLS policies and column grants", async () => {
+  const sql = await readFile("db/migrations/009_public_scr_gateway_privileges.sql", "utf8");
+
+  assert.match(sql, /alter role auth_profile_lookup NOLOGIN NOINHERIT NOBYPASSRLS;/);
+  assert.match(sql, /revoke all on public\.scr_authorizations from auth_profile_lookup;/);
+  assert.match(sql, /grant update \([\s\S]*auth_code[\s\S]*\) on public\.scr_authorizations to auth_profile_lookup;/);
+  assert.match(sql, /create policy scr_authorizations_gateway_select on public\.scr_authorizations for select to auth_profile_lookup/);
+  assert.match(sql, /create policy timeline_events_gateway_insert on public\.timeline_events for insert to auth_profile_lookup/);
+  assert.doesNotMatch(sql, /select \*\s+into v_authorization/);
+});

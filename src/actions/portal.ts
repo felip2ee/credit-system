@@ -27,7 +27,7 @@ export interface SignedUrlResult {
 
 async function requireStaff(): Promise<DbIdentity> {
   const session = await getRequiredSession();
-  if (!hasPermission(session.role, "clients:write")) throw new Error("forbidden");
+  if (!hasPermission(session.role, "users:manage")) throw new Error("forbidden");
   return session;
 }
 
