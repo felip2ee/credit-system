@@ -12,7 +12,11 @@
     "type-check": "tsc --noEmit",
     "check:no-supabase": "node scripts/check-no-supabase.mjs",
     "db:migrate": "node scripts/db/migrate.mjs",
-    "db:migrate:test": "node --test scripts/db/migrate.test.mjs"
+    "db:migrate:test": "node --test scripts/db/migrate.test.mjs",
+    "migration:export": "node scripts/migration/export-supabase.mjs",
+    "migration:import": "node scripts/migration/import-postgres.mjs",
+    "migration:verify": "node scripts/migration/verify.mjs",
+    "migration:test": "node --test scripts/migration/migration.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
