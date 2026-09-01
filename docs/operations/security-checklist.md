@@ -5,20 +5,20 @@ Every box must be checked with evidence (command output saved outside the repo).
 
 ## 1. Secrets — generation & rotation
 
-- [ ] All 13 stack secrets are Docker **external** secrets (never in the compose
+- [ ] All 11 stack secrets are Docker **external** secrets (never in the compose
   file, never in env files committed to git):
   `database_url`, `database_owner_url`, `better_auth_secret`, `smtp_pass`,
   `deps_api_password`, `openai_api_key`, `postgres_password`,
   `schema_owner_password`, `app_runtime_password`, `backup_reader_password`,
-  `restic_password`, `backup_s3_access_key`, `backup_s3_secret_key`.
+  `restic_password`.
 - [ ] Generate each high-entropy secret with:
   ```sh
   openssl rand -base64 48        # BETTER_AUTH_SECRET, restic_password, DB passwords
   printf %s "$VALUE" | docker secret create <name> -
   ```
 - [ ] `database_url` uses role `app_runtime` (NOSUPERUSER NOBYPASSRLS).
-  `database_owner_url` — consumed **only** by the one-shot `migrate` service and
-  the manual import/verify steps — uses the `postgres` superuser: migrations run
+  `database_owner_url` — consumed by the `reino_app` entrypoint (auto-migrate)
+  and the manual import/verify steps — uses the `postgres` superuser: migrations run
   `CREATE ROLE` / `ALTER ROLE ... [NO]BYPASSRLS` and the import bypasses FORCE
   RLS, both of which require superuser. The app service never gets this DSN.
 - [ ] `.env.local`, `.env*.example`, and `".env.local - Copia.example"` contain
@@ -35,7 +35,7 @@ Every box must be checked with evidence (command output saved outside the repo).
   ports (2377/7946/4789) not exposed to the internet.
 - [ ] `private` overlay network is `internal: true` and `encrypted: true` — no
   egress, encrypted node-to-node.
-- [ ] `postgres`, `clamav`, `migrate`, `backup` are on `private` **only** — not
+- [ ] `postgres`, `clamav`, `backup` are on `private` **only** — not
   reachable from `RainhaNet` / the internet.
 - [ ] `backup` has no Docker socket, no published port, no `RainhaNet`.
 
@@ -48,14 +48,20 @@ Every box must be checked with evidence (command output saved outside the repo).
   forwarded-IP / rate-limit trust is correct.
 - [ ] HSTS header set (Traefik middleware or app).
 
-## 4. Object storage (Restic S3 backup repo)
+## 4. Backup repository (on-server, local encrypted Restic)
 
-- [ ] Bucket has **object versioning ENABLED** (server keys cannot erase history).
-- [ ] Bucket has **all public access DENIED** (block-all-public-access, no ACLs).
-- [ ] Backup IAM key is scoped to that one bucket, `s3:PutObject`/`GetObject`/
-  `ListBucket`/`DeleteObject` only — no bucket-policy or versioning-config perms.
-- [ ] `RESTIC_PASSWORD` stored only as a Docker secret; losing it = unrecoverable
+- [ ] `restic_repo` volume is bound to a **separate disk** (provider block storage
+  at `/srv/reino-restic`), not the primary disk — a primary-disk failure must not
+  take the backups with it.
+- [ ] The disk / mount is not world-readable; the volume is only mounted into the
+  `backup` service (`read_only` container, no shell exposure).
+- [ ] `restic_password` stored only as a Docker secret; losing it = unrecoverable
   backups — escrow it offline.
+- [ ] **Residual risk accepted**: backups live on the same VPS. They survive DB
+  corruption, a bad migration, an accidental delete, and app-level compromise,
+  but NOT total loss of the host / provider account. If off-site copies become a
+  requirement, add a periodic `restic copy` to a remote repo (the only external
+  dependency the design would then take).
 
 ## 5. Restore evidence
 
@@ -126,8 +132,9 @@ Run after schema migrate (`\du` and the queries below as `postgres`):
 
 ## 10. Image / patch ownership
 
-- [ ] `reino_app` and `migrate` deploy by **digest only**
-  (`ghcr.io/<owner>/reino-credito@sha256:<digest>`); a mutable tag or `latest`
+- [ ] `reino_app` and `backup` deploy by **digest only**
+  (`ghcr.io/<owner>/reino-credito@sha256:<digest>`,
+  `ghcr.io/<owner>/reino-backup@sha256:<digest>`); a mutable tag or `latest`
   cannot satisfy `docker-stack.yml`.
 - [ ] `reino-backup` image is built + pushed by CI (add the `build-backup` job to
   `.github/workflows/docker-image.yml` — YAML in [`cutover.md` §P4](./cutover.md#p4--ci-job-to-add-for-the-backup-image))

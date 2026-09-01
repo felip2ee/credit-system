@@ -32,8 +32,8 @@ them. Every one must be green before authorization.
 | P3 | **1× rollback rehearsal** | After deliberately failing a smoke gate in a rehearsal, run [`rollback.md`](./rollback.md) end-to-end and record recovery time in [`migration-rehearsal.md`](./migration-rehearsal.md). |
 | P4 | **`reino-backup` image built & pushed** | `.github/workflows/docker-image.yml` builds both `reino-credito` and `reino-backup` (matrix). Push to `main` (or run the workflow); take `REINO_BACKUP_DIGEST` from the *Report deployable digest* job summary for `reino-backup`. |
 | P5 | **`reino-credito` image built & pushed** | Push to `main` (or run the workflow); take `REINO_IMAGE_OWNER` + `REINO_IMAGE_DIGEST` from the *Report deployable digest* job summary. Deploy is digest-only — a tag can never satisfy `docker-stack.yml`. |
-| P6 | **All 13 external secrets created** in the target Swarm | `database_url`, `database_owner_url`, `better_auth_secret`, `smtp_pass`, `deps_api_password`, `openai_api_key`, `postgres_password`, `schema_owner_password`, `app_runtime_password`, `backup_reader_password`, `restic_password`, `backup_s3_access_key`, `backup_s3_secret_key` — see [`security-checklist.md`](./security-checklist.md). |
-| P7 | **S3 bucket for Restic** has object versioning ON and all public access DENIED. |
+| P6 | **All 11 external secrets created** in the target Swarm | `database_url`, `database_owner_url`, `better_auth_secret`, `smtp_pass`, `deps_api_password`, `openai_api_key`, `postgres_password`, `schema_owner_password`, `app_runtime_password`, `backup_reader_password`, `restic_password` — see [`.env.example`](../../.env.example) and [`security-checklist.md`](./security-checklist.md). |
+| P7 | **Restic repo disk** — the `restic_repo` volume is bound to a separate disk (provider block storage at `/srv/reino-restic`), not the primary disk. The repo is a local encrypted filesystem backend; there is no external object store. |
 | P8 | **DB roles verified** after schema migrate: `app_runtime` NOBYPASSRLS, only `backup_reader` BYPASSRLS, `auth_profile_lookup` NOLOGIN/NOINHERIT/NOBYPASSRLS (migration 009). See [`security-checklist.md`](./security-checklist.md). |
 | P9 | **Restore drill passes** — `sh docker/backup/backup.test.sh` and a real `restore-test.sh` run into a throwaway cluster, evidence saved. |
 
@@ -54,7 +54,10 @@ export REINO_IMAGE_DIGEST=<64-hex sha256 of reino-credito release image>
 export REINO_BACKUP_DIGEST=<64-hex sha256 of reino-backup image>
 export APP_DOMAIN=<app.example.com>
 export TRAEFIK_PROXY_CIDR=<10.0.0.0/24>
-export RESTIC_REPOSITORY='s3:https://s3.<region>.amazonaws.com/<bucket>'
+# Restic repo is the on-server `restic_repo` volume (docker-stack.yml) — no env needed.
+# Optionally pre-bind it to a separate disk:
+#   docker volume create --driver local --opt type=none --opt o=bind \
+#     --opt device=/srv/reino-restic reino_restic_repo
 export BACKUP_ALERT_TO=<ops@example.com>
 export SMTP_HOST=<smtp.example.com> SMTP_PORT=465 SMTP_SECURE=true
 export SMTP_USER=<user> SMTP_FROM=<no-reply@example.com>
@@ -128,16 +131,17 @@ docker stack rm "$STACK" 2>/dev/null; sleep 15
 docker volume rm ${STACK}_postgres_data ${STACK}_documents ${STACK}_clamav_data \
                  ${STACK}_backup_state ${STACK}_backup_work 2>/dev/null || true
 
-docker stack deploy -c docker-stack.yml "$STACK"     # postgres + clamav come up; migrate has replicas:0
+docker stack deploy -c docker-stack.yml "$STACK"
 
 # Wait for postgres healthy:
 until docker exec "$(docker ps -q -f name=${STACK}_postgres)" pg_isready -U postgres -d credit_system; do sleep 3; done
 
-# One-shot schema migration (Swarm has no run-once ordering — do it explicitly):
-docker service scale ${STACK}_migrate=1
-docker service logs -f ${STACK}_migrate &      # watch it
-docker service ps --no-trunc ${STACK}_migrate  # confirm the task exited 0
-docker service scale ${STACK}_migrate=0
+# Schema migrations run AUTOMATICALLY from the reino_app entrypoint
+# (docker/app-entrypoint.sh) — forward-only, idempotent, retries until postgres
+# is up. Just watch them land:
+docker service logs -f ${STACK}_reino_app 2>&1 | sed -n '/applying database migrations/,/migration/p'
+# confirm the runner reported success and the app started:
+docker service ps --no-trunc ${STACK}_reino_app
 ```
 
 Runs `001`..`010` including `010_must_reset_password`. Second run (rollback

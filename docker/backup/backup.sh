@@ -25,8 +25,6 @@ read_file_env() {
 
 load_secrets() {
   read_file_env RESTIC_PASSWORD
-  read_file_env AWS_ACCESS_KEY_ID
-  read_file_env AWS_SECRET_ACCESS_KEY
   read_file_env PGPASSWORD
   read_file_env SMTP_PASS
 }

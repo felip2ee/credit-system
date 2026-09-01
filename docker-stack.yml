@@ -31,11 +31,14 @@ services:
       DEPS_PRODUTO_PJ: ${DEPS_PRODUTO_PJ:-Smart PJ 010}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
       DATABASE_URL_FILE: /run/secrets/database_url
+      # The app entrypoint applies schema migrations on start, which need the
+      # owner/superuser DSN. RUN_MIGRATIONS=0 to disable that per-container.
+      DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
       SMTP_PASS_FILE: /run/secrets/smtp_pass
       DEPS_API_PASSWORDL_FILE: /run/secrets/deps_api_password
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
-    secrets: [database_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key]
+    secrets: [database_url, database_owner_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key]
     volumes:
       - documents:/var/lib/reino/documents
     healthcheck:
@@ -117,28 +120,9 @@ services:
         reservations: { cpus: "0.5", memory: 4G }
     logging: *json-logs
 
-  migrate:
-    image: *app_image
-    user: "1001:1001"
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=16m
-    command: ["node", "scripts/db/migrate.mjs"]
-    networks: [private]
-    environment:
-      DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
-    secrets: [database_owner_url]
-    deploy:
-      # ponytail: operator-invoked one-shot. Swarm has no run-once-before-app
-      # ordering; Task 15 cutover runbook must `docker service scale
-      # <stack>_migrate=1`, verify exit 0, then scale back before app routing.
-      # Compose `depends_on` is not a Swarm ordering primitive — do not add it.
-      replicas: 0
-      restart_policy: { condition: none }
-      resources:
-        limits: { cpus: "0.5", memory: 512M }
-        reservations: { cpus: "0.1", memory: 128M }
-    logging: *json-logs
+  # Schema migrations run automatically from the reino_app entrypoint
+  # (docker/app-entrypoint.sh) on every deploy — idempotent, forward-only.
+  # No separate one-shot service.
 
   backup:
     # Own multi-stage image (PG18 client + Restic 0.18.1 + curl SMTP). Same
@@ -150,7 +134,11 @@ services:
       - /run/lock:rw,noexec,nosuid,nodev,size=1m
     stop_grace_period: 30s
     # Internal encrypted overlay only. No Traefik, no published port, no Docker
-    # socket. Reaches postgres for pg_dump and the S3 endpoint for Restic.
+    # socket. Reaches postgres for pg_dump; the Restic repo is a local encrypted
+    # filesystem backend on this host (the `restic_repo` volume) — no external
+    # object store. Point that volume at a SEPARATE disk (provider block storage
+    # mounted at /srv/reino-restic) so a primary-disk failure does not take the
+    # backups with it.
     networks: [private]
     environment:
       TZ: America/Sao_Paulo
@@ -160,12 +148,10 @@ services:
       PGDATABASE: credit_system
       PGPASSWORD_FILE: /run/secrets/backup_reader_password
       DOCUMENT_ROOT: /var/lib/reino/documents
-      # e.g. s3:https://s3.<region>.amazonaws.com/<bucket> -- bucket MUST have
-      # object versioning on and all public access denied (operator prereq).
-      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:?RESTIC_REPOSITORY is required}
+      # Local encrypted Restic backend — a path inside this container backed by
+      # the `restic_repo` volume. Encryption at rest is still on (restic_password).
+      RESTIC_REPOSITORY: /srv/restic
       RESTIC_PASSWORD_FILE: /run/secrets/restic_password
-      AWS_ACCESS_KEY_ID_FILE: /run/secrets/backup_s3_access_key
-      AWS_SECRET_ACCESS_KEY_FILE: /run/secrets/backup_s3_secret_key
       SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
       SMTP_PORT: ${SMTP_PORT:-465}
       SMTP_SECURE: ${SMTP_SECURE:-true}
@@ -180,12 +166,12 @@ services:
         scr_authorizations bureau_payloads bureau_results ai_reports
         company_reports opportunities opportunity_documents timeline_events
         crm_notes settings audit_logs
-      REINO_IMAGE_DIGEST: ${REINO_IMAGE_DIGEST}
-    secrets: [backup_reader_password, restic_password, backup_s3_access_key, backup_s3_secret_key, smtp_pass]
+    secrets: [backup_reader_password, restic_password, smtp_pass]
     volumes:
       - documents:/var/lib/reino/documents:ro
       - backup_state:/var/lib/backup
       - backup_work:/work
+      - restic_repo:/srv/restic
     healthcheck:
       test: ["CMD-SHELL", "pgrep crond >/dev/null"]
       interval: 60s
@@ -218,6 +204,11 @@ volumes:
   clamav_data:
   backup_state:
   backup_work:
+  # Encrypted Restic repository, on-server. For real disaster tolerance, create
+  # this volume bound to a SEPARATE disk before `docker stack deploy`, e.g.:
+  #   docker volume create --driver local \
+  #     --opt type=none --opt o=bind --opt device=/srv/reino-restic reino_restic_repo
+  restic_repo:
 
 configs:
   postgres-init-users:
@@ -235,5 +226,3 @@ secrets:
   app_runtime_password: { external: true }
   backup_reader_password: { external: true }
   restic_password: { external: true }
-  backup_s3_access_key: { external: true }
-  backup_s3_secret_key: { external: true }

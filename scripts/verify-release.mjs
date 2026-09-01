@@ -33,7 +33,6 @@ const FAKE_COMPOSE_ENV = {
   SMTP_USER: "verify",
   SMTP_FROM: "verify@verify.invalid",
   DEPS_API_EMAIL: "verify@verify.invalid",
-  RESTIC_REPOSITORY: "s3:https://s3.invalid/verify",
   BACKUP_ALERT_TO: "verify@verify.invalid",
 };
 

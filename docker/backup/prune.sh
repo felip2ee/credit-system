@@ -2,9 +2,8 @@
 # Retention enforcement. Called by backup.sh ONLY after a successful snapshot,
 # or by an operator who has just inspected `restic snapshots` by hand.
 #
-# 14 daily / 8 weekly / 12 monthly. Server credentials cannot permanently
-# delete prior S3 object versions (bucket versioning is an operator prereq),
-# so `--prune` here only drops Restic's own references.
+# 14 daily / 8 weekly / 12 monthly. The repo is a local encrypted filesystem
+# backend on this host; `--prune` reclaims space in it.
 set -eu
 
 read_file_env() {
@@ -14,8 +13,6 @@ read_file_env() {
   fi
 }
 read_file_env RESTIC_PASSWORD
-read_file_env AWS_ACCESS_KEY_ID
-read_file_env AWS_SECRET_ACCESS_KEY
 
 # Guard: never run forget/prune against an empty or unreachable repository.
 if [ "$(restic snapshots --json | jq 'length')" -lt 1 ]; then
