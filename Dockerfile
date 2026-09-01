@@ -20,6 +20,7 @@ ENV DATABASE_URL=postgres://build:placeholder@localhost:5432/build \
     SMTP_SECURE=true \
     SMTP_USER=build \
     SMTP_PASS=build-only-placeholder \
+    TRAEFIK_PROXY_CIDR=10.0.0.0/8 \
     NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
