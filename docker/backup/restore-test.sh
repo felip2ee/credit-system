@@ -36,14 +36,18 @@ alert() {
   printf '[%s] %s\n%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_subject" "$_body"
   [ -n "${SMTP_HOST:-}" ] && [ -n "${BACKUP_ALERT_TO:-}" ] || return 0
   _scheme=smtps; [ "${SMTP_SECURE:-true}" = "true" ] || _scheme=smtp
-  printf 'From: %s\nTo: %s\nSubject: %s\nDate: %s\n\n%s\n' \
-    "${SMTP_FROM:-${SMTP_USER:-backup}}" "$BACKUP_ALERT_TO" "$_subject" \
-    "$(date -R 2>/dev/null || date)" "$_body" \
-  | curl -sS --ssl-reqd \
-      --url "$_scheme://${SMTP_HOST}:${SMTP_PORT:-465}" \
-      --mail-from "${SMTP_USER:-backup}" --mail-rcpt "$BACKUP_ALERT_TO" \
-      --user "${SMTP_USER:-}:${SMTP_PASS:-}" --upload-file - \
-    || printf 'WARN: alert email failed to send (result still logged above)\n'
+  # Credentials go in a 0600 netrc file on tmpfs, never on the curl argv
+  # (argv is world-readable via /proc/<pid>/cmdline in the PID namespace).
+  ( umask 077; _nrc=$(mktemp)
+    printf 'machine %s login %s password %s\n' "$SMTP_HOST" "${SMTP_USER:-}" "${SMTP_PASS:-}" > "$_nrc"
+    printf 'From: %s\nTo: %s\nSubject: %s\nDate: %s\n\n%s\n' \
+      "${SMTP_FROM:-${SMTP_USER:-backup}}" "$BACKUP_ALERT_TO" "$_subject" \
+      "$(date -R 2>/dev/null || date)" "$_body" \
+    | curl -sS --ssl-reqd --netrc-file "$_nrc" \
+        --url "$_scheme://${SMTP_HOST}:${SMTP_PORT:-465}" \
+        --mail-from "${SMTP_USER:-backup}" --mail-rcpt "$BACKUP_ALERT_TO" --upload-file - \
+      || printf 'WARN: alert email failed to send (result still logged above)\n'
+    rm -f "$_nrc" )
 }
 
 SNAP=unknown
@@ -110,7 +114,7 @@ main() {
   # 4. required tables + a sanity row count
   for t in $REQUIRED_TABLES; do
     _present=$($PG_RUNAS psql -h "$SOCK" -U postgres -d restore_verify -tAc \
-      "select count(*) from information_schema.tables where table_name='$t'")
+      "select count(*) from information_schema.tables where table_schema='public' and table_name='$t'")
     [ "$_present" = "1" ] || fail "required table missing after restore: $t"
   done
   ROWS=$($PG_RUNAS psql -h "$SOCK" -U postgres -d restore_verify -tAc \

@@ -173,6 +173,13 @@ services:
       SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
       SMTP_PASS_FILE: /run/secrets/smtp_pass
       BACKUP_ALERT_TO: ${BACKUP_ALERT_TO:?BACKUP_ALERT_TO is required}
+      # Core tables the monthly restore drill must find in the restored dump.
+      RESTORE_REQUIRED_TABLES: >-
+        schema_migrations user session account profiles
+        crm_clients crm_client_documents batches consultations
+        scr_authorizations bureau_payloads bureau_results ai_reports
+        company_reports opportunities opportunity_documents timeline_events
+        crm_notes settings audit_logs
       REINO_IMAGE_DIGEST: ${REINO_IMAGE_DIGEST}
     secrets: [backup_reader_password, restic_password, backup_s3_access_key, backup_s3_secret_key, smtp_pass]
     volumes:
