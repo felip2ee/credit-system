@@ -123,11 +123,11 @@ export interface PublicScrAuthorization {
 export async function getPublicScrAuthorization(token: string): Promise<PublicScrAuthorization | null> {
   const { rows } = await pool.query<{
     status: ScrStatus; type: EntityKind; consent_text: string | null; consent_name: string | null;
-    consent_document: string | null; document: string; expires_at: string | null;
-  }>(`select status::text,type,consent_text,consent_name,consent_document,document,expires_at::text
-      from scr_authorizations where public_token=$1 and channel='internal'`, [token]);
+    consent_document: string | null; expires_at: string | null;
+  }>(`select status, type, consent_text, consent_name, consent_document, expires_at::text
+      from public.public_scr_authorization($1, $2)`, [token, "internal"]);
   const row = rows[0];
-  return row ? { status: row.status, type: row.type, consentText: row.consent_text ?? "", clientName: row.consent_name ?? "", document: row.consent_document ?? row.document, expiresAt: row.expires_at } : null;
+  return row ? { status: row.status, type: row.type, consentText: row.consent_text ?? "", clientName: row.consent_name ?? "", document: row.consent_document ?? "", expiresAt: row.expires_at } : null;
 }
 
 export async function resolveScrContact(identity: DbIdentity, id: string) {
@@ -152,27 +152,11 @@ export async function issueSelfScrAuthorization(identity: DbIdentity, id: string
 }
 
 export async function confirmPublicScrAuthorization(token: string, code: string, decision: "authorize" | "refuse", ip: string | null) {
-  const client = await pool.connect();
-  try {
-    await client.query("begin");
-    const found = await client.query<{ id: string; auth_code: string | null; status: ScrStatus; crm_client_id: string | null }>(
-      `select id,auth_code,status::text,crm_client_id from scr_authorizations
-       where public_token=$1 and channel='internal' for update`, [token]);
-    const row = found.rows[0];
-    if (!row) return { status: "not_found" as const, crmClientId: null };
-    if (row.status === "authorized" || row.status === "not_authorized") return { status: "already" as const, crmClientId: row.crm_client_id };
-    if (decision === "authorize" && (!row.auth_code || code !== row.auth_code.toUpperCase())) return { status: "invalid_code" as const, crmClientId: row.crm_client_id };
-    const authorized = decision === "authorize";
-    await client.query(
-      `update scr_authorizations set status=$2, authorized_at=case when $3 then now() end,
-       consented_at=case when $3 then now() end, consent_ip=case when $3 then $4 end,
-       refused_at=case when $3 then null else now() end,
-       expires_at=case when $3 then now()+interval '365 days' else null end,
-       last_checked_at=now(),auth_code=null where id=$1`, [row.id, authorized ? "authorized" : "not_authorized", authorized, ip]);
-    if (row.crm_client_id) await client.query(
-      `insert into timeline_events (entity_type,entity_id,event_type,title)
-       values ('crm_client',$1,$2,$3)`, [row.crm_client_id, authorized ? "scr.self_authorized" : "scr.self_refused", authorized ? "Autoriza\u00e7\u00e3o SCR concedida pelo titular" : "Autoriza\u00e7\u00e3o SCR recusada pelo titular"]);
-    await client.query("commit");
-    return { status: authorized ? "authorized" as const : "refused" as const, crmClientId: row.crm_client_id };
-  } catch (error) { await client.query("rollback"); throw error; } finally { client.release(); }
+  const { rows } = await pool.query<{
+    result: "authorized" | "refused" | "invalid_code" | "not_found" | "already";
+  }>(
+    "select public.confirm_public_scr_authorization($1, $2, $3, $4, $5) as result",
+    [token, "internal", code, decision, ip],
+  );
+  return { status: rows[0]?.result ?? "not_found" };
 }

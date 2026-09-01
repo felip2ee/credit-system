@@ -2,20 +2,18 @@
 
 import { randomUUID } from "node:crypto";
 
-import { hashPassword } from "better-auth/crypto";
 import { revalidatePath } from "next/cache";
 
 import { writeAuditEvent } from "@/lib/audit/write";
+import { auth } from "@/lib/auth/server";
 import { getRequiredSession } from "@/lib/auth/session";
+import { config } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { DocumentRejectedError, storeDocument } from "@/lib/documents/service";
-import { buildPortalInviteEmail } from "@/lib/email/portal-invite-email";
-import { sendMail } from "@/lib/email/mailer";
 import { recordScannedDocumentUpload } from "@/lib/opportunities/queries";
 
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
-const DEFAULT_CLIENT_PASSWORD = "Reinodocredito123@";
 
 export interface ActionResult {
   error: string | null;
@@ -25,10 +23,6 @@ export interface ActionResult {
 export interface SignedUrlResult {
   error: string | null;
   url?: string;
-}
-
-function siteUrl(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 }
 
 async function requireStaff(): Promise<DbIdentity> {
@@ -55,7 +49,6 @@ export async function inviteClientToPortal(crmClientId: string): Promise<ActionR
     return { error: "Apenas a equipe pode conceder acesso ao portal." };
   }
 
-  const passwordHash = await hashPassword(DEFAULT_CLIENT_PASSWORD);
   let invited: PortalClient | undefined;
   let userId: string | undefined;
   try {
@@ -88,16 +81,6 @@ export async function inviteClientToPortal(crmClientId: string): Promise<ActionR
          on conflict (id) do update set full_name = excluded.full_name, email = excluded.email, role = 'client', is_active = true`,
         [userId, invited.name, email],
       );
-      const account = await client.query(
-        "update account set password = $2, updated_at = now() where user_id = $1 and provider_id = 'credential'",
-        [userId, passwordHash],
-      );
-      if (account.rowCount === 0) {
-        await client.query(
-          "insert into account (id, issuer, account_id, provider_id, user_id, password) values ($1, 'local:credential', $2, 'credential', $2, $3)",
-          [randomUUID(), userId, passwordHash],
-        );
-      }
       await client.query("update crm_clients set user_id = $2 where id = $1", [crmClientId, userId]);
       await writeAuditEvent(client, {
         actorId: actor.userId,
@@ -118,10 +101,11 @@ export async function inviteClientToPortal(crmClientId: string): Promise<ActionR
   const email = invited?.email?.trim().toLowerCase();
   if (!invited || !email || !userId) return { error: "NÃ£o foi possÃ­vel criar o acesso." };
   try {
-    const mail = buildPortalInviteEmail({ clientName: invited.name, email, password: DEFAULT_CLIENT_PASSWORD, loginUrl: `${siteUrl()}/login` });
-    await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+    await auth.api.requestPasswordReset({
+      body: { email, redirectTo: `${config.betterAuthUrl}/update-password` },
+    });
   } catch {
-    return { error: "Acesso criado, mas o e-mail falhou." };
+    return { error: "Acesso criado, mas o link para definir a senha falhou." };
   }
   revalidatePath(`/clients/${crmClientId}`);
   return { error: null, id: userId };

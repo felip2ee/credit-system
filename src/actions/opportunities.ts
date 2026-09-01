@@ -11,7 +11,6 @@ import {
   addOpportunityNoteRecord,
   createOpportunityForClient as createOpportunityForClientRecord,
   createOpportunityFromConsultation,
-  recordOpportunityDocumentUpload,
   recordScannedDocumentUpload,
   setOpportunityDocumentStatusRecord,
   updateFinancingScenarioRecord,
@@ -142,23 +141,6 @@ export async function addOpportunityNote(id: string, content: string): Promise<A
     return { error: null, id };
   } catch {
     return { error: "Falha ao salvar a anotação." };
-  }
-}
-
-export interface RecordUploadInput { docId: string; opportunityId: string; docLabel: string; fileName: string; filePath: string; fileSize: number; fileMime: string; }
-
-// ponytail: legacy browser-storage callback remains callable until its client
-// caller is removed; uploads in this slice use uploadOpportunityDocument.
-export async function recordOpportunityDocUpload(input: RecordUploadInput): Promise<ActionResult> {
-  const identity = await opportunityWriter();
-  if (!identity) return { error: "Sessão expirada." };
-  try {
-    const result = await recordOpportunityDocumentUpload(identity, input);
-    if (!result.ok) return { error: "Documento não encontrado." };
-    revalidateOpportunity(input.opportunityId, result.crmClientId);
-    return { error: null, id: input.docId };
-  } catch {
-    return { error: "Falha ao registrar o documento." };
   }
 }
 

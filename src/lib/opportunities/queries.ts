@@ -217,15 +217,6 @@ async function recordDocumentEvent(client: PoolClient, identity: DbIdentity, opp
   return current.rows[0].crm_client_id;
 }
 
-export async function recordOpportunityDocumentUpload(identity: DbIdentity, input: { docId: string; opportunityId: string; docLabel: string; fileName: string; filePath: string; fileSize: number; fileMime: string }): Promise<OpportunityMutation> {
-  return withUserTransaction(identity, async (client) => {
-    const result = await client.query("update opportunity_documents set status='uploaded', file_name=$2, file_path=$3, file_size=$4, file_mime=$5, uploaded_by=$6, uploaded_at=now(), rejection_reason=null where id=$1 and opportunity_id=$7", [input.docId, input.fileName, input.filePath, input.fileSize, input.fileMime, identity.userId, input.opportunityId]);
-    if (result.rowCount !== 1) return { ok: false, reason: "opportunity_not_found" };
-    const crmClientId = await recordDocumentEvent(client, identity, input.opportunityId, input.docLabel, input.fileName);
-    return { ok: true, id: input.docId, crmClientId: crmClientId ?? undefined };
-  });
-}
-
 export async function recordScannedDocumentUpload(identity: DbIdentity, opportunityId: string, label: string, fileName: string): Promise<OpportunityMutation> {
   return withUserTransaction(identity, async (client) => {
     const crmClientId = await recordDocumentEvent(client, identity, opportunityId, label, fileName);

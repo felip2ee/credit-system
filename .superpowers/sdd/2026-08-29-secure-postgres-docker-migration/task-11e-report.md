@@ -42,3 +42,24 @@ Forward path: PostgreSQL/Better Auth/private document runtime plus migration `00
 ## Remaining gates
 
 Apply `007_client_document_upload.sql` with the owner migration URL, then run the RLS/integration suites against real PostgreSQL and a completed production build. No database or external Supabase mutation was performed here.
+
+## Review fix 1 — security gaps closed
+
+### Changes
+
+- Portal invitations now create/link the Better Auth user and profile, then request Better Auth's expiring reset link. The shared password, credential-account writes, password email, and `portal-invite-email.ts` are removed.
+- `008_public_scr_authorization.sql` adds two forward-only, `SECURITY DEFINER` token/channel functions owned by the existing no-login `auth_profile_lookup` role. Both use a fixed safe search path, schema-qualified objects, revoked `PUBLIC` execute, and only `app_runtime` execute grants. Confirmation locks, validates, mutates, clears the code, and emits the one SCR timeline event in one database operation.
+- Public SCR query functions now call those parameterized boundaries; the manual transaction and early-return leak are gone.
+- Removed the unscanned browser-storage callback and its only query helper after repository search found no callers.
+
+### RED / GREEN and verification
+
+- RED: `src/actions/portal.test.ts` initially failed because `requestPasswordReset` had zero calls. GREEN: it passes and proves the reset-link request occurs while the password email boundary is not called.
+- Focused unit tests: `src/actions/portal.test.ts` and `src/lib/scr/queries.test.ts` pass, 2/2.
+- `npm run type-check`, `npm run db:migrate:test` (3/3), `npm run check:no-supabase`, and `git diff --check` pass.
+- Extended `src/lib/db/rls.integration.test.ts` covers valid/unknown token reads, channel isolation, invalid-code non-mutation, authorize/refuse, replay rejection, and direct table invisibility. Its real execution remains blocked by `ECONNREFUSED ::1/127.0.0.1:54329` and `127.0.0.1:54329`; no skip or mock was added.
+- The one reattempted build compiled and type-checked, then failed while collecting route data because this environment has no `BETTER_AUTH_SECRET`. It did not hang and is an environment configuration gate, not a suppressed pass.
+
+### Remaining gates
+
+Apply migrations through `008_public_scr_authorization.sql` with the owner URL, supply the production build environment (including `BETTER_AUTH_SECRET`), and run the real PostgreSQL RLS suite. The external Supabase source and all source data remain untouched.

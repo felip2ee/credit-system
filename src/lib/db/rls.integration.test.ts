@@ -20,6 +20,7 @@ vi.hoisted(() => {
 
 import { pool } from "./pool";
 import { withUserTransaction, type DbIdentity } from "./transaction";
+import { confirmPublicScrAuthorization, getPublicScrAuthorization } from "@/lib/scr/queries";
 
 const identities = {
   admin: { userId: randomUUID(), role: "admin" },
@@ -35,6 +36,8 @@ const clientRows = [
 ];
 const opportunityIds = [randomUUID(), randomUUID()];
 const documentIds = [randomUUID(), randomUUID()];
+const publicScrToken = randomUUID();
+const refusedScrToken = randomUUID();
 
 async function visibleClientNames(identity: DbIdentity): Promise<string[]> {
   return withUserTransaction(identity, async (client) => {
@@ -126,6 +129,14 @@ describe.sequential("transaction-scoped RLS identity", () => {
         "insert into opportunity_documents (id, opportunity_id, doc_type, label) values ($1, $2, 'identity', 'Documento do cliente um'), ($3, $4, 'identity', 'Documento do cliente dois')",
         [documentIds[0], opportunityIds[0], documentIds[1], opportunityIds[1]],
       );
+      await client.query(
+        `insert into scr_authorizations
+           (document, type, crm_client_id, status, channel, auth_code, public_token, consent_text, consent_name, consent_document)
+         values
+           ('11111111111', 'PF', $1, 'pending', 'internal', 'SECRET1', $2, 'Termo pÃºblico', 'Cliente um', '111.111.111-11'),
+           ('22222222222', 'PF', $3, 'pending', 'internal', 'SECRET2', $4, 'Termo pÃºblico', 'Cliente dois', '222.222.222-22')`,
+        [clientRows[0].id, publicScrToken, clientRows[1].id, refusedScrToken],
+      );
     });
   });
 
@@ -187,6 +198,37 @@ describe.sequential("transaction-scoped RLS identity", () => {
       client.query("update opportunity_documents set status = 'uploaded' where id = $1", [documentIds[1]]),
     );
     expect(other.rowCount).toBe(0);
+  });
+
+  it("exposes and atomically confirms only a token-bound public SCR authorization", async () => {
+    await expect(getPublicScrAuthorization(publicScrToken)).resolves.toMatchObject({
+      status: "pending",
+      type: "PF",
+      consentText: "Termo pÃºblico",
+      clientName: "Cliente um",
+      document: "111.111.111-11",
+    });
+    await expect(getPublicScrAuthorization(randomUUID())).resolves.toBeNull();
+    await expect(
+      pool.query("select * from public.public_scr_authorization($1, $2)", [publicScrToken, "deps"]),
+    ).resolves.toMatchObject({ rows: [] });
+
+    await expect(
+      confirmPublicScrAuthorization(publicScrToken, "WRONG", "authorize", null),
+    ).resolves.toMatchObject({ status: "invalid_code" });
+    await expect(getPublicScrAuthorization(publicScrToken)).resolves.toMatchObject({ status: "pending" });
+
+    await expect(
+      confirmPublicScrAuthorization(publicScrToken, "SECRET1", "authorize", "127.0.0.1"),
+    ).resolves.toMatchObject({ status: "authorized" });
+    await expect(
+      confirmPublicScrAuthorization(publicScrToken, "SECRET1", "authorize", "127.0.0.1"),
+    ).resolves.toMatchObject({ status: "already" });
+    await expect(
+      confirmPublicScrAuthorization(refusedScrToken, "", "refuse", null),
+    ).resolves.toMatchObject({ status: "refused" });
+
+    await expect(pool.query("select id from scr_authorizations")).resolves.toMatchObject({ rows: [] });
   });
 
   it("clears the sole pooled connection after commit, rollback, and callback errors", async () => {
