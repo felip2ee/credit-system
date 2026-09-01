@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,7 +30,7 @@ const schema = z
 
 type FormValues = z.infer<typeof schema>;
 
-export default function UpdatePasswordPage() {
+function UpdatePasswordForm() {
   const token = useSearchParams().get("token");
   const [error, setError] = useState<string | null>(null);
 
@@ -103,5 +103,13 @@ export default function UpdatePasswordPage() {
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+export default function UpdatePasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <UpdatePasswordForm />
+    </Suspense>
   );
 }
