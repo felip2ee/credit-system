@@ -10,9 +10,9 @@
 > - [ ] **Rollback rehearsal** — [`rollback.md`](./rollback.md) run end-to-end after a deliberately failed smoke gate, recovery time recorded
 > - [ ] **`node scripts/verify-release.mjs` (flagless) green on real infra** — saved as release evidence
 >
-> `docker-stack.yml` migrate service ships `replicas: 0`; the rehearsal and the
-> cutover must `docker service scale <stack>_migrate=1`, confirm exit 0, then
-> scale back (Swarm has no run-once ordering). See [`cutover.md`](./cutover.md).
+> Schema migrations run automatically from the `reino_app` entrypoint
+> (`docker/app-entrypoint.sh`) on every deploy — forward-only, idempotent,
+> retries until postgres is reachable. See [`cutover.md`](./cutover.md).
 
 Repeatable, scripted cutover of legacy Supabase data into the secured Postgres
 stack. **Read-only against the source.** No step here mutates Supabase or

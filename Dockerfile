@@ -43,7 +43,10 @@ COPY --from=builder --chown=1001:1001 /app/.next/static ./.next/static
 COPY --from=builder --chown=1001:1001 /app/scripts/db/migrate.mjs ./scripts/db/migrate.mjs
 COPY --from=builder --chown=1001:1001 /app/db/migrations ./db/migrations
 COPY --from=builder --chown=1001:1001 /app/src/lib/runtime-secrets.mjs ./src/lib/runtime-secrets.mjs
+COPY --chown=1001:1001 docker/app-entrypoint.sh ./app-entrypoint.sh
+RUN chmod 0555 ./app-entrypoint.sh
 
 USER 1001:1001
 EXPOSE 3000
-CMD ["node", "server.js"]
+# Applies migrations, then starts the server (see docker/app-entrypoint.sh).
+CMD ["./app-entrypoint.sh"]

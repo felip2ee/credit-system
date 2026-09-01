@@ -28,8 +28,7 @@ export STACK=reino
 ## Step 1 — Stop the new app
 
 ```sh
-docker service scale ${STACK}_reino_app=0
-docker service scale ${STACK}_migrate=0     # ensure the one-shot is not running
+docker service scale ${STACK}_reino_app=0   # also stops the auto-migrate entrypoint
 docker service scale ${STACK}_backup=0      # pause scheduled backups of the dead target
 ```
 
@@ -38,9 +37,8 @@ docker service scale ${STACK}_backup=0      # pause scheduled backups of the dea
 ```sh
 TS=$(date +%Y%m%dT%H%M%S)
 mkdir -p /var/lib/reino/rollback-$TS
-docker service logs --no-trunc ${STACK}_reino_app  > /var/lib/reino/rollback-$TS/app.log   2>&1
-docker service logs --no-trunc ${STACK}_migrate    > /var/lib/reino/rollback-$TS/migrate.log 2>&1
-docker service logs --no-trunc ${STACK}_postgres   > /var/lib/reino/rollback-$TS/pg.log     2>&1
+docker service logs --no-trunc ${STACK}_reino_app  > /var/lib/reino/rollback-$TS/app.log 2>&1
+docker service logs --no-trunc ${STACK}_postgres   > /var/lib/reino/rollback-$TS/pg.log  2>&1
 
 # Snapshot the target DB + document volume for the post-mortem, then leave them.
 docker run --rm -v ${STACK}_postgres_data:/v -v /var/lib/reino/rollback-$TS:/out \
