@@ -16,7 +16,8 @@
     "migration:export": "node scripts/migration/export-supabase.mjs",
     "migration:import": "node scripts/migration/import-postgres.mjs",
     "migration:verify": "node scripts/migration/verify.mjs",
-    "migration:test": "node --test scripts/migration/migration.test.mjs"
+    "migration:test": "node --test scripts/migration/migration.test.mjs",
+    "verify:release": "node scripts/verify-release.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

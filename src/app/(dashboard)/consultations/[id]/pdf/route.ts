@@ -36,8 +36,6 @@ export async function GET(
   if (false) {
     return new Response("Consulta não encontrada.", { status: 404 });
   }
-  let query: QueryRow;
-
   if (false) {
     return new Response("Consulta sem resultado disponível.", { status: 409 });
   }
@@ -53,7 +51,7 @@ export async function GET(
   const stored = await getConsultation(identity, params.id);
   if (!stored) return new Response("Consulta nÃ£o encontrada.", { status: 404 });
   if (stored.status !== "completed") return new Response("Consulta sem resultado disponÃ­vel.", { status: 409 });
-  query = stored;
+  const query: QueryRow = stored;
 
   const canonical = await loadCanonicalResult(identity, params.id);
   if (!canonical) {

@@ -12,9 +12,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const DOC_ROOT = vi.hoisted(() => {
+  /* eslint-disable @typescript-eslint/no-require-imports -- runs before ESM import bindings exist */
   const fs = require("node:fs") as typeof import("node:fs");
   const os = require("node:os") as typeof import("node:os");
   const p = require("node:path") as typeof import("node:path");
+  /* eslint-enable @typescript-eslint/no-require-imports */
   const root = fs.mkdtempSync(p.join(os.tmpdir(), "doc-root-"));
   Object.assign(process.env, {
     DATABASE_URL: "postgres://app_runtime:test@localhost:5432/credit_system",

@@ -16,7 +16,6 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { listScrAuthorizations } from "@/lib/scr/queries";
 import { cn, formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
-import type { ScrAuthorization } from "@/types/app";
 
 type Tab = "pending" | "granted" | "history";
 

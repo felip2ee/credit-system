@@ -18,8 +18,8 @@ import {
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { listConsultations } from "@/lib/consultations/queries";
-import { formatCNPJ, formatCPF, formatDate, onlyDigits } from "@/lib/utils";
-import { QUERY_STATUS_LABEL, type QueryStatus, type QuerySummary } from "@/types/app";
+import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
+import { QUERY_STATUS_LABEL, type QueryStatus } from "@/types/app";
 
 interface SearchParams {
   q?: string;

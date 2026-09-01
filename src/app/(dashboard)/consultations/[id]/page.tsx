@@ -28,20 +28,6 @@ import {
   type IncompatibleView,
 } from "@/lib/consultations/view-model";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
-import type { QueryStatus } from "@/types/app";
-
-interface QueryRow {
-  id: string;
-  type: "PF" | "PJ";
-  document: string;
-  document_name: string | null;
-  product: string | null;
-  status: QueryStatus;
-  crm_client_id: string | null;
-  consulted_at: string | null;
-  created_at: string;
-  error_message: string | null;
-}
 
 export default async function ConsultationDetailPage({
   params,

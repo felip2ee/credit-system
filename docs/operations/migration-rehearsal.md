@@ -1,5 +1,19 @@
 # Supabase -> Postgres Migration Rehearsal
 
+> ## NOT YET REHEARSED — blocker for cutover authorization
+>
+> None of the following have been performed (the migration was built on a host
+> with no Docker daemon, no Supabase, no target Postgres):
+>
+> - [ ] **Migration rehearsal 1** — full sequence from fresh volumes, all numbers below filled
+> - [ ] **Migration rehearsal 2** — repeat, numbers must be consistent with run 1
+> - [ ] **Rollback rehearsal** — [`rollback.md`](./rollback.md) run end-to-end after a deliberately failed smoke gate, recovery time recorded
+> - [ ] **`node scripts/verify-release.mjs` (flagless) green on real infra** — saved as release evidence
+>
+> `docker-stack.yml` migrate service ships `replicas: 0`; the rehearsal and the
+> cutover must `docker service scale <stack>_migrate=1`, confirm exit 0, then
+> scale back (Swarm has no run-once ordering). See [`cutover.md`](./cutover.md).
+
 Repeatable, scripted cutover of legacy Supabase data into the secured Postgres
 stack. **Read-only against the source.** No step here mutates Supabase or
 performs a cutover — Traefik is switched by a human, separately, only after
@@ -61,6 +75,21 @@ full-size export. Every measured value below is a placeholder.
 | ClamAV peak memory during scan | PENDING REHEARSAL |
 | Payloads replayed: valid / incompatible | PENDING REHEARSAL |
 | Verification result | PENDING REHEARSAL |
+
+### Rollback rehearsal (Task 15 prerequisite P3)
+
+Deliberately fail one Phase 11 smoke gate during a rehearsal, then run every step
+of [`rollback.md`](./rollback.md).
+
+| Metric | Value |
+|--------|-------|
+| Smoke gate failed on purpose | PENDING REHEARSAL |
+| New app stopped + target preserved elapsed | PENDING REHEARSAL |
+| Old stack restarted against Supabase elapsed | PENDING REHEARSAL |
+| Old system re-verified (health/login/query/doc) | PENDING REHEARSAL |
+| **Total recovery time (gate fail -> old system serving)** | PENDING REHEARSAL |
+| Confirmed: zero writes back into Supabase | PENDING REHEARSAL |
+| Confirmed: failed target volumes/logs preserved | PENDING REHEARSAL |
 
 ### Downtime estimate
 
