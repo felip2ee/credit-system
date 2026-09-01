@@ -1,0 +1,16 @@
+# Encrypted off-site backup schedule (busybox crond, read as /etc/crontabs/root).
+# Times are server-local: the container sets TZ=America/Sao_Paulo with tzdata.
+#
+# RPO: 24h -- one full snapshot per day bounds data loss after total server loss.
+# RTO: depends on measured data size (custom-dump restore + document download).
+#      restore-test.sh logs and emails the measured drill duration every month;
+#      record it in the recovery runbook.
+#
+# Operator prerequisites (S3 bucket holding the Restic repo):
+#   - object versioning MUST be enabled (server keys cannot then erase history);
+#   - public access MUST be fully denied (block-all-public-access / no ACLs).
+#
+# Daily encrypted snapshot (dump + documents) at 02:30.
+30 2 * * *  /opt/backup/backup.sh       >>/proc/1/fd/1 2>>/proc/1/fd/2
+# Monthly restore drill into an isolated throwaway cluster, 04:00 on day 1.
+0 4 1 * *   /opt/backup/restore-test.sh  >>/proc/1/fd/1 2>>/proc/1/fd/2
