@@ -9,9 +9,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Build-only, non-production placeholders. Runtime secrets are never image env.
-ARG NEXT_PUBLIC_SITE_URL=https://build.invalid
-ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
-    DATABASE_URL=postgres://build:placeholder@localhost:5432/build \
+ENV DATABASE_URL=postgres://build:placeholder@localhost:5432/build \
     BETTER_AUTH_SECRET=build-only-placeholder-not-a-production-secret \
     BETTER_AUTH_URL=https://build.invalid \
     DOCUMENT_ROOT=/tmp/documents \

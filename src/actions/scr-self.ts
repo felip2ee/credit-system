@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 
 import { getScrTermSettings } from "@/actions/settings";
 import { getRequiredSession } from "@/lib/auth/session";
+import { config } from "@/lib/config";
 import { sendMail } from "@/lib/email/mailer";
 import { buildScrAuthorizationEmail } from "@/lib/email/scr-authorization-email";
 import { buildScrConsentTerm } from "@/lib/scr/consent-term";
@@ -17,7 +18,7 @@ function generateCode() {
   for (let index = 0; index < 6; index += 1) code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
   return code;
 }
-const siteUrl = () => process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "http://localhost:3000";
+const siteUrl = () => config.betterAuthUrl.replace(/\/$/, "");
 
 export interface SendSelfResult { error: string | null; }
 

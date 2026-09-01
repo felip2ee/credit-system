@@ -1,7 +1,8 @@
 name: Docker Image (GHCR)
 
 # Builda a imagem de produção e publica no GitHub Container Registry.
-# A stack do Portainer (docker-stack.yml) consome ghcr.io/<owner>/reino-credito.
+# A stack (docker-stack.yml) consome por digest: pegue REINO_IMAGE_OWNER e
+# REINO_IMAGE_DIGEST do resumo do job "Report deployable digest".
 
 on:
   push:
@@ -29,20 +30,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
-          # NEXT_PUBLIC_* são embutidas no bundle no BUILD — precisam vir aqui,
-          # não basta defini-las no ambiente da stack. Nenhuma é secreta (a anon
-          # key do Supabase é publishable), mas ficam como secrets do repo para
-          # trocá-las sem mexer no workflow.
-          build-args: |
-            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-            NEXT_PUBLIC_SITE_URL=${{ secrets.NEXT_PUBLIC_SITE_URL }}
+          # Commit-SHA tag only, for discovery. No `latest`. The stack deploys by
+          # digest (REINO_IMAGE_DIGEST), never by a mutable tag.
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Report deployable digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          hex="${DIGEST#sha256:}"
+          echo "Deploy this digest in docker-stack.yml:"
+          {
+            echo "### Deployable image"
+            echo '```'
+            echo "REINO_IMAGE_OWNER=${{ github.repository_owner }}"
+            echo "REINO_IMAGE_DIGEST=${hex}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

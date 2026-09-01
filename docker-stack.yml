@@ -1,6 +1,8 @@
 services:
   reino_app:
-    image: ${REINO_APP_IMAGE:?REINO_APP_IMAGE must be a sha256-pinned release image}
+    # Digest-only: owner + sha256 digest are both required, so a mutable tag or
+    # `latest` can never satisfy stack config. Digest comes from the GHCR build.
+    image: &app_image ghcr.io/${REINO_IMAGE_OWNER:?REINO_IMAGE_OWNER is required}/reino-credito@sha256:${REINO_IMAGE_DIGEST:?REINO_IMAGE_DIGEST must be the 64-hex sha256 digest of the release image}
     user: "1001:1001"
     read_only: true
     tmpfs:
@@ -12,7 +14,6 @@ services:
       PORT: "3000"
       HOSTNAME: 0.0.0.0
       TZ: America/Sao_Paulo
-      NEXT_PUBLIC_SITE_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
       BETTER_AUTH_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
       TRAEFIK_PROXY_CIDR: ${TRAEFIK_PROXY_CIDR:?TRAEFIK_PROXY_CIDR is required}
       DOCUMENT_ROOT: /var/lib/reino/documents
@@ -117,7 +118,7 @@ services:
     logging: *json-logs
 
   migrate:
-    image: ${REINO_APP_IMAGE:?REINO_APP_IMAGE must be a sha256-pinned release image}
+    image: *app_image
     user: "1001:1001"
     read_only: true
     tmpfs:
@@ -128,6 +129,10 @@ services:
       DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
     secrets: [database_owner_url]
     deploy:
+      # ponytail: operator-invoked one-shot. Swarm has no run-once-before-app
+      # ordering; Task 15 cutover runbook must `docker service scale
+      # <stack>_migrate=1`, verify exit 0, then scale back before app routing.
+      # Compose `depends_on` is not a Swarm ordering primitive — do not add it.
       replicas: 0
       restart_policy: { condition: none }
       resources:
