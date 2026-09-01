@@ -1,5 +1,5 @@
 // Tipos de domínio do Reino do Crédito.
-// Refletem os enums e tabelas de supabase/migrations/001_initial_schema.sql.
+// Refletem os enums e tabelas do esquema legado preservado em docs/legacy.
 
 export type UserRole = "admin" | "consultant" | "client";
 

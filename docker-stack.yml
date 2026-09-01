@@ -31,11 +31,6 @@ services:
       - HOSTNAME=0.0.0.0
       - TZ=America/Sao_Paulo
 
-    ## 🗄️ Supabase
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY} ## SECRETO
-
     ## 🌐 URL pública (links dos e-mails de SCR e do portal do cliente)
       - NEXT_PUBLIC_SITE_URL=https://${APP_DOMAIN}
 

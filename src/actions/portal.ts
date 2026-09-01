@@ -184,13 +184,9 @@ export async function uploadPortalDocument(formData: FormData): Promise<ActionRe
   const doc = await ownedDocument(docId, identity).catch(() => null);
   if (!doc) return { error: "VocÃª nÃ£o tem acesso a este documento." };
   if (doc.status === "approved") return { error: "Este documento jÃ¡ foi aprovado e nÃ£o pode ser alterado." };
-  // ponytail: client RLS currently permits document reads only; ownership is
-  // proven above under the real client identity. Replace this narrow server
-  // write identity with a client upload policy when the migration slice opens.
-  const writeIdentity: DbIdentity = { userId: identity.userId, role: "consultant" };
   try {
-    await storeDocument({ stream: file.stream() as unknown as AsyncIterable<Uint8Array>, declaredName: file.name, declaredMime: file.type || "application/octet-stream", uploaderId: identity.userId, identity: writeIdentity, link: { opportunityId: doc.opportunity_id, docType: doc.label, docId: doc.id, docLabel: doc.label } });
-    await recordScannedDocumentUpload(writeIdentity, doc.opportunity_id, doc.label, file.name);
+    await storeDocument({ stream: file.stream() as unknown as AsyncIterable<Uint8Array>, declaredName: file.name, declaredMime: file.type || "application/octet-stream", uploaderId: identity.userId, identity, link: { opportunityId: doc.opportunity_id, docType: doc.label, docId: doc.id, docLabel: doc.label } });
+    await recordScannedDocumentUpload(identity, doc.opportunity_id, doc.label, file.name);
   } catch (error) {
     return { error: error instanceof DocumentRejectedError ? error.message : "Falha ao processar o arquivo." };
   }
