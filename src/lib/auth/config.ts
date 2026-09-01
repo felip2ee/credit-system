@@ -72,7 +72,7 @@ export const authConfig = {
   trustedOrigins: [config.betterAuthUrl],
   advanced: {
     cookiePrefix: isProduction ? "__Host-credit-system" : "credit-system",
-    useSecureCookies: false,
+    useSecureCookies: isProduction,
     defaultCookieAttributes: {
       httpOnly: true,
       secure: isProduction,

@@ -5,6 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import pg from "pg";
 
+import { hydrateSecretEnv } from "../../src/lib/runtime-secrets.mjs";
+
+hydrateSecretEnv(process.env);
+
 const migrationsDirectory = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../../db/migrations",

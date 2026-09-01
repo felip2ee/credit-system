@@ -1,6 +1,8 @@
 import { isIP } from "node:net";
 import path from "node:path";
 
+import { hydrateSecretEnv } from "./runtime-secrets.mjs";
+
 type Environment = Record<string, string | undefined>;
 
 function required(env: Environment, name: string): string {
@@ -95,4 +97,4 @@ export function readConfig(env: Environment) {
   });
 }
 
-export const config = readConfig(process.env);
+export const config = readConfig(hydrateSecretEnv(process.env));

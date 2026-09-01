@@ -1,44 +1,50 @@
-# Reino do Crédito — imagem de produção (Next.js 14 standalone).
-#
-# ATENÇÃO: as variáveis NEXT_PUBLIC_* são embutidas no bundle no BUILD, não no
-# runtime. Por isso elas entram como build args aqui — se mudarem, é preciso
-# rebuildar a imagem (não basta trocar o env da stack).
-
-# ── 1. deps ──────────────────────────────────────────────────────────────
 FROM node:22.23.2-alpine3.23 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# ── 2. build ─────────────────────────────────────────────────────────────
 FROM node:22.23.2-alpine3.23 AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_SITE_URL
-ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
-ENV NEXT_TELEMETRY_DISABLED=1
-
+# Build-only, non-production placeholders. Runtime secrets are never image env.
+ARG NEXT_PUBLIC_SITE_URL=https://build.invalid
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    DATABASE_URL=postgres://build:placeholder@localhost:5432/build \
+    BETTER_AUTH_SECRET=build-only-placeholder-not-a-production-secret \
+    BETTER_AUTH_URL=https://build.invalid \
+    DOCUMENT_ROOT=/tmp/documents \
+    CLAMAV_HOST=localhost \
+    CLAMAV_PORT=3310 \
+    SMTP_HOST=localhost \
+    SMTP_PORT=465 \
+    SMTP_SECURE=true \
+    SMTP_USER=build \
+    SMTP_PASS=build-only-placeholder \
+    NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# ── 3. runner ────────────────────────────────────────────────────────────
 FROM node:22.23.2-alpine3.23 AS runner
 WORKDIR /app
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
 
-RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+RUN addgroup -g 1001 -S nodejs \
+ && adduser -S -D -H -u 1001 -G nodejs nextjs \
+ && mkdir -p /var/lib/reino/documents \
+ && chown 1001:1001 /var/lib/reino/documents
 
-# O standalone traz o server.js e as deps mínimas; public/ e .next/static
-# precisam ser copiados à parte.
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=1001:1001 /app/public ./public
+COPY --from=builder --chown=1001:1001 /app/.next/standalone ./
+COPY --from=builder --chown=1001:1001 /app/.next/static ./.next/static
+COPY --from=builder --chown=1001:1001 /app/scripts/db/migrate.mjs ./scripts/db/migrate.mjs
+COPY --from=builder --chown=1001:1001 /app/db/migrations ./db/migrations
+COPY --from=builder --chown=1001:1001 /app/src/lib/runtime-secrets.mjs ./src/lib/runtime-secrets.mjs
 
-USER nextjs
+USER 1001:1001
 EXPOSE 3000
-
 CMD ["node", "server.js"]
