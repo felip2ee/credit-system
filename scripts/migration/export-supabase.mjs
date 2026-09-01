@@ -37,13 +37,20 @@ const source = {
 console.log(`export: source ${redactDsn(dsn)} -> ${outDir}`);
 await client.connect();
 try {
-  await client.query("set transaction read only").catch(() => {});
-  const manifest = await exportAll(source, outDir);
-  for (const name of TABLE_ORDER) {
-    console.log(`  ${name}: ${manifest.tables[name].count}`);
+  // One consistent read-only snapshot for every table + identity read.
+  await client.query("begin isolation level repeatable read read only");
+  try {
+    const manifest = await exportAll(source, outDir);
+    await client.query("commit");
+    for (const name of TABLE_ORDER) {
+      console.log(`  ${name}: ${manifest.tables[name].count}`);
+    }
+    console.log(`  identities: ${manifest.identities.count}`);
+    console.log("export complete — run copy-storage.mjs next");
+  } catch (err) {
+    await client.query("rollback");
+    throw err;
   }
-  console.log(`  identities: ${manifest.identities.count}`);
-  console.log("export complete — run copy-storage.mjs next");
 } finally {
   await client.end();
 }

@@ -6,8 +6,9 @@
 // DB / Supabase wiring lives in the sibling *.mjs entrypoints.
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { register } from "node:module";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 
@@ -34,6 +35,59 @@ export const TABLE_ORDER = [
   "audit_logs",
 ];
 
+// Foreign keys verify checks post-import: [column, referencedTable, referencedColumn].
+// Nullable FKs are skipped when the column is null. Derived `bureau_results` included.
+export const FOREIGN_KEYS = {
+  profiles: [["auth_user_id", "user", "id"]],
+  crm_clients: [["created_by", "profiles", "id"]],
+  crm_client_documents: [["client_id", "crm_clients", "id"]],
+  crm_client_relations: [
+    ["client_id", "crm_clients", "id"],
+    ["related_id", "crm_clients", "id"],
+  ],
+  batches: [["created_by", "profiles", "id"]],
+  consultations: [
+    ["created_by", "profiles", "id"],
+    ["crm_client_id", "crm_clients", "id"],
+    ["batch_id", "batches", "id"],
+  ],
+  scr_authorizations: [
+    ["consultation_id", "consultations", "id"],
+    ["crm_client_id", "crm_clients", "id"],
+    ["requested_by", "profiles", "id"],
+  ],
+  bureau_payloads: [["consultation_id", "consultations", "id"]],
+  bureau_results: [
+    ["consultation_id", "consultations", "id"],
+    ["payload_id", "bureau_payloads", "id"],
+  ],
+  ai_reports: [
+    ["consultation_id", "consultations", "id"],
+    ["crm_client_id", "crm_clients", "id"],
+  ],
+  company_reports: [
+    ["batch_id", "batches", "id"],
+    ["created_by", "profiles", "id"],
+  ],
+  opportunities: [
+    ["crm_client_id", "crm_clients", "id"],
+    ["consultation_id", "consultations", "id"],
+    ["credit_product_id", "credit_products", "id"],
+    ["created_by", "profiles", "id"],
+  ],
+  opportunity_documents: [["opportunity_id", "opportunities", "id"]],
+  timeline_events: [["created_by", "profiles", "id"]],
+  crm_notes: [["created_by", "profiles", "id"]],
+  audit_logs: [["user_id", "profiles", "id"]],
+};
+
+// DB columns that hold a storage object key/path. verify asserts each non-null
+// value resolves to a copied object (missing referenced file = fatal).
+export const STORAGE_REFERENCES = {
+  opportunity_documents: ["object_key", "file_path"],
+  batches: ["file_path", "report_path"],
+};
+
 // Identity export is METADATA ONLY. Everything else on a legacy user row is a
 // reusable credential and must never leave Supabase.
 export const IDENTITY_COLUMNS = [
@@ -46,11 +100,42 @@ export const IDENTITY_COLUMNS = [
   "updated_at",
 ];
 
-// Any of these substrings in an exported identity key => fatal: a secret leaked.
-export const SECRET_KEY_PATTERN =
-  /pass|secret|token|hash|salt|mfa|totp|otp|recovery|backup_code|session|credential|key/i;
-
 const sha256Hex = (buf) => createHash("sha256").update(buf).digest("hex");
+
+async function sha256File(path) {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(path), hash);
+  return hash.digest("hex");
+}
+
+// ── production adapter loader ────────────────────────────────────────────
+// Loads the REAL DEPS adapter (version 1) from src/. It is TypeScript using the
+// `@/` alias; Node strips the types natively, this hook maps `@/x` -> src/x.
+// `new URL("../../src/", import.meta.url)` keeps the trailing slash so
+// `base + "types/bureau.ts"` resolves correctly.
+let _adapterHookInstalled = false;
+export async function loadAdapter() {
+  if (!_adapterHookInstalled) {
+    const srcRoot = new URL("../../src/", import.meta.url).href;
+    register(
+      "data:text/javascript," +
+        encodeURIComponent(`
+        const srcRoot = ${JSON.stringify(srcRoot)};
+        export async function resolve(spec, ctx, next) {
+          if (spec.startsWith("@/")) {
+            for (const ext of ["", ".ts", ".tsx", ".mjs", ".js", "/index.ts"]) {
+              try { return await next(srcRoot + spec.slice(2) + ext, ctx); } catch {}
+            }
+          }
+          return next(spec, ctx);
+        }`),
+      import.meta.url,
+    );
+    _adapterHookInstalled = true;
+  }
+  const mod = await import(new URL("../../src/lib/deps/adapter.ts", import.meta.url).href);
+  return mod.adapt;
+}
 
 // Deterministic UTF-8 JSON (recursively sorted keys) -- mirrors
 // src/lib/consultations/service.ts so re-hashing a payload here matches runtime.
@@ -291,13 +376,22 @@ export async function verify({ dir, store }) {
     if (want !== got) fail(`row count mismatch ${name}: manifest ${want} target ${got}`);
   }
 
-  const profiles = await store.allRows("profiles");
-  const users = await store.allRows("user");
-  const userIds = new Set(users.map((u) => u.id));
+  // ── every foreign key: referenced row must exist ──────────────────────
+  const rowCache = {};
+  const rowsOf = async (t) => (rowCache[t] ||= await store.allRows(t));
+  for (const [table, fks] of Object.entries(FOREIGN_KEYS)) {
+    for (const [col, refTable, refCol] of fks) {
+      const targetIds = new Set((await rowsOf(refTable)).map((r) => r[refCol]));
+      for (const row of await rowsOf(table)) {
+        const v = row[col];
+        if (v == null) continue; // nullable FK
+        if (!targetIds.has(v)) fail(`${table}.${col}=${v} -> missing ${refTable}.${refCol}`);
+      }
+    }
+  }
 
-  // FK: every profile has its auth user; preserved id == auth_user_id
+  const profiles = await rowsOf("profiles");
   for (const p of profiles) {
-    if (!userIds.has(p.auth_user_id)) fail(`profile ${p.id} references missing user ${p.auth_user_id}`);
     if (p.must_reset_password !== true) fail(`profile ${p.id} not marked must_reset_password`);
   }
 
@@ -337,20 +431,37 @@ export async function verify({ dir, store }) {
     if (!auditTargetIds.has(a.id)) fail(`audit log ${a.id} missing from target`);
   }
 
-  // storage file hashes: source manifest vs bytes on disk
+  // storage: source manifest hash vs bytes on disk (streamed, never buffered),
+  // then every DB file reference must resolve to a copied object.
+  let storageManifest = null;
   try {
-    const storageManifest = await readNdjson(join(dir, "storage-manifest.ndjson"));
+    storageManifest = await readNdjson(join(dir, "storage-manifest.ndjson"));
+  } catch {
+    /* storage step not run in this export -- table checks above still apply */
+  }
+  if (storageManifest) {
+    const copied = new Set();
     for (const obj of storageManifest) {
+      copied.add(obj.path);
+      copied.add(`${obj.bucket}/${obj.path}`);
       try {
-        const bytes = await readFile(join(dir, "storage", obj.bucket, obj.path));
-        const got = sha256Hex(bytes);
+        const got = await sha256File(join(dir, "storage", obj.bucket, obj.path));
         if (got !== obj.sha256) fail(`storage hash mismatch ${obj.bucket}/${obj.path}`);
       } catch {
         fail(`storage object missing on disk ${obj.bucket}/${obj.path}`);
       }
     }
-  } catch {
-    /* storage step not run in this export -- table checks still apply */
+    for (const [table, cols] of Object.entries(STORAGE_REFERENCES)) {
+      for (const row of await rowsOf(table)) {
+        for (const col of cols) {
+          const ref = row[col];
+          if (ref == null || ref === "") continue;
+          if (!copied.has(ref) && !copied.has(String(ref).replace(/^\/+/, ""))) {
+            fail(`${table}.${col}=${ref} references an object absent from the copied storage set`);
+          }
+        }
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors };

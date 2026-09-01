@@ -3,12 +3,12 @@
 // Real DB execution is deferred to the Task 15 rehearsal gate.
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { copyStorage, exportAll, importAll, verify } from "./lib.mjs";
+import { copyStorage, exportAll, importAll, loadAdapter, verify } from "./lib.mjs";
 
 // ── fixture: fixed UUIDs + timestamps ───────────────────────────────────
 const U = "11111111-1111-1111-1111-111111111111";
@@ -205,6 +205,35 @@ test("verify passes on a clean import and fails on a discrepancy", async () => {
     const dirty = await verify({ dir, store });
     assert.equal(dirty.ok, false);
     assert.ok(dirty.errors.some((e) => e.includes("crm_client_documents")));
+  });
+});
+
+test("loadAdapter returns the REAL production adapter (version 1)", async () => {
+  const adapt = await loadAdapter();
+  const ctx = { product: "Smart PF 002", httpStatus: 200, receivedAt: "2026-08-31T00:00:00.000Z" };
+
+  const validBody = JSON.parse(
+    await readFile(new URL("../../src/lib/deps/__fixtures__/pf-current.json", import.meta.url)),
+  );
+  const good = adapt(validBody, ctx);
+  assert.equal(good.ok, true);
+  assert.equal(good.version, 1);
+  assert.equal(good.value.subject.kind, "PF");
+
+  const bad = adapt({ garbage: true }, ctx);
+  assert.equal(bad.ok, false);
+  assert.ok(Array.isArray(bad.errors) && bad.errors.length > 0);
+});
+
+test("verify flags a dangling foreign key", async () => {
+  await withTmp(async (dir) => {
+    await exportAll(fakeSource(), dir);
+    const store = memStore();
+    await importAll({ dir, store, adapt: stubAdapt });
+    store._t.user.length = 0; // orphan every profile.auth_user_id
+    const res = await verify({ dir, store });
+    assert.equal(res.ok, false);
+    assert.ok(res.errors.some((e) => e.includes("auth_user_id") && e.includes("missing user")));
   });
 });
 
