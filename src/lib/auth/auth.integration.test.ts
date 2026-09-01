@@ -10,7 +10,7 @@ vi.hoisted(() => {
     DATABASE_URL: "postgres://app_runtime:test@localhost:54329/credit_system",
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
     BETTER_AUTH_URL: "http://localhost:3000",
-    DOCUMENT_ROOT: "D:/credit-system/.data/documents",
+    DOCUMENT_ROOT: "/tmp/reino-test-documents",
     CLAMAV_HOST: "localhost",
     CLAMAV_PORT: "3310",
     SMTP_HOST: "smtp.example.test",
@@ -160,6 +160,8 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
       role: "client",
       permissions: ["portal:read", "portal:write"],
       mfaComplete: false,
+      name: "Auth test client",
+      email: user.email,
     });
   });
 
@@ -259,7 +261,7 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
     } satisfies Partial<SessionAccessError>);
   });
 
-  it("returns mfa_setup_required and revokes the session for staff without TOTP", async () => {
+  it("returns mfa_setup_required but keeps the session so staff can enrol", async () => {
     const user = await createUser("consultant");
     const headers = await login(user);
 
@@ -268,7 +270,7 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
     } satisfies Partial<SessionAccessError>);
     await expect(
       pool.query('select 1 from "session" where user_id = $1', [user.id]),
-    ).resolves.toMatchObject({ rows: [] });
+    ).resolves.toMatchObject({ rows: [{ "?column?": 1 }] });
   });
 
   it("revokes every session when an administrator changes a user role", async () => {

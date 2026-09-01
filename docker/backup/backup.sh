@@ -87,7 +87,13 @@ main() {
   _pgver=$(psql -tAc 'show server_version' 2>/dev/null || echo unknown)
   _mig=$(psql -tAc "select coalesce(max(version)::text,'none') from schema_migrations" 2>/dev/null || echo unknown)
   _files=0
-  [ -d "$DOCUMENT_ROOT" ] && _files=$(find "$DOCUMENT_ROOT" -type f | wc -l | tr -d ' ')
+  if [ -d "$DOCUMENT_ROOT" ]; then
+    _files=$(find "$DOCUMENT_ROOT" -type f | wc -l | tr -d ' ')
+  else
+    alert "reino backup FAILED: DOCUMENT_ROOT missing" \
+      "DOCUMENT_ROOT ($DOCUMENT_ROOT) is not a directory. No snapshot was created."
+    exit 1
+  fi
   cat > "$META" <<EOF
 {
   "created_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -100,7 +106,13 @@ EOF
 
   # 4. ONE snapshot: dump + manifest + meta + documents
   set -- "$DUMP" "$MANIFEST" "$META"
-  [ -d "$DOCUMENT_ROOT" ] && set -- "$@" "$DOCUMENT_ROOT"
+  if [ -d "$DOCUMENT_ROOT" ]; then
+    set -- "$@" "$DOCUMENT_ROOT"
+  else
+    alert "reino backup FAILED: DOCUMENT_ROOT missing" \
+      "DOCUMENT_ROOT ($DOCUMENT_ROOT) is not a directory. No snapshot was created."
+    exit 1
+  fi
   if ! restic backup --host reino --tag reino-daily "$@"; then
     alert "reino backup FAILED: restic error" \
       "The dump succeeded but the Restic snapshot failed. Retention was NOT run."

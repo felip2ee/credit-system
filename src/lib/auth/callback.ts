@@ -1,4 +1,9 @@
 export function safeRedirectPath(next: string, origin: string): string {
-  const target = new URL(next, origin);
+  let target: URL;
+  try {
+    target = new URL(next, origin);
+  } catch {
+    return `${origin}/`;
+  }
   return target.origin === origin ? target.toString() : `${origin}/`;
 }

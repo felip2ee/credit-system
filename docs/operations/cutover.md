@@ -30,42 +30,18 @@ them. Every one must be green before authorization.
 | P1 | **`verify:release` green, flagless, on real infra** | `node scripts/verify-release.mjs` (no `--allow-deferred`) from a clean tree, against a disposable target Postgres + a running Docker daemon + full production env. Save the terminal output outside the repo as release evidence. |
 | P2 | **2× full-size migration rehearsal** | Run *Phase 3–7* below twice from fresh volumes with a sanitized full-size export; record every number in [`migration-rehearsal.md`](./migration-rehearsal.md) (replaces its PENDING markers). |
 | P3 | **1× rollback rehearsal** | After deliberately failing a smoke gate in a rehearsal, run [`rollback.md`](./rollback.md) end-to-end and record recovery time in [`migration-rehearsal.md`](./migration-rehearsal.md). |
-| P4 | **`reino-backup` image built & pushed** | `docker-publish.yml` was deleted. Add a second job to `.github/workflows/docker-image.yml` (YAML below) so `ghcr.io/<owner>/reino-backup@sha256:<digest>` exists; take `REINO_BACKUP_DIGEST` from its job summary. |
+| P4 | **`reino-backup` image built & pushed** | `.github/workflows/docker-image.yml` builds both `reino-credito` and `reino-backup` (matrix). Push to `main` (or run the workflow); take `REINO_BACKUP_DIGEST` from the *Report deployable digest* job summary for `reino-backup`. |
 | P5 | **`reino-credito` image built & pushed** | Push to `main` (or run the workflow); take `REINO_IMAGE_OWNER` + `REINO_IMAGE_DIGEST` from the *Report deployable digest* job summary. Deploy is digest-only — a tag can never satisfy `docker-stack.yml`. |
 | P6 | **All 13 external secrets created** in the target Swarm | `database_url`, `database_owner_url`, `better_auth_secret`, `smtp_pass`, `deps_api_password`, `openai_api_key`, `postgres_password`, `schema_owner_password`, `app_runtime_password`, `backup_reader_password`, `restic_password`, `backup_s3_access_key`, `backup_s3_secret_key` — see [`security-checklist.md`](./security-checklist.md). |
 | P7 | **S3 bucket for Restic** has object versioning ON and all public access DENIED. |
 | P8 | **DB roles verified** after schema migrate: `app_runtime` NOBYPASSRLS, only `backup_reader` BYPASSRLS, `auth_profile_lookup` NOLOGIN/NOINHERIT/NOBYPASSRLS (migration 009). See [`security-checklist.md`](./security-checklist.md). |
 | P9 | **Restore drill passes** — `sh docker/backup/backup.test.sh` and a real `restore-test.sh` run into a throwaway cluster, evidence saved. |
 
-### P4 — CI job to add for the backup image
+### P4 — backup image CI
 
-```yaml
-  build-backup:
-    runs-on: ubuntu-latest
-    permissions: { contents: read, packages: write }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: ./docker/backup
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/reino-backup:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Report backup digest
-        run: |
-          echo "### Backup image" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "REINO_BACKUP_DIGEST=${{ steps.build.outputs.digest }}" | sed 's/sha256://' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-```
+The `reino-backup` image is built by the `build` matrix in
+[`.github/workflows/docker-image.yml`](../../.github/workflows/docker-image.yml)
+alongside `reino-credito`. No separate job to add.
 
 ---
 
@@ -88,7 +64,12 @@ export DEPS_API_EMAIL=<deps-user>
 export SOURCE_DATABASE_URL='postgresql://<ro-user>:<pw>@<supabase-host>:5432/postgres?sslmode=require'
 export SUPABASE_URL='https://<ref>.supabase.co'
 export SUPABASE_SERVICE_KEY='<service-role-key>'   # storage read only
-export TARGET_DATABASE_OWNER_URL='postgresql://schema_owner:<pw>@<target-host>:5432/credit_system'
+# The migrate/import/verify DSN is the postgres SUPERUSER: schema migrations run
+# CREATE ROLE / ALTER ROLE ... [NO]BYPASSRLS (001_roles.sql, 009) which need
+# superuser, and the import runs a plain `begin` with no app context so it must
+# bypass FORCE RLS (superusers do). The APP only ever receives the app_runtime
+# DSN (`database_url`) — never this one.
+export TARGET_DATABASE_OWNER_URL='postgresql://postgres:<pw>@<target-host>:5432/credit_system'
 export OUT=/var/lib/reino/cutover/$(date +%Y%m%dT%H%M%S)
 mkdir -p "$OUT"
 ```

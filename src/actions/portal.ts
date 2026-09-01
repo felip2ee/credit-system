@@ -92,14 +92,14 @@ export async function inviteClientToPortal(crmClientId: string): Promise<ActionR
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "";
-    if (reason === "client_not_found") return { error: "Cliente nÃ£o encontrado." };
-    if (reason === "already_invited") return { error: "Este cliente jÃ¡ tem acesso ao portal. Revogue antes de reenviar." };
-    if (reason === "invalid_email") return { error: "Cadastre um e-mail vÃ¡lido no cliente antes de convidar." };
-    return { error: "NÃ£o foi possÃ­vel criar o acesso." };
+    if (reason === "client_not_found") return { error: "Cliente não encontrado." };
+    if (reason === "already_invited") return { error: "Este cliente já tem acesso ao portal. Revogue antes de reenviar." };
+    if (reason === "invalid_email") return { error: "Cadastre um e-mail válido no cliente antes de convidar." };
+    return { error: "Não foi possível criar o acesso." };
   }
 
   const email = invited?.email?.trim().toLowerCase();
-  if (!invited || !email || !userId) return { error: "NÃ£o foi possÃ­vel criar o acesso." };
+  if (!invited || !email || !userId) return { error: "Não foi possível criar o acesso." };
   try {
     await auth.api.requestPasswordReset({
       body: { email, redirectTo: `${config.betterAuthUrl}/update-password` },
@@ -131,9 +131,9 @@ export async function revokeClientPortalAccess(crmClientId: string): Promise<Act
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "";
-    if (reason === "client_not_found") return { error: "Cliente nÃ£o encontrado." };
-    if (reason === "not_active") return { error: "Este cliente nÃ£o tem acesso ativo." };
-    return { error: "NÃ£o foi possÃ­vel revogar o acesso." };
+    if (reason === "client_not_found") return { error: "Cliente não encontrado." };
+    if (reason === "not_active") return { error: "Este cliente não tem acesso ativo." };
+    return { error: "Não foi possível revogar o acesso." };
   }
   revalidatePath(`/clients/${crmClientId}`);
   return { error: null };
@@ -159,15 +159,15 @@ export async function uploadPortalDocument(formData: FormData): Promise<ActionRe
   try {
     identity = await requirePortalClient();
   } catch {
-    return { error: "SessÃ£o expirada." };
+    return { error: "Sessão expirada." };
   }
   const docId = String(formData.get("docId") ?? "");
   const file = formData.get("file");
-  if (!docId || !(file instanceof File) || file.size === 0) return { error: "Selecione um arquivo vÃ¡lido." };
-  if (file.size > MAX_UPLOAD_BYTES) return { error: "Arquivo muito grande (mÃ¡ximo 15 MB)." };
+  if (!docId || !(file instanceof File) || file.size === 0) return { error: "Selecione um arquivo válido." };
+  if (file.size > MAX_UPLOAD_BYTES) return { error: "Arquivo muito grande (máximo 15 MB)." };
   const doc = await ownedDocument(docId, identity).catch(() => null);
-  if (!doc) return { error: "VocÃª nÃ£o tem acesso a este documento." };
-  if (doc.status === "approved") return { error: "Este documento jÃ¡ foi aprovado e nÃ£o pode ser alterado." };
+  if (!doc) return { error: "Você não tem acesso a este documento." };
+  if (doc.status === "approved") return { error: "Este documento já foi aprovado e não pode ser alterado." };
   try {
     await storeDocument({ stream: file.stream() as unknown as AsyncIterable<Uint8Array>, declaredName: file.name, declaredMime: file.type || "application/octet-stream", uploaderId: identity.userId, identity, link: { opportunityId: doc.opportunity_id, docType: doc.label, docId: doc.id, docLabel: doc.label } });
     await recordScannedDocumentUpload(identity, doc.opportunity_id, doc.label, file.name);
@@ -184,10 +184,10 @@ export async function getPortalDocUrl(docId: string): Promise<SignedUrlResult> {
   try {
     identity = await requirePortalClient();
   } catch {
-    return { error: "SessÃ£o expirada." };
+    return { error: "Sessão expirada." };
   }
   const doc = await ownedDocument(docId, identity).catch(() => null);
-  if (!doc) return { error: "VocÃª nÃ£o tem acesso a este documento." };
-  if (doc.scan_result !== "clean" || !doc.file_path) return { error: "Documento ainda nÃ£o enviado." };
+  if (!doc) return { error: "Você não tem acesso a este documento." };
+  if (doc.scan_result !== "clean" || !doc.file_path) return { error: "Documento ainda não enviado." };
   return { error: null, url: `/api/documents/${docId}` };
 }

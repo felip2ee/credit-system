@@ -273,7 +273,8 @@ function mapProtests(mix: Record<string, unknown>): CanonicalBureauResult["prote
 }
 
 function mapChecks(mix: Record<string, unknown>): CanonicalBureauResult["checks"] {
-  const c = isRecord(mix.restricoesCheques) ? mix.restricoesCheques : {};
+  const cd = moduleData(mix.restricoesCheques);
+  const c = isRecord(cd) ? cd : {};
   const semFundo = isRecord(c.chequesDevolvidosSemFundo)
     ? c.chequesDevolvidosSemFundo
     : null;

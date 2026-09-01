@@ -25,12 +25,15 @@ every gate below is green.
 |------|---------|-------|
 | 1. Export business rows + identity metadata | `npm run migration:export -- <SOURCE_DATABASE_URL> <OUT_DIR>` | NDJSON per table (FK order) + `manifest.json`. Identity export is metadata only — no password hash, token, session, or MFA secret leaves Supabase. |
 | 2. Copy storage objects | `node scripts/migration/copy-storage.mjs <SUPABASE_URL> <SERVICE_KEY> <OUT_DIR>` | Streams one object at a time while hashing. Missing/unreadable object = fatal, recorded in `storage-errors.json`. |
-| 3. Create empty target | `DATABASE_OWNER_URL=<target> npm run db:migrate` | Runs `001`..`010` (incl. `010_must_reset_password`). |
+| 3. Create empty target | `DATABASE_OWNER_URL=<target> npm run db:migrate` | Runs `001`..`010` (incl. `010_must_reset_password`). `<target>` is a **`postgres` superuser** DSN — `001`/`009` run `CREATE ROLE` / `ALTER ROLE ... [NO]BYPASSRLS` which need superuser. |
 | 4. Import | `npm run migration:import -- <TARGET_DATABASE_URL> <OUT_DIR>` | One transaction. Preserves UUIDs + timestamps. Each identity gets a fresh random 32-byte password (hashed, plaintext discarded); profile marked `must_reset_password = true`. Raw bureau payloads replayed through the production adapter v1 (valid -> `bureau_results` + `completed`; invalid -> preserved + `payload_incompatible`). Idempotent — safe to rerun. |
 | 5. Verify | `npm run migration:verify -- <TARGET_DATABASE_URL> <OUT_DIR>` | Exact row counts, FKs, unique emails/documents, consultation<->result consistency, storage hashes, audit preservation, absence of any imported credential/session/MFA data. Exits nonzero on any discrepancy. |
 
 Connection strings are passed explicitly (arg or env). Logs print only the
-redacted host — never a full DSN or secret.
+redacted host — never a full DSN or secret. Steps 3–5 all use the same
+**`postgres` superuser** DSN: the import runs a plain `begin` with no app
+context and must bypass the tables' FORCE RLS (superusers do). The app itself
+only ever receives the `app_runtime` DSN.
 
 One-time password-reset links are generated **only** during the authorized
 cutover (not by these scripts).

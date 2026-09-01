@@ -1,16 +1,13 @@
 name: Docker Image (GHCR)
 
-# Builda a imagem de produção e publica no GitHub Container Registry.
+# Builda as imagens de produção e publica no GitHub Container Registry.
 # A stack (docker-stack.yml) consome por digest: pegue REINO_IMAGE_OWNER e
-# REINO_IMAGE_DIGEST do resumo do job "Report deployable digest".
+# REINO_IMAGE_DIGEST (app) / REINO_BACKUP_DIGEST (backup) do resumo do job.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/reino-credito
 
 jobs:
   build:
@@ -18,6 +15,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      matrix:
+        include:
+          - image: reino-credito
+            context: .
+          - image: reino-backup
+            context: docker/backup
 
     steps:
       - uses: actions/checkout@v4
@@ -33,24 +38,27 @@ jobs:
       - id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context }}
           push: true
           # Commit-SHA tag only, for discovery. No `latest`. The stack deploys by
-          # digest (REINO_IMAGE_DIGEST), never by a mutable tag.
-          tags: ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # digest, never by a mutable tag.
+          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
       - name: Report deployable digest
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ matrix.image }}
         run: |
           hex="${DIGEST#sha256:}"
+          var=REINO_IMAGE_DIGEST
+          [ "$IMAGE" = "reino-backup" ] && var=REINO_BACKUP_DIGEST
           echo "Deploy this digest in docker-stack.yml:"
           {
-            echo "### Deployable image"
+            echo "### Deployable image: ${IMAGE}"
             echo '```'
             echo "REINO_IMAGE_OWNER=${{ github.repository_owner }}"
-            echo "REINO_IMAGE_DIGEST=${hex}"
+            echo "${var}=${hex}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

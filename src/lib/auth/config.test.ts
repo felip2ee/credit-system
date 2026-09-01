@@ -7,7 +7,7 @@ vi.hoisted(() => {
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
     BETTER_AUTH_URL: "https://credit.example.test",
     TRAEFIK_PROXY_CIDR: "10.0.0.0/8",
-    DOCUMENT_ROOT: "D:/credit-system/.data/documents",
+    DOCUMENT_ROOT: "/tmp/reino-test-documents",
     CLAMAV_HOST: "localhost",
     CLAMAV_PORT: "3310",
     SMTP_HOST: "smtp.example.test",

@@ -16,8 +16,11 @@ Every box must be checked with evidence (command output saved outside the repo).
   openssl rand -base64 48        # BETTER_AUTH_SECRET, restic_password, DB passwords
   printf %s "$VALUE" | docker secret create <name> -
   ```
-- [ ] `database_url` uses role `app_runtime`; `database_owner_url` uses
-  `schema_owner`. The app never gets owner/superuser DSNs.
+- [ ] `database_url` uses role `app_runtime` (NOSUPERUSER NOBYPASSRLS).
+  `database_owner_url` — consumed **only** by the one-shot `migrate` service and
+  the manual import/verify steps — uses the `postgres` superuser: migrations run
+  `CREATE ROLE` / `ALTER ROLE ... [NO]BYPASSRLS` and the import bypasses FORCE
+  RLS, both of which require superuser. The app service never gets this DSN.
 - [ ] `.env.local`, `.env*.example`, and `".env.local - Copia.example"` contain
   **no real secret values** and are gitignored / not staged.
 - [ ] Rotation procedure documented: `docker secret rm` + recreate + `docker

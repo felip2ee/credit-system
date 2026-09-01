@@ -4,7 +4,7 @@ import { config } from "@/lib/config";
 
 export const pool = new Pool({
   connectionString: config.databaseUrl,
-  max: 1,
+  max: Number(process.env.PG_POOL_MAX ?? 10),
   connectionTimeoutMillis: 5_000,
   query_timeout: 10_000,
 });

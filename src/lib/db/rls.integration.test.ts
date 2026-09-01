@@ -7,7 +7,7 @@ vi.hoisted(() => {
     DATABASE_URL: "postgres://app_runtime:test@localhost:54329/credit_system",
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
     BETTER_AUTH_URL: "http://localhost:3000",
-    DOCUMENT_ROOT: "D:/credit-system/.data/documents",
+    DOCUMENT_ROOT: "/tmp/reino-test-documents",
     CLAMAV_HOST: "localhost",
     CLAMAV_PORT: "3310",
     SMTP_HOST: "smtp.example.test",
@@ -133,8 +133,8 @@ describe.sequential("transaction-scoped RLS identity", () => {
         `insert into scr_authorizations
            (document, type, crm_client_id, status, channel, auth_code, public_token, consent_text, consent_name, consent_document)
          values
-           ('11111111111', 'PF', $1, 'pending', 'internal', 'SECRET1', $2, 'Termo pÃºblico', 'Cliente um', '111.111.111-11'),
-           ('22222222222', 'PF', $3, 'pending', 'internal', 'SECRET2', $4, 'Termo pÃºblico', 'Cliente dois', '222.222.222-22')`,
+           ('11111111111', 'PF', $1, 'pending', 'internal', 'SECRET1', $2, 'Termo público', 'Cliente um', '111.111.111-11'),
+           ('22222222222', 'PF', $3, 'pending', 'internal', 'SECRET2', $4, 'Termo público', 'Cliente dois', '222.222.222-22')`,
         [clientRows[0].id, publicScrToken, clientRows[1].id, refusedScrToken],
       );
     });
@@ -204,7 +204,7 @@ describe.sequential("transaction-scoped RLS identity", () => {
     await expect(getPublicScrAuthorization(publicScrToken)).resolves.toMatchObject({
       status: "pending",
       type: "PF",
-      consentText: "Termo pÃºblico",
+      consentText: "Termo público",
       clientName: "Cliente um",
       document: "111.111.111-11",
     });

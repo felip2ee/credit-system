@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import { getRequiredSession } from "@/lib/auth/session";
+import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
 import { getTopbarEmail } from "@/lib/dashboard/queries";
 
 export default async function DashboardLayout({
@@ -11,7 +11,12 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getRequiredSession().catch(() => redirect("/login"));
+  const session = await getRequiredSession().catch((err) => {
+    if (err instanceof SessionAccessError && err.code === "mfa_setup_required") {
+      redirect("/mfa/setup");
+    }
+    redirect("/login");
+  });
 
   // Clientes não acessam o painel interno — vão para o portal externo.
   if (session.role === "client") {

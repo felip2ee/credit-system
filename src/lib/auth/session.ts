@@ -27,6 +27,8 @@ export type RequiredSession = {
   role: AuthRole;
   permissions: readonly Permission[];
   mfaComplete: boolean;
+  name: string;
+  email: string;
 };
 
 async function revokeAndReject(
@@ -65,7 +67,9 @@ export async function getRequiredSessionFromHeaders(
 
   const mfaComplete = Boolean(current.user.twoFactorEnabled);
   if ((profile.role === "admin" || profile.role === "consultant") && !mfaComplete) {
-    return revokeAndReject(current.user.id, "mfa_setup_required");
+    // Enrollment state, not a compromise: keep the session so the user can reach
+    // /mfa/setup and enrol. Revoking here would lock every staff user out on day one.
+    throw new SessionAccessError("mfa_setup_required");
   }
 
   return {
@@ -73,6 +77,8 @@ export async function getRequiredSessionFromHeaders(
     role: profile.role,
     permissions: permissionsFor(profile.role),
     mfaComplete,
+    name: current.user.name,
+    email: current.user.email,
   };
 }
 

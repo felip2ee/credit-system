@@ -116,6 +116,22 @@ describe("adapt — tolerant behavior", () => {
     expect(v.protests.items).toEqual([]);
   });
 
+  it("reads a `{data}`-wrapped restricoesCheques module", () => {
+    const v = okValue({
+      mix: {
+        pessoa: { data: { cpf: "39053344705", nome: "Wrapped Cheques Anonimo" } },
+        restricoesCheques: {
+          success: true,
+          message: "ok",
+          data: { possuiInformacao: true, devolvidosSemFundo: "3", sustados: 1 },
+        },
+      },
+    });
+    expect(v.checks.hasInfo).toBe(true);
+    expect(v.checks.returnedNoFunds).toBe(3);
+    expect(v.checks.stopped).toBe(1);
+  });
+
   it("bounds score to 0..1000", () => {
     const v = okValue({
       mix: { pessoa: { data: { cpf: "39053344705", nome: "Bounded Anonimo" } }, score: { data: { valor: 999999 } } },

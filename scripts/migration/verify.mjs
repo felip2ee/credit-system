@@ -22,6 +22,19 @@ const client = new pg.Client({ connectionString: dsn });
 console.log(`verify: ${dir} against target ${redactDsn(dsn)}`);
 await client.connect();
 try {
+  // If this connection is blocked by FORCE RLS (wrong role, no app context) every
+  // `select *` silently returns 0 rows and the counts "match" an empty import.
+  // Prove we can actually see a table that must never be empty after a migration.
+  const { rows: mig } = await client.query(
+    "select count(*)::int as n from schema_migrations",
+  );
+  if (!mig[0] || mig[0].n === 0) {
+    throw new Error(
+      "verify: connection cannot see schema_migrations (RLS-blocked or wrong DSN — " +
+        "use the postgres superuser DSN). Aborting before the checks run.",
+    );
+  }
+
   const store = makePgStore(client, null); // read-only checks: no hasher needed
   const { ok, errors } = await verify({ dir, store });
   if (ok) {

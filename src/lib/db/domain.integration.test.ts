@@ -15,7 +15,7 @@ vi.hoisted(() => {
     DATABASE_URL: "postgres://app_runtime:test@localhost:54329/credit_system",
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
     BETTER_AUTH_URL: "http://localhost:3000",
-    DOCUMENT_ROOT: "D:/credit-system/.data/documents",
+    DOCUMENT_ROOT: "/tmp/reino-test-documents",
     CLAMAV_HOST: "localhost",
     CLAMAV_PORT: "3310",
     SMTP_HOST: "smtp.example.test",

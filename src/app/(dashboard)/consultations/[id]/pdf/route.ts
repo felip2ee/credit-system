@@ -33,24 +33,17 @@ export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  if (false) {
-    return new Response("Consulta não encontrada.", { status: 404 });
-  }
-  if (false) {
-    return new Response("Consulta sem resultado disponível.", { status: 409 });
-  }
-
   let identity;
   try {
     const session = await getRequiredSession();
     identity = { userId: session.userId, role: session.role };
-    if (!hasPermission(session.role, "consultations:read")) return new Response("NÃ£o autorizado.", { status: 403 });
+    if (!hasPermission(session.role, "consultations:read")) return new Response("Não autorizado.", { status: 403 });
   } catch {
     return new Response("Sessão expirada.", { status: 401 });
   }
   const stored = await getConsultation(identity, params.id);
-  if (!stored) return new Response("Consulta nÃ£o encontrada.", { status: 404 });
-  if (stored.status !== "completed") return new Response("Consulta sem resultado disponÃ­vel.", { status: 409 });
+  if (!stored) return new Response("Consulta não encontrada.", { status: 404 });
+  if (stored.status !== "completed") return new Response("Consulta sem resultado disponível.", { status: 409 });
   const query: QueryRow = stored;
 
   const canonical = await loadCanonicalResult(identity, params.id);
