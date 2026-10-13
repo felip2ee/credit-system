@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_OWNER_URL: postgres://postgres:test@localhost:54329/credit_system
+      TEST_DATABASE_URL: postgres://app_runtime:test@localhost:54329/credit_system
+      TEST_DATABASE_OWNER_URL: postgres://postgres:test@localhost:54329/credit_system
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - name: Start Postgres 18 (same role bootstrap as production)
+        run: docker compose -f docker-compose.dev.yml up -d --wait postgres
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npx vitest run --exclude '**/*.integration.test.ts'
+      - run: npm run db:migrate:test
+      - run: npm run setup:test
+      - name: Migrate (twice - second run must be a no-op)
+        run: npm run db:migrate && npm run db:migrate | tee /tmp/m2 && grep -q "database schema is current" /tmp/m2
+      - run: npx vitest run integration.test
+      - name: Build
+        env:
+          DATABASE_URL: postgres://build:placeholder@localhost:5432/build
+          BETTER_AUTH_SECRET: build-only-placeholder-not-a-production-secret
+          BETTER_AUTH_URL: https://build.invalid
+          DOCUMENT_ROOT: /tmp/documents
+          CLAMAV_HOST: localhost
+          CLAMAV_PORT: "3310"
+          SMTP_HOST: localhost
+          SMTP_PORT: "465"
+          SMTP_SECURE: "true"
+          SMTP_USER: build
+          SMTP_PASS: build-only-placeholder
+          TRAEFIK_PROXY_CIDR: 10.0.0.0/8
+          NODE_ENV: production
+        run: npm run build
