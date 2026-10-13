@@ -51,6 +51,10 @@ const GATES = [
     cmd: ["node", "--test", "scripts/db/migrate.test.mjs", "scripts/db/reset.test.mjs"],
   },
   {
+    name: "python unittest (setup)",
+    cmd: ["python3", "-m", "unittest", "discover", "-s", "scripts/setup", "-p", "test_*.py"],
+  },
+  {
     name: "5. Playwright auth + consultation + document smoke",
     cmd: [npx, "playwright", "test", "--config", "playwright.config.ts"],
     deferred: true,

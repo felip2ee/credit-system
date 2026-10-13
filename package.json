@@ -13,6 +13,7 @@
     "db:migrate": "node scripts/db/migrate.mjs",
     "db:reset": "node scripts/db/reset.mjs",
     "db:migrate:test": "node --test scripts/db/migrate.test.mjs scripts/db/reset.test.mjs",
+    "setup:test": "python3 -m unittest discover -s scripts/setup -p 'test_*.py'",
     "verify:release": "node scripts/verify-release.mjs"
   },
   "dependencies": {
