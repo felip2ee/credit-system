@@ -36,8 +36,6 @@ const clientRows = [
   { id: randomUUID(), name: "RLS client one", userId: identities.clientOne.userId },
   { id: randomUUID(), name: "RLS client two", userId: identities.clientTwo.userId },
 ];
-const opportunityIds = [randomUUID(), randomUUID()];
-const documentIds = [randomUUID(), randomUUID()];
 const publicScrToken = randomUUID();
 const refusedScrToken = randomUUID();
 
@@ -118,20 +116,6 @@ describe.sequential("transaction-scoped RLS identity", () => {
         ],
       );
       await client.query(
-        "insert into opportunities (id, crm_client_id, created_by) values ($1, $2, $3), ($4, $5, $3)",
-        [
-          opportunityIds[0],
-          clientRows[0].id,
-          identities.admin.userId,
-          opportunityIds[1],
-          clientRows[1].id,
-        ],
-      );
-      await client.query(
-        "insert into opportunity_documents (id, opportunity_id, doc_type, label) values ($1, $2, 'identity', 'Documento do cliente um'), ($3, $4, 'identity', 'Documento do cliente dois')",
-        [documentIds[0], opportunityIds[0], documentIds[1], opportunityIds[1]],
-      );
-      await client.query(
         `insert into scr_authorizations
            (document, type, crm_client_id, status, channel, auth_code, public_token, consent_text, consent_name, consent_document)
          values
@@ -174,32 +158,6 @@ describe.sequential("transaction-scoped RLS identity", () => {
     );
 
     expect(rows).toEqual([]);
-  });
-
-  it("lets a client upload metadata only to its own document slot", async () => {
-    const changed = await withUserTransaction(identities.clientOne, (client) =>
-      client.query(
-        `update opportunity_documents
-            set status = 'uploaded', file_name = 'identidade.pdf', file_path = 'ab/object', object_key = 'ab/object',
-                sha256 = $2, byte_size = 12, file_size = 12, detected_mime = 'application/pdf',
-                file_mime = 'application/pdf', scan_result = 'clean', uploaded_by = $3, uploaded_at = now(),
-                scan_version = 'ClamAV test', rejection_reason = null
-          where id = $1`,
-        [documentIds[0], "a".repeat(64), identities.clientOne.userId],
-      ),
-    );
-    expect(changed.rowCount).toBe(1);
-
-    await expect(
-      withUserTransaction(identities.clientOne, (client) =>
-        client.query("update opportunity_documents set label = 'alterado' where id = $1", [documentIds[0]]),
-      ),
-    ).rejects.toThrow(/client document upload/i);
-
-    const other = await withUserTransaction(identities.clientOne, (client) =>
-      client.query("update opportunity_documents set status = 'uploaded' where id = $1", [documentIds[1]]),
-    );
-    expect(other.rowCount).toBe(0);
   });
 
   it("exposes and atomically confirms only a token-bound public SCR authorization", async () => {

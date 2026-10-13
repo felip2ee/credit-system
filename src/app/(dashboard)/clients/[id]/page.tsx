@@ -11,8 +11,6 @@ import {
 } from "@/components/clients/partner-section";
 import { ClientTimeline } from "@/components/clients/client-timeline";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
-import { OpportunityStatusBadge } from "@/components/opportunities/opportunity-status-badge";
-import { OpenOpportunityForClientButton } from "@/components/opportunities/open-opportunity-for-client-button";
 import { PortalAccessButton } from "@/components/clients/portal-access-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,9 +21,8 @@ import {
 } from "@/components/ui/card";
 import { getRequiredSession } from "@/lib/auth/session";
 import { getClientDetail } from "@/lib/clients/queries";
-import { formatCNPJ, formatCPF, formatCurrency, formatDate } from "@/lib/utils";
+import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
 import type {
-  OpportunityStatus,
   QueryStatus,
   TimelineEvent,
 } from "@/types/app";
@@ -48,7 +45,7 @@ export default async function ClientDetailPage({
   const detail = await getClientDetail(session, params.id);
   if (!detail) notFound();
 
-  const { client, relations, people, events: eventRows, consultations, opportunities } =
+  const { client, relations, people, events: eventRows, consultations } =
     detail;
   const events = eventRows as unknown as TimelineEvent[];
 
@@ -214,48 +211,6 @@ export default async function ClientDetailPage({
               ) : (
                 <p className="text-sm text-muted-foreground">
                   Nenhuma consulta para este cliente ainda.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-lg">
-                Oportunidades{" "}
-                {opportunities.length > 0 && `(${opportunities.length})`}
-              </CardTitle>
-              <OpenOpportunityForClientButton clientId={client.id} />
-            </CardHeader>
-            <CardContent>
-              {opportunities.length > 0 ? (
-                <ul className="divide-y">
-                  {opportunities.map((o) => (
-                    <li key={o.id}>
-                      <Link
-                        href={`/opportunities/${o.id}`}
-                        className="-mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-muted/50"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {formatCurrency(o.requested_amount)}
-                            {o.partner_name ? ` · ${o.partner_name}` : ""}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatDate(o.created_at)}
-                          </p>
-                        </div>
-                        <OpportunityStatusBadge
-                          status={o.status as OpportunityStatus}
-                        />
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Nenhuma oportunidade para este cliente ainda.
                 </p>
               )}
             </CardContent>

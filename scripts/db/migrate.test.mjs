@@ -34,16 +34,12 @@ test("rejects an applied migration missing from disk", () => {
   );
 });
 
-test("limits profile and credit-product SELECT policies to staff", async () => {
+test("limits profile SELECT policy to staff", async () => {
   const sql = await readFile("db/migrations/004_rls.sql", "utf8");
 
   assert.match(
     sql,
     /create policy profiles_select on profiles for select\s+using \(\s+app_context_present\(\)\s+and app_user_role\(\) in \('admin', 'consultant'\)\s+\);/s,
-  );
-  assert.match(
-    sql,
-    /create policy credit_products_select on credit_products for select\s+using \(\s+app_context_present\(\)\s+and app_user_role\(\) in \('admin', 'consultant'\)\s+\);/s,
   );
 });
 

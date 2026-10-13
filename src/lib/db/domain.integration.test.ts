@@ -187,11 +187,11 @@ describe.sequential("Task 9 domain data access", () => {
     await upsertSettings(
       admin,
       [{ key, value: 7.5 }],
-      "settings.commission_update",
+      "settings.update",
     );
     expect(await readSetting(admin, key)).toBe(7.5);
 
-    await deleteSettings(admin, [key], "settings.commission_reset");
+    await deleteSettings(admin, [key], "settings.reset");
     expect(await readSetting(admin, key)).toBeNull();
   });
 
@@ -232,6 +232,5 @@ describe.sequential("Task 9 domain data access", () => {
       start6mo: new Date(now.getTime() - 180 * 86_400_000).toISOString(),
     });
     expect(metrics.counts.clients).toBeGreaterThan(0);
-    expect(Array.isArray(metrics.opportunities)).toBe(true);
   });
 });

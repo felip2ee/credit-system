@@ -10,32 +10,15 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { config } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
-import { DocumentRejectedError, storeDocument } from "@/lib/documents/service";
-import { recordScannedDocumentUpload } from "@/lib/opportunities/queries";
-
-const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 export interface ActionResult {
   error: string | null;
   id?: string;
 }
 
-export interface SignedUrlResult {
-  error: string | null;
-  url?: string;
-}
-
 async function requireStaff(): Promise<DbIdentity> {
   const session = await getRequiredSession();
   if (!hasPermission(session.role, "users:manage")) throw new Error("forbidden");
-  return session;
-}
-
-async function requirePortalClient(): Promise<DbIdentity> {
-  const session = await getRequiredSession();
-  if (session.role !== "client" || !hasPermission(session.role, "portal:write")) {
-    throw new Error("forbidden");
-  }
   return session;
 }
 
@@ -137,57 +120,4 @@ export async function revokeClientPortalAccess(crmClientId: string): Promise<Act
   }
   revalidatePath(`/clients/${crmClientId}`);
   return { error: null };
-}
-
-type OwnedDocument = { id: string; opportunity_id: string; label: string; status: string; file_path: string | null; scan_result: string | null; crm_client_id: string };
-
-async function ownedDocument(docId: string, identity: DbIdentity): Promise<OwnedDocument | null> {
-  return withUserTransaction(identity, async (client) => {
-    const { rows } = await client.query<OwnedDocument>(
-      `select d.id, d.opportunity_id, d.label, d.status, d.file_path, d.scan_result, o.crm_client_id
-         from opportunity_documents d
-         join opportunities o on o.id = d.opportunity_id
-        where d.id = $1`,
-      [docId],
-    );
-    return rows[0] ?? null;
-  });
-}
-
-export async function uploadPortalDocument(formData: FormData): Promise<ActionResult> {
-  let identity: DbIdentity;
-  try {
-    identity = await requirePortalClient();
-  } catch {
-    return { error: "Sessão expirada." };
-  }
-  const docId = String(formData.get("docId") ?? "");
-  const file = formData.get("file");
-  if (!docId || !(file instanceof File) || file.size === 0) return { error: "Selecione um arquivo válido." };
-  if (file.size > MAX_UPLOAD_BYTES) return { error: "Arquivo muito grande (máximo 15 MB)." };
-  const doc = await ownedDocument(docId, identity).catch(() => null);
-  if (!doc) return { error: "Você não tem acesso a este documento." };
-  if (doc.status === "approved") return { error: "Este documento já foi aprovado e não pode ser alterado." };
-  try {
-    await storeDocument({ stream: file.stream() as unknown as AsyncIterable<Uint8Array>, declaredName: file.name, declaredMime: file.type || "application/octet-stream", uploaderId: identity.userId, identity, link: { opportunityId: doc.opportunity_id, docType: doc.label, docId: doc.id, docLabel: doc.label } });
-    await recordScannedDocumentUpload(identity, doc.opportunity_id, doc.label, file.name);
-  } catch (error) {
-    return { error: error instanceof DocumentRejectedError ? error.message : "Falha ao processar o arquivo." };
-  }
-  revalidatePath(`/portal/oportunidades/${doc.opportunity_id}`);
-  revalidatePath("/portal");
-  return { error: null, id: doc.id };
-}
-
-export async function getPortalDocUrl(docId: string): Promise<SignedUrlResult> {
-  let identity: DbIdentity;
-  try {
-    identity = await requirePortalClient();
-  } catch {
-    return { error: "Sessão expirada." };
-  }
-  const doc = await ownedDocument(docId, identity).catch(() => null);
-  if (!doc) return { error: "Você não tem acesso a este documento." };
-  if (doc.scan_result !== "clean" || !doc.file_path) return { error: "Documento ainda não enviado." };
-  return { error: null, url: `/api/documents/${docId}` };
 }

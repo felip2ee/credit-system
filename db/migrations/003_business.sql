@@ -17,7 +17,7 @@ create type batch_status as enum (
 create type scr_status as enum (
   'pending', 'authorized', 'not_authorized', 'expired'
 );
-create type timeline_entity_type as enum ('crm_client', 'opportunity', 'query');
+create type timeline_entity_type as enum ('crm_client', 'query');
 
 create table profiles (
   id uuid primary key default gen_random_uuid(),
@@ -31,15 +31,6 @@ create table profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint profiles_auth_id_matches_id check (auth_user_id = id::text)
-);
-
-create table credit_products (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  type query_type not null,
-  description text,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now()
 );
 
 create table crm_clients (
@@ -238,63 +229,6 @@ create table company_reports (
   updated_at timestamptz not null default now()
 );
 
-create table opportunities (
-  id uuid primary key default gen_random_uuid(),
-  crm_client_id uuid not null references crm_clients(id) on delete cascade,
-  consultation_id uuid references consultations(id) on delete set null,
-  ai_report_id uuid references ai_reports(id) on delete set null,
-  credit_product_id uuid references credit_products(id) on delete set null,
-  assigned_to uuid references profiles(id) on delete set null,
-  created_by uuid not null references profiles(id),
-  status text not null default 'new',
-  credit_purpose text,
-  requested_amount numeric(15,2),
-  monthly_revenue numeric(15,2),
-  responsible_name text,
-  responsible_email text,
-  responsible_phone text,
-  responsible_cpf text,
-  responsible_birth_date date,
-  responsible_mother_name text,
-  address text,
-  address_number text,
-  address_complement text,
-  neighborhood text,
-  city text,
-  state char(2),
-  zip_code text,
-  cnpj text,
-  pf_extra_data jsonb,
-  partner_name text,
-  partner_notes text,
-  approved_amount numeric(15,2),
-  rejection_reason text,
-  commission_rate numeric(5,2),
-  commission_amount numeric(15,2),
-  notes text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table opportunity_documents (
-  id uuid primary key default gen_random_uuid(),
-  opportunity_id uuid not null references opportunities(id) on delete cascade,
-  doc_type text not null,
-  label text not null,
-  status text not null default 'pending',
-  file_name text,
-  file_path text,
-  file_size integer,
-  file_mime text,
-  uploaded_by uuid references profiles(id),
-  uploaded_at timestamptz,
-  rejection_reason text,
-  reviewed_by uuid references profiles(id),
-  reviewed_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
 create table timeline_events (
   id uuid primary key default gen_random_uuid(),
   entity_type timeline_entity_type not null,
@@ -365,10 +299,6 @@ create trigger ai_reports_updated_at before update on ai_reports
   for each row execute function set_updated_at();
 create trigger company_reports_updated_at before update on company_reports
   for each row execute function set_updated_at();
-create trigger opportunities_updated_at before update on opportunities
-  for each row execute function set_updated_at();
-create trigger opportunity_documents_updated_at before update on opportunity_documents
-  for each row execute function set_updated_at();
 create trigger crm_notes_updated_at before update on crm_notes
   for each row execute function set_updated_at();
 
@@ -420,7 +350,6 @@ alter function set_updated_at() owner to schema_owner;
 alter function enforce_bureau_payload_transition() owner to schema_owner;
 
 alter table profiles owner to schema_owner;
-alter table credit_products owner to schema_owner;
 alter table crm_clients owner to schema_owner;
 alter table crm_client_documents owner to schema_owner;
 alter table crm_client_relations owner to schema_owner;
@@ -431,8 +360,6 @@ alter table bureau_payloads owner to schema_owner;
 alter table bureau_results owner to schema_owner;
 alter table ai_reports owner to schema_owner;
 alter table company_reports owner to schema_owner;
-alter table opportunities owner to schema_owner;
-alter table opportunity_documents owner to schema_owner;
 alter table timeline_events owner to schema_owner;
 alter table crm_notes owner to schema_owner;
 alter table settings owner to schema_owner;

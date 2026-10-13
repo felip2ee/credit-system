@@ -5,14 +5,6 @@
 
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
-export interface DashboardOppRow {
-  status: string;
-  assigned_to: string | null;
-  approved_amount: number | null;
-  commission_rate: number | null;
-  commission_amount: number | null;
-}
-
 export interface DashboardMetrics {
   counts: {
     today: number;
@@ -26,7 +18,6 @@ export interface DashboardMetrics {
     cProcessing: number;
     cError: number;
   };
-  opportunities: DashboardOppRow[];
   scrStatuses: string[];
   aptitudes: (string | null)[];
   monthlyQueries: { created_at: string; type: "PF" | "PJ" }[];
@@ -69,15 +60,6 @@ export async function getDashboardMetrics(
          (select count(*) from batches where status = 'processing')::int as batches_processing`,
     );
 
-    const opportunities = await client.query<DashboardOppRow>(
-      `select status,
-              assigned_to,
-              approved_amount::float8   as approved_amount,
-              commission_rate::float8   as commission_rate,
-              commission_amount::float8 as commission_amount
-         from opportunities`,
-    );
-
     const scr = await client.query<{ status: string }>(
       "select status from scr_authorizations",
     );
@@ -106,7 +88,6 @@ export async function getDashboardMetrics(
         cProcessing: cc.c_processing,
         cError: cc.c_error,
       },
-      opportunities: opportunities.rows,
       scrStatuses: scr.rows.map((r) => r.status),
       aptitudes: ai.rows.map((r) => r.aptitude_status),
       monthlyQueries: monthly.rows,
@@ -123,19 +104,5 @@ export async function getTopbarEmail(
       [identity.userId],
     );
     return rows[0]?.email ?? null;
-  });
-}
-
-export async function getConsultantNames(
-  identity: DbIdentity,
-  ids: string[],
-): Promise<Map<string, string>> {
-  if (ids.length === 0) return new Map();
-  return withUserTransaction(identity, async (client) => {
-    const { rows } = await client.query<{ id: string; full_name: string }>(
-      "select id, full_name from profiles where id = any($1::uuid[])",
-      [ids],
-    );
-    return new Map(rows.map((r) => [r.id, r.full_name]));
   });
 }
