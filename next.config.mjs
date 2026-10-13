@@ -19,6 +19,7 @@ const csp = [
 const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  experimental: { instrumentationHook: true },
   async headers() {
     return [
       {

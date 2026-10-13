@@ -38,7 +38,9 @@ services:
       SMTP_PASS_FILE: /run/secrets/smtp_pass
       DEPS_API_PASSWORDL_FILE: /run/secrets/deps_api_password
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
-    secrets: [database_url, database_owner_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key]
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-}
+      SUPERADMIN_PASSWORD_FILE: /run/secrets/superadmin_password
+    secrets: [database_url, database_owner_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password]
     volumes:
       - documents:/var/lib/reino/documents
     healthcheck:
@@ -221,6 +223,7 @@ secrets:
   smtp_pass: { external: true }
   deps_api_password: { external: true }
   openai_api_key: { external: true }
+  superadmin_password: { external: true }
   postgres_password: { external: true }
   schema_owner_password: { external: true }
   app_runtime_password: { external: true }

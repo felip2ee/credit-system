@@ -8,6 +8,7 @@ const secretNames = [
   "DEPS_API_PASSWORDL",
   "DEPS_API_PASSWORD",
   "OPENAI_API_KEY",
+  "SUPERADMIN_PASSWORD",
 ];
 
 export function hydrateSecretEnv(env = process.env) {
