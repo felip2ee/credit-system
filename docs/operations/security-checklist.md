@@ -1,28 +1,28 @@
 # Secure Postgres Stack — Security Checklist
 
-Run through this before cutover authorization and again after any infra change.
+Run through this before the first production deploy and again after any infra change.
 Every box must be checked with evidence (command output saved outside the repo).
 
 ## 1. Secrets — generation & rotation
 
-- [ ] All 11 stack secrets are Docker **external** secrets (never in the compose
+- [ ] All 12 stack secrets are Docker **external** secrets (never in the compose
   file, never in env files committed to git):
   `database_url`, `database_owner_url`, `better_auth_secret`, `smtp_pass`,
-  `deps_api_password`, `openai_api_key`, `postgres_password`,
+  `deps_api_password`, `openai_api_key`, `superadmin_password`, `postgres_password`,
   `schema_owner_password`, `app_runtime_password`, `backup_reader_password`,
   `restic_password`.
+- [ ] `scripts/setup/setup_production.py` generates the secrets and creates them in Docker.
 - [ ] Generate each high-entropy secret with:
   ```sh
   openssl rand -base64 48        # BETTER_AUTH_SECRET, restic_password, DB passwords
   printf %s "$VALUE" | docker secret create <name> -
   ```
 - [ ] `database_url` uses role `app_runtime` (NOSUPERUSER NOBYPASSRLS).
-  `database_owner_url` — consumed by the `reino_app` entrypoint (auto-migrate)
-  and the manual import/verify steps — uses the `postgres` superuser: migrations run
-  `CREATE ROLE` / `ALTER ROLE ... [NO]BYPASSRLS` and the import bypasses FORCE
-  RLS, both of which require superuser. The app service never gets this DSN.
-- [ ] `.env.local`, `.env*.example`, and `".env.local - Copia.example"` contain
-  **no real secret values** and are gitignored / not staged.
+  `database_owner_url` uses the `postgres` superuser. The `reino_app` entrypoint
+  reads it only to run migrations: migrations run `CREATE ROLE` / `ALTER ROLE ... [NO]BYPASSRLS`,
+  which require superuser. The app service never gets this DSN.
+- [ ] `.env.local`, `.env*.example` contain **no real secret values** and are gitignored / not staged.
+- [ ] `credenciais-GUARDAR.txt` was moved to a password manager and deleted from the server.
 - [ ] Rotation procedure documented: `docker secret rm` + recreate + `docker
   service update --force <svc>` per consuming service. Rotate
   `better_auth_secret` only during a maintenance window (invalidates sessions).
@@ -69,8 +69,7 @@ Every box must be checked with evidence (command output saved outside the repo).
   a success marker or trigger prune).
 - [ ] `restore-test.sh` has run into an isolated throwaway cluster; all
   `RESTORE_REQUIRED_TABLES` (20 core tables) found in the restored dump.
-- [ ] Measured restore (RTO) recorded in
-  [`migration-rehearsal.md`](./migration-rehearsal.md) and the recovery runbook.
+- [ ] Measured restore (RTO) recorded in the recovery runbook.
 - [ ] Monthly restore drill (`0 4 1 * *` cron) emails `BACKUP_ALERT_TO`; alert
   path tested (SMTP creds via `--netrc-file`, never on argv).
 
@@ -126,8 +125,6 @@ Run after schema migrate (`\du` and the queries below as `postgres`):
 
 - [ ] Every `staff` / `admin` profile must complete TOTP enrollment; protected
   routes reject a session without a verified second factor.
-- [ ] Clients are not forced into TOTP but the reset flow issues fresh passwords
-  (`must_reset_password`, migration 010) on first post-migration login.
 - [ ] `revokeSessionsOnPasswordReset: true` is set in the Better Auth config.
 
 ## 10. Image / patch ownership
@@ -137,7 +134,7 @@ Run after schema migrate (`\du` and the queries below as `postgres`):
   `ghcr.io/<owner>/reino-backup@sha256:<digest>`); a mutable tag or `latest`
   cannot satisfy `docker-stack.yml`.
 - [ ] `reino-backup` image is built + pushed by CI (add the `build-backup` job to
-  `.github/workflows/docker-image.yml` — YAML in [`cutover.md` §P4](./cutover.md#p4--ci-job-to-add-for-the-backup-image))
+  `.github/workflows/docker-image.yml`)
   and deployed by `REINO_BACKUP_DIGEST`.
 - [ ] Base images pinned (`postgres:18.6-alpine3.23`, `clamav/clamav:1.4.6_...`,
   `restic/restic:0.18.1`, `node:...` in the app Dockerfile).
