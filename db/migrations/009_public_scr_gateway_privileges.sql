@@ -3,6 +3,11 @@
 
 alter role auth_profile_lookup NOLOGIN NOINHERIT NOBYPASSRLS;
 
+-- Staff policies apply to every role, so the gateway owner must be able to
+-- evaluate their helper functions (they return false without a user context).
+grant execute on function public.app_user_id(), public.app_user_role(), public.app_context_present()
+  to auth_profile_lookup;
+
 revoke all on public.profiles from auth_profile_lookup;
 revoke all on public.scr_authorizations from auth_profile_lookup;
 revoke all on public.timeline_events from auth_profile_lookup;

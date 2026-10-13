@@ -86,7 +86,7 @@ describe.sequential("transaction-scoped RLS identity", () => {
         ],
       );
       await client.query(
-        "insert into profiles (id, auth_user_id, full_name, email, role) values ($1, $1, $2, $3, 'admin'), ($4, $4, $5, $6, 'consultant'), ($7, $7, $8, $9, 'consultant'), ($10, $10, $11, $12, 'client'), ($13, $13, $14, $15, 'client')",
+        "insert into profiles (id, auth_user_id, full_name, email, role) values ($1::uuid, $1::text, $2, $3, 'admin'), ($4::uuid, $4::text, $5, $6, 'consultant'), ($7::uuid, $7::text, $8, $9, 'consultant'), ($10::uuid, $10::text, $11, $12, 'client'), ($13::uuid, $13::text, $14, $15, 'client')",
         [
           identities.admin.userId,
           "RLS admin",

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { hashPassword } from "better-auth/crypto";
+import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const resetEmail = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -27,6 +28,7 @@ vi.mock("./email", () => ({ sendPasswordResetEmail: resetEmail }));
 
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 
 import {
   changeRoleAndRevokeSessions,
@@ -49,11 +51,13 @@ type TestUser = {
 
 const testUsers: TestUser[] = [];
 
-function authRequest(
+async function authRequest(
   path: string,
   body: Record<string, unknown>,
   headers?: HeadersInit,
 ) {
+  // Every request shares one IP; clear the limiter so it does not hide what the test checks.
+  await pool.query("delete from rate_limit");
   const requestHeaders = new Headers(headers);
   requestHeaders.set("content-type", "application/json");
   return authHandler(
@@ -83,12 +87,12 @@ async function createUser(role: TestUser["role"]): Promise<TestUser> {
   );
   await withUserTransaction({ userId: id, role: "admin" }, async (client) => {
     await client.query(
-      "insert into profiles (id, auth_user_id, full_name, email, role, mfa_enabled) values ($1, $1, $2, $3, $4, false)",
+      "insert into profiles (id, auth_user_id, full_name, email, role, mfa_enabled) values ($1::uuid, $1::text, $2, $3, $4, false)",
       [id, `Auth test ${role}`, email, role],
     );
   });
   await pool.query(
-    "insert into account (id, issuer, account_id, provider_id, user_id, password) values ($1, 'local:credential', $2, 'credential', $2, $3)",
+    "insert into account (id, issuer, account_id, provider_id, user_id, password, updated_at) values ($1, 'local:credential', $2, 'credential', $2, $3, now())",
     [randomUUID(), id, passwordHash],
   );
   testUsers.push(user);
@@ -126,11 +130,14 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
   afterAll(async () => {
     if (testUsers.length) {
       const ids = testUsers.map(({ id }) => id);
-      await withUserTransaction(
-        { userId: ids[0], role: "admin" },
-        async (client) => client.query("delete from profiles where id = any($1::uuid[])", [ids]),
-      );
-      await pool.query('delete from "user" where id = any($1::text[])', [ids]);
+      // app_runtime has no delete grant on profiles; clean up as the owner.
+      const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
+      try {
+        await owner.query("delete from profiles where id = any($1::uuid[])", [ids]);
+        await owner.query('delete from "user" where id = any($1::text[])', [ids]);
+      } finally {
+        await owner.end();
+      }
     }
     await pool.end();
   });

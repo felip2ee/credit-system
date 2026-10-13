@@ -128,7 +128,7 @@ create policy opportunities_client_documentation_update on opportunities for upd
     )
   );
 
-create policy timeline_events_client_document_upload on timeline_events for insert
+create policy timeline_events_client_document_upload on timeline_events for insert to app_runtime
   with check (
     app_context_present()
     and app_user_role() = 'client'

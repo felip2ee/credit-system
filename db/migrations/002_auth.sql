@@ -1,7 +1,7 @@
 -- Derived from Better Auth 1.7.2 generation with email/password and
 -- twoFactor(), then adapted for case-insensitive email uniqueness/timestamptz.
 create table "user" (
-  id text primary key,
+  id text primary key default gen_random_uuid()::text,
   name text not null,
   email text not null,
   email_verified boolean not null default false,
@@ -15,7 +15,7 @@ create table "user" (
 create unique index user_email_lower_uidx on "user" (lower(email));
 
 create table "session" (
-  id text primary key,
+  id text primary key default gen_random_uuid()::text,
   expires_at timestamptz not null,
   token text not null unique,
   created_at timestamptz not null default now(),
@@ -28,7 +28,7 @@ create table "session" (
 create index "session_userId_idx" on "session"(user_id);
 
 create table account (
-  id text primary key,
+  id text primary key default gen_random_uuid()::text,
   issuer text not null,
   account_id text not null,
   provider_id text not null,
@@ -49,7 +49,7 @@ create unique index "account_issuer_accountId_uidx"
 create index "account_userId_idx" on account(user_id);
 
 create table verification (
-  id text primary key,
+  id text primary key default gen_random_uuid()::text,
   identifier text not null,
   value text not null,
   expires_at timestamptz not null,
@@ -60,13 +60,14 @@ create table verification (
 create index verification_identifier_idx on verification(identifier);
 
 create table rate_limit (
-  key text primary key,
+  id text primary key default gen_random_uuid()::text,
+  key text not null unique,
   count integer not null,
   last_request bigint not null
 );
 
 create table two_factor (
-  id text primary key,
+  id text primary key default gen_random_uuid()::text,
   secret text not null,
   backup_codes text not null,
   user_id text not null references "user"(id) on delete cascade,

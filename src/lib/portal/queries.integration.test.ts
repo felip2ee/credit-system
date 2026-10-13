@@ -41,7 +41,7 @@ describe.sequential("portal PostgreSQL queries", () => {
         ],
       );
       await client.query(
-        "insert into profiles (id, auth_user_id, full_name, email, role) values ($1, $1, $2, $3, 'admin'), ($4, $4, $5, $6, 'client'), ($7, $7, $8, $9, 'client')",
+        "insert into profiles (id, auth_user_id, full_name, email, role) values ($1::uuid, $1::text, $2, $3, 'admin'), ($4::uuid, $4::text, $5, $6, 'client'), ($7::uuid, $7::text, $8, $9, 'client')",
         [
           admin.userId, "Portal admin", `${admin.userId}@example.test`,
           owner.userId, "Portal owner", `${owner.userId}@example.test`,

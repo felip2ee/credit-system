@@ -118,16 +118,19 @@ async function resultRow(consultationId: string) {
 
 describe.sequential("executeConsultation", () => {
   beforeAll(async () => {
-    await withUserTransaction(staff, async (client) => {
+    // Only an administrator may insert profiles (RLS).
+    await withUserTransaction({ ...staff, role: "admin" }, async (client) => {
       await client.query(
         'insert into "user" (id, name, email) values ($1, $2, $3)',
         [staff.userId, "Persist staff", `${staff.userId}@example.test`],
       );
       await client.query(
         `insert into profiles (id, auth_user_id, full_name, email, role)
-         values ($1, $1, $2, $3, 'consultant')`,
+         values ($1::uuid, $1::text, $2, $3, 'consultant')`,
         [staff.userId, "Persist staff", `${staff.userId}@example.test`],
       );
+    });
+    await withUserTransaction(staff, async (client) => {
       for (const id of Object.values(consultationIds)) {
         await seedConsultation(client, id);
       }

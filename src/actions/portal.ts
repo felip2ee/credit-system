@@ -77,7 +77,7 @@ export async function inviteClientToPortal(crmClientId: string): Promise<ActionR
       }
       await client.query(
         `insert into profiles (id, auth_user_id, full_name, email, role, is_active)
-         values ($1, $1, $2, $3, 'client', true)
+         values ($1::uuid, $1::text, $2, $3, 'client', true)
          on conflict (id) do update set full_name = excluded.full_name, email = excluded.email, role = 'client', is_active = true`,
         [userId, invited.name, email],
       );

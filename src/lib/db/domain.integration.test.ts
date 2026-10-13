@@ -98,7 +98,7 @@ describe.sequential("Task 9 domain data access", () => {
       );
       await client.query(
         `insert into profiles (id, auth_user_id, full_name, email, role)
-         values ($1, $1, $2, $3, 'admin')`,
+         values ($1::uuid, $1::text, $2, $3, 'admin')`,
         [admin.userId, "Domain admin", `${admin.userId}@example.test`],
       );
     });

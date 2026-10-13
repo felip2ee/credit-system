@@ -53,7 +53,7 @@ export async function createConsultant(
         [userId, cleanName, cleanEmail],
       );
       await client.query(
-        "insert into profiles (id, auth_user_id, full_name, email, role) values ($1, $1, $2, $3, $4)",
+        "insert into profiles (id, auth_user_id, full_name, email, role) values ($1::uuid, $1::text, $2, $3, $4)",
         [userId, cleanName, cleanEmail, safeRole],
       );
     });
