@@ -2,15 +2,15 @@
 // Single release gate. Runs every check IN ORDER, STOPS ON FIRST FAILURE,
 // prints per-step duration and a final summary.
 //
-//   node scripts/verify-release.mjs                  # fail-closed (cutover gate)
+//   node scripts/verify-release.mjs                  # fail-closed (first-production-deploy gate)
 //   node scripts/verify-release.mjs --allow-deferred # infra-gated steps -> WARN
 //   VERIFY_RELEASE_ALLOW_DEFERRED=1 node scripts/verify-release.mjs
 //
 // Fail-closed by default: a missing Docker daemon / unreachable Postgres / an
 // absent production env is a hard FAIL. `--allow-deferred` downgrades ONLY the
-// steps marked `deferred` (the ones that genuinely need real cutover infra) to a
-// logged WARN. The cutover runbook REQUIRES one green FLAGLESS run on the real
-// target infrastructure before cutover authorization.
+// steps marked `deferred` (the ones that genuinely need real production infra) to a
+// logged WARN. The first production deploy REQUIRES one green FLAGLESS run on the real
+// target infrastructure before it.
 
 import { spawnSync } from "node:child_process";
 
@@ -36,7 +36,7 @@ const FAKE_COMPOSE_ENV = {
   BACKUP_ALERT_TO: "verify@verify.invalid",
 };
 
-// deferred:true => needs real cutover infra (Docker daemon / target Postgres /
+// deferred:true => needs real production infra (Docker daemon / target Postgres /
 //                  full production env / a completed export dir). WARN under
 //                  --allow-deferred, hard FAIL without it.
 const GATES = [
@@ -47,14 +47,8 @@ const GATES = [
     cmd: [npx, "vitest", "run", "--exclude", "**/*.integration.test.ts"],
   },
   {
-    name: "4. node:test (migration / no-supabase / migrate)",
-    cmd: [
-      "node",
-      "--test",
-      "scripts/migration/migration.test.mjs",
-      "scripts/check-no-supabase.test.mjs",
-      "scripts/db/migrate.test.mjs",
-    ],
+    name: "4. node:test (migrate / reset)",
+    cmd: ["node", "--test", "scripts/db/migrate.test.mjs", "scripts/db/reset.test.mjs"],
   },
   {
     name: "5. Playwright auth + consultation + document smoke",
@@ -63,32 +57,19 @@ const GATES = [
   },
   { name: "6. production build", cmd: [npm, "run", "build"], deferred: true },
   {
-    name: "7. no-Supabase static check",
-    cmd: ["node", "scripts/check-no-supabase.mjs"],
-  },
-  {
-    name: "8. migration checksum check",
-    cmd: ["node", "--test", "scripts/db/migrate.test.mjs"],
-  },
-  {
-    name: "9. docker compose config",
+    name: "7. docker compose config",
     cmd: ["docker", "compose", "-f", "docker-stack.yml", "config"],
     env: FAKE_COMPOSE_ENV,
     deferred: true,
   },
   {
-    name: "10. clean-schema migration x2 (2nd = no-op)",
+    name: "8. clean-schema migration x2 (2nd = no-op)",
     cmd: ["node", "scripts/db/migrate.mjs"],
     repeat: 2,
     deferred: true,
   },
   {
-    name: "11. migration:verify",
-    cmd: [npm, "run", "migration:verify"],
-    deferred: true,
-  },
-  {
-    name: "12. live-PG integration suites",
+    name: "9. live-PG integration suites",
     cmd: [npx, "vitest", "run", "integration.test"],
     deferred: true,
   },
@@ -123,7 +104,7 @@ for (const gate of GATES) {
     status = "WARN";
     console.warn(
       `WARN: ${gate.name} did not pass (exit ${r.status}${r.error ? `, ${r.error.code}` : ""}). ` +
-        `Deferred by --allow-deferred: operator MUST run this at cutover on real infra.`,
+        `Deferred by --allow-deferred: operator MUST run this at first production deploy on real infra.`,
     );
   } else {
     status = "FAIL";
@@ -153,7 +134,7 @@ if (hardFailure) {
 if (warns > 0) {
   console.warn(
     `\nverify:release: PASSED WITH ${warns} DEFERRED WARN(S). ` +
-      `NOT a valid cutover gate — the cutover runbook requires a green FLAGLESS run of ` +
+      `NOT a valid first-production-deploy gate — it requires a green FLAGLESS run of ` +
       `\`node scripts/verify-release.mjs\` on the real target infrastructure.`,
   );
   process.exit(0);

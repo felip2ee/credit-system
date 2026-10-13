@@ -39,3 +39,14 @@ next-env.d.ts
 # playwright
 /test-results/
 /playwright-report/
+# aia-harness
+.claude/settings.local.json
+.claude/*.local.*
+.claude/.aia-harness-pending/
+graphify-out/
+graphify-out/cost.json
+graphify-out/cache/
+
+# setup de produção (scripts/setup/setup_production.py)
+.env.production
+credenciais-GUARDAR.txt
