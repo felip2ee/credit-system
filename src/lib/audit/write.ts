@@ -24,6 +24,9 @@ export interface AuditEvent {
   outcome?: "success" | "failure";
   // Structured context — redacted before write.
   metadata?: Record<string, unknown> | null;
+  // Bureau alvo de um evento do superadmin fora de suporte (ex.: catalog.cost.set).
+  // Ignorado para qualquer outro papel: o Bureau vem sempre do contexto da transação.
+  bureauId?: string | null;
 }
 
 const SENSITIVE_KEY =
@@ -71,7 +74,10 @@ export async function writeAuditEvent(
   await client.query(
     `insert into audit_logs
        (user_id, action, table_name, record_id, outcome, request_id, metadata, bureau_id, support_session_id)
-     values ($1, $2, $3, $4, $5, $6, $7::jsonb, app_bureau_id(), app_support_session_id())`,
+     values ($1, $2, $3, $4, $5, $6, $7::jsonb,
+       case when app_user_role() = 'superadmin' and app_support_session_id() is null
+            then coalesce($8::uuid, app_bureau_id()) else app_bureau_id() end,
+       app_support_session_id())`,
     [
       event.actorId,
       event.action,
@@ -80,6 +86,7 @@ export async function writeAuditEvent(
       event.outcome ?? "success",
       requestCorrelationId(),
       JSON.stringify(metadata),
+      event.bureauId ?? null,
     ],
   );
 }
