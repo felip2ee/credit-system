@@ -290,14 +290,15 @@ export async function seedPixCharge(
 		bureauId: string;
 		requestedBy: string;
 		amount?: string;
-		status?: "pending" | "paid" | "expired" | "cancelled";
+		status?: "pending" | "paid" | "expired" | "cancelled" | "refunded";
 		expiresAt?: Date;
+		clientProfileId?: string;
 	},
 ): Promise<SeededPixCharge> {
 	const asaasPaymentId = `pay_${randomBytes(8).toString("hex")}`;
 	const { rows } = await owner.query<{ id: string }>(
-		`insert into pix_charges (bureau_id, asaas_payment_id, amount, status, pix_payload, expires_at, requested_by)
-     values ($1, $2, $3, $4, 'pix-copia-e-cola-teste', $5, $6) returning id`,
+		`insert into pix_charges (bureau_id, asaas_payment_id, amount, status, pix_payload, expires_at, requested_by, client_profile_id)
+     values ($1, $2, $3, $4, 'pix-copia-e-cola-teste', $5, $6, $7) returning id`,
 		[
 			input.bureauId,
 			asaasPaymentId,
@@ -305,7 +306,59 @@ export async function seedPixCharge(
 			input.status ?? "pending",
 			input.expiresAt ?? new Date(Date.now() + 30 * 60 * 1000),
 			input.requestedBy,
+			input.clientProfileId ?? null,
 		],
 	);
 	return { id: rows[0].id, asaasPaymentId };
+}
+
+// Outro cliente no mesmo Bureau. O trigger de profiles cria a carteira dele.
+export async function seedClientProfile(
+	owner: Pool,
+	bureauId: string,
+): Promise<SeedIdentity> {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		const userId = await insertUserAndProfile(client, {
+			label: `cliente ${randomBytes(4).toString("hex")}`,
+			role: "client",
+			bureauId,
+		});
+		await client.query("commit");
+		return { userId, role: "client", bureauId };
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
+}
+
+// Saldo inicial do cliente por topup real (client_wallet_post_entry), para a conciliação continuar válida.
+export async function seedClientWalletTopup(
+	owner: Pool,
+	input: { clientProfileId: string; amount: string; createdBy: string },
+): Promise<void> {
+	await owner.query(
+		"select * from client_wallet_post_entry($1, 'topup', $2, $3, 'seed', null, $4)",
+		[
+			input.clientProfileId,
+			input.amount,
+			`seed-${randomBytes(6).toString("hex")}`,
+			input.createdBy,
+		],
+	);
+}
+
+export async function seedDossier(
+	owner: Pool,
+	input: { bureauId: string; holderId: string; createdBy: string },
+): Promise<string> {
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into dossiers (bureau_id, kind, holder_id, product, created_by)
+     values ($1, 'PF', $2, 'smart_pf', $3) returning id`,
+		[input.bureauId, input.holderId, input.createdBy],
+	);
+	return rows[0].id;
 }
