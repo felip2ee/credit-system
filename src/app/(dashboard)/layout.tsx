@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { SupportBanner } from "@/components/layout/support-banner";
 import { Topbar } from "@/components/layout/topbar";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
+import { permissionsFor } from "@/lib/db/permissions";
 import { getBureau } from "@/lib/bureaus/queries";
 import { getTopbarEmail } from "@/lib/dashboard/queries";
 
@@ -33,7 +34,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-screen">
       <IdleTimeout />
-      <Sidebar />
+      <Sidebar permissions={permissionsFor(session)} />
       <div className="flex flex-1 flex-col">
         {session.support && (
           <SupportBanner
