@@ -1,7 +1,7 @@
 // Tipos de domínio do Reino do Crédito.
 // Refletem os enums e tabelas do esquema legado.
 
-export type UserRole = "admin" | "consultant" | "client";
+export type UserRole = "superadmin" | "bureau_admin" | "operator" | "client";
 
 export type EntityKind = "PF" | "PJ";
 

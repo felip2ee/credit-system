@@ -20,5 +20,5 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 }
 
 export async function isAdmin(): Promise<boolean> {
-  return (await getCurrentProfile())?.role === "admin";
+  return (await getCurrentProfile())?.role === "bureau_admin";
 }

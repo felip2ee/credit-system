@@ -27,8 +27,8 @@ vi.hoisted(() => {
 vi.mock("./email", () => ({ sendPasswordResetEmail: resetEmail }));
 
 import { pool } from "@/lib/db/pool";
-import { withUserTransaction } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
+import { seedSuperadmin, seedSupportSession, seedTenant, type SeededTenant } from "@/test/seed";
 
 import {
   changeRoleAndRevokeSessions,
@@ -43,13 +43,9 @@ import {
 const password = "twelve-character-password";
 const resetPassword = "another-twelve-character-password";
 
-type TestUser = {
-  id: string;
-  email: string;
-  role: "admin" | "consultant" | "client";
-};
+type TestUser = { id: string; email: string };
 
-const testUsers: TestUser[] = [];
+const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
 
 async function authRequest(
   path: string,
@@ -75,28 +71,29 @@ function sessionHeaders(response: Response): Headers {
   return new Headers({ cookie: cookie.split(";", 1)[0] });
 }
 
-async function createUser(role: TestUser["role"]): Promise<TestUser> {
-  const id = randomUUID();
-  const email = `${id}@example.test`;
-  const user = { id, email, role };
-  const passwordHash = await hashPassword(password);
-
-  await pool.query(
-    'insert into "user" (id, name, email, two_factor_enabled) values ($1, $2, $3, false)',
-    [id, `Auth test ${role}`, email],
-  );
-  await withUserTransaction({ userId: id, role: "admin" }, async (client) => {
-    await client.query(
-      "insert into profiles (id, auth_user_id, full_name, email, role, mfa_enabled) values ($1::uuid, $1::text, $2, $3, $4, false)",
-      [id, `Auth test ${role}`, email, role],
-    );
-  });
-  await pool.query(
+// Seeded users have no credential account: give them one. Password sign-in only issues a
+// session while MFA is off, so use loginWithMfa to enrol after signing in.
+async function enable(userId: string): Promise<TestUser> {
+  const email = `${userId}@example.test`;
+  await owner.query(
     "insert into account (id, issuer, account_id, provider_id, user_id, password, updated_at) values ($1, 'local:credential', $2, 'credential', $2, $3, now())",
-    [randomUUID(), id, passwordHash],
+    [randomUUID(), userId, await hashPassword(password)],
   );
-  testUsers.push(user);
-  return user;
+  return { id: userId, email };
+}
+
+async function loginWithMfa(user: TestUser): Promise<Headers> {
+  const headers = await login(user);
+  await owner.query('update "user" set two_factor_enabled = true where id = $1', [user.id]);
+  return headers;
+}
+
+async function freshTenant(): Promise<SeededTenant> {
+  return seedTenant(owner, "auth");
+}
+
+async function clientUser(): Promise<TestUser> {
+  return enable((await freshTenant()).client.userId);
 }
 
 async function login(user: TestUser, userPassword = password) {
@@ -129,17 +126,7 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
 
   afterAll(async () => {
     try {
-      if (testUsers.length) {
-        const ids = testUsers.map(({ id }) => id);
-        // app_runtime has no delete grant on profiles; clean up as the owner.
-        const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
-        try {
-          await owner.query("delete from profiles where id = any($1::uuid[])", [ids]);
-          await owner.query('delete from "user" where id = any($1::text[])', [ids]);
-        } finally {
-          await owner.end();
-        }
-      }
+      await owner.end();
     } finally {
       await pool.end();
     }
@@ -192,7 +179,7 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
   });
 
   it("creates a database session when a preserved UUID user signs in", async () => {
-    const user = await createUser("client");
+    const user = await clientUser();
     const headers = await login(user);
     const { rows } = await pool.query<{ userId: string }>(
       'select user_id as "userId" from "session" where user_id = $1',
@@ -200,18 +187,19 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
     );
 
     expect(rows).toEqual([{ userId: user.id }]);
-    await expect(getRequiredSessionFromHeaders(headers)).resolves.toEqual({
+    await expect(getRequiredSessionFromHeaders(headers)).resolves.toMatchObject({
       userId: user.id,
       role: "client",
+      supportSessionId: null,
+      support: null,
       permissions: ["portal:read", "portal:write"],
       mfaComplete: false,
-      name: "Auth test client",
       email: user.email,
     });
   });
 
   it("revokes an idle session after thirty minutes and writes activity no more than once per five minutes", async () => {
-    const user = await createUser("client");
+    const user = await clientUser();
     const headers = await login(user);
     await pool.query(
       'update "session" set updated_at = now() - interval \'31 minutes\' where user_id = $1',
@@ -245,7 +233,7 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
   });
 
   it("revokes a session older than twenty-four hours even when its database expiry is later", async () => {
-    const user = await createUser("client");
+    const user = await clientUser();
     const headers = await login(user);
     await pool.query(
       'update "session" set created_at = now() - interval \'25 hours\', expires_at = now() + interval \'1 hour\' where user_id = $1',
@@ -261,7 +249,7 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
   });
 
   it("issues single-use password reset links that expire after fifteen minutes", async () => {
-    const user = await createUser("client");
+    const user = await clientUser();
     const sessionBeforeRecovery = await login(user);
     const response = await authRequest("/request-password-reset", {
       email: user.email,
@@ -290,7 +278,7 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
   });
 
   it("revokes every session when a password is changed", async () => {
-    const user = await createUser("client");
+    const user = await clientUser();
     const passwordChangeHeaders = await login(user);
     const otherSessionHeaders = await login(user);
 
@@ -306,24 +294,107 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
     } satisfies Partial<SessionAccessError>);
   });
 
-  it("returns mfa_setup_required but keeps the session so staff can enrol", async () => {
-    const user = await createUser("consultant");
+  it.each(["superadmin", "bureau_admin", "operator"] as const)(
+    "returns mfa_setup_required for %s without MFA but keeps the session so staff can enrol",
+    async (role) => {
+      const tenant = await freshTenant();
+      const userId = role === "superadmin" ? (await seedSuperadmin(owner)).userId : tenant[role === "bureau_admin" ? "bureauAdmin" : "operator"].userId;
+      const user = await enable(userId);
+      const headers = await login(user);
+
+      await expect(getRequiredSessionFromHeaders(headers)).rejects.toMatchObject({
+        code: "mfa_setup_required",
+      } satisfies Partial<SessionAccessError>);
+      await expect(
+        pool.query('select 1 from "session" where user_id = $1', [user.id]),
+      ).resolves.toMatchObject({ rows: [{ "?column?": 1 }] });
+    },
+  );
+
+  it("loads the bureau of an operator of an active bureau", async () => {
+    const tenant = await freshTenant();
+    const user = await enable(tenant.operator.userId);
+
+    await expect(getRequiredSessionFromHeaders(await loginWithMfa(user))).resolves.toMatchObject({
+      userId: user.id,
+      role: "operator",
+      bureauId: tenant.bureau.id,
+      supportSessionId: null,
+      support: null,
+      mfaComplete: true,
+    });
+  });
+
+  it("rejects an inactive bureau with bureau_inactive and revokes the sessions", async () => {
+    const tenant = await freshTenant();
+    const user = await enable(tenant.operator.userId);
     const headers = await login(user);
+    await owner.query("update bureaus set status = 'inactive' where id = $1", [tenant.bureau.id]);
 
     await expect(getRequiredSessionFromHeaders(headers)).rejects.toMatchObject({
-      code: "mfa_setup_required",
+      code: "bureau_inactive",
     } satisfies Partial<SessionAccessError>);
     await expect(
       pool.query('select 1 from "session" where user_id = $1', [user.id]),
-    ).resolves.toMatchObject({ rows: [{ "?column?": 1 }] });
+    ).resolves.toMatchObject({ rows: [] });
+  });
+
+  it("gives an active support session to a superadmin, even for an inactive bureau", async () => {
+    const tenant = await freshTenant();
+    await owner.query("update bureaus set status = 'inactive' where id = $1", [tenant.bureau.id]);
+    const superadmin = await seedSuperadmin(owner);
+    const supportSessionId = await seedSupportSession(owner, {
+      superadminId: superadmin.userId,
+      bureauId: tenant.bureau.id,
+    });
+    const user = await enable(superadmin.userId);
+
+    const session = await getRequiredSessionFromHeaders(await loginWithMfa(user));
+
+    expect(session).toMatchObject({
+      role: "superadmin",
+      bureauId: tenant.bureau.id,
+      supportSessionId,
+      support: { bureauId: tenant.bureau.id },
+    });
+    expect(session.permissions).toContain("holders:read");
+  });
+
+  it("superadmin without support has no bureau", async () => {
+    const superadmin = await seedSuperadmin(owner);
+    const user = await enable(superadmin.userId);
+
+    const session = await getRequiredSessionFromHeaders(await loginWithMfa(user));
+
+    expect(session).toMatchObject({ bureauId: null, supportSessionId: null, support: null });
+    expect(session.permissions).not.toContain("holders:read");
+  });
+
+  it("expired support is not loaded", async () => {
+    const tenant = await freshTenant();
+    const superadmin = await seedSuperadmin(owner);
+    await seedSupportSession(owner, {
+      superadminId: superadmin.userId,
+      bureauId: tenant.bureau.id,
+      startedAt: new Date(Date.now() - 2 * 3_600_000),
+      expiresAt: new Date(Date.now() - 3_600_000),
+    });
+    const user = await enable(superadmin.userId);
+
+    await expect(getRequiredSessionFromHeaders(await loginWithMfa(user))).resolves.toMatchObject({
+      bureauId: null,
+      supportSessionId: null,
+      support: null,
+    });
   });
 
   it("revokes every session when an administrator changes a user role", async () => {
-    const administrator = await createUser("admin");
-    const user = await createUser("client");
+    const tenant = await freshTenant();
+    const administrator = await enable(tenant.bureauAdmin.userId);
+    const user = await enable(tenant.operator.userId);
     const headers = await login(user);
 
-    await changeRoleAndRevokeSessions(administrator.id, user.id, "consultant");
+    await changeRoleAndRevokeSessions(administrator.id, user.id, "bureau_admin");
 
     await expect(getRequiredSessionFromHeaders(headers)).rejects.toMatchObject({
       code: "session_required",
@@ -331,8 +402,9 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
   });
 
   it("revokes every session when an administrator deactivates a user", async () => {
-    const administrator = await createUser("admin");
-    const user = await createUser("client");
+    const tenant = await freshTenant();
+    const administrator = await enable(tenant.bureauAdmin.userId);
+    const user = await enable(tenant.operator.userId);
     const headers = await login(user);
 
     await deactivateUserAndRevokeSessions(administrator.id, user.id);
@@ -340,5 +412,30 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
     await expect(getRequiredSessionFromHeaders(headers)).rejects.toMatchObject({
       code: "session_required",
     } satisfies Partial<SessionAccessError>);
+  });
+
+  it("does not let an administrator touch a user of another bureau", async () => {
+    const mine = await freshTenant();
+    const other = await freshTenant();
+
+    await expect(
+      deactivateUserAndRevokeSessions(mine.bureauAdmin.userId, other.operator.userId),
+    ).rejects.toThrow("profile not found");
+    await expect(
+      changeRoleAndRevokeSessions(mine.bureauAdmin.userId, other.operator.userId, "bureau_admin"),
+    ).rejects.toThrow("profile not found");
+  });
+
+  it("requires an active bureau_admin of an active bureau to administer users", async () => {
+    const tenant = await freshTenant();
+
+    await expect(
+      deactivateUserAndRevokeSessions(tenant.operator.userId, tenant.client.userId),
+    ).rejects.toThrow("administrator authorization is required");
+
+    await owner.query("update bureaus set status = 'inactive' where id = $1", [tenant.bureau.id]);
+    await expect(
+      deactivateUserAndRevokeSessions(tenant.bureauAdmin.userId, tenant.operator.userId),
+    ).rejects.toThrow("administrator authorization is required");
   });
 });
