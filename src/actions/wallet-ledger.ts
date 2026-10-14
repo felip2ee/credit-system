@@ -29,8 +29,11 @@ export async function loadMoreLedgerAction(values: unknown): Promise<LedgerPageR
   try {
     const session = await getRequiredSession();
     if (!hasPermission(session, "wallet:read")) return { error: NOT_ALLOWED };
+    // Só o superadmin escolhe o Bureau; os demais papéis leem o próprio, ignorando o id enviado.
+    const bureauId = session.role === "superadmin" ? parsed.data.bureauId : session.bureauId;
+    if (!bureauId) return { error: NOT_ALLOWED };
     const page = await withUserTransaction(session, (client) =>
-      listLedger(client, parsed.data.bureauId, { cursor: parsed.data.cursor }),
+      listLedger(client, bureauId, { cursor: parsed.data.cursor }),
     );
     return { error: null, page };
   } catch (error) {

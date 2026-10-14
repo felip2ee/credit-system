@@ -63,6 +63,21 @@ describe("loadMoreLedgerAction", () => {
     log.mockRestore();
   });
 
+  it("reads the session Bureau for a bureau_admin, ignoring the Bureau id in the input", async () => {
+    const other = "00000000-0000-4000-8000-0000000000b2";
+
+    expect((await loadMoreLedgerAction({ bureauId: other, cursor: "10" })).error).toBeNull();
+    expect(state.listLedger).toHaveBeenCalledWith({}, BUREAU_ID, { cursor: "10" });
+  });
+
+  it("lets the superadmin choose the Bureau", async () => {
+    const other = "00000000-0000-4000-8000-0000000000b2";
+    state.role = "superadmin";
+
+    expect((await loadMoreLedgerAction({ bureauId: other, cursor: "10" })).error).toBeNull();
+    expect(state.listLedger).toHaveBeenCalledWith({}, other, { cursor: "10" });
+  });
+
   it("rejects invalid input", async () => {
     expect((await loadMoreLedgerAction({ bureauId: "x", cursor: "1" })).error).toBe("Dados inválidos.");
   });
