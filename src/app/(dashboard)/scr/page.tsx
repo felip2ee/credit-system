@@ -44,8 +44,8 @@ export default async function ScrPage({
       : "pending";
 
   const session = await getRequiredSession();
-  if (!hasPermission(session.role, "consultations:read")) return null;
-  const rows = await listScrAuthorizations({ userId: session.userId, role: session.role }, tab === "pending" ? "pending" : tab === "granted" ? "authorized" : undefined);
+  if (!hasPermission(session, "consultations:read")) return null;
+  const rows = await listScrAuthorizations(session, tab === "pending" ? "pending" : tab === "granted" ? "authorized" : undefined);
 
   return (
     <div className="space-y-6">

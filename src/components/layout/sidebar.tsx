@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  Layers,
   Search,
   Settings,
   ShieldCheck,
@@ -21,10 +20,9 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/clients", label: "Clientes", icon: Users },
-  { href: "/consultations", label: "Consultas", icon: Search },
+  { href: "/dossiers", label: "Pesquisas", icon: Search },
+  { href: "/holders", label: "Titulares", icon: Users },
   { href: "/scr", label: "Autorizações SCR", icon: ShieldCheck },
-  { href: "/batch", label: "Processamento de empresa", icon: Layers },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
 

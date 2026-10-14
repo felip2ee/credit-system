@@ -33,20 +33,19 @@ export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  let identity;
+  let session;
   try {
-    const session = await getRequiredSession();
-    identity = { userId: session.userId, role: session.role };
-    if (!hasPermission(session.role, "consultations:read")) return new Response("Não autorizado.", { status: 403 });
+    session = await getRequiredSession();
   } catch {
     return new Response("Sessão expirada.", { status: 401 });
   }
-  const stored = await getConsultation(identity, params.id);
+  if (!hasPermission(session, "consultations:read")) return new Response("Não autorizado.", { status: 403 });
+  const stored = await getConsultation(session, params.id);
   if (!stored) return new Response("Consulta não encontrada.", { status: 404 });
   if (stored.status !== "completed") return new Response("Consulta sem resultado disponível.", { status: 409 });
   const query: QueryRow = stored;
 
-  const canonical = await loadCanonicalResult(identity, params.id);
+  const canonical = await loadCanonicalResult(session, params.id);
   if (!canonical) {
     // payload_incompatible, or a historical consultation not yet backfilled.
     return new Response(
@@ -57,7 +56,7 @@ export async function GET(
 
   const view = toConsultationView(canonical);
 
-  const reportRow = await getConsultationReport(identity, query.id);
+  const reportRow = await getConsultationReport(session, query.id);
 
   let opinion: OpinionForPdf | null = null;
   if (reportRow && (reportRow as { status?: string }).status === "completed") {
@@ -85,7 +84,7 @@ export async function GET(
       query.product ?? (view.kind === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
     data: new Date(query.consulted_at ?? query.created_at).toLocaleString("pt-BR"),
     consultante: "Reino do Crédito",
-    usuario: identity.userId,
+    usuario: session.userId,
     endereco: view.subject.location ?? undefined,
   };
 
