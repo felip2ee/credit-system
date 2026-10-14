@@ -30,6 +30,9 @@ vi.mock("@/lib/db/transaction", () => ({
 vi.mock("@/lib/audit/write", () => ({
 	writeAuditEvent: state.writeAuditEvent,
 }));
+vi.mock("@/lib/auth/credentials", () => ({
+	setTemporaryCredentials: vi.fn(),
+}));
 vi.mock("@/lib/auth/invite", () => ({
 	createInvite: state.createInvite,
 	sendInviteEmail: state.sendInviteEmail,
@@ -40,6 +43,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 import {
 	inviteTeamMember,
 	resendTeamInvite,
+	setTeamMemberCredentials,
 	setUserActive,
 	setUserRole,
 } from "./users";
@@ -70,6 +74,7 @@ describe("permissions and validation", () => {
 			resendTeamInvite({ userId: OTHER_ID }),
 			setUserRole({ userId: OTHER_ID, role: "operator" }),
 			setUserActive({ userId: OTHER_ID, isActive: false }),
+			setTeamMemberCredentials({ userId: OTHER_ID }),
 		]);
 		for (const result of results) expect(result.error).toBeTruthy();
 		expect(state.query).not.toHaveBeenCalled();
@@ -118,7 +123,11 @@ describe("inviteTeamMember", () => {
 			bureauId: OTHER_BUREAU_ID,
 		} as typeof invite);
 
-		expect(result).toEqual({ error: null, email: "maria@example.test" });
+		expect(result).toEqual({
+			error: null,
+			email: "maria@example.test",
+			invited: true,
+		});
 		expect(state.createInvite).toHaveBeenCalledWith(
 			expect.anything(),
 			ADMIN_ID,

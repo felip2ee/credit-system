@@ -46,6 +46,7 @@ import {
 	createBureau,
 	inviteBureauAdmin,
 	listBureauMetrics,
+	setBureauAdminCredentials,
 	setBureauStatus,
 	updateBureau,
 } from "./queries";
@@ -150,6 +151,61 @@ describe("createBureau", () => {
 			input.slug,
 		]);
 		expect(count.rowCount).toBe(0);
+	});
+});
+
+describe("admin credentials", () => {
+	const temporary = "temporary-password-12";
+
+	async function emailOf(userId: string): Promise<string> {
+		const { rows } = await owner.query<{ email: string }>("select email from profiles where id = $1", [userId]);
+		return rows[0].email;
+	}
+
+	it("createBureau with adminPassword creates the account and the flag", async () => {
+		const input = newInput({ adminPassword: temporary });
+		const result = await createBureau(superadmin, input);
+
+		expect(result.ok).toBe(true);
+		const { rows } = await owner.query<{ flag: boolean; hasAccount: boolean }>(
+			`select p.must_change_password as flag,
+			        exists (select 1 from account a where a.user_id = p.auth_user_id) as "hasAccount"
+			   from profiles p where p.email = $1`,
+			[input.adminEmail],
+		);
+		expect(rows[0]).toEqual({ flag: true, hasAccount: true });
+	});
+
+	it("sets the credentials of a bureau admin and refuses every other target", async () => {
+		const created = await createBureau(superadmin, newInput({ adminPassword: temporary }));
+		if (!created.ok) throw new Error("setup");
+		const tenant = await seedTenant(owner, "cred");
+		const other = await seedTenant(owner, "cred-other");
+		const adminId = (
+			await owner.query<{ id: string }>("select id from profiles where bureau_id = $1", [created.id])
+		).rows[0].id;
+		const set = (email: string, bureauId = created.id) =>
+			setBureauAdminCredentials(superadmin, { bureauId, email, password: temporary });
+
+		await expect(set(created.adminEmail)).resolves.toEqual({ ok: true });
+		await expect(
+			setBureauAdminCredentials(superadmin, { bureauId: created.id, email: created.adminEmail, password: null }),
+		).resolves.toEqual({ ok: true });
+		const audit = await owner.query<{ action: string }>(
+			"select action from audit_logs where record_id = $1 order by action",
+			[adminId],
+		);
+		expect(audit.rows.map((row) => row.action)).toEqual([
+			"user.create_with_password",
+			"user.force_password_change",
+			"user.password_set",
+		]);
+
+		const notFound = { ok: false, reason: "not_found" };
+		await expect(set(await emailOf(tenant.operator.userId), tenant.bureau.id)).resolves.toEqual(notFound);
+		await expect(set(await emailOf(other.bureauAdmin.userId), created.id)).resolves.toEqual(notFound);
+		await expect(set(await emailOf(superadmin.userId))).resolves.toEqual(notFound);
+		await expect(set("ninguem@example.test")).resolves.toEqual(notFound);
 	});
 });
 

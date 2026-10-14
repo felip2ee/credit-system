@@ -18,7 +18,8 @@ export class SessionAccessError extends Error {
       | "session_absolute_expired"
       | "mfa_setup_required"
       | "user_deactivated"
-      | "bureau_inactive",
+      | "bureau_inactive"
+      | "password_change_required",
   ) {
     super(code);
   }
@@ -77,6 +78,9 @@ export async function getRequiredSessionFromHeaders(
     throw new SessionAccessError("mfa_setup_required");
   }
 
+  // Estado de cadastro, como o MFA: mantém a sessão para o usuário trocar a senha temporária.
+  if (profile.mustChangePassword) throw new SessionAccessError("password_change_required");
+
   const support = profile.role === "superadmin" ? profile.support : null;
   const supportSessionId = support?.sessionId ?? null;
   return {
@@ -90,6 +94,14 @@ export async function getRequiredSessionFromHeaders(
     email: current.user.email,
     support: support ? { bureauId: support.bureauId, expiresAt: support.expiresAt } : null,
   };
+}
+
+export function sessionErrorPath(error: unknown): "/mfa/setup" | "/change-password" | "/login" {
+  if (error instanceof SessionAccessError) {
+    if (error.code === "mfa_setup_required") return "/mfa/setup";
+    if (error.code === "password_change_required") return "/change-password";
+  }
+  return "/login";
 }
 
 export async function getRequiredSession(): Promise<RequiredSession> {

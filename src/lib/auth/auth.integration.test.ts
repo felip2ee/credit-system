@@ -27,9 +27,12 @@ vi.hoisted(() => {
 vi.mock("./email", () => ({ sendPasswordResetEmail: resetEmail }));
 
 import { pool } from "@/lib/db/pool";
+import { withUserTransaction } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedSuperadmin, seedSupportSession, seedTenant, type SeededTenant } from "@/test/seed";
 
+import { setTemporaryCredentials } from "./credentials";
+import { createInvite } from "./invite";
 import { authHandler } from "./server";
 import {
   getRequiredSessionFromHeaders,
@@ -383,4 +386,159 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
       support: null,
     });
   });
+
+  describe("temporary passwords and forced change", () => {
+    const temporary = "temporary-password-12";
+    const chosen = "chosen-password-by-owner";
+
+    it("create with password then sign in", async () => {
+      const tenant = await freshTenant();
+      const email = `new-${randomUUID()}@example.test`;
+      const outcome = await withUserTransaction(tenant.bureauAdmin, (client) =>
+        createInvite(client, tenant.bureauAdmin.userId, {
+          email,
+          fullName: "Novo Operador",
+          role: "operator",
+          bureauId: tenant.bureau.id,
+          password: temporary,
+        }),
+      );
+      expect(outcome).toMatchObject({ ok: true, resent: false });
+      if (!outcome.ok) throw new Error("setup");
+
+      const headers = await login({ id: outcome.userId, email }, temporary);
+
+      expect(await mustChange(outcome.userId)).toBe(true);
+      await expect(getRequiredSessionFromHeaders(headers)).rejects.toMatchObject({
+        code: "mfa_setup_required",
+      } satisfies Partial<SessionAccessError>);
+    });
+
+    it("flagged user with MFA gets password_change_required", async () => {
+      const tenant = await freshTenant();
+      const user = await enable(tenant.operator.userId);
+      await setMustChange(user.id, true);
+
+      await expect(getRequiredSessionFromHeaders(await loginWithMfa(user))).rejects.toMatchObject({
+        code: "password_change_required",
+      } satisfies Partial<SessionAccessError>);
+      expect(await sessionCount(user.id)).toBe(1);
+    });
+
+    it("temporary password fails after the change; other sessions revoked", async () => {
+      const tenant = await freshTenant();
+      const user = await enable(tenant.operator.userId);
+      await setMustChange(user.id, true);
+      const first = await login(user);
+      const second = await login(user);
+
+      const response = await authRequest(
+        "/change-password",
+        { currentPassword: password, newPassword: chosen },
+        first,
+      );
+
+      expect(response.status).toBe(200);
+      expect(await mustChange(user.id)).toBe(false);
+      expect(await sessionCount(user.id)).toBe(1);
+      await expect(getRequiredSessionFromHeaders(second)).rejects.toMatchObject({
+        code: "session_required",
+      } satisfies Partial<SessionAccessError>);
+      await owner.query('update "user" set two_factor_enabled = true where id = $1', [user.id]);
+      await expect(getRequiredSessionFromHeaders(sessionHeaders(response))).resolves.toMatchObject({
+        userId: user.id,
+      });
+      const replay = await authRequest("/sign-in/email", { email: user.email, password });
+      expect(replay.status).toBeGreaterThanOrEqual(400);
+      const audit = await owner.query(
+        "select 1 from audit_logs where record_id = $1 and action = 'user.password_changed'",
+        [user.id],
+      );
+      expect(audit.rowCount).toBe(1);
+    });
+
+    it("set revokes target sessions", async () => {
+      const tenant = await freshTenant();
+      const target = await enable(tenant.operator.userId);
+      await login(target);
+      await login(target);
+      expect(await sessionCount(target.id)).toBe(2);
+
+      const outcome = await withUserTransaction(tenant.bureauAdmin, (client) =>
+        setTemporaryCredentials(client, tenant.bureauAdmin.userId, {
+          targetId: target.id,
+          bureauId: tenant.bureau.id,
+          password: chosen,
+        }),
+      );
+
+      expect(outcome).toEqual({ ok: true });
+      expect(await sessionCount(target.id)).toBe(0);
+      expect(await mustChange(target.id)).toBe(true);
+      await login(target, chosen);
+    });
+
+    it("audit never holds the password or the hash", async () => {
+      const tenant = await freshTenant();
+      const target = await enable(tenant.operator.userId);
+      await withUserTransaction(tenant.bureauAdmin, async (client) => {
+        await setTemporaryCredentials(client, tenant.bureauAdmin.userId, {
+          targetId: target.id,
+          bureauId: tenant.bureau.id,
+          password: chosen,
+        });
+        await setTemporaryCredentials(client, tenant.bureauAdmin.userId, {
+          targetId: target.id,
+          bureauId: tenant.bureau.id,
+          password: null,
+        });
+      });
+
+      const { rows } = await owner.query<{ action: string; metadata: unknown }>(
+        "select action, metadata from audit_logs where record_id = $1 order by created_at, action",
+        [target.id],
+      );
+      const stored = await owner.query<{ password: string }>(
+        "select password from account where user_id = $1",
+        [target.id],
+      );
+      expect(rows.map((row) => row.action).sort()).toEqual(["user.force_password_change", "user.password_set"]);
+      const dump = JSON.stringify(rows);
+      expect(dump).not.toContain(chosen);
+      expect(dump).not.toContain(stored.rows[0].password);
+    });
+  });
 });
+
+// O trigger protect_profile_identity barra a flag até para o dono: o seed usa replica.
+async function setMustChange(userId: string, value: boolean) {
+  const client = await owner.connect();
+  try {
+    await client.query("begin");
+    await client.query("set local session_replication_role = replica");
+    await client.query("update profiles set must_change_password = $2 where id = $1", [userId, value]);
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function mustChange(userId: string): Promise<boolean> {
+  const { rows } = await owner.query<{ flag: boolean }>(
+    "select must_change_password as flag from profiles where id = $1",
+    [userId],
+  );
+  return rows[0].flag;
+}
+
+async function sessionCount(userId: string): Promise<number> {
+  const { rows } = await owner.query<{ n: number }>(
+    'select count(*)::int as n from "session" where user_id = $1',
+    [userId],
+  );
+  return rows[0].n;
+}
+

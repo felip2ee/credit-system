@@ -1,13 +1,22 @@
 import type { BetterAuthOptions } from "better-auth";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { twoFactor } from "better-auth/plugins";
 
 import { config } from "@/lib/config";
 import { pool } from "@/lib/db/pool";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/validators/password";
 
+import { clearMustChangePassword } from "./credentials";
 import { sendPasswordResetEmail } from "./email";
 
 const isProduction = process.env.NODE_ENV === "production";
+
+function changedPasswordUserId(returned: unknown): string | null {
+  if (!returned || typeof returned !== "object" || returned instanceof APIError) return null;
+  const user = (returned as { user?: { id?: unknown } }).user;
+  return typeof user?.id === "string" ? user.id : null;
+}
 
 export const authConfig = {
   appName: "Rainha do Crédito",
@@ -17,11 +26,20 @@ export const authConfig = {
   emailAndPassword: {
     enabled: true,
     disableSignUp: true,
-    minPasswordLength: 12,
-    maxPasswordLength: 128,
+    minPasswordLength: PASSWORD_MIN_LENGTH,
+    maxPasswordLength: PASSWORD_MAX_LENGTH,
     resetPasswordTokenExpiresIn: 15 * 60,
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: sendPasswordResetEmail,
+    onPasswordReset: async ({ user }) => clearMustChangePassword(user.id),
+  },
+  hooks: {
+    // A troca autenticada vale como troca da senha temporária: limpa a flag.
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/change-password") return;
+      const userId = changedPasswordUserId(ctx.context.returned);
+      if (userId) await clearMustChangePassword(userId);
+    }),
   },
   user: {
     fields: {

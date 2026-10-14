@@ -5,10 +5,12 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 
 import { writeAuditEvent } from "@/lib/audit/write";
+import { setTemporaryCredentials } from "@/lib/auth/credentials";
 import { createInvite, sendInviteEmail } from "@/lib/auth/invite";
 import { getRequiredSession, type RequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { optionalPasswordSchema } from "@/lib/validators/password";
 
 const staffRoleSchema = z.enum(["bureau_admin", "operator"]);
 const userIdSchema = z.string().uuid();
@@ -16,6 +18,7 @@ const inviteSchema = z.object({
 	fullName: z.string().trim().min(3, "Nome muito curto."),
 	email: z.string().trim().toLowerCase().email("E-mail inválido."),
 	role: staffRoleSchema,
+	password: optionalPasswordSchema,
 });
 
 const NOT_ALLOWED = "Sem permissão para gerenciar a equipe.";
@@ -77,7 +80,8 @@ export async function inviteTeamMember(input: {
 	fullName: string;
 	email: string;
 	role: "bureau_admin" | "operator";
-}): Promise<{ error: string | null; email?: string }> {
+	password?: string;
+}): Promise<{ error: string | null; email?: string; invited?: boolean }> {
 	const session = await requireTeamManager();
 	if (!session) return { error: NOT_ALLOWED };
 	const parsed = inviteSchema.safeParse(input);
@@ -105,8 +109,46 @@ export async function inviteTeamMember(input: {
 	}
 
 	revalidatePath("/settings/users");
+	// Com senha temporária o membro entra direto: não há convite por e-mail.
+	if (parsed.data.password) {
+		return { error: null, email: parsed.data.email, invited: false };
+	}
 	const error = await sendOrReport(parsed.data.email);
-	return error ? { error } : { error: null, email: parsed.data.email };
+	return error
+		? { error }
+		: { error: null, email: parsed.data.email, invited: true };
+}
+
+// password ausente = só forçar a troca no próximo login. O gateway SQL só aceita operador do Bureau.
+export async function setTeamMemberCredentials(input: {
+	userId: string;
+	password?: string;
+}): Promise<{ error: string | null }> {
+	const session = await requireTeamManager();
+	if (!session) return { error: NOT_ALLOWED };
+	const userId = userIdSchema.safeParse(input.userId);
+	const password = optionalPasswordSchema.safeParse(input.password);
+	if (!userId.success) return { error: "Usuário inválido." };
+	if (!password.success)
+		return { error: password.error.issues[0]?.message ?? "Senha inválida." };
+	if (userId.data === session.userId)
+		return { error: "Use Trocar senha para a sua própria conta." };
+
+	try {
+		const outcome = await withUserTransaction(session, (client) =>
+			setTemporaryCredentials(client, session.userId, {
+				targetId: userId.data,
+				bureauId: session.bureauId,
+				password: password.data ?? null,
+			}),
+		);
+		if (!outcome.ok)
+			return { error: "Só é possível definir a senha de operadores do seu Bureau." };
+	} catch {
+		return { error: "Falha ao definir a senha." };
+	}
+	revalidatePath("/settings/users");
+	return { error: null };
 }
 
 export async function resendTeamInvite(input: {
