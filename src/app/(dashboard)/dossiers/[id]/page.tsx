@@ -22,6 +22,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { getDossierDetail } from "@/lib/dossiers/queries";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
+import { isUuid } from "@/lib/validators/id";
 
 export default async function DossierDetailPage({
   params,
@@ -29,7 +30,7 @@ export default async function DossierDetailPage({
   params: { id: string };
 }) {
   const session = await getRequiredSession().catch(() => redirect("/login"));
-  if (!hasPermission(session, "consultations:read")) notFound();
+  if (!hasPermission(session, "consultations:read") || !isUuid(params.id)) notFound();
   const detail = await getDossierDetail(session, params.id);
   if (!detail) notFound();
   const { dossier: d, members, report } = detail;

@@ -6,6 +6,7 @@ import {
   AptitudeBadge,
   DOSSIER_KIND_LABEL,
   DossierStatusBadge,
+  isDossierKind,
 } from "@/components/dossiers/dossier-badges";
 import { AddNote } from "@/components/holders/add-note";
 import { HolderTimeline } from "@/components/holders/holder-timeline";
@@ -19,7 +20,8 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { getHolderDetail } from "@/lib/holders/queries";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
-import type { DossierKind, EntityKind, QueryStatus } from "@/types/app";
+import { isUuid } from "@/lib/validators/id";
+import type { EntityKind, QueryStatus } from "@/types/app";
 
 const formatDocument = (type: EntityKind, document: string) =>
   type === "PJ" ? formatCNPJ(document) : formatCPF(document);
@@ -36,6 +38,7 @@ function Field({ label, value }: { label: string; value: string | null }) {
 export default async function HolderDetailPage({ params }: { params: { id: string } }) {
   const session = await getRequiredSession().catch(() => redirect("/login"));
   if (!hasPermission(session, "holders:read")) redirect("/");
+  if (!isUuid(params.id)) notFound();
   const detail = await getHolderDetail(session, params.id);
   if (!detail) notFound();
 
@@ -181,7 +184,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">
-                            {DOSSIER_KIND_LABEL[d.kind as DossierKind] ?? d.kind}
+                            {isDossierKind(d.kind) ? DOSSIER_KIND_LABEL[d.kind] : d.kind}
                           </p>
                           <p className="text-xs text-muted-foreground">{formatDate(d.created_at)}</p>
                         </div>

@@ -45,6 +45,8 @@ import {
 	createHolder,
 	ensureHolder,
 	getHolderDetail,
+	linkPartner,
+	listHolders,
 	upsertPartnership,
 	type HolderInput,
 } from "@/lib/holders/queries";
@@ -159,6 +161,18 @@ describe.sequential("holders", () => {
 		expect((await createHolder(b.operator, input)).ok).toBe(true);
 	});
 
+	it("listHolders devolve o e-mail do Titular para pré-preencher a consulta", async () => {
+		const created = await createHolder(
+			a.operator,
+			pfInput({ email: "titular@example.test" }),
+		);
+		if (!created.ok) throw new Error("setup failed");
+		const rows = await listHolders(a.operator, { q: "Titular Integração" });
+		expect(rows.find((r) => r.id === created.id)?.email).toBe(
+			"titular@example.test",
+		);
+	});
+
 	it("upsertPartnership recusa empresa PF e auto-vínculo, e a segunda chamada atualiza o percentual sem duplicar", async () => {
 		const { company, partner, pf } = await withUserTransaction(
 			a.operator,
@@ -209,6 +223,48 @@ describe.sequential("holders", () => {
 		const detail = await getHolderDetail(a.operator, company);
 		expect(detail?.partners).toHaveLength(1);
 		expect(detail?.partners[0].percentage).toBe(60);
+	});
+
+	it("ensureHolder audita holder.create só quando insere, sem o documento completo", async () => {
+		const cpf = onlyDigits(randomCpf());
+		const run = () =>
+			withUserTransaction(a.operator, (client) =>
+				ensureHolder(client, a.operator.userId, {
+					type: "PF",
+					name: "Titular Auditado",
+					document: cpf,
+				}),
+			);
+		const id = await run();
+		expect(await run()).toBe(id);
+
+		const { rows } = await owner.query<{ metadata: Record<string, unknown> }>(
+			"select metadata from audit_logs where action = 'holder.create' and record_id = $1",
+			[id],
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0].metadata.name).toBe("Titular Auditado");
+		expect(JSON.stringify(rows[0].metadata)).not.toContain(cpf);
+	});
+
+	it("linkPartner com empresa PF devolve company_not_pj e não cria o Titular do sócio", async () => {
+		const pf = await createHolder(a.operator, pfInput());
+		if (!pf.ok) throw new Error("setup failed");
+		const partnerCpf = onlyDigits(randomCpf());
+
+		const result = await linkPartner(a.operator, pf.id, {
+			document: partnerCpf,
+			name: "Sócio Órfão",
+			percentage: 10,
+			role: null,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "company_not_pj" });
+		const { rowCount } = await owner.query(
+			"select 1 from holders where document_digits = $1",
+			[partnerCpf],
+		);
+		expect(rowCount).toBe(0);
 	});
 
 	it("dado da DEPS não sobrescreve a Sociedade informada pelo operador", async () => {
@@ -402,6 +458,51 @@ describe.sequential("dossiers", () => {
 			"Resumo consolidado",
 		);
 		expect(await getDossierDetail(b.operator, created.id)).toBeNull();
+
+		const { rows } = await owner.query<{ outcome: string; metadata: Record<string, unknown> }>(
+			"select outcome, metadata from audit_logs where action = 'dossier.report' and record_id = $1",
+			[created.id],
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			outcome: "success",
+			metadata: { model: "modelo-teste", promptVersion: "v-teste" },
+		});
+	});
+
+	it("saveDossierReport com erro audita dossier.report como failure", async () => {
+		const created = await createDossier(a.operator, {
+			kind: "PJ",
+			holder: { type: "PJ", name: "Empresa Falha", document: randomCnpj() },
+			scrMode: "deps",
+		});
+		if (!created.ok) throw new Error("setup failed");
+
+		await saveDossierReport(a.operator, created.id, { status: "error", error: "falhou" });
+
+		const { rows } = await owner.query<{ outcome: string }>(
+			"select outcome from audit_logs where action = 'dossier.report' and record_id = $1",
+			[created.id],
+		);
+		expect(rows).toEqual([{ outcome: "failure" }]);
+	});
+
+	it("createDossier audita holder.create do Titular novo, sem o documento completo", async () => {
+		const cnpj = randomCnpj();
+		const created = await createDossier(a.operator, {
+			kind: "PJ",
+			holder: { type: "PJ", name: "Empresa Auditada", document: cnpj },
+			scrMode: "deps",
+		});
+		if (!created.ok) throw new Error("setup failed");
+
+		const { rows } = await owner.query<{ metadata: Record<string, unknown> }>(
+			`select a.metadata from audit_logs a join holders h on h.id = a.record_id
+        where a.action = 'holder.create' and h.document_digits = $1`,
+			[cnpj],
+		);
+		expect(rows).toHaveLength(1);
+		expect(JSON.stringify(rows[0].metadata)).not.toContain(cnpj);
 	});
 });
 

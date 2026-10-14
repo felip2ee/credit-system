@@ -23,7 +23,8 @@ import {
   type DossierKindFilter,
 } from "@/lib/dossiers/queries";
 import { hasValidInternalScr, upsertScrAuthorization } from "@/lib/scr/queries";
-import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
+import { createDossierSchema } from "@/lib/validators/dossier";
+import { isUuid } from "@/lib/validators/id";
 
 const identity = async (): Promise<RequiredSession | null> => {
   try {
@@ -57,15 +58,10 @@ export interface CreateDossierResult {
 }
 
 export async function createDossier(input: CreateDossierInput): Promise<CreateDossierResult> {
-  const type = input.kind === "PF" ? "PF" : "PJ";
-  const document = onlyDigits(input.document);
-  if (!(type === "PF" ? isValidCPF(document) : isValidCNPJ(document))) {
-    return { error: "Documento inválido." };
-  }
-  const partners = (input.kind === "PJ_FULL" ? (input.partners ?? []) : [])
-    .map((p) => ({ ...p, cpf: onlyDigits(p.cpf) }))
-    .filter((p) => p.cpf);
-  if (partners.some((p) => !isValidCPF(p.cpf))) return { error: "CPF de sócio inválido." };
+  const parsed = createDossierSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  const { kind, document, name, email, partners, scrMode } = parsed.data;
+  const type = kind === "PF" ? "PF" : "PJ";
 
   const session = await identity();
   if (!session) return { error: "Sessão expirada." };
@@ -73,17 +69,11 @@ export async function createDossier(input: CreateDossierInput): Promise<CreateDo
 
   try {
     const created = await createDossierQuery(session, {
-      kind: input.kind,
-      holder: { type, name: input.name?.trim() || document, document },
-      partners: partners.map((p) => ({
-        document: p.cpf,
-        name: p.name?.trim() || null,
-        email: p.email?.trim() || null,
-        percentage: p.percentage ?? null,
-        role: p.role ?? null,
-      })),
-      scrMode: input.scrMode ?? "internal",
-      email: input.email,
+      kind,
+      holder: { type, name: name || document, document },
+      partners: partners.map((p) => ({ ...p, document: p.cpf })),
+      scrMode,
+      email,
     });
     if (!created.ok) return { error: "O tipo do Titular não combina com o tipo do Dossiê." };
     revalidatePath("/dossiers");
@@ -102,6 +92,7 @@ export async function processDossierMember(
   consultationId: string,
   reuseExisting = true,
 ): Promise<ProcessMemberResult> {
+  if (!isUuid(consultationId)) return { outcome: "error" };
   const i = await identity();
   if (!i) return { outcome: "error" };
   if (!hasPermission(i, "consultations:write")) return { outcome: "error" };
@@ -159,8 +150,8 @@ export async function processDossierMember(
   await withUserTransaction(i, (client) => refreshDossierStatus(client, member.dossier_id));
   revalidatePath(`/dossiers/${member.dossier_id}`);
   revalidatePath("/dossiers");
-  revalidatePath("/consultations");
   revalidatePath("/holders");
+  revalidatePath(`/holders/${member.holder_id}`);
   return { outcome };
 }
 
@@ -169,6 +160,7 @@ export interface GenerateDossierReportResult {
 }
 
 export async function generateDossierReport(dossierId: string, force = false): Promise<GenerateDossierReportResult> {
+  if (!isUuid(dossierId)) return { error: "Dossiê não encontrado." };
   const i = await identity();
   if (!i) return { error: "Sessão expirada." };
   if (!hasPermission(i, "reports:write")) return { error: "Não autorizado." };
@@ -199,5 +191,7 @@ export async function generateDossierReport(dossierId: string, force = false): P
     return { error: message };
   }
   revalidatePath(`/dossiers/${dossierId}`);
+  revalidatePath("/dossiers");
+  revalidatePath(`/holders/${detail.dossier.holder_id}`);
   return { error: null };
 }

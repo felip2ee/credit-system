@@ -10,8 +10,9 @@ import {
   linkPartner as linkPartnerQuery,
   updateHolder as updateHolderQuery,
 } from "@/lib/holders/queries";
-import { holderSchema, type HolderFormValues } from "@/lib/validators/holder";
-import { isValidCPF, onlyDigits } from "@/lib/utils";
+import { holderSchema, linkPartnerSchema, type HolderFormValues } from "@/lib/validators/holder";
+import { isUuid } from "@/lib/validators/id";
+import { onlyDigits } from "@/lib/utils";
 
 export interface ActionResult {
   error: string | null;
@@ -28,6 +29,7 @@ async function requireHolderWrite(): Promise<RequiredSession | null> {
 }
 
 const DUPLICATE_MESSAGE = "Já existe um Titular com este documento.";
+const NOT_FOUND_MESSAGE = "Titular não encontrado.";
 
 export async function createHolder(values: HolderFormValues): Promise<ActionResult> {
   const parsed = holderSchema.safeParse(values);
@@ -49,6 +51,7 @@ export async function createHolder(values: HolderFormValues): Promise<ActionResu
 }
 
 export async function updateHolder(id: string, values: HolderFormValues): Promise<ActionResult> {
+  if (!isUuid(id)) return { error: NOT_FOUND_MESSAGE };
   const parsed = holderSchema.safeParse(values);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
@@ -60,7 +63,7 @@ export async function updateHolder(id: string, values: HolderFormValues): Promis
   try {
     const result = await updateHolderQuery(session, id, parsed.data);
     if (!result.ok) {
-      return { error: result.reason === "not_found" ? "Titular não encontrado." : DUPLICATE_MESSAGE };
+      return { error: result.reason === "not_found" ? NOT_FOUND_MESSAGE : DUPLICATE_MESSAGE };
     }
   } catch {
     return { error: "Falha ao salvar o Titular." };
@@ -72,6 +75,7 @@ export async function updateHolder(id: string, values: HolderFormValues): Promis
 }
 
 export async function addHolderNote(holderId: string, content: string): Promise<ActionResult> {
+  if (!isUuid(holderId)) return { error: NOT_FOUND_MESSAGE };
   const text = content.trim();
   if (text.length < 1) return { error: "Anotação vazia." };
 
@@ -80,7 +84,7 @@ export async function addHolderNote(holderId: string, content: string): Promise<
 
   try {
     const result = await addHolderNoteQuery(session, holderId, text);
-    if (!result.ok) return { error: "Titular não encontrado." };
+    if (!result.ok) return { error: NOT_FOUND_MESSAGE };
   } catch {
     return { error: "Falha ao salvar a anotação." };
   }
@@ -97,20 +101,15 @@ export interface LinkPartnerInput {
 }
 
 export async function linkPartner(companyId: string, input: LinkPartnerInput): Promise<ActionResult> {
-  if (!isValidCPF(input.cpf)) return { error: "CPF do sócio inválido." };
-  const name = input.name.trim();
-  if (name.length < 3) return { error: "Informe o nome do sócio." };
+  if (!isUuid(companyId)) return { error: NOT_FOUND_MESSAGE };
+  const parsed = linkPartnerSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
 
   const session = await requireHolderWrite();
   if (!session) return { error: "Sessão expirada." };
 
   try {
-    const result = await linkPartnerQuery(session, companyId, {
-      document: onlyDigits(input.cpf),
-      name,
-      percentage: input.percentage ?? null,
-      role: input.role ?? null,
-    });
+    const result = await linkPartnerQuery(session, companyId, parsed.data);
     if (!result.ok) {
       return {
         error:

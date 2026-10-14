@@ -15,6 +15,7 @@ import type { FullPdfHeader } from "@/lib/pdf/consultation-full-document";
 import type { OpinionForPdf } from "@/lib/pdf/markdown-pdf";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
 import { formatCNPJ, formatCPF } from "@/lib/utils";
+import { isUuid } from "@/lib/validators/id";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ export async function GET(
     return new Response("Sem permissão.", { status: 403 });
   }
 
+  if (!isUuid(params.id)) return new Response("Pesquisa não encontrada.", { status: 404 });
   const detail = await getDossierPdfDetail(session, params.id);
   if (!detail) return new Response("Pesquisa não encontrada.", { status: 404 });
   const { dossier, members, report } = detail;

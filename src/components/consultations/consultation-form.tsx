@@ -167,6 +167,7 @@ export function ConsultationForm({ productNames }: ConsultationFormProps) {
                         type="button"
                         onClick={() => {
                           setSelected(c);
+                          setScrEmail(c.email ?? "");
                           setResults([]);
                           setTerm("");
                         }}

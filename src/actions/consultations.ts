@@ -19,12 +19,12 @@ import type { EntityKind } from "@/types/app";
 const currentIdentity = async () => { try { return await getRequiredSession(); } catch { return null; } };
 
 const PICK_LIMIT = 10;
-export interface HolderPick { id: string; type: EntityKind; name: string; document: string; }
+export interface HolderPick { id: string; type: EntityKind; name: string; document: string; email: string | null; }
 export async function searchHolders(term: string): Promise<HolderPick[]> {
   const identity = await currentIdentity(); if (!identity) return [];
   if (!hasPermission(identity, "holders:read")) return [];
   const rows = await listHolders(identity, { q: term });
-  return rows.slice(0, PICK_LIMIT).map(({ id, type, name, document }) => ({ id, type, name, document }));
+  return rows.slice(0, PICK_LIMIT).map(({ id, type, name, document, email }) => ({ id, type, name, document, email }));
 }
 export interface RecentConsultationResult { exists: boolean; queryId?: string; consultedAt?: string; }
 export async function findRecentConsultation(document: string): Promise<RecentConsultationResult> {

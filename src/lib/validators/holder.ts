@@ -2,6 +2,16 @@ import { z } from "zod";
 
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 
+const MAX_PERCENTAGE = 100;
+const PERCENTAGE_MESSAGE = "Participação do sócio deve estar entre 0 e 100.";
+
+// Percentual da Sociedade: casa com numeric(5,2) (0 a 100).
+export const percentageSchema = z
+	.number({ invalid_type_error: PERCENTAGE_MESSAGE })
+	.finite(PERCENTAGE_MESSAGE)
+	.min(0, PERCENTAGE_MESSAGE)
+	.max(MAX_PERCENTAGE, PERCENTAGE_MESSAGE);
+
 const optionalString = z
 	.string()
 	.trim()
@@ -75,3 +85,16 @@ export const holderFormSchema = z.object({
 });
 
 export type HolderFormValues = z.infer<typeof holderFormSchema>;
+
+// Sócio informado pelo operador (PF); saída casa com o parâmetro `partner` de linkPartner.
+export const linkPartnerSchema = z
+	.object({
+		cpf: z
+			.string()
+			.refine((v) => isValidCPF(v), "CPF do sócio inválido.")
+			.transform(onlyDigits),
+		name: z.string().trim().min(3, "Informe o nome do sócio."),
+		percentage: percentageSchema.nullish().transform((v) => v ?? null),
+		role: optionalString,
+	})
+	.transform(({ cpf, ...rest }) => ({ document: cpf, ...rest }));

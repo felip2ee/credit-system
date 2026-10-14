@@ -379,6 +379,13 @@ export async function saveDossierReport(
 				"update dossiers set report_status = 'error', generation_error = $2 where id = $1",
 				[id, report.error],
 			);
+			await writeAuditEvent(client, {
+				actorId: identity.userId,
+				action: "dossier.report",
+				targetTable: "dossiers",
+				targetId: id,
+				outcome: "failure",
+			});
 			return;
 		}
 		const p = report.parecer;
@@ -406,6 +413,13 @@ export async function saveDossierReport(
 				report.promptVersion,
 			],
 		);
+		await writeAuditEvent(client, {
+			actorId: identity.userId,
+			action: "dossier.report",
+			targetTable: "dossiers",
+			targetId: id,
+			metadata: { model: report.model, promptVersion: report.promptVersion },
+		});
 	});
 }
 

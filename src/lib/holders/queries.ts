@@ -34,8 +34,14 @@ const UNIQUE_VIOLATION = "23505";
 const HOLDER_DOCUMENT_UNIQUE = "holders_document_unique";
 
 function isDuplicateDocument(error: unknown): boolean {
-	const e = error as { code?: string; constraint?: string };
-	return e.code === UNIQUE_VIOLATION && e.constraint === HOLDER_DOCUMENT_UNIQUE;
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === UNIQUE_VIOLATION &&
+		"constraint" in error &&
+		error.constraint === HOLDER_DOCUMENT_UNIQUE
+	);
 }
 
 type TimelineEventInput = {
@@ -187,6 +193,13 @@ export async function ensureHolder(
 			title: "Titular cadastrado",
 			description: input.name,
 		});
+		await writeAuditEvent(client, {
+			actorId,
+			action: "holder.create",
+			targetTable: "holders",
+			targetId: inserted.rows[0].id,
+			metadata: { type: input.type, name: input.name, document },
+		});
 		return inserted.rows[0].id;
 	}
 	const { rows } = await client.query<{ id: string }>(
@@ -257,6 +270,14 @@ export async function linkPartner(
 	| { ok: false; reason: "company_not_pj" | "self_link" }
 > {
 	return withUserTransaction(identity, async (client) => {
+		// Valida a empresa antes de criar o Titular do sócio: o retorno normal faria commit do órfão.
+		const company = await client.query<{ type: EntityKind }>(
+			"select type from holders where id = $1",
+			[companyId],
+		);
+		if (company.rows[0]?.type !== "PJ")
+			return { ok: false, reason: "company_not_pj" } as const;
+
 		const partnerId = await ensureHolder(client, identity.userId, {
 			type: onlyDigits(partner.document).length === 14 ? "PJ" : "PF",
 			name: partner.name,
@@ -320,6 +341,7 @@ export interface HolderListItem {
 	type: EntityKind;
 	name: string;
 	document: string;
+	email: string | null;
 	city: string | null;
 	state: string | null;
 	updated_at: string;
@@ -335,7 +357,7 @@ export async function listHolders(
 	const digits = term.replace(/\D/g, "");
 	return withUserTransaction(identity, async (client) => {
 		const { rows } = await client.query<HolderListItem>(
-			`select id, type, name, document, city, state, updated_at::text
+			`select id, type, name, document, email, city, state, updated_at::text
          from holders
         where ($1::query_type is null or type = $1::query_type)
           and ($2 = '' or name ilike '%' || $2 || '%'

@@ -22,12 +22,16 @@ const APTITUDE: Record<AptitudeStatus, { label: string; variant: BadgeProps["var
   pending: { label: "Pendente", variant: "muted" },
 };
 
+export const isDossierKind = (value: string): value is DossierKind => Object.hasOwn(DOSSIER_KIND_LABEL, value);
+const isDossierStatus = (value: string): value is DossierStatus => Object.hasOwn(STATUS, value);
+const isAptitudeStatus = (value: string): value is AptitudeStatus => Object.hasOwn(APTITUDE, value);
+
 export function DossierStatusBadge({ status }: { status: string }) {
-  const item = STATUS[status as DossierStatus] ?? STATUS.pending;
+  const item = isDossierStatus(status) ? STATUS[status] : STATUS.pending;
   return <Badge variant={item.variant}>{item.label}</Badge>;
 }
 
 export function AptitudeBadge({ status }: { status: string }) {
-  const item = APTITUDE[status as AptitudeStatus] ?? APTITUDE.pending;
+  const item = isAptitudeStatus(status) ? APTITUDE[status] : APTITUDE.pending;
   return <Badge variant={item.variant}>{item.label}</Badge>;
 }
