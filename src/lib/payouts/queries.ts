@@ -1,8 +1,7 @@
 // Repasse ao Bureau (M3b). Nenhuma regra de repasse vive aqui: create_payout, mark_payout_paid e cancel_payout
 // (016_payouts_nfse.sql) decidem, e estas funções traduzem o resultado e gravam a auditoria na mesma transação.
 //
-// Auditoria: a política audit_logs_insert (012) só aceita bureau_id alvo para catalog.cost.set e wallet.adjust.
-// Por isso payout.* grava bureau_id nulo (evento de plataforma) e leva o Bureau alvo em metadata.bureauId.
+// Auditoria: payout.* grava o Bureau alvo em bureau_id (política audit_logs_insert, 017): o Bureau e o superadmin leem.
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
@@ -75,8 +74,8 @@ export async function createPayout(
 			action: "payout.create",
 			targetTable: "payouts",
 			targetId: row.payout_id,
+			bureauId: input.bureauId,
 			metadata: {
-				bureauId: input.bureauId,
 				amount: row.amount,
 				cutoffAt: input.cutoffAt.toISOString(),
 			},
@@ -137,7 +136,7 @@ export async function markPayoutPaid(
 				action: "payout.pay",
 				targetTable: "payouts",
 				targetId: input.payoutId,
-				metadata: { bureauId },
+				bureauId,
 			});
 		}
 		return { ok: true, bureauId, replayed };
@@ -165,7 +164,7 @@ export async function cancelPayout(
 			action: "payout.cancel",
 			targetTable: "payouts",
 			targetId: payoutId,
-			metadata: { bureauId },
+			bureauId,
 		});
 		return { ok: true, bureauId };
 	});

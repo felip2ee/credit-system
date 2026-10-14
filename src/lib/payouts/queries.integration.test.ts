@@ -73,7 +73,7 @@ async function auditRows(action: string, targetId: string) {
 }
 
 describe("createPayout", () => {
-	it("creates the payout and audits it with the target Bureau in metadata", async () => {
+	it("creates the payout and audits it with the target Bureau in bureau_id", async () => {
 		const { superadmin, tenant } = await setup();
 
 		const result = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
@@ -83,7 +83,8 @@ describe("createPayout", () => {
 		const audit = await auditRows("payout.create", result.payoutId);
 		expect(audit).toHaveLength(1);
 		expect(audit[0].user_id).toBe(superadmin.userId);
-		expect(audit[0].metadata).toMatchObject({ bureauId: tenant.bureau.id, amount: "40.00" });
+		expect(audit[0].bureau_id).toBe(tenant.bureau.id);
+		expect(audit[0].metadata).toMatchObject({ amount: "40.00" });
 	});
 
 	it("returns nothing_to_pay and writes no audit when there is nothing to pay", async () => {
@@ -121,6 +122,7 @@ describe("markPayoutPaid", () => {
 		expect(result).toEqual({ ok: true, bureauId: tenant.bureau.id, replayed: false });
 		const audit = await auditRows("payout.pay", created.payoutId);
 		expect(audit).toHaveLength(1);
+		expect(audit[0].bureau_id).toBe(tenant.bureau.id);
 		expect(JSON.stringify(audit[0].metadata)).not.toMatch(/ab\/|sha|mime|pdf/i);
 	});
 
@@ -167,7 +169,7 @@ describe("cancelPayout", () => {
 
 		const cancelled = await cancelPayout(superadmin, open.payoutId);
 		expect(cancelled).toEqual({ ok: true, bureauId: tenant.bureau.id });
-		expect(await auditRows("payout.cancel", open.payoutId)).toHaveLength(1);
+		expect((await auditRows("payout.cancel", open.payoutId)).map((r) => r.bureau_id)).toEqual([tenant.bureau.id]);
 
 		await seedAccrual(tenant.bureau.id, "10.00");
 		const second = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });

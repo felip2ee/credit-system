@@ -1,8 +1,7 @@
 // NFS-e (M3b). A aplicação nunca escreve as colunas nfse_*: só set_nfse_status (role app_webhook) e
 // request_nfse_retry (superadmin) as alteram (016_payouts_nfse.sql). A nota nunca toca carteira nem lançamento.
 //
-// Auditoria: a política audit_logs_insert (012) não aceita bureau_id alvo para nfse.retry; o evento vai com
-// bureau_id nulo (plataforma) e a cobrança em record_id.
+// Auditoria: nfse.retry grava o Bureau alvo em bureau_id e a cobrança em record_id (política audit_logs_insert, 017).
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
@@ -52,16 +51,20 @@ export type RequestRetryResult = { ok: true } | { ok: false; reason: NfseFailure
 // Nova tentativa manual: failed -> pending e a auditoria, na mesma transação.
 export async function requestNfseRetry(identity: DbIdentity, chargeId: string): Promise<RequestRetryResult> {
 	return withUserTransaction(identity, async (client) => {
+		// Antes da troca: depois dela a cobrança já é pending. Sem linha, request_nfse_retry devolve o motivo.
+		const target = await client.query<{ bureau_id: string }>("select bureau_id from nfse_charge_payment($1)", [chargeId]);
 		const { rows } = await client.query<{ ok: boolean; reason: NfseFailure | null }>(
 			"select ok, reason from request_nfse_retry($1)",
 			[chargeId],
 		);
 		if (!rows[0].ok) return { ok: false, reason: rows[0].reason as NfseFailure };
+		if (!target.rows[0]) throw new Error("nfse retry without a Bureau target");
 		await writeAuditEvent(client, {
 			actorId: identity.userId,
 			action: "nfse.retry",
 			targetTable: "pix_charges",
 			targetId: chargeId,
+			bureauId: target.rows[0].bureau_id,
 			metadata: { chargeId },
 		});
 		return { ok: true };
@@ -95,9 +98,8 @@ export async function setNfseStatus(
 
 export type NfseCharge = { chargeId: string; amount: string };
 
-// PENDENTE DE MIGRATION: o webhook (app_webhook) não lê tabela alguma, e nenhuma função da 016 liga o id do
-// pagamento do Asaas ao id da cobrança. Contrato esperado (ver task-6-report.md): SECURITY DEFINER,
-// EXECUTE só para app_webhook, devolve a cobrança paga/estornada do pagamento, ou nenhuma linha.
+// O webhook (app_webhook) não lê tabela alguma: nfse_charge_by_payment (017) liga o id do pagamento do Asaas ao id
+// da cobrança paga ou estornada, ou não devolve linha.
 export async function findNfseChargeByPayment(asaasPaymentId: string): Promise<NfseCharge | null> {
 	const { rows } = await getWebhookPool().query<{ charge_id: string; amount: string }>(
 		"select charge_id, amount from public.nfse_charge_by_payment($1)",
@@ -108,8 +110,8 @@ export async function findNfseChargeByPayment(asaasPaymentId: string): Promise<N
 
 export type NfseRetryTarget = { asaasPaymentId: string; amount: string };
 
-// PENDENTE DE MIGRATION: superadmin não lê pix_charges; a nova tentativa precisa do pagamento do Asaas.
-// Contrato esperado: SECURITY DEFINER, só superadmin sem suporte, só para cobrança em nfse_status = 'pending'.
+// O superadmin não lê pix_charges; nfse_charge_payment (017) devolve o pagamento do Asaas só a ele, sem suporte,
+// e só de nota com falha ou em nova tentativa.
 export async function findNfseRetryTarget(identity: DbIdentity, chargeId: string): Promise<NfseRetryTarget | null> {
 	return withUserTransaction(identity, async (client) => {
 		const { rows } = await client.query<{ asaas_payment_id: string; amount: string }>(
