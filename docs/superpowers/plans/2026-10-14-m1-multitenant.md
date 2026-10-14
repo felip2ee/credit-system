@@ -731,7 +731,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Files:**
 - Delete: `src/app/(dashboard)/clients/**`, `src/app/(dashboard)/batch/**`, `src/app/(dashboard)/consultations/page.tsx`, `src/components/clients/**`, `src/components/batch/**`, `src/components/consultations/consultations-filters.tsx`
 - Create: `src/app/(dashboard)/holders/{page,new/page,[id]/page,[id]/edit/page}.tsx`, `src/app/(dashboard)/dossiers/{page,new/page,[id]/page}.tsx`, `src/app/(dashboard)/dossiers/[id]/pdf/route.ts`, `src/components/holders/*`, `src/components/dossiers/*`, `src/components/dossiers/filters.ts`, `src/components/dossiers/filters.test.ts`
-- Modify: `src/app/(dashboard)/page.tsx`, `src/app/(dashboard)/consultations/{new/page,[id]/page}.tsx`, `src/app/(dashboard)/consultations/[id]/pdf/route.ts`, `src/app/(dashboard)/consultations/export/route.ts`, `src/app/(dashboard)/scr/page.tsx`, `src/components/consultations/*`, `src/components/scr/*`, `src/components/layout/sidebar.tsx`, `src/lib/pdf/*`
+- Modify: `src/app/(dashboard)/page.tsx`, `src/app/(dashboard)/consultations/{new/page,[id]/page}.tsx`, `src/app/(dashboard)/consultations/[id]/pdf/route.ts`, `src/app/(dashboard)/scr/page.tsx`, `src/components/consultations/*`, `src/components/scr/*`, `src/components/layout/sidebar.tsx`, `src/lib/pdf/*`
 
 **Interfaces:**
 
