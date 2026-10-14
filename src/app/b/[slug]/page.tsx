@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 
 import { getPublicBureau } from "@/lib/bureaus/public";
 
+// Reads the DB without cookies/headers: without this Next may cache a 404 for a new slug or a stale bureau name.
+export const dynamic = "force-dynamic";
+
 // Same generic title for existing and unknown slugs: no enumeration signal.
 export const metadata = {
   title: "Reino do Crédito",

@@ -23,8 +23,11 @@ import {
   SCR_TERM_DEFAULTS,
 } from "@/lib/scr/consent-term";
 
+// Exported readers are public endpoints ("use server"): reject roles without settings:read (client).
 async function readerIdentity(): Promise<DbIdentity> {
-  return getRequiredSession();
+  const session = await getRequiredSession();
+  if (!hasPermission(session, "settings:read")) throw new Error("Não autorizado.");
+  return session;
 }
 
 async function adminIdentity(): Promise<DbIdentity | null> {

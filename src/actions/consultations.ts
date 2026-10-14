@@ -60,7 +60,7 @@ export async function runConsultation(input: RunConsultationInput): Promise<RunC
   const pending = async (message: string): Promise<RunConsultationResult> => {
     await setConsultationStatus(identity, queryId, "pending_authorization");
     await upsertScrAuthorization(identity, { document, type: input.type, status: "pending", name: input.documentName, email, queryId, holderId, requestedBy: identity.userId });
-    revalidatePath("/consultations"); revalidatePath("/scr");
+    revalidatePath("/dossiers"); revalidatePath("/scr");
     return { error: null, status: "pending_scr", queryId, dossierId, message };
   };
   if (scrMode === "internal" && !(await hasValidInternalScr(identity, document))) {
@@ -74,7 +74,7 @@ export async function runConsultation(input: RunConsultationInput): Promise<RunC
   if (outcome.status === "payload_incompatible") return { error: "A consulta retornou dados incompatíveis com o formato esperado do bureau." };
   await upsertScrAuthorization(identity, { document, type: input.type, status: "authorized", name: outcome.canonical.subject.name || input.documentName, queryId, holderId, requestedBy: identity.userId });
   await withUserTransaction(identity, (client) => recordHolderEvent(client, identity.userId, holderId, { eventType: "query.executed", title: "Consulta realizada", description: `${depsProductName(input.type)} · ${document}` }));
-  revalidatePath("/consultations"); revalidatePath("/dossiers"); revalidatePath(`/holders/${holderId}`);
+  revalidatePath("/dossiers"); revalidatePath(`/holders/${holderId}`);
   return { error: null, status: "completed", queryId, dossierId };
 }
 
@@ -83,6 +83,8 @@ export async function reprocessQuery(queryId: string): Promise<RunConsultationRe
   if (!hasPermission(identity, "consultations:write")) return { error: "Não autorizado." };
   const query = await withUserTransaction(identity, async (client) => (await client.query<{ type: EntityKind; document: string; scr_mode: ScrMode | null }>(`select type,document,scr_mode from consultations where id=$1`, [queryId])).rows[0]);
   if (!query) return { error: "Consulta não encontrada." };
+  // Same consent gate as runConsultation: autorizacaoScr: true registers consent at DEPS.
+  if (query.scr_mode !== "deps" && !(await hasValidInternalScr(identity, query.document))) return { error: "Sem autorização SCR própria vigente para este documento. Envie o termo de autorização." };
   await setConsultationStatus(identity, queryId, "processing");
   try {
     const product = depsProductName(query.type); const deps = getDepsClient();
@@ -91,5 +93,5 @@ export async function reprocessQuery(queryId: string): Promise<RunConsultationRe
     if (outcome.status === "no_data") { await setConsultationStatus(identity, queryId, "pending_authorization"); return { error: null, status: "pending_scr", queryId, message: "Consulta sem dados/SCR pendente. Verifique a autorização e tente novamente." }; }
     if (outcome.status === "payload_incompatible") return { error: "A consulta retornou dados incompatíveis com o formato esperado do bureau." };
   } catch (error) { await setConsultationStatus(identity, queryId, "error", error instanceof Error ? error.message : "Erro na consulta."); return { error: "Falha ao reprocessar a consulta." }; }
-  revalidatePath("/consultations"); revalidatePath(`/consultations/${queryId}`); return { error: null, status: "completed", queryId };
+  revalidatePath("/dossiers"); revalidatePath(`/consultations/${queryId}`); return { error: null, status: "completed", queryId };
 }
