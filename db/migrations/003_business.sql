@@ -1,6 +1,6 @@
 create extension if not exists pgcrypto;
 
-create type user_role as enum ('admin', 'consultant', 'client');
+create type user_role as enum ('superadmin', 'bureau_admin', 'operator', 'client');
 create type query_type as enum ('PF', 'PJ');
 create type consultation_status as enum (
   'pending_authorization',
@@ -11,33 +11,55 @@ create type consultation_status as enum (
   'error',
   'rejected'
 );
-create type batch_status as enum (
+create type dossier_kind as enum ('PF', 'PJ', 'PJ_FULL');
+create type dossier_status as enum (
   'pending', 'processing', 'completed', 'completed_with_errors', 'cancelled'
 );
 create type scr_status as enum (
   'pending', 'authorized', 'not_authorized', 'expired'
 );
-create type timeline_entity_type as enum ('crm_client', 'query');
+create type timeline_entity_type as enum ('holder', 'query');
+
+create table bureaus (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (btrim(name) <> '' and length(name) <= 120),
+  slug text not null unique,
+  status text not null default 'active' check (status in ('active', 'inactive')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint bureaus_slug_format check (slug ~ '^[a-z0-9-]{3,40}$'),
+  constraint bureaus_slug_not_reserved check (slug not in (
+    'admin', 'api', 'app', 'auth', 'b', 'dashboard', 'login', 'logout', 'mfa',
+    'portal', 'autorizacao-scr', 'superadmin', 'settings', 'reset-password',
+    'update-password', 'static', 'www'))
+);
 
 create table profiles (
   id uuid primary key default gen_random_uuid(),
   auth_user_id text not null unique references "user"(id) on delete restrict,
   full_name text not null,
   email text not null,
-  role user_role not null default 'consultant',
+  role user_role not null,
+  bureau_id uuid references bureaus(id),
   avatar_url text,
   is_active boolean not null default true,
   mfa_enabled boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint profiles_auth_id_matches_id check (auth_user_id = id::text)
+  constraint profiles_auth_id_matches_id check (auth_user_id = id::text),
+  constraint profiles_bureau_matches_role check ((role = 'superadmin') = (bureau_id is null)),
+  unique (bureau_id, id)
 );
 
-create table crm_clients (
+-- Titular. Toda FK entre tabelas de tenant é composta (bureau_id, id): uma
+-- linha de um Bureau nunca aponta para linha de outro.
+create table holders (
   id uuid primary key default gen_random_uuid(),
+  bureau_id uuid not null references bureaus(id),
   type query_type not null,
   name text not null,
-  document text,
+  document text not null,
+  document_digits text generated always as (regexp_replace(document, '\D', '', 'g')) stored,
   email text,
   phone text,
   address text,
@@ -47,66 +69,79 @@ create table crm_clients (
   city text,
   state char(2),
   zip_code text,
-  status text not null default 'prospect',
-  assigned_to uuid references profiles(id) on delete set null,
-  user_id uuid references profiles(id) on delete set null,
   notes text,
+  client_profile_id uuid,
   created_by uuid not null references profiles(id),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (bureau_id, id),
+  constraint holders_document_unique unique (bureau_id, document_digits),
+  constraint holders_document_length check (
+    (type = 'PF' and length(document_digits) = 11)
+    or (type = 'PJ' and length(document_digits) = 14)),
+  foreign key (bureau_id, client_profile_id) references profiles (bureau_id, id)
 );
 
-create table crm_client_documents (
+-- Sociedade: empresa (company_id) e sócio (partner_id).
+create table holder_partnerships (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid not null references crm_clients(id) on delete cascade,
-  type query_type not null,
-  document text not null,
-  label text,
-  is_primary boolean not null default false,
-  created_at timestamptz not null default now(),
-  unique (client_id, document)
-);
-
-create table crm_client_relations (
-  id uuid primary key default gen_random_uuid(),
-  client_id uuid not null references crm_clients(id) on delete cascade,
-  related_id uuid not null references crm_clients(id) on delete cascade,
-  relation_type text not null,
-  percentage numeric(5,2),
+  bureau_id uuid not null,
+  company_id uuid not null,
+  partner_id uuid not null,
+  percentage numeric(5,2) check (percentage between 0 and 100),
   role text,
+  source text not null check (source in ('deps', 'operator')),
+  created_by uuid references profiles(id),
   created_at timestamptz not null default now(),
-  unique (client_id, related_id, relation_type)
+  updated_at timestamptz not null default now(),
+  unique (company_id, partner_id),
+  check (company_id <> partner_id),
+  foreign key (bureau_id, company_id) references holders (bureau_id, id),
+  foreign key (bureau_id, partner_id) references holders (bureau_id, id)
 );
 
-create table batches (
+-- Dossiê. Os campos do parecer consolidado vêm do antigo company_reports.
+create table dossiers (
   id uuid primary key default gen_random_uuid(),
-  name text,
-  type query_type not null,
-  product text,
-  document text,
+  bureau_id uuid not null references bureaus(id),
+  kind dossier_kind not null,
+  holder_id uuid not null,
+  product text not null,
+  status dossier_status not null default 'pending',
   created_by uuid not null references profiles(id),
-  status batch_status not null default 'pending',
-  total_items integer not null default 0,
-  processed_items integer not null default 0,
-  success_items integer not null default 0,
-  error_items integer not null default 0,
-  file_name text,
-  file_path text,
-  report_path text,
   started_at timestamptz,
   completed_at timestamptz,
+  report_status text not null default 'none'
+    check (report_status in ('none', 'generating', 'completed', 'error')),
+  aptitude_status text not null default 'pending',
+  executive_summary text,
+  positive_points jsonb,
+  risk_points jsonb,
+  action_plan jsonb,
+  suggested_products jsonb,
+  suggested_limit numeric(15,2),
+  suggested_limit_notes text,
+  report_markdown text,
+  full_report jsonb,
+  model_used text,
+  prompt_version text,
+  generated_at timestamptz,
+  generation_error text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (bureau_id, id),
+  foreign key (bureau_id, holder_id) references holders (bureau_id, id)
 );
 
 create table consultations (
   id uuid primary key default gen_random_uuid(),
+  bureau_id uuid not null references bureaus(id),
   type query_type not null,
   document text not null,
   document_name text,
   product text,
-  crm_client_id uuid references crm_clients(id) on delete set null,
-  batch_id uuid references batches(id) on delete set null,
+  holder_id uuid not null,
+  dossier_id uuid not null,
   created_by uuid not null references profiles(id),
   status consultation_status not null default 'pending_authorization',
   requires_auth boolean not null default false,
@@ -122,17 +157,21 @@ create table consultations (
   scr_mode text not null default 'internal'
     check (scr_mode in ('internal', 'deps')),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (bureau_id, id),
+  foreign key (bureau_id, holder_id) references holders (bureau_id, id),
+  foreign key (bureau_id, dossier_id) references dossiers (bureau_id, id)
 );
 
 create table scr_authorizations (
   id uuid primary key default gen_random_uuid(),
+  bureau_id uuid not null references bureaus(id),
   document text not null,
   type query_type not null,
   name text,
   email text,
-  consultation_id uuid references consultations(id) on delete set null,
-  crm_client_id uuid references crm_clients(id) on delete set null,
+  consultation_id uuid,
+  holder_id uuid not null,
   status scr_status not null default 'pending',
   requested_by uuid references profiles(id) on delete set null,
   requested_at timestamptz not null default now(),
@@ -149,12 +188,16 @@ create table scr_authorizations (
   consent_ip text,
   refused_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  foreign key (bureau_id, holder_id) references holders (bureau_id, id),
+  foreign key (bureau_id, consultation_id) references consultations (bureau_id, id)
+    on delete set null (consultation_id)
 );
 
 create table bureau_payloads (
   id uuid primary key default gen_random_uuid(),
-  consultation_id uuid not null references consultations(id) on delete cascade,
+  bureau_id uuid not null,
+  consultation_id uuid not null,
   provider text not null check (provider = 'deps'),
   product text not null,
   received_at timestamptz not null,
@@ -165,25 +208,33 @@ create table bureau_payloads (
     check (validation_status in ('pending', 'valid', 'incompatible')),
   validation_errors jsonb not null default '[]'::jsonb
     check (jsonb_typeof(validation_errors) = 'array'),
-  unique (consultation_id, payload_sha256)
+  unique (consultation_id, payload_sha256),
+  unique (bureau_id, id),
+  foreign key (bureau_id, consultation_id) references consultations (bureau_id, id)
+    on delete cascade
 );
 
 create table bureau_results (
-  consultation_id uuid primary key references consultations(id) on delete cascade,
-  payload_id uuid not null unique references bureau_payloads(id),
+  bureau_id uuid not null,
+  consultation_id uuid primary key,
+  payload_id uuid not null unique,
   adapter_version integer not null check (adapter_version > 0),
   canonical_result jsonb not null,
   document text not null,
   person_name text,
   score integer,
   risk_level text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  foreign key (bureau_id, consultation_id) references consultations (bureau_id, id)
+    on delete cascade,
+  foreign key (bureau_id, payload_id) references bureau_payloads (bureau_id, id)
 );
 
 create table ai_reports (
   id uuid primary key default gen_random_uuid(),
-  consultation_id uuid not null unique references consultations(id) on delete cascade,
-  crm_client_id uuid references crm_clients(id) on delete set null,
+  bureau_id uuid not null,
+  consultation_id uuid not null unique,
+  holder_id uuid,
   aptitude_status text not null default 'pending',
   executive_summary text,
   positive_points jsonb,
@@ -203,34 +254,16 @@ create table ai_reports (
   consultant_notes text,
   status text not null default 'generating',
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table company_reports (
-  id uuid primary key default gen_random_uuid(),
-  batch_id uuid not null unique references batches(id) on delete cascade,
-  aptitude_status text not null default 'pending',
-  executive_summary text,
-  positive_points jsonb,
-  risk_points jsonb,
-  action_plan jsonb,
-  suggested_products jsonb,
-  suggested_limit numeric(15,2),
-  suggested_limit_notes text,
-  report_markdown text,
-  full_report jsonb,
-  model_used text,
-  prompt_version text,
-  generated_at timestamptz,
-  generation_error text,
-  status text not null default 'generating',
-  created_by uuid references profiles(id),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  foreign key (bureau_id, consultation_id) references consultations (bureau_id, id)
+    on delete cascade,
+  foreign key (bureau_id, holder_id) references holders (bureau_id, id)
+    on delete set null (holder_id)
 );
 
 create table timeline_events (
   id uuid primary key default gen_random_uuid(),
+  bureau_id uuid not null references bureaus(id),
   entity_type timeline_entity_type not null,
   entity_id uuid not null,
   event_type text not null,
@@ -243,6 +276,7 @@ create table timeline_events (
 
 create table crm_notes (
   id uuid primary key default gen_random_uuid(),
+  bureau_id uuid not null references bureaus(id),
   entity_type timeline_entity_type not null,
   entity_id uuid not null,
   content text not null,
@@ -259,8 +293,25 @@ create table settings (
   updated_at timestamptz not null default now()
 );
 
+-- Sessão de suporte: o superadmin só lê dados de tenant com uma sessão ativa
+-- (app_support_active em 004). Vale no máximo 1 hora.
+create table support_sessions (
+  id uuid primary key default gen_random_uuid(),
+  superadmin_id uuid not null references profiles(id),
+  bureau_id uuid not null references bureaus(id),
+  reason text not null check (btrim(reason) <> '' and length(reason) <= 500),
+  started_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '1 hour',
+  ended_at timestamptz,
+  check (expires_at > started_at and expires_at <= started_at + interval '1 hour'),
+  check (ended_at is null or ended_at >= started_at)
+);
+
+-- bureau_id nulo = evento da plataforma.
 create table audit_logs (
   id uuid primary key default gen_random_uuid(),
+  bureau_id uuid references bureaus(id),
+  support_session_id uuid references support_sessions(id),
   user_id uuid references profiles(id) on delete set null,
   action text not null,
   table_name text,
@@ -287,17 +338,19 @@ $$;
 
 create trigger profiles_updated_at before update on profiles
   for each row execute function set_updated_at();
-create trigger crm_clients_updated_at before update on crm_clients
+create trigger bureaus_updated_at before update on bureaus
   for each row execute function set_updated_at();
-create trigger batches_updated_at before update on batches
+create trigger holders_updated_at before update on holders
+  for each row execute function set_updated_at();
+create trigger holder_partnerships_updated_at before update on holder_partnerships
+  for each row execute function set_updated_at();
+create trigger dossiers_updated_at before update on dossiers
   for each row execute function set_updated_at();
 create trigger consultations_updated_at before update on consultations
   for each row execute function set_updated_at();
 create trigger scr_authorizations_updated_at before update on scr_authorizations
   for each row execute function set_updated_at();
 create trigger ai_reports_updated_at before update on ai_reports
-  for each row execute function set_updated_at();
-create trigger company_reports_updated_at before update on company_reports
   for each row execute function set_updated_at();
 create trigger crm_notes_updated_at before update on crm_notes
   for each row execute function set_updated_at();
@@ -343,24 +396,25 @@ create trigger bureau_payload_transition
 alter type user_role owner to schema_owner;
 alter type query_type owner to schema_owner;
 alter type consultation_status owner to schema_owner;
-alter type batch_status owner to schema_owner;
+alter type dossier_kind owner to schema_owner;
+alter type dossier_status owner to schema_owner;
 alter type scr_status owner to schema_owner;
 alter type timeline_entity_type owner to schema_owner;
 alter function set_updated_at() owner to schema_owner;
 alter function enforce_bureau_payload_transition() owner to schema_owner;
 
+alter table bureaus owner to schema_owner;
 alter table profiles owner to schema_owner;
-alter table crm_clients owner to schema_owner;
-alter table crm_client_documents owner to schema_owner;
-alter table crm_client_relations owner to schema_owner;
-alter table batches owner to schema_owner;
+alter table holders owner to schema_owner;
+alter table holder_partnerships owner to schema_owner;
+alter table dossiers owner to schema_owner;
 alter table consultations owner to schema_owner;
 alter table scr_authorizations owner to schema_owner;
 alter table bureau_payloads owner to schema_owner;
 alter table bureau_results owner to schema_owner;
 alter table ai_reports owner to schema_owner;
-alter table company_reports owner to schema_owner;
 alter table timeline_events owner to schema_owner;
 alter table crm_notes owner to schema_owner;
 alter table settings owner to schema_owner;
+alter table support_sessions owner to schema_owner;
 alter table audit_logs owner to schema_owner;

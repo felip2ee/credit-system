@@ -1,31 +1,59 @@
 -- The gateway function owner must obey RLS. Only the read-only backup role may
--- bypass it; these grants and policies are the complete public SCR boundary.
+-- bypass it; these grants and policies are the complete boundary of the public
+-- SCR gateway and of the cross-tenant SECURITY DEFINER functions
+-- (auth_profile_for_session, app_support_active, public_bureau_by_slug,
+-- platform_bureau_metrics).
 
 alter role auth_profile_lookup NOLOGIN NOINHERIT NOBYPASSRLS;
 
--- Staff policies apply to every role, so the gateway owner must be able to
+-- Tenant policies apply to every role, so the gateway owner must be able to
 -- evaluate their helper functions (they return false without a user context).
-grant execute on function public.app_user_id(), public.app_user_role(), public.app_context_present()
+grant execute on function
+  public.app_user_id(), public.app_user_role(), public.app_bureau_id(),
+  public.app_support_session_id(), public.app_context_present(),
+  public.app_support_active(), public.app_is_staff()
   to auth_profile_lookup;
 
 revoke all on public.profiles from auth_profile_lookup;
+revoke all on public.bureaus from auth_profile_lookup;
+revoke all on public.support_sessions from auth_profile_lookup;
 revoke all on public.scr_authorizations from auth_profile_lookup;
 revoke all on public.timeline_events from auth_profile_lookup;
+revoke all on public.holders from auth_profile_lookup;
+revoke all on public.dossiers from auth_profile_lookup;
+revoke all on public.consultations from auth_profile_lookup;
 
-grant select (id, auth_user_id, role, is_active, mfa_enabled)
+grant select (id, auth_user_id, role, is_active, mfa_enabled, bureau_id)
   on public.profiles to auth_profile_lookup;
+grant select (id, name, slug, status) on public.bureaus to auth_profile_lookup;
+grant select (id, superadmin_id, bureau_id, started_at, expires_at, ended_at)
+  on public.support_sessions to auth_profile_lookup;
 grant select (
-  id, status, auth_code, crm_client_id, public_token, channel, type,
+  id, status, auth_code, bureau_id, holder_id, public_token, channel, type,
   consent_text, consent_name, consent_document, document, expires_at
 ) on public.scr_authorizations to auth_profile_lookup;
 grant update (
   status, authorized_at, consented_at, consent_ip, refused_at, expires_at,
   last_checked_at, auth_code
 ) on public.scr_authorizations to auth_profile_lookup;
-grant insert (entity_type, entity_id, event_type, title)
+grant insert (bureau_id, entity_type, entity_id, event_type, title)
   on public.timeline_events to auth_profile_lookup;
+-- Only ids and counters for platform_bureau_metrics.
+grant select (id, bureau_id) on public.holders to auth_profile_lookup;
+grant select (id, bureau_id) on public.dossiers to auth_profile_lookup;
+grant select (id, bureau_id, created_at) on public.consultations to auth_profile_lookup;
 
 create policy profiles_gateway_lookup on public.profiles for select to auth_profile_lookup
+  using (true);
+create policy bureaus_gateway_select on public.bureaus for select to auth_profile_lookup
+  using (true);
+create policy support_sessions_gateway_select on public.support_sessions for select to auth_profile_lookup
+  using (true);
+create policy holders_gateway_select on public.holders for select to auth_profile_lookup
+  using (true);
+create policy dossiers_gateway_select on public.dossiers for select to auth_profile_lookup
+  using (true);
+create policy consultations_gateway_select on public.consultations for select to auth_profile_lookup
   using (true);
 create policy scr_authorizations_gateway_select on public.scr_authorizations for select to auth_profile_lookup
   using (channel = 'internal');
@@ -34,14 +62,19 @@ create policy scr_authorizations_gateway_update on public.scr_authorizations for
   with check (channel = 'internal');
 create policy timeline_events_gateway_insert on public.timeline_events for insert to auth_profile_lookup
   with check (
-    entity_type = 'crm_client'
+    entity_type = 'holder'
     and (
       (event_type = 'scr.self_authorized' and title = 'Autorização SCR concedida pelo titular')
       or (event_type = 'scr.self_refused' and title = 'Autorização SCR recusada pelo titular')
     )
+    and exists (
+      select 1 from public.scr_authorizations s
+       where s.holder_id = timeline_events.entity_id
+         and s.bureau_id = timeline_events.bureau_id
+         and s.channel = 'internal')
   );
 
-create or replace function public.confirm_public_scr_authorization(
+create function public.confirm_public_scr_authorization(
   p_token text,
   p_channel text,
   p_code text,
@@ -57,11 +90,12 @@ declare
   v_id uuid;
   v_status text;
   v_auth_code text;
-  v_crm_client_id uuid;
+  v_bureau_id uuid;
+  v_holder_id uuid;
   v_authorized boolean;
 begin
-  select s.id, s.status::text, s.auth_code, s.crm_client_id
-    into v_id, v_status, v_auth_code, v_crm_client_id
+  select s.id, s.status::text, s.auth_code, s.bureau_id, s.holder_id
+    into v_id, v_status, v_auth_code, v_bureau_id, v_holder_id
     from public.scr_authorizations s
    where s.public_token::text = p_token
      and s.channel = p_channel
@@ -88,15 +122,14 @@ begin
          auth_code = null
    where id = v_id;
 
-  if v_crm_client_id is not null then
-    insert into public.timeline_events (entity_type, entity_id, event_type, title)
-    values (
-      'crm_client',
-      v_crm_client_id,
-      case when v_authorized then 'scr.self_authorized' else 'scr.self_refused' end,
-      case when v_authorized then 'Autorização SCR concedida pelo titular' else 'Autorização SCR recusada pelo titular' end
-    );
-  end if;
+  insert into public.timeline_events (bureau_id, entity_type, entity_id, event_type, title)
+  values (
+    v_bureau_id,
+    'holder',
+    v_holder_id,
+    case when v_authorized then 'scr.self_authorized' else 'scr.self_refused' end,
+    case when v_authorized then 'Autorização SCR concedida pelo titular' else 'Autorização SCR recusada pelo titular' end
+  );
 
   return case when v_authorized then 'authorized' else 'refused' end;
 end
@@ -105,3 +138,51 @@ $$;
 alter function public.confirm_public_scr_authorization(text, text, text, text, text) owner to auth_profile_lookup;
 revoke all on function public.confirm_public_scr_authorization(text, text, text, text, text) from public;
 grant execute on function public.confirm_public_scr_authorization(text, text, text, text, text) to app_runtime;
+
+create function public.public_bureau_by_slug(p_slug text)
+returns table (name text, slug text)
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select b.name, b.slug from public.bureaus b
+   where b.slug = p_slug and b.status = 'active'
+$$;
+
+alter function public.public_bureau_by_slug(text) owner to auth_profile_lookup;
+revoke all on function public.public_bureau_by_slug(text) from public;
+grant execute on function public.public_bureau_by_slug(text) to app_runtime;
+
+create function public.platform_bureau_metrics()
+returns table (
+  bureau_id uuid, name text, slug text, status text,
+  staff_count bigint, holder_count bigint, dossier_count bigint,
+  consultation_count bigint, consultations_30d bigint
+)
+language plpgsql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if public.app_user_id() is null or public.app_user_role() is distinct from 'superadmin' then
+    raise exception 'superadmin context required' using errcode = '42501';
+  end if;
+  return query
+    select b.id, b.name, b.slug, b.status,
+           (select count(*) from public.profiles p
+             where p.bureau_id = b.id and p.role in ('bureau_admin', 'operator')),
+           (select count(*) from public.holders h where h.bureau_id = b.id),
+           (select count(*) from public.dossiers d where d.bureau_id = b.id),
+           (select count(*) from public.consultations c where c.bureau_id = b.id),
+           (select count(*) from public.consultations c
+             where c.bureau_id = b.id and c.created_at > now() - interval '30 days')
+      from public.bureaus b
+     order by b.name;
+end
+$$;
+
+alter function public.platform_bureau_metrics() owner to auth_profile_lookup;
+revoke all on function public.platform_bureau_metrics() from public;
+grant execute on function public.platform_bureau_metrics() to app_runtime;
