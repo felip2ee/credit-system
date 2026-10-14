@@ -128,18 +128,21 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
   });
 
   afterAll(async () => {
-    if (testUsers.length) {
-      const ids = testUsers.map(({ id }) => id);
-      // app_runtime has no delete grant on profiles; clean up as the owner.
-      const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
-      try {
-        await owner.query("delete from profiles where id = any($1::uuid[])", [ids]);
-        await owner.query('delete from "user" where id = any($1::text[])', [ids]);
-      } finally {
-        await owner.end();
+    try {
+      if (testUsers.length) {
+        const ids = testUsers.map(({ id }) => id);
+        // app_runtime has no delete grant on profiles; clean up as the owner.
+        const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
+        try {
+          await owner.query("delete from profiles where id = any($1::uuid[])", [ids]);
+          await owner.query('delete from "user" where id = any($1::text[])', [ids]);
+        } finally {
+          await owner.end();
+        }
       }
+    } finally {
+      await pool.end();
     }
-    await pool.end();
   });
 
   it("rejects public email/password signup", async () => {
@@ -153,6 +156,39 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
     await expect(response.json()).resolves.toMatchObject({
       code: "EMAIL_PASSWORD_SIGN_UP_DISABLED",
     });
+  });
+
+  it("blocks a fourth sign-in within ten seconds with a sane X-Retry-After", async () => {
+    // Better Auth default for /sign-in: 3 requests per 10 s. authRequest clears the limiter, so send raw requests.
+    await pool.query("delete from rate_limit");
+    const signIn = () =>
+      authHandler(
+        new Request("http://localhost:3000/api/auth/sign-in/email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: "nobody@example.test", password }),
+        }),
+      );
+    try {
+      const statuses: number[] = [];
+      let blocked: Response | undefined;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const response = await signIn();
+        statuses.push(response.status);
+        blocked = response;
+      }
+
+      expect(statuses[3]).toBe(429);
+      const { rowCount } = await pool.query(
+        "select 1 from rate_limit where key like '%/sign-in/email'",
+      );
+      expect(rowCount).toBeGreaterThan(0);
+      const retryAfter = Number(blocked?.headers.get("x-retry-after"));
+      expect(retryAfter).toBeGreaterThan(0);
+      expect(retryAfter).toBeLessThan(3600);
+    } finally {
+      await pool.query("delete from rate_limit where key like '%/sign-in/email'");
+    }
   });
 
   it("creates a database session when a preserved UUID user signs in", async () => {

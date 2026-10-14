@@ -4,12 +4,12 @@ Source of truth for the Postgres 18 schema. Security-sensitive: roles, grants an
 
 ## Responsibility
 
-Holds `NNN_snake_case.sql` files (001 to 010 today): roles, Better Auth tables, business tables, RLS, indexes, document objects, public SCR authorization. It does NOT hold application queries (`src/lib/<domain>/queries.ts`) or the runner (`scripts/db/migrate.mjs`).
+Holds `NNN_snake_case.sql` files (001–005, 008, 009 today): roles, Better Auth tables, business tables, RLS, indexes, document objects, public SCR authorization. It does NOT hold application queries (`src/lib/<domain>/queries.ts`) or the runner (`scripts/db/migrate.mjs`).
 
 ## Key patterns
 
 - File name must match `^\d{3}_[a-z0-9_]+\.sql$` (enforced by `loadMigrations`); next number is 011.
-- Applied files are immutable: `schema_migrations` stores a sha256 checksum and the runner throws on a mismatch or a missing file. Fix by adding a new migration (see `010_must_reset_password.sql`: "Forward-only").
+- Applied files are immutable: `schema_migrations` stores a sha256 checksum and the runner throws on a mismatch or a missing file. Fix by adding a new migration. A forward-only migration adds a new file and never edits an old one.
 - `001_roles.sql` defines `schema_owner`, `app_runtime` (NOBYPASSRLS), `backup_reader` (BYPASSRLS, read-only) and `auth_profile_lookup` (NOLOGIN, BYPASSRLS).
 - `004_rls.sql` defines `app_user_id()`, `app_user_role()`, `app_context_present()`; each table gets `enable row level security` and `force row level security`, then `create policy <table>_<verb>` (e.g. `profiles_select`).
 - `SECURITY DEFINER` functions set `search_path = pg_catalog, public`, change owner, `revoke all ... from public`, and `grant execute` to `app_runtime` only (e.g. `auth_profile_for_session`, `public_scr_authorization`).
@@ -28,7 +28,7 @@ Rules active in this directory — read them before touching code here:
 - Never edit an applied migration; add the next number. Never reintroduce Supabase.
 - Each file runs in one transaction (the runner wraps it in begin/commit): do not add your own `begin`/`commit`, and avoid statements that cannot run inside a transaction.
 - Make role creation idempotent with a `do $$ ... if not exists (select 1 from pg_roles ...)` block.
-- Start a file with a comment that states intent when the migration is non-obvious (008, 010).
+- Start a file with a comment that states intent when the migration is non-obvious (008, 009).
 
 ## Rules
 <!-- aia-harness:fixed — non-negotiable; do not edit, reorder, or remove during enrichment -->

@@ -1,6 +1,10 @@
-import { Pool } from "pg";
+import { Pool, types } from "pg";
 
 import { config } from "@/lib/config";
+
+// int8 -> number: Better Auth rate_limit.last_request (ms epoch) needs a number, not a string.
+// Safe: the only bigint column is rate_limit.last_request; counts are cast ::int.
+types.setTypeParser(20, Number);
 
 export const pool = new Pool({
   connectionString: config.databaseUrl,

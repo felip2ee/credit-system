@@ -9,6 +9,5 @@ npm-debug.log*
 .env.*.local
 *.md
 tsconfig.tsbuildinfo
-supabase/.temp
 .vscode
 .idea

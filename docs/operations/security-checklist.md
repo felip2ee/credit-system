@@ -112,8 +112,7 @@ Run after schema migrate (`\du` and the queries below as `postgres`):
 ## 8. Log redaction
 
 - [ ] Migration scripts print only the **redacted DSN host** — never a full
-  connection string, password, token, or MFA secret (`redactDsn` in
-  `scripts/migration/lib.mjs`).
+  connection string, password, token, or MFA secret.
 - [ ] `001-users.sh` init script reads passwords via `\getenv`, never psql argv.
 - [ ] Backup alert emails send SMTP creds via a `0600` tmpfs `--netrc-file`,
   removed in the same subshell — never `--user user:pass`.

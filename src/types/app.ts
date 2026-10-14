@@ -1,5 +1,5 @@
 // Tipos de domínio do Reino do Crédito.
-// Refletem os enums e tabelas do esquema legado preservado em docs/legacy.
+// Refletem os enums e tabelas do esquema legado.
 
 export type UserRole = "admin" | "consultant" | "client";
 

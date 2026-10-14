@@ -51,19 +51,25 @@ async function rowsFor(email: string) {
 }
 
 afterAll(async () => {
-  for (const email of created) {
-    const { rows } = await owner.query<{ id: string }>(
-      `select id from "user" where lower(email) = lower($1)`,
-      [email],
-    );
-    for (const { id } of rows) {
-      await owner.query("delete from audit_logs where user_id = $1::uuid", [id]);
-      await owner.query("delete from profiles where id = $1::uuid", [id]);
-      await owner.query(`delete from "user" where id = $1`, [id]);
+  try {
+    for (const email of created) {
+      const { rows } = await owner.query<{ id: string }>(
+        `select id from "user" where lower(email) = lower($1)`,
+        [email],
+      );
+      for (const { id } of rows) {
+        await owner.query("delete from audit_logs where user_id = $1::uuid", [id]);
+        await owner.query("delete from profiles where id = $1::uuid", [id]);
+        await owner.query(`delete from "user" where id = $1`, [id]);
+      }
+    }
+  } finally {
+    try {
+      await owner.end();
+    } finally {
+      await pool.end();
     }
   }
-  await owner.end();
-  await pool.end();
 });
 
 describe("ensureSuperadmin", () => {
