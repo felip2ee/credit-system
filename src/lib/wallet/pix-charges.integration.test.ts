@@ -37,7 +37,7 @@ import { withUserTransaction } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedPixCharge, seedTenant } from "@/test/seed";
 
-import { createPixCharge, getPixCharge, listPixCharges } from "./pix-charges";
+import { countPendingPixCharges, createPixCharge, getPixCharge, listPixCharges } from "./pix-charges";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const TOKEN = "i".repeat(32);
@@ -109,8 +109,25 @@ describe("createPixCharge", () => {
 				withUserTransaction(identity, (c) =>
 					createPixCharge(c, identity, { asaasPaymentId: `pay_${randomUUID()}`, pixPayload: "p", amount: "50.00" }),
 				),
-			).rejects.toThrow();
+			).rejects.toThrow(/row-level security/);
 		}
+	});
+});
+
+describe("countPendingPixCharges", () => {
+	it("counts only pending charges that have not expired, for the own Bureau", async () => {
+		const tenant = await seedTenant(owner, "Pix F");
+		const other = await seedTenant(owner, "Pix F2");
+		const admin = tenant.bureauAdmin;
+		const base = { bureauId: tenant.bureau.id, requestedBy: admin.userId };
+		await seedPixCharge(owner, base);
+		await seedPixCharge(owner, base);
+		await seedPixCharge(owner, { ...base, expiresAt: new Date(Date.now() - 60_000) });
+		await seedPixCharge(owner, { ...base, status: "paid" });
+		await seedPixCharge(owner, { ...base, status: "cancelled" });
+		await seedPixCharge(owner, { bureauId: other.bureau.id, requestedBy: other.bureauAdmin.userId });
+
+		expect(await withUserTransaction(admin, (c) => countPendingPixCharges(c, tenant.bureau.id))).toBe(2);
 	});
 });
 
@@ -172,6 +189,20 @@ describe("POST /api/webhooks/asaas", () => {
 		expect(await balance(tenant.bureau.id)).toBe("100.00");
 		const { rows } = await owner.query("select status from pix_charges where id = $1", [charge.id]);
 		expect(rows[0].status).toBe("paid");
+	});
+
+	it("records a neutral ledger reference, never the Asaas payment id", async () => {
+		const tenant = await seedTenant(owner, "Hook B2");
+		const charge = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId });
+
+		await webhook(buildFakePaymentEvent({ eventId: evt(), asaasPaymentId: charge.asaasPaymentId, value: 100 }));
+
+		const { rows } = await owner.query<{ reference: string }>(
+			"select reference from ledger_entries where bureau_id = $1 and kind = 'topup'",
+			[tenant.bureau.id],
+		);
+		expect(rows.map((r) => r.reference)).toEqual([`pix_charge:${charge.id}`]);
+		expect(rows[0].reference).not.toContain(charge.asaasPaymentId);
 	});
 
 	it("parallel duplicate events credit once", async () => {

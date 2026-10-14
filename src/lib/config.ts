@@ -118,10 +118,14 @@ export function readAsaasConfig(env: Environment): AsaasConfig {
   }
   if (driver === "fake") return { driver, webhookToken };
 
+  // A chave de API segue neste endereço: só https.
+  const baseUrl = url(env, "ASAAS_API_BASE_URL");
+  if (new URL(baseUrl).protocol !== "https:") throw new Error("ASAAS_API_BASE_URL must use https");
+
   return {
     driver,
     apiKey: required(env, "ASAAS_API_KEY"),
-    baseUrl: url(env, "ASAAS_API_BASE_URL"),
+    baseUrl,
     customerId: required(env, "ASAAS_CUSTOMER_ID"),
     webhookToken,
   };

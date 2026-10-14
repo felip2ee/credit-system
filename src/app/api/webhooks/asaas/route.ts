@@ -42,7 +42,11 @@ export async function POST(request: Request): Promise<Response> {
 		return respond(400);
 	}
 	const parsed = eventSchema.safeParse(raw);
-	if (!parsed.success) return respond(400);
+	if (!parsed.success) {
+		// Evento sem cobrança (ou sem id): não há o que gravar. 200 evita reenvios; o corpo não vai ao log.
+		console.warn("[asaas-webhook] evento sem payment.id ignorado");
+		return respond(200);
+	}
 
 	try {
 		await applyAsaasPayment({

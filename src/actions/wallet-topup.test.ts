@@ -8,6 +8,8 @@ const state = vi.hoisted(() => ({
 	sessionError: null as Error | null,
 	adapterCreate: vi.fn(),
 	insertCharge: vi.fn(),
+	countPending: vi.fn(),
+	getWallet: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -26,7 +28,12 @@ vi.mock("@/lib/db/transaction", () => ({
 	withUserTransaction: async (_identity: unknown, work: (client: unknown) => unknown) => work({}),
 }));
 vi.mock("@/lib/asaas", () => ({ getAsaasClient: () => ({ createPixCharge: state.adapterCreate }) }));
-vi.mock("@/lib/wallet/pix-charges", () => ({ createPixCharge: state.insertCharge }));
+vi.mock("@/lib/wallet/pix-charges", () => ({
+	createPixCharge: state.insertCharge,
+	countPendingPixCharges: state.countPending,
+	MAX_PENDING_PIX_CHARGES: 10,
+}));
+vi.mock("@/lib/wallet/queries", () => ({ getWallet: state.getWallet }));
 
 import { revalidatePath } from "next/cache";
 
@@ -45,6 +52,8 @@ beforeEach(() => {
 		pixPayload: "000201pix",
 		qrImageBase64: "QUJD",
 	});
+	state.getWallet.mockResolvedValue({ available: "0.00", reserved: "0.00" });
+	state.countPending.mockResolvedValue(0);
 	state.insertCharge.mockResolvedValue({ ok: true, id: "charge-1", expiresAt: new Date("2030-01-01T00:30:00Z") });
 });
 
@@ -96,6 +105,31 @@ describe("requestTopupAction", () => {
 		expect((await requestTopupAction({ amount })).error).toBeNull();
 	});
 
+	it("returns an error and creates no Asaas charge when the Bureau has no wallet", async () => {
+		state.getWallet.mockResolvedValue(null);
+
+		const result = await requestTopupAction({ amount: "100.00" });
+
+		expect(result.error).toBe("Carteira não encontrada. Contate o suporte.");
+		expect(state.adapterCreate).not.toHaveBeenCalled();
+		expect(state.insertCharge).not.toHaveBeenCalled();
+	});
+
+	it("blocks a new charge at 10 pending charges and calls no Asaas", async () => {
+		state.countPending.mockResolvedValue(10);
+
+		const result = await requestTopupAction({ amount: "100.00" });
+
+		expect(result.error).toBe("Há PIX pendentes demais. Pague ou aguarde expirar antes de gerar outro.");
+		expect(state.adapterCreate).not.toHaveBeenCalled();
+	});
+
+	it("still allows a charge at 9 pending charges", async () => {
+		state.countPending.mockResolvedValue(9);
+
+		expect((await requestTopupAction({ amount: "100.00" })).error).toBeNull();
+	});
+
 	it("saves no charge when the adapter fails", async () => {
 		state.adapterCreate.mockRejectedValue(new Error("Asaas respondeu 500"));
 		vi.spyOn(console, "error").mockImplementation(() => {});
@@ -104,6 +138,16 @@ describe("requestTopupAction", () => {
 
 		expect(result.error).toBe("Não foi possível gerar o PIX. Tente novamente.");
 		expect(state.insertCharge).not.toHaveBeenCalled();
+	});
+
+	it("reports an error and skips Asaas when the pre-checks fail", async () => {
+		state.getWallet.mockRejectedValue(new Error("db down"));
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		expect((await requestTopupAction({ amount: "100.00" })).error).toBe(
+			"Não foi possível gerar o PIX. Tente novamente.",
+		);
+		expect(state.adapterCreate).not.toHaveBeenCalled();
 	});
 
 	it("reports an error when the charge cannot be saved", async () => {

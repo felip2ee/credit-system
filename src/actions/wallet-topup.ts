@@ -9,7 +9,8 @@ import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { walletTopupSchema } from "@/lib/validators/wallet";
-import { createPixCharge } from "@/lib/wallet/pix-charges";
+import { countPendingPixCharges, createPixCharge, MAX_PENDING_PIX_CHARGES } from "@/lib/wallet/pix-charges";
+import { getWallet } from "@/lib/wallet/queries";
 
 // Nada do Asaas além do que o QR precisa: o id do pagamento fica no servidor.
 export interface TopupActionResult {
@@ -22,6 +23,8 @@ export interface TopupActionResult {
 
 const NOT_ALLOWED = "Você não tem permissão para recarregar a carteira.";
 const FAILED = "Não foi possível gerar o PIX. Tente novamente.";
+const NO_WALLET = "Carteira não encontrada. Contate o suporte.";
+const TOO_MANY_PENDING = "Há PIX pendentes demais. Pague ou aguarde expirar antes de gerar outro.";
 const DESCRIPTION = "Recarga de carteira";
 
 // Só nome e código do erro: sem valores, chaves nem corpo da resposta do Asaas.
@@ -48,6 +51,22 @@ export async function requestTopupAction(values: unknown): Promise<TopupActionRe
 	if (!hasPermission(session, "wallet:topup")) return { error: NOT_ALLOWED };
 
 	const { amount } = parsed.data;
+
+	// Antes do Asaas: cobrança externa sem carteira ou acima do limite ficaria sem destino.
+	const { bureauId } = session;
+	let blocked: string | null;
+	try {
+		blocked = await withUserTransaction(session, async (client) => {
+			if (!bureauId || !(await getWallet(client, bureauId))) return NO_WALLET;
+			if ((await countPendingPixCharges(client, bureauId)) >= MAX_PENDING_PIX_CHARGES) return TOO_MANY_PENDING;
+			return null;
+		});
+	} catch (error) {
+		logFailure("precheck", error);
+		return { error: FAILED };
+	}
+	if (blocked) return { error: blocked };
+
 	let charge;
 	try {
 		charge = await getAsaasClient().createPixCharge({

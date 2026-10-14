@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -237,6 +239,26 @@ describe("wallet_apply (saldo)", () => {
 				reason: "invalid_key",
 			});
 		});
+	});
+
+	it("rejects a key with the pix: prefix, which the webhook credit owns", async () => {
+		const tenant = await fundedTenant("50.00");
+		const id = tenant.bureau.id;
+		await withDbContext(app, adminOf(tenant), async (c) => {
+			expect(
+				await apply(
+					c,
+					id,
+					"reserve",
+					"1.00",
+					`pix:${randomBytes(4).toString("hex")}`,
+				),
+			).toMatchObject({
+				ok: false,
+				reason: "invalid_key",
+			});
+		});
+		expect(await balance(id)).toEqual({ available: "50.00", reserved: "0.00" });
 	});
 
 	it("replays the same key without changing the balance and rejects a changed request", async () => {
@@ -605,7 +627,7 @@ describe("apply_asaas_payment", () => {
 				kind: "topup",
 				amount: "123.45",
 				created_by: tenant.bureauAdmin.userId,
-				reference: charge.asaasPaymentId,
+				reference: `pix_charge:${charge.id}`,
 			}),
 		]);
 		const audit = await owner.query(
@@ -900,5 +922,59 @@ describe("auditoria da carteira", () => {
 		await expect(
 			asDefiner({ ...topupAudit, recordId: null as unknown as string }),
 		).rejects.toThrow(/row-level security/);
+	});
+});
+
+// Executa o trecho de backfill da 013 como ela roda: o dono (schema_owner) tem RLS forçado em bureaus.
+describe("013 wallet backfill", () => {
+	const migration = readFileSync(
+		resolve(process.cwd(), "db/migrations/013_wallet_fixes.sql"),
+		"utf8",
+	);
+	const backfill =
+		migration.split("-- backfill:start")[1]?.split("-- backfill:end")[0] ?? "";
+
+	it("lets schema_owner switch to the gateway role", async () => {
+		const { rows } = await owner.query<{ ok: boolean }>(
+			"select pg_has_role('schema_owner', 'auth_profile_lookup', 'set') as ok",
+		);
+		expect(rows[0].ok).toBe(true);
+	});
+
+	it("restores the wallet of a Bureau that existed before the migration", async () => {
+		const tenant = await seedTenant(owner, "Backfill");
+		const id = tenant.bureau.id;
+		await owner.query("delete from wallets where bureau_id = $1", [id]);
+
+		const client = await owner.connect();
+		try {
+			await client.query("begin");
+			await client.query("set local role schema_owner");
+			// Prova do defeito da 012: sem a troca de role, o dono forçado pelo RLS não vê nenhum Bureau.
+			const blind = await client.query(
+				"insert into wallets (bureau_id) select id from bureaus",
+			);
+			expect(blind.rowCount).toBe(0);
+			await client.query(backfill);
+			await client.query("commit");
+		} catch (error) {
+			await client.query("rollback");
+			throw error;
+		} finally {
+			client.release();
+		}
+
+		expect(await balance(id)).toEqual({ available: "0.00", reserved: "0.00" });
+	});
+
+	it("keeps an existing wallet untouched", async () => {
+		const tenant = await fundedTenant("40.00");
+
+		await owner.query(backfill);
+
+		expect(await balance(tenant.bureau.id)).toEqual({
+			available: "40.00",
+			reserved: "0.00",
+		});
 	});
 });

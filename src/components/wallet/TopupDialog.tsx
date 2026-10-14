@@ -39,6 +39,7 @@ export function TopupDialog({ charges }: TopupDialogProps) {
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   const status: PixChargeStatus = charge ? (charges.find((c) => c.id === charge.id)?.status ?? "pending") : "pending";
   const polling = open && charge !== null && status === "pending";
@@ -52,6 +53,11 @@ export function TopupDialog({ charges }: TopupDialogProps) {
   useEffect(() => {
     if (open && !charge) inputRef.current?.focus();
   }, [open, charge]);
+
+  // O formulário sai da árvore ao mostrar a cobrança: sem isto o foco cai no body e o Escape para de funcionar.
+  useEffect(() => {
+    if (charge) closeRef.current?.focus();
+  }, [charge]);
 
   const close = () => {
     setOpen(false);
@@ -173,7 +179,7 @@ export function TopupDialog({ charges }: TopupDialogProps) {
                   </p>
                 )}
                 <div className="flex justify-end">
-                  <Button type="button" variant="outline" onClick={close}>
+                  <Button ref={closeRef} type="button" variant="outline" onClick={close}>
                     Fechar
                   </Button>
                 </div>

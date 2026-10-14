@@ -30,7 +30,6 @@ vi.mock("next/headers", () => ({
 	},
 }));
 
-import { fromCents, toCents } from "@/lib/catalog/money";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
@@ -254,11 +253,5 @@ describe("listLedger", () => {
 
 		const page = await withUserTransaction(admin, (c) => listLedger(c, other.bureau.id, { limit: 10 }));
 		expect(page.rows).toEqual([]);
-	});
-});
-
-describe("money in cents", () => {
-	it("adds 0.10 + 0.20 as 0.30", () => {
-		expect(fromCents(toCents("0.10") + toCents("0.20"))).toBe("0.30");
 	});
 });

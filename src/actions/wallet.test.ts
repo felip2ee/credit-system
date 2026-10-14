@@ -39,6 +39,17 @@ import { SessionAccessError } from "@/lib/auth/session";
 import { adjustWalletAction } from "./wallet";
 
 const NOT_ALLOWED = "Você não tem permissão para ajustar a carteira.";
+const SUPPORT_ACTIVE = "Encerre a sessão de suporte para ajustar a carteira.";
+const AMOUNT_INVALID = "Informe um valor diferente de zero, com até 2 casas decimais (use - para débito).";
+const REASON_REQUIRED = "Informe o motivo do ajuste.";
+const REASON_TOO_LONG = "Motivo com no máximo 500 caracteres.";
+const INVALID_UUID = "Invalid uuid";
+const FAILURE_MESSAGES: Record<string, string> = {
+	insufficient_balance: "O ajuste deixaria o saldo disponível negativo.",
+	idempotency_conflict: "Este envio já foi usado com outros dados. Recarregue a página e tente de novo.",
+	not_found: "Bureau não encontrado.",
+	invalid_amount: "Valor inválido.",
+};
 const form = {
 	bureauId: BUREAU_ID,
 	amount: "-12.50",
@@ -71,7 +82,7 @@ describe("adjustWalletAction permission", () => {
 
 	it("denies a superadmin in a support session", async () => {
 		state.supportSessionId = "00000000-0000-4000-8000-0000000000d1";
-		expect((await adjustWalletAction(form)).error).toBeTruthy();
+		expect((await adjustWalletAction(form)).error).toBe(SUPPORT_ACTIVE);
 		expect(state.adjustWalletWithAudit).not.toHaveBeenCalled();
 	});
 
@@ -98,20 +109,20 @@ describe("adjustWalletAction validation", () => {
 			expect(
 				(await adjustWalletAction({ ...form, amount })).error,
 				amount,
-			).toBeTruthy();
+			).toBe(AMOUNT_INVALID);
 		}
 		expect(
 			(await adjustWalletAction({ ...form, reason: "   " })).error,
-		).toBeTruthy();
+		).toBe(REASON_REQUIRED);
 		expect(
 			(await adjustWalletAction({ ...form, reason: "x".repeat(501) })).error,
-		).toBeTruthy();
+		).toBe(REASON_TOO_LONG);
 		expect(
 			(await adjustWalletAction({ ...form, bureauId: "abc" })).error,
-		).toBeTruthy();
+		).toBe(INVALID_UUID);
 		expect(
 			(await adjustWalletAction({ ...form, idempotencyKey: "abc" })).error,
-		).toBeTruthy();
+		).toBe(INVALID_UUID);
 		expect(state.adjustWalletWithAudit).not.toHaveBeenCalled();
 	});
 
@@ -154,15 +165,10 @@ describe("adjustWalletAction", () => {
 	});
 
 	it("returns a message for each business failure", async () => {
-		for (const reason of [
-			"insufficient_balance",
-			"idempotency_conflict",
-			"not_found",
-			"invalid_amount",
-		]) {
+		for (const [reason, message] of Object.entries(FAILURE_MESSAGES)) {
 			state.adjustWalletWithAudit.mockResolvedValueOnce({ ok: false, reason });
 			const result = await adjustWalletAction(form);
-			expect(result.error, reason).toBeTruthy();
+			expect(result.error, reason).toBe(message);
 		}
 		expect(revalidatePath).not.toHaveBeenCalled();
 	});

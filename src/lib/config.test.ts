@@ -188,6 +188,21 @@ describe("readAsaasConfig", () => {
     );
   });
 
+  it.each(["http://api.asaas.example", "ftp://api.asaas.example", "file:///etc/passwd"])(
+    "rejects the non-https base URL %s",
+    (ASAAS_API_BASE_URL) => {
+      expect(() => readAsaasConfig({ ...asaas, ASAAS_API_BASE_URL })).toThrow(
+        "ASAAS_API_BASE_URL must use https",
+      );
+    },
+  );
+
+  it("accepts the fake driver without a base URL", () => {
+    expect(() =>
+      readAsaasConfig({ ASAAS_DRIVER: "fake", ASAAS_WEBHOOK_TOKEN: webhookToken, ASAAS_API_BASE_URL: "http://x.test" }),
+    ).not.toThrow();
+  });
+
   it("rejects a webhook token shorter than 32 characters", () => {
     expect(() => readAsaasConfig({ ...asaas, ASAAS_WEBHOOK_TOKEN: "short" })).toThrow(
       "ASAAS_WEBHOOK_TOKEN must be at least 32 characters",

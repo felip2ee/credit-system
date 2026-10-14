@@ -8,6 +8,7 @@ import type { DbIdentity } from "@/lib/db/transaction";
 import { topupAmountSchema } from "@/lib/validators/wallet";
 
 export const PIX_CHARGE_TTL_MINUTES = 30;
+export const MAX_PENDING_PIX_CHARGES = 10;
 
 export type PixChargeStatus = "pending" | "paid" | "expired" | "cancelled";
 
@@ -49,6 +50,15 @@ export async function createPixCharge(
 		metadata: { amount: input.amount },
 	});
 	return { ok: true, id, expiresAt };
+}
+
+// Cobranças ainda válidas do Bureau: limita o spam de PIX antes de chamar o Asaas.
+export async function countPendingPixCharges(client: PoolClient, bureauId: string): Promise<number> {
+	const { rows } = await client.query<{ total: number }>(
+		"select count(*)::int as total from pix_charges where bureau_id = $1 and status = 'pending' and expires_at > now()",
+		[bureauId],
+	);
+	return rows[0].total;
 }
 
 type ChargeRow = {

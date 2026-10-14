@@ -48,17 +48,28 @@ describe("POST /api/webhooks/asaas auth", () => {
 });
 
 describe("POST /api/webhooks/asaas body", () => {
-	it.each([
-		["not json", "{broken"],
-		["no event id", { event: "PAYMENT_RECEIVED", payment: { id: "pay_1" } }],
-		["no event type", { id: "evt_1", payment: { id: "pay_1" } }],
-		["no payment id", { id: "evt_1", event: "PAYMENT_RECEIVED", payment: {} }],
-		["no payment", { id: "evt_1", event: "PAYMENT_RECEIVED" }],
-	])("returns 400 for %s", async (_name, payload) => {
-		const response = await call(payload);
+	it("returns 400 for invalid JSON", async () => {
+		const response = await call("{broken");
 
 		expect(response.status).toBe(400);
 		expect(state.applyAsaasPayment).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["no event id", { event: "PAYMENT_RECEIVED", payment: { id: "pay_1" } }],
+		["no event type", { id: "evt_1", payment: { id: "pay_1" } }],
+		["no payment id", { id: "evt_1", event: "PAYMENT_RECEIVED", payment: {} }],
+		["no payment", { id: "evt_1", event: "ACCOUNT_STATUS_UPDATED" }],
+	])("answers 200, logs one line and writes nothing for valid JSON with %s", async (_name, payload) => {
+		const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		const response = await call(payload);
+
+		expect(response.status).toBe(200);
+		expect(state.applyAsaasPayment).not.toHaveBeenCalled();
+		expect(log).toHaveBeenCalledTimes(1);
+		expect(JSON.stringify(log.mock.calls)).not.toContain("pay_1");
+		log.mockRestore();
 	});
 });
 
