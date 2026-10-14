@@ -30,6 +30,8 @@ grant select (user_id, provider_id), update (password, updated_at),
   insert (id, issuer, account_id, provider_id, user_id, password, updated_at)
   on public.account to auth_profile_lookup;
 grant select (user_id), delete on public."session" to auth_profile_lookup;
+-- admin_set_credentials apaga os tokens de redefinição de senha pendentes do alvo.
+grant select (identifier, value), delete on public.verification to auth_profile_lookup;
 grant select (id, name, slug, status) on public.bureaus to auth_profile_lookup;
 grant select (id, superadmin_id, bureau_id, started_at, expires_at, ended_at)
   on public.support_sessions to auth_profile_lookup;
@@ -195,7 +197,7 @@ alter function public.platform_bureau_metrics() owner to auth_profile_lookup;
 revoke all on function public.platform_bureau_metrics() from public;
 grant execute on function public.platform_bureau_metrics() to app_runtime;
 
--- Define a senha temporária (hash) e/ou liga must_change_password; apaga as sessões do alvo.
+-- Define a senha temporária (hash) e/ou liga must_change_password; apaga as sessões e os tokens de redefinição do alvo.
 -- Quem chama: superadmin em contexto de plataforma, ou bureau_admin ativo no próprio Bureau.
 -- Alvo: superadmin → bureau_admin de p_bureau_id; bureau_admin → operator do próprio Bureau.
 -- false = alvo inexistente, de outro papel/Bureau, ou convite pendente sem hash (sem enumerar).
@@ -248,6 +250,9 @@ begin
 
   update public.profiles set must_change_password = true where id = p_target_id;
   delete from public."session" where user_id = p_target_id::text;
+  -- Better Auth guarda o link de redefinição como identifier 'reset-password:<token>', value = id do usuário.
+  delete from public.verification
+   where value = p_target_id::text and identifier like 'reset-password:%';
   return true;
 end
 $$;

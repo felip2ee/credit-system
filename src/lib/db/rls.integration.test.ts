@@ -1100,6 +1100,20 @@ describe("bureaus, slug checks and metrics", () => {
 	});
 });
 
+// Segundo bureau_admin do mesmo Bureau (par do admin semeado).
+async function seedPeerAdmin(bureauId: string): Promise<string> {
+	const id = randomUUID();
+	await owner.query(
+		'insert into "user" (id, name, email) values ($1, $2, $3)',
+		[id, "par", `${id}@example.test`],
+	);
+	await owner.query(
+		"insert into profiles (id, auth_user_id, full_name, email, role, bureau_id) values ($1::uuid, $1::text, 'par', $2, 'bureau_admin', $3)",
+		[id, `${id}@example.test`, bureauId],
+	);
+	return id;
+}
+
 describe("profiles", () => {
 	const profileInsert = (
 		c: import("pg").PoolClient,
@@ -1233,21 +1247,60 @@ describe("profiles", () => {
 		).rejects.toThrow(/only administrators may change profile security fields/);
 	});
 
-	it("bureau_admin changes roles only between bureau_admin and operator, only in own bureau", async () => {
+	const ROLE_RULE = /role may only change from operator to bureau_admin/;
+	const setRole = (actor: Actor, targetId: string, role: string) =>
+		withDbContext(app, actor, (c) =>
+			c.query("update profiles set role = $2::user_role where id = $1", [
+				targetId,
+				role,
+			]),
+		);
+
+	it("bureau_admin promotes an operator of the own bureau", async () => {
+		const T = await seedTenant(owner, "tenant promote");
 		await expect(
-			withDbContext(app, ctxOf(A.bureauAdmin), (c) =>
-				c.query("update profiles set role = 'bureau_admin' where id = $1", [
-					A.operator.userId,
-				]),
-			),
+			setRole(ctxOf(T.bureauAdmin), T.operator.userId, "bureau_admin"),
 		).resolves.toMatchObject({ rowCount: 1 });
+	});
+
+	it("bureau_admin cannot demote a peer admin or itself", async () => {
+		const T = await seedTenant(owner, "tenant demote");
+		const peerId = await seedPeerAdmin(T.bureau.id);
 		await expect(
-			withDbContext(app, ctxOf(A.bureauAdmin), (c) =>
-				c.query("update profiles set role = 'operator' where id = $1", [
-					A.client.userId,
-				]),
-			),
-		).rejects.toThrow(/role/);
+			setRole(ctxOf(T.bureauAdmin), peerId, "operator"),
+		).rejects.toThrow(ROLE_RULE);
+		await expect(
+			setRole(ctxOf(T.bureauAdmin), T.bureauAdmin.userId, "operator"),
+		).rejects.toThrow(ROLE_RULE);
+	});
+
+	it("bureau_admin cannot move a client or an operator to another role", async () => {
+		const T = await seedTenant(owner, "tenant role other");
+		for (const [target, role] of [
+			[T.client.userId, "operator"],
+			[T.client.userId, "bureau_admin"],
+			[T.operator.userId, "client"],
+			[T.operator.userId, "superadmin"],
+		] as const) {
+			await expect(
+				setRole(ctxOf(T.bureauAdmin), target, role),
+			).rejects.toThrow(ROLE_RULE);
+		}
+	});
+
+	it("operator and client cannot change any role", async () => {
+		const T = await seedTenant(owner, "tenant role self");
+		for (const actor of [T.operator, T.client]) {
+			await expect(
+				setRole(ctxOf(actor), actor.userId, "bureau_admin"),
+			).rejects.toThrow(/only administrators may change profile security fields/);
+		}
+		await expect(
+			setRole(ctxOf(T.operator), T.bureauAdmin.userId, "operator"),
+		).resolves.toMatchObject({ rowCount: 0 });
+	});
+
+	it("bureau_id is immutable and a bureau_admin cannot reach another bureau", async () => {
 		await expect(
 			withDbContext(app, ctxOf(A.bureauAdmin), (c) =>
 				c.query("update profiles set bureau_id = $1 where id = $2", [
@@ -1262,6 +1315,9 @@ describe("profiles", () => {
 					B.operator.userId,
 				]),
 			),
+		);
+		await expectNoEffect(
+			setRole(ctxOf(A.bureauAdmin), B.operator.userId, "bureau_admin"),
 		);
 	});
 });
@@ -1736,6 +1792,92 @@ describe("admin_set_credentials target rules", () => {
 				password: FAKE_HASH,
 			},
 		]);
+	});
+
+	it("demote -> set credentials -> promote fails at the demotion", async () => {
+		const T = await fresh("creds takeover");
+		const peerId = await seedPeerAdmin(T.bureau.id);
+		await addAccount(peerId);
+		await addSession(peerId);
+		await expect(
+			withDbContext(app, ctxOf(T.bureauAdmin), (c) =>
+				c.query("update profiles set role = 'operator' where id = $1", [peerId]),
+			),
+		).rejects.toThrow(/role may only change from operator to bureau_admin/);
+		const result = await call(
+			ctxOf(T.bureauAdmin),
+			peerId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(result).toEqual({ ok: false, after: untouched });
+	});
+
+	describe("pending password reset tokens", () => {
+		const addReset = (identifier: string, userId: string) =>
+			owner.query(
+				`insert into verification (identifier, value, expires_at)
+         values ($1, $2, now() + interval '15 minutes')`,
+				[identifier, userId],
+			);
+		const identifiersOf = async (userId: string) =>
+			(
+				await owner.query<{ identifier: string }>(
+					"select identifier from verification where value = $1 order by identifier",
+					[userId],
+				)
+			).rows.map((row) => row.identifier);
+
+		it("deletes only the target's reset tokens when the call succeeds", async () => {
+			const T = await fresh("creds reset");
+			const token = `reset-password:${randomBytes(8).toString("hex")}`;
+			const other = `reset-password:${randomBytes(8).toString("hex")}`;
+			const unrelated = `email-verification:${randomBytes(8).toString("hex")}`;
+			await addReset(token, T.operator.userId);
+			await addReset(unrelated, T.operator.userId);
+			await addReset(other, T.client.userId);
+			const result = await call(
+				ctxOf(T.bureauAdmin),
+				T.operator.userId,
+				T.bureau.id,
+				FAKE_HASH,
+			);
+			expect(result.ok).toBe(true);
+			expect(await identifiersOf(T.operator.userId)).toEqual([unrelated]);
+			expect(await identifiersOf(T.client.userId)).toEqual([other]);
+		});
+
+		it("deletes the token when only the flag is set (null hash)", async () => {
+			const T = await fresh("creds reset null");
+			await addReset(
+				`reset-password:${randomBytes(8).toString("hex")}`,
+				T.operator.userId,
+			);
+			const result = await call(
+				ctxOf(T.bureauAdmin),
+				T.operator.userId,
+				T.bureau.id,
+				null,
+			);
+			expect(result.ok).toBe(true);
+			expect(await identifiersOf(T.operator.userId)).toEqual([]);
+		});
+
+		it("keeps the tokens when the call returns false", async () => {
+			const T = await fresh("creds reset refused");
+			const peerId = await seedPeerAdmin(T.bureau.id);
+			await addAccount(peerId);
+			const token = `reset-password:${randomBytes(8).toString("hex")}`;
+			await addReset(token, peerId);
+			const result = await call(
+				ctxOf(T.bureauAdmin),
+				peerId,
+				T.bureau.id,
+				FAKE_HASH,
+			);
+			expect(result.ok).toBe(false);
+			expect(await identifiersOf(peerId)).toEqual([token]);
+		});
 	});
 });
 

@@ -142,9 +142,11 @@ begin
     raise exception 'only administrators may change profile security fields';
   end if;
 
+  -- Só promoção (operator -> bureau_admin). Rebaixar um admin permitiria a um par
+  -- trocar a senha dele via admin_set_credentials, promovê-lo de volta e assumir a conta.
   if old.role is distinct from new.role
-    and not (old.role in ('bureau_admin', 'operator') and new.role in ('bureau_admin', 'operator')) then
-    raise exception 'role may only change between bureau_admin and operator';
+    and not (old.role = 'operator' and new.role = 'bureau_admin') then
+    raise exception 'role may only change from operator to bureau_admin';
   end if;
 
   -- A flag só muda pelo gateway admin_set_credentials ou pelo próprio usuário, de true para false.
