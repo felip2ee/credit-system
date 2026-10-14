@@ -12,7 +12,9 @@ import { getBureau } from "@/lib/bureaus/queries";
 import { listBureauCosts } from "@/lib/catalog/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { listRefundShortfalls } from "@/lib/wallet/pix-charges";
 import { getWallet, listLedger } from "@/lib/wallet/queries";
+import { formatCurrency } from "@/lib/utils";
 import { LedgerTable } from "@/components/wallet/LedgerTable";
 import { WalletBalance } from "@/components/wallet/WalletBalance";
 import { WalletAdjustForm } from "@/components/superadmin/WalletAdjustForm";
@@ -30,6 +32,7 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
     ? await withUserTransaction(session, async (client) => ({
         balance: await getWallet(client, bureau.id),
         ledger: await listLedger(client, bureau.id),
+        shortfalls: await listRefundShortfalls(client, bureau.id),
       }))
     : null;
   // Sem ajuste em sessão de suporte (a action também recusa).
@@ -54,9 +57,22 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
       {wallet?.balance && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Carteira</h2>
+          {wallet.shortfalls.length > 0 && (
+            <div role="alert" className="space-y-1 rounded-md border border-destructive p-3 text-sm">
+              {wallet.shortfalls.map((s) => (
+                <p key={s.chargeId}>
+                  Estorno com saldo insuficiente: {formatCurrency(Number(s.shortfall))} a recuperar (recarga de{" "}
+                  {formatCurrency(Number(s.amount))} em {s.createdAt.toLocaleDateString("pt-BR")}).
+                </p>
+              ))}
+              <p>Recupere o valor com um ajuste manual.</p>
+            </div>
+          )}
           <WalletBalance wallet={wallet.balance} />
           {canAdjust && <WalletAdjustForm bureauId={bureau.id} />}
-          <LedgerTable bureauId={bureau.id} initialRows={wallet.ledger.rows} initialCursor={wallet.ledger.nextCursor} />
+          <LedgerTable
+            key={wallet.ledger.rows[0]?.id ?? "empty"}
+            bureauId={bureau.id} initialRows={wallet.ledger.rows} initialCursor={wallet.ledger.nextCursor} />
         </section>
       )}
     </div>

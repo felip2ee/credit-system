@@ -16,6 +16,7 @@ const STATUS_LABEL: Record<Exclude<PixChargeStatus, "pending">, string> = {
   paid: "Pago",
   expired: "Expirado",
   cancelled: "Cancelado",
+  refunded: "Estornado",
 };
 
 interface Charge {
@@ -104,7 +105,7 @@ export function TopupDialog({ charges }: TopupDialogProps) {
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onKeyDown={(e) => e.key === "Escape" && close()}
+          onKeyDown={(e) => e.key === "Escape" && !isPending && close()}
         >
           <div
             role="dialog"
@@ -174,9 +175,14 @@ export function TopupDialog({ charges }: TopupDialogProps) {
                     </p>
                   </>
                 ) : (
-                  <p role="status" className="text-center text-lg font-semibold">
-                    {STATUS_LABEL[status]}
-                  </p>
+                  <div role="status" className="space-y-1 text-center">
+                    <p className="text-lg font-semibold">{STATUS_LABEL[status]}</p>
+                    {status === "expired" && (
+                      <p className="text-sm text-muted-foreground">
+                        Se o PIX for pago depois, o valor ainda será creditado.
+                      </p>
+                    )}
+                  </div>
                 )}
                 <div className="flex justify-end">
                   <Button ref={closeRef} type="button" variant="outline" onClick={close}>

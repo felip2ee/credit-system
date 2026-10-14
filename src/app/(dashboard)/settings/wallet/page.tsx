@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { LedgerTable } from "@/components/wallet/LedgerTable";
 import { TopupDialog } from "@/components/wallet/TopupDialog";
 import { WalletBalance } from "@/components/wallet/WalletBalance";
-import { getRequiredSession } from "@/lib/auth/session";
+import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { listPixCharges } from "@/lib/wallet/pix-charges";
@@ -13,7 +13,7 @@ import { getWallet, listLedger } from "@/lib/wallet/queries";
 export const metadata = { title: "Carteira" };
 
 export default async function WalletPage() {
-  const session = await getRequiredSession().catch(() => redirect("/login"));
+  const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
   if (!hasPermission(session, "wallet:read") || !session.bureauId) redirect("/");
 
   const { bureauId } = session;
@@ -35,7 +35,9 @@ export default async function WalletPage() {
       ) : (
         <p className="text-sm text-muted-foreground">Carteira não encontrada.</p>
       )}
-      <LedgerTable bureauId={bureauId} initialRows={data.ledger.rows} initialCursor={data.ledger.nextCursor} />
+      <LedgerTable
+        key={data.ledger.rows[0]?.id ?? "empty"}
+        bureauId={bureauId} initialRows={data.ledger.rows} initialCursor={data.ledger.nextCursor} />
     </div>
   );
 }

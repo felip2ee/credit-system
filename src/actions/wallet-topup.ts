@@ -58,6 +58,7 @@ export async function requestTopupAction(values: unknown): Promise<TopupActionRe
 	try {
 		blocked = await withUserTransaction(session, async (client) => {
 			if (!bureauId || !(await getWallet(client, bureauId))) return NO_WALLET;
+			// Limite brando: a contagem e o insert rodam em transações diferentes, com a chamada ao Asaas no meio; pedidos concorrentes podem passar de 10.
 			if ((await countPendingPixCharges(client, bureauId)) >= MAX_PENDING_PIX_CHARGES) return TOO_MANY_PENDING;
 			return null;
 		});

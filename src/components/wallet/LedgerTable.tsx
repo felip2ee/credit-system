@@ -15,6 +15,7 @@ const KIND_LABEL: Record<LedgerEntry["kind"], string> = {
   capture: "Cobrança",
   release: "Liberação",
   adjustment: "Ajuste",
+  reversal: "Estorno",
 };
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
