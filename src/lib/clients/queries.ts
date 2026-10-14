@@ -342,13 +342,6 @@ export interface ClientDetail {
     consulted_at: string | null;
     created_at: string;
   }[];
-  opportunities: {
-    id: string;
-    status: string;
-    requested_amount: number | null;
-    partner_name: string | null;
-    created_at: string;
-  }[];
 }
 
 export async function getClientDetail(
@@ -407,25 +400,12 @@ export async function getClientDetail(
       [id],
     );
 
-    const opportunities = await client.query<
-      ClientDetail["opportunities"][number]
-    >(
-      `select id, status, requested_amount::float8 as requested_amount,
-              partner_name, created_at::text
-         from opportunities
-        where crm_client_id = $1
-        order by created_at desc
-        limit 50`,
-      [id],
-    );
-
     return {
       client: clientRow.rows[0],
       relations: relations.rows,
       people: people.rows,
       events: events.rows,
       consultations: consultations.rows,
-      opportunities: opportunities.rows,
     };
   });
 }

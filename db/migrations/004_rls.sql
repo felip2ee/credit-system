@@ -84,8 +84,6 @@ create trigger protect_profile_identity
 
 alter table profiles enable row level security;
 alter table profiles force row level security;
-alter table credit_products enable row level security;
-alter table credit_products force row level security;
 alter table crm_clients enable row level security;
 alter table crm_clients force row level security;
 alter table crm_client_documents enable row level security;
@@ -106,10 +104,6 @@ alter table ai_reports enable row level security;
 alter table ai_reports force row level security;
 alter table company_reports enable row level security;
 alter table company_reports force row level security;
-alter table opportunities enable row level security;
-alter table opportunities force row level security;
-alter table opportunity_documents enable row level security;
-alter table opportunity_documents force row level security;
 alter table timeline_events enable row level security;
 alter table timeline_events force row level security;
 alter table crm_notes enable row level security;
@@ -135,12 +129,6 @@ create policy profiles_update on profiles for update
   );
 create policy profiles_insert on profiles for insert
   with check (app_context_present() and app_user_role() = 'admin');
-
-create policy credit_products_select on credit_products for select
-  using (
-    app_context_present()
-    and app_user_role() in ('admin', 'consultant')
-  );
 
 create policy crm_clients_select on crm_clients for select
   using (
@@ -187,55 +175,10 @@ create policy company_reports_staff on company_reports for all
   using (app_context_present() and app_user_role() in ('admin', 'consultant'))
   with check (app_context_present() and app_user_role() in ('admin', 'consultant'));
 
-create policy opportunities_staff on opportunities for all
-  using (app_context_present() and app_user_role() in ('admin', 'consultant'))
-  with check (app_context_present() and app_user_role() in ('admin', 'consultant'));
-create policy opportunities_client_select on opportunities for select
-  using (
-    app_context_present()
-    and app_user_role() = 'client'
-    and exists (
-      select 1
-      from crm_clients
-      where crm_clients.id = opportunities.crm_client_id
-        and crm_clients.user_id = app_user_id()
-    )
-  );
-
-create policy opportunity_documents_staff on opportunity_documents for all
-  using (app_context_present() and app_user_role() in ('admin', 'consultant'))
-  with check (app_context_present() and app_user_role() in ('admin', 'consultant'));
-create policy opportunity_documents_client_select
-  on opportunity_documents for select
-  using (
-    app_context_present()
-    and app_user_role() = 'client'
-    and exists (
-      select 1
-      from opportunities
-      join crm_clients on crm_clients.id = opportunities.crm_client_id
-      where opportunities.id = opportunity_documents.opportunity_id
-        and crm_clients.user_id = app_user_id()
-    )
-  );
-
 create policy timeline_events_staff_select on timeline_events for select
   using (app_context_present() and app_user_role() in ('admin', 'consultant'));
 create policy timeline_events_staff_insert on timeline_events for insert
   with check (app_context_present() and app_user_role() in ('admin', 'consultant'));
-create policy timeline_events_client_select on timeline_events for select
-  using (
-    app_context_present()
-    and app_user_role() = 'client'
-    and entity_type = 'opportunity'
-    and exists (
-      select 1
-      from opportunities
-      join crm_clients on crm_clients.id = opportunities.crm_client_id
-      where opportunities.id = timeline_events.entity_id
-        and crm_clients.user_id = app_user_id()
-    )
-  );
 
 create policy crm_notes_staff on crm_notes for all
   using (app_context_present() and app_user_role() in ('admin', 'consultant'))
@@ -262,7 +205,6 @@ grant select, insert, update, delete
   on "user", "session", account, verification, rate_limit, two_factor
   to app_runtime;
 grant select, insert, update on profiles to app_runtime;
-grant select on credit_products to app_runtime;
 grant select, insert, update on crm_clients to app_runtime;
 grant select, insert on crm_client_documents, crm_client_relations to app_runtime;
 grant select, insert, update on batches, consultations, scr_authorizations to app_runtime;
@@ -274,8 +216,6 @@ grant insert (
 grant update (validation_status, validation_errors) on bureau_payloads to app_runtime;
 grant select, insert on bureau_results to app_runtime;
 grant select, insert, update on ai_reports, company_reports to app_runtime;
-grant select, insert, update on opportunities to app_runtime;
-grant select, insert, update, delete on opportunity_documents to app_runtime;
 grant select, insert on timeline_events, crm_notes, audit_logs to app_runtime;
 grant select, insert, update, delete on settings to app_runtime;
 

@@ -30,6 +30,15 @@ describe("hydrateSecretEnv", () => {
     expect(env.DATABASE_URL).toBe("postgres://runtime:pw@db/app");
   });
 
+  // Catches: the superadmin bootstrap password never being read from its Docker secret.
+  it("reads SUPERADMIN_PASSWORD from its secret file", () => {
+    const env = { SUPERADMIN_PASSWORD_FILE: secretFile("pw-from-file-123") } as unknown as NodeJS.ProcessEnv;
+
+    hydrateSecretEnv(env);
+
+    expect(env.SUPERADMIN_PASSWORD).toBe("pw-from-file-123");
+  });
+
   // Catches: a missing Docker Secret allowing the service to start with an empty credential.
   it("fails closed when a configured secret file is empty", () => {
     expect(() => hydrateSecretEnv({ BETTER_AUTH_SECRET_FILE: secretFile("") } as unknown as NodeJS.ProcessEnv)).toThrow(

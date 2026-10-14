@@ -12,7 +12,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
   Object.assign(process.env, {
-    DATABASE_URL: "postgres://app_runtime:test@localhost:54329/credit_system",
+    DATABASE_URL:
+      process.env.TEST_DATABASE_URL ??
+      "postgres://app_runtime:test@localhost:54329/credit_system",
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
     BETTER_AUTH_URL: "http://localhost:3000",
     DOCUMENT_ROOT: "/tmp/reino-test-documents",
@@ -96,7 +98,7 @@ describe.sequential("Task 9 domain data access", () => {
       );
       await client.query(
         `insert into profiles (id, auth_user_id, full_name, email, role)
-         values ($1, $1, $2, $3, 'admin')`,
+         values ($1::uuid, $1::text, $2, $3, 'admin')`,
         [admin.userId, "Domain admin", `${admin.userId}@example.test`],
       );
     });
@@ -185,11 +187,11 @@ describe.sequential("Task 9 domain data access", () => {
     await upsertSettings(
       admin,
       [{ key, value: 7.5 }],
-      "settings.commission_update",
+      "settings.update",
     );
     expect(await readSetting(admin, key)).toBe(7.5);
 
-    await deleteSettings(admin, [key], "settings.commission_reset");
+    await deleteSettings(admin, [key], "settings.reset");
     expect(await readSetting(admin, key)).toBeNull();
   });
 
@@ -230,6 +232,5 @@ describe.sequential("Task 9 domain data access", () => {
       start6mo: new Date(now.getTime() - 180 * 86_400_000).toISOString(),
     });
     expect(metrics.counts.clients).toBeGreaterThan(0);
-    expect(Array.isArray(metrics.opportunities)).toBe(true);
   });
 });

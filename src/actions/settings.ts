@@ -130,53 +130,6 @@ export async function saveAiPrompts(input: SaveAiPromptsInput): Promise<SaveResu
   return { error: null };
 }
 
-// ── Comissão padrão estimada ──────────────────────────────────────────────
-
-const COMMISSION_RATE_KEY = "default_commission_rate";
-const DEFAULT_COMMISSION_RATE = 6; // % do valor aprovado
-
-// Assumes request scope (reads the session via readerIdentity). A future
-// non-request caller must be given an explicit identity parameter instead.
-export async function getCommissionRate(): Promise<number> {
-  const raw = await readSetting(await readerIdentity(), COMMISSION_RATE_KEY);
-  const num =
-    typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
-  return Number.isFinite(num) && num >= 0 && num <= 100
-    ? num
-    : DEFAULT_COMMISSION_RATE;
-}
-
-export async function saveCommissionRate(rate: number): Promise<SaveResult> {
-  const identity = await adminIdentity();
-  if (!identity) {
-    return { error: "Apenas administradores podem editar a comissão." };
-  }
-  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
-    return { error: "Informe um percentual entre 0 e 100." };
-  }
-
-  try {
-    await upsertSettings(
-      identity,
-      [
-        {
-          key: COMMISSION_RATE_KEY,
-          value: rate,
-          description:
-            "Comissão bruta padrão estimada (% do valor aprovado) usada no Dashboard",
-        },
-      ],
-      "settings.commission_update",
-    );
-  } catch {
-    return { error: "Falha ao salvar a comissão." };
-  }
-
-  revalidatePath("/settings/commission");
-  revalidatePath("/");
-  return { error: null };
-}
-
 // ── Termo SCR (autogestão) ────────────────────────────────────────────────
 
 export interface ScrTermSettings {

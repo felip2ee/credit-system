@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   Bot,
-  Briefcase,
   Layers,
   Search,
   ShieldCheck,
@@ -26,16 +25,12 @@ import {
 } from "@/components/ui/card";
 import { redirect } from "next/navigation";
 
-import { getCommissionRate } from "@/actions/settings";
 import { getRequiredSession } from "@/lib/auth/session";
-import { getConsultantNames, getDashboardMetrics } from "@/lib/dashboard/queries";
-import { formatCurrency } from "@/lib/utils";
+import { getDashboardMetrics } from "@/lib/dashboard/queries";
 import {
-  OPPORTUNITY_STATUS_LABEL,
   QUERY_STATUS_LABEL,
   SCR_STATUS_LABEL,
   type EntityKind,
-  type OpportunityStatus,
   type QueryStatus,
   type ScrStatus,
 } from "@/types/app";
@@ -96,27 +91,6 @@ const PIPELINE_ORDER: QueryStatus[] = [
   "error",
 ];
 
-const OPP_HUE: Record<OpportunityStatus, Hue> = {
-  new: "slate",
-  documentation: "amber",
-  analysis: "sky",
-  sent_to_partner: "indigo",
-  approved: "emerald",
-  rejected: "red",
-  completed: "emeraldDark",
-  cancelled: "slateLight",
-};
-const OPP_ORDER: OpportunityStatus[] = [
-  "new",
-  "documentation",
-  "analysis",
-  "sent_to_partner",
-  "approved",
-  "completed",
-  "rejected",
-  "cancelled",
-];
-
 const SCR_HUE: Record<ScrStatus, Hue> = {
   authorized: "emerald",
   pending: "amber",
@@ -145,33 +119,8 @@ const APTITUDE_HUE: Record<Aptitude, Hue> = {
 };
 const APTITUDE_ORDER: Aptitude[] = ["apt", "apt_with_caveats", "inapt", "pending"];
 
-interface OppRow {
-  status: OpportunityStatus;
-  assigned_to: string | null;
-  approved_amount: number | null;
-  commission_rate: number | null;
-  commission_amount: number | null;
-}
-
-function estCommission(o: OppRow, defaultRate: number): number {
-  if (o.commission_amount != null) return o.commission_amount;
-  const amount = o.approved_amount ?? 0;
-  const rate = o.commission_rate ?? defaultRate;
-  return (amount * rate) / 100;
-}
-
-interface ConsultantStat {
-  id: string;
-  name: string;
-  approvedCount: number;
-  approvedSum: number;
-  commissionSum: number;
-}
-
 export default async function DashboardPage() {
   const session = await getRequiredSession().catch(() => redirect("/login"));
-  const isAdmin = session.role === "admin";
-  const commissionRate = await getCommissionRate();
 
   const { startToday, startMonth } = brBoundaries();
   const months = lastSixMonths();
@@ -183,59 +132,6 @@ export default async function DashboardPage() {
     start6mo,
   });
   const { counts } = metrics;
-
-  // ── Oportunidades / conversão / comissões ──────────────────
-  const oppRows = metrics.opportunities as OppRow[];
-  const oppCounts = {} as Record<OpportunityStatus, number>;
-  for (const s of OPP_ORDER) oppCounts[s] = 0;
-  for (const r of oppRows) {
-    if (r.status in oppCounts) oppCounts[r.status] += 1;
-  }
-  const oppTotal = oppRows.length;
-  const won = oppCounts.approved + oppCounts.completed;
-  const decided = won + oppCounts.rejected;
-  const convRate = decided > 0 ? pct(won, decided) : null;
-
-  // Estatísticas por consultor (somente aprovadas/concluídas com valor).
-  const statByConsultant = new Map<string, ConsultantStat>();
-  let totalApprovedSum = 0;
-  let totalApprovedCount = 0;
-  let totalCommission = 0;
-  for (const o of oppRows) {
-    const isWon = o.status === "approved" || o.status === "completed";
-    if (!isWon || o.approved_amount == null || !o.assigned_to) continue;
-    const commission = estCommission(o, commissionRate);
-    totalApprovedSum += o.approved_amount;
-    totalApprovedCount += 1;
-    totalCommission += commission;
-    const cur =
-      statByConsultant.get(o.assigned_to) ??
-      ({
-        id: o.assigned_to,
-        name: "—",
-        approvedCount: 0,
-        approvedSum: 0,
-        commissionSum: 0,
-      } as ConsultantStat);
-    cur.approvedCount += 1;
-    cur.approvedSum += o.approved_amount;
-    cur.commissionSum += commission;
-    statByConsultant.set(o.assigned_to, cur);
-  }
-  const ticketMedio =
-    totalApprovedCount > 0 ? totalApprovedSum / totalApprovedCount : 0;
-
-  // Nomes dos consultores (só admin lê profiles de terceiros via RLS).
-  let consultants: ConsultantStat[] = [];
-  if (isAdmin && statByConsultant.size > 0) {
-    const nameById = await getConsultantNames(
-      session,
-      Array.from(statByConsultant.keys())
-    );
-    consultants = Array.from(statByConsultant.values())
-      .map((c) => ({ ...c, name: nameById.get(c.id) ?? "—" }))
-      .sort((a, b) => b.approvedSum - a.approvedSum);
-  }
 
   // ── Compliance SCR ─────────────────────────────────────────
   const scrRows = metrics.scrStatuses.map((status) => ({
@@ -286,7 +182,6 @@ export default async function DashboardPage() {
   const primary = [
     { label: "Consultas hoje", value: String(counts.today), hint: "Criadas hoje", href: "/consultations", icon: Search },
     { label: "Consultas no mês", value: String(counts.month), hint: "Mês corrente", href: "/consultations", icon: Search },
-    { label: "Taxa de conversão", value: convRate === null ? "—" : `${convRate}%`, hint: `${won} ganhas de ${decided} decididas`, href: "/opportunities", icon: Briefcase },
     { label: "Aguardando SCR", value: String(counts.scrPending), hint: "Autorizações pendentes", href: "/scr", icon: ShieldCheck },
   ];
   const secondary = [
@@ -303,11 +198,6 @@ export default async function DashboardPage() {
   } as Record<QueryStatus, number>;
   const pipelineTotal = PIPELINE_ORDER.reduce((acc, s) => acc + pipeline[s], 0);
 
-  const oppItems: CategoryItem[] = OPP_ORDER.map((s) => ({
-    label: OPPORTUNITY_STATUS_LABEL[s],
-    value: oppCounts[s],
-    hue: OPP_HUE[s],
-  }));
   const scrItems: CategoryItem[] = SCR_ORDER.map((s) => ({
     label: SCR_STATUS_LABEL[s],
     value: scrCounts[s],
@@ -336,7 +226,7 @@ export default async function DashboardPage() {
       </PageHeader>
 
       {/* KPIs primários */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {primary.map((m) => (
           <Link key={m.label} href={m.href}>
             <Card className="h-full transition-colors hover:bg-muted/50">
@@ -354,102 +244,6 @@ export default async function DashboardPage() {
           </Link>
         ))}
       </div>
-
-      {/* Desempenho de consultores — só admin */}
-      {isAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Desempenho de consultores</CardTitle>
-            <CardDescription>
-              Aprovações, ticket médio e comissão bruta estimada (
-              {commissionRate}% do aprovado quando não há taxa própria)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">Total aprovado</p>
-                <p className="text-2xl font-semibold">
-                  {formatCurrency(totalApprovedSum)}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {totalApprovedCount}{" "}
-                  {totalApprovedCount === 1 ? "aprovação" : "aprovações"}
-                </p>
-              </div>
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">
-                  Ticket médio de aprovação
-                </p>
-                <p className="text-2xl font-semibold">
-                  {formatCurrency(ticketMedio)}
-                </p>
-                <p className="text-xs text-muted-foreground">por oportunidade ganha</p>
-              </div>
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">
-                  Comissão bruta estimada
-                </p>
-                <p className="text-2xl font-semibold text-emerald-600">
-                  {formatCurrency(totalCommission)}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  ~{commissionRate}% do aprovado
-                </p>
-              </div>
-            </div>
-
-            {consultants.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
-                      <th className="py-2 pr-3 font-medium">#</th>
-                      <th className="py-2 pr-3 font-medium">Consultor</th>
-                      <th className="py-2 pr-3 text-right font-medium">Aprov.</th>
-                      <th className="py-2 pr-3 text-right font-medium">
-                        Total aprovado
-                      </th>
-                      <th className="py-2 pr-3 text-right font-medium">
-                        Ticket médio
-                      </th>
-                      <th className="py-2 text-right font-medium">
-                        Comissão est.
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {consultants.map((c, i) => (
-                      <tr key={c.id} className="border-b last:border-0">
-                        <td className="py-2 pr-3 text-muted-foreground">
-                          {i + 1}
-                        </td>
-                        <td className="py-2 pr-3 font-medium">{c.name}</td>
-                        <td className="py-2 pr-3 text-right">
-                          {c.approvedCount}
-                        </td>
-                        <td className="py-2 pr-3 text-right">
-                          {formatCurrency(c.approvedSum)}
-                        </td>
-                        <td className="py-2 pr-3 text-right">
-                          {formatCurrency(c.approvedSum / c.approvedCount)}
-                        </td>
-                        <td className="py-2 text-right font-medium text-emerald-600">
-                          {formatCurrency(c.commissionSum)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Nenhuma aprovação com valor registrada ainda.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* KPIs secundários */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -511,19 +305,6 @@ export default async function DashboardPage() {
               />
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Funil de oportunidades */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Funil de oportunidades</CardTitle>
-          <CardDescription>
-            {oppTotal} {oppTotal === 1 ? "oportunidade" : "oportunidades"} no total
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CategoryCharts items={oppItems} emptyLabel="Nenhuma oportunidade ainda." />
         </CardContent>
       </Card>
 

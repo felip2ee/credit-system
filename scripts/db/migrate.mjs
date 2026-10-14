@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import pg from "pg";
 
@@ -111,7 +112,7 @@ export async function migrate(connectionString = process.env.DATABASE_OWNER_URL)
 
 if (
   process.argv[1] &&
-  pathToFileURL(resolve(process.argv[1])).href === import.meta.url
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   migrate().catch((error) => {
     console.error(error instanceof Error ? error.message : error);

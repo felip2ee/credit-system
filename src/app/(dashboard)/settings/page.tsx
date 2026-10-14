@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   Bot,
   FileSignature,
-  Percent,
   ScrollText,
   ShieldCheck,
   Users,
@@ -79,20 +78,6 @@ export default async function SettingsPage() {
                 <CardTitle className="text-lg">Termo SCR</CardTitle>
                 <CardDescription>
                   Configure o termo de consentimento da autogestão de SCR.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </Link>
-        )}
-
-        {admin && (
-          <Link href="/settings/commission">
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardHeader>
-                <Percent className="mb-2 h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-lg">Comissão</CardTitle>
-                <CardDescription>
-                  Defina a comissão bruta padrão estimada (% do aprovado).
                 </CardDescription>
               </CardHeader>
             </Card>
