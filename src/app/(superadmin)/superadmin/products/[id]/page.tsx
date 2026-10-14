@@ -22,7 +22,7 @@ export const metadata = { title: "Produto" };
 export default async function ProductDetailPage({ params }: { params: { id: string } }) {
   if (!z.string().uuid().safeParse(params.id).success) notFound();
   const session = await getRequiredSession();
-  if (!hasPermission(session, "catalog:read")) notFound();
+  if (session.role !== "superadmin" || !hasPermission(session, "catalog:read")) notFound();
   const canWrite = hasPermission(session, "catalog:write");
 
   const [products, versions] = await Promise.all([

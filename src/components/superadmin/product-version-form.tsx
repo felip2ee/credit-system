@@ -7,7 +7,7 @@ import { createProductVersion } from "@/actions/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { moneyError, normalizeMoney } from "./money";
+import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
 
 export function ProductVersionForm({
   productId,

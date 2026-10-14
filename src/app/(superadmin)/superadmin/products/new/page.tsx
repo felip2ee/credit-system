@@ -10,7 +10,7 @@ export const metadata = { title: "Novo produto" };
 
 export default async function NewProductPage() {
   const session = await getRequiredSession();
-  if (!hasPermission(session, "catalog:write")) notFound();
+  if (session.role !== "superadmin" || !hasPermission(session, "catalog:write")) notFound();
   const products = await listProducts(session);
   const mainProducts = products
     .filter((p) => p.kind === "main")

@@ -42,7 +42,7 @@ O M2 define e valida preço e custo. O M2 não cobra nada: pedido, reserva e lan
 9. **Permissões.** Duas novas: `catalog:read` e `catalog:write`.
    - `superadmin`: `catalog:read`, `catalog:write` (produtos base, versões, custo por Bureau).
    - `bureau_admin`: `catalog:read`, `catalog:write` (só itens do próprio catálogo).
-   - `operator`: `catalog:read`.
+   - `operator`: `catalog:read`. O operador também lê o custo efetivo e o histórico de custo do próprio Bureau (a tela do catálogo mostra o custo em modo leitura).
    - `client`: nenhuma. O cliente vê o catálogo só pela página pública.
    - `catalog:write` do `bureau_admin` não permite ler nem gravar produto base, versão ou custo. A diferença fica nas políticas RLS e nas actions: o admin grava só `bureau_catalog_items`.
 10. **Acesso ao banco.**

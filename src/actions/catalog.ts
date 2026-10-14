@@ -67,7 +67,14 @@ export async function createProduct(values: unknown): Promise<CatalogActionResul
 
 	try {
 		const result = await createProductQuery(session, parsed.data);
-		if (!result.ok) return { error: "Este código já está em uso." };
+		if (!result.ok) {
+			return {
+				error:
+					result.reason === "code_taken"
+						? "Este código já está em uso."
+						: "Os produtos compatíveis devem existir e ser do tipo principal.",
+			};
+		}
 		revalidatePath("/superadmin/products");
 		return { error: null, id: result.id };
 	} catch {

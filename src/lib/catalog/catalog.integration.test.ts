@@ -323,6 +323,47 @@ describe("catalogo (schema e RLS)", () => {
 		expect(deactivated.rowCount).toBe(1);
 	});
 
+	it("trigger rejects activation while the effective cost is 0", async () => {
+		const tenant = await seedTenant(owner, "Catalogo custo zero");
+		const admin = adminOf(tenant);
+		const product = await seedProduct(owner, { baseCost: "0.00" });
+		const args = (active: boolean) => [tenant.bureau.id, product.id, active, "5.00", admin.userId];
+
+		await expect(
+			withDbContext(app, admin, (c) => c.query(insertItem, args(true))),
+		).rejects.toThrow(/cost not set/);
+		// Rascunho inativo passa; ativá-lo depois falha enquanto o custo for 0.
+		await seedCatalogItem(owner, {
+			bureauId: tenant.bureau.id,
+			productId: product.id,
+			salePrice: "5.00",
+			updatedBy: admin.userId,
+			active: false,
+		});
+		await expect(
+			withDbContext(app, admin, (c) =>
+				c.query(
+					"update bureau_catalog_items set active = true where bureau_id = $1 and product_id = $2",
+					[tenant.bureau.id, product.id],
+				),
+			),
+		).rejects.toThrow(/cost not set/);
+
+		await seedBureauCost(owner, {
+			bureauId: tenant.bureau.id,
+			productId: product.id,
+			cost: "3.00",
+			setBy: superadmin.userId,
+		});
+		const activated = await withDbContext(app, admin, (c) =>
+			c.query(
+				"update bureau_catalog_items set active = true where bureau_id = $1 and product_id = $2",
+				[tenant.bureau.id, product.id],
+			),
+		);
+		expect(activated.rowCount).toBe(1);
+	});
+
 	it("addon needs compatible main", async () => {
 		const tenant = await seedTenant(owner, "Catalogo addon");
 		const admin = adminOf(tenant);
@@ -410,7 +451,7 @@ describe("catalogo (schema e RLS)", () => {
 			depsProduct: "Smart X",
 		});
 		const priced = await seedProduct(owner, { baseCost: "10.00" });
-		const free = await seedProduct(owner, { baseCost: "0.00" });
+		const free = await seedProduct(owner, { baseCost: "1.00" });
 		const hidden = await seedProduct(owner, { baseCost: "10.00" });
 		const addon = await seedProduct(owner, {
 			kind: "addon",
@@ -437,6 +478,7 @@ describe("catalogo (schema e RLS)", () => {
 			salePrice: "5.00",
 			updatedBy: admin,
 		});
+		await seedProductVersion(owner, { productId: free.id, version: 2, baseCost: "0.00" });
 		// Item inativo: fora da venda.
 		await seedCatalogItem(owner, {
 			bureauId,

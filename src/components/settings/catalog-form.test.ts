@@ -21,8 +21,8 @@ const entry: CatalogEntry = {
   onSale: false,
 };
 
-const render = (canWrite: boolean) =>
-  renderToStaticMarkup(createElement(CatalogForm, { entries: [entry], canWrite }));
+const render = (canWrite: boolean, entries: CatalogEntry[] = [entry]) =>
+  renderToStaticMarkup(createElement(CatalogForm, { entries, canWrite }));
 
 describe("CatalogForm", () => {
   it("shows warning when price is below cost", () => {
@@ -33,5 +33,30 @@ describe("CatalogForm", () => {
     const html = render(false);
     expect(html).not.toContain("Salvar");
     expect(html.match(/disabled=""/g)?.length).toBe(2); // price input + switch
+  });
+
+  it("shows 'Custo não definido' when the cost is 0.00", () => {
+    const html = render(true, [{ ...entry, effectiveCost: "0.00" }]);
+    expect(html).toContain("Custo não definido");
+    expect(html).not.toContain("Preço abaixo do custo");
+  });
+
+  it("locks only the off-to-on switch of a blocked addon", () => {
+    const addon: CatalogEntry = {
+      ...entry,
+      productId: "p2",
+      code: "parecer_ia",
+      name: "Parecer IA",
+      kind: "addon",
+      addonFor: ["consulta_pf"],
+      effectiveCost: "1.00",
+    };
+    const switchTag = (active: boolean) =>
+      render(true, [{ ...addon, item: { active, salePrice: "5.00" } }]).match(
+        /<input[^>]*aria-label="Ativar Parecer IA"[^>]*>/,
+      )?.[0];
+
+    expect(switchTag(false)).toContain('disabled=""');
+    expect(switchTag(true)).not.toContain('disabled=""');
   });
 });

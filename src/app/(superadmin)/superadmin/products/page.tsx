@@ -21,7 +21,7 @@ export const metadata = { title: "Produtos" };
 
 export default async function ProductsPage() {
   const session = await getRequiredSession();
-  if (!hasPermission(session, "catalog:read")) notFound();
+  if (session.role !== "superadmin" || !hasPermission(session, "catalog:read")) notFound();
   const products = await listProducts(session);
   const canWrite = hasPermission(session, "catalog:write");
 

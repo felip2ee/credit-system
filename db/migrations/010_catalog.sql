@@ -120,6 +120,9 @@ begin
     if not v_product.active then
       raise exception 'catalog: product is inactive' using errcode = 'check_violation';
     end if;
+    if v_cost <= 0 then
+      raise exception 'catalog: cost not set' using errcode = 'check_violation';
+    end if;
     if v_product.kind = 'addon' and not exists (
       select 1
         from public.bureau_catalog_items i

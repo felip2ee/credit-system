@@ -62,12 +62,13 @@ export type CatalogEntry = {
 	onSale: boolean;
 };
 
-export type EffectiveTerms = { productVersionId: string; effectiveCost: string };
+const COST_HISTORY_LIMIT = 20;
 
 const TRIGGER_REASONS: Record<string, CatalogConflict> = {
 	"catalog: sale price below effective cost": "price_below_cost",
 	"catalog: addon needs an active compatible main product": "addon_requires_main",
 	"catalog: product is inactive": "product_inactive",
+	"catalog: cost not set": "cost_not_set",
 };
 
 type PgError = { code?: string; constraint?: string; message?: string };
@@ -86,9 +87,20 @@ function requireBureau(identity: DbIdentity): string {
 export async function createProduct(
 	identity: DbIdentity,
 	input: ProductCreate,
-): Promise<{ ok: true; id: string; versionId: string } | { ok: false; reason: "code_taken" }> {
+): Promise<
+	{ ok: true; id: string; versionId: string } | { ok: false; reason: "code_taken" | "addon_for_unknown" }
+> {
 	try {
 		return await withUserTransaction(platformIdentity(identity), async (client) => {
+			if (input.kind === "addon") {
+				const mains = await client.query<{ code: string }>(
+					"select code from products where kind = 'main' and code = any ($1)",
+					[input.addonFor],
+				);
+				if (new Set(input.addonFor).size !== mains.rowCount) {
+					return { ok: false as const, reason: "addon_for_unknown" as const };
+				}
+			}
 			const product = await client.query<{ id: string }>(
 				"insert into products (code, name, kind, addon_for) values ($1, $2, $3, $4) returning id",
 				[input.code, input.name, input.kind, input.kind === "addon" ? input.addonFor : null],
@@ -137,7 +149,12 @@ export async function updateProduct(
 			action: "catalog.product.update",
 			targetTable: "products",
 			targetId: input.id,
-			metadata: { old_active: rows[0].active, active: input.active },
+			metadata: {
+				old_name: rows[0].name,
+				name: input.name,
+				old_active: rows[0].active,
+				active: input.active,
+			},
 		});
 		return { ok: true as const };
 	});
@@ -156,6 +173,10 @@ export async function createProductVersion(
 			[input.productId],
 		);
 		if (!locked.rowCount) return { ok: false as const, reason: "not_found" as const };
+		const previous = await client.query<{ deps_product: string | null }>(
+			"select deps_product from product_versions where product_id = $1 order by version desc limit 1",
+			[input.productId],
+		);
 		const { rows } = await client.query<{ id: string; version: number }>(
 			`insert into product_versions (product_id, version, deps_product, base_cost, created_by)
        select $1, coalesce(max(version), 0) + 1, $2, $3, $4
@@ -171,6 +192,8 @@ export async function createProductVersion(
 			metadata: {
 				product_id: input.productId,
 				version: rows[0].version,
+				old_deps_product: previous.rows[0]?.deps_product ?? null,
+				deps_product: input.depsProduct,
 				base_cost: input.baseCost,
 			},
 		});
@@ -310,8 +333,10 @@ export async function listBureauCosts(
 			set_by: string;
 			created_at: Date;
 		}>(
-			`select id, product_id, cost, set_by, created_at
-         from bureau_product_costs where bureau_id = $1 order by id desc`,
+			`select id, product_id, cost, set_by, created_at from (
+         select c.*, row_number() over (partition by product_id order by id desc) as rn
+           from bureau_product_costs c where bureau_id = $1) h
+        where rn <= ${COST_HISTORY_LIMIT} order by id desc`,
 			[bureauId],
 		);
 		return products.rows.map((p) => ({
@@ -472,21 +497,4 @@ export async function upsertCatalogItem(
 
 function fail(reason: CatalogConflict) {
 	return { ok: false as const, reason };
-}
-
-export async function getEffectiveTerms(
-	identity: DbIdentity,
-	productId: string,
-): Promise<EffectiveTerms | null> {
-	if (!identity.bureauId) return null;
-	const bureauId = identity.bureauId;
-	return withUserTransaction(identity, async (client) => {
-		const { rows } = await client.query<{ product_version_id: string; effective_cost: string }>(
-			"select product_version_id, effective_cost from resolve_product_terms($1, $2)",
-			[bureauId, productId],
-		);
-		return rows[0]
-			? { productVersionId: rows[0].product_version_id, effectiveCost: rows[0].effective_cost }
-			: null;
-	});
 }

@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { listBureauCosts } from "@/lib/catalog/queries";
-import { formatBRL, moneyError, normalizeMoney } from "./money";
+import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
+import { formatBRL } from "./money";
 
 type BureauCost = Awaited<ReturnType<typeof listBureauCosts>>[number];
 

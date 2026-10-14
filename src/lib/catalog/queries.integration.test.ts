@@ -28,6 +28,7 @@ vi.mock("next/headers", () => ({
 	},
 }));
 
+import { listAuditLogs } from "@/lib/audit/read";
 import { writeAuditEvent } from "@/lib/audit/write";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
@@ -46,7 +47,6 @@ import {
 import {
 	createProduct,
 	createProductVersion,
-	getEffectiveTerms,
 	listBureauCosts,
 	listCatalog,
 	listProducts,
@@ -123,8 +123,25 @@ describe("produtos e versões (superadmin)", () => {
 			[1, "5.00", "Smart PF 002"],
 		]);
 		expect(await auditRows("catalog.product.create", created.id)).toHaveLength(1);
-		expect(await auditRows("catalog.product.update", created.id)).toHaveLength(1);
-		expect(await auditRows("catalog.product.version", v2.ok ? v2.versionId : "")).toHaveLength(1);
+		const [updateEvent] = await auditRows("catalog.product.update", created.id);
+		expect(updateEvent.metadata).toMatchObject({ old_name: "Produto Teste", name: "Produto Renomeado", old_active: true, active: false });
+		const [versionEvent] = await auditRows("catalog.product.version", v2.ok ? v2.versionId : "");
+		expect(versionEvent.metadata).toMatchObject({ old_deps_product: "Smart PF 002", deps_product: null, base_cost: "6.50" });
+	});
+
+	it("rejects an addon whose compatible products do not exist as main products", async () => {
+		const main = await seedProduct(owner, { baseCost: "1.00" });
+		const addon = await seedProduct(owner, { kind: "addon", addonFor: [main.code], baseCost: "1.00" });
+		const base = { name: "Adicional", kind: "addon" as const, depsProduct: null, baseCost: "1.00" };
+		const code = () => `add_${Math.random().toString(36).slice(2, 10)}`;
+
+		for (const addonFor of [["inexistente_xyz"], [main.code, "inexistente_xyz"], [addon.code]]) {
+			expect(await createProduct(sa, { ...base, code: code(), addonFor })).toEqual({
+				ok: false,
+				reason: "addon_for_unknown",
+			});
+		}
+		expect(await createProduct(sa, { ...base, code: code(), addonFor: [main.code] })).toMatchObject({ ok: true });
 	});
 
 	it("returns not_found for an unknown product", async () => {
@@ -142,12 +159,12 @@ describe("custo efetivo e override", () => {
 		const product = await seedProduct(owner, { baseCost: "5.00" });
 		await seedProductVersion(owner, { productId: product.id, version: 2, baseCost: "6.00" });
 
-		expect(await getEffectiveTerms(admin, product.id)).toMatchObject({ effectiveCost: "6.00" });
+		expect(await entryOf(admin, product.id)).toMatchObject({ effectiveCost: "6.00" });
 
 		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "9.50")).toEqual({ ok: true });
-		expect(await getEffectiveTerms(admin, product.id)).toMatchObject({ effectiveCost: "9.50" });
+		expect(await entryOf(admin, product.id)).toMatchObject({ effectiveCost: "9.50" });
 		// Outro Bureau não é afetado.
-		expect(await getEffectiveTerms(other.bureauAdmin, product.id)).toMatchObject({ effectiveCost: "6.00" });
+		expect(await entryOf(other.bureauAdmin, product.id)).toMatchObject({ effectiveCost: "6.00" });
 
 		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "7.25")).toEqual({ ok: true });
 		const costs = (await listBureauCosts(sa, tenant.bureau.id)).find((c) => c.productId === product.id);
@@ -161,6 +178,22 @@ describe("custo efetivo e override", () => {
 			[tenant.bureau.id, "6.00", "9.50"],
 			[tenant.bureau.id, "9.50", "7.25"],
 		]);
+
+		// O superadmin relê o evento que gravou.
+		const read = await listAuditLogs(sa, 500);
+		expect(read.filter((r) => r.action === "catalog.cost.set" && r.metadata?.new_cost === "7.25")).not.toHaveLength(0);
+	});
+
+	it("caps the cost history at 20 rows per product", async () => {
+		const product = await seedProduct(owner, { baseCost: "1.00" });
+		for (let i = 1; i <= 22; i++) {
+			await setBureauProductCost(sa, tenant.bureau.id, product.id, `${i}.00`);
+		}
+
+		const row = (await listBureauCosts(sa, tenant.bureau.id)).find((c) => c.productId === product.id);
+		expect(row?.history).toHaveLength(20);
+		expect(row?.history[0].cost).toBe("22.00");
+		expect(row?.history[19].cost).toBe("3.00");
 	});
 
 	it("returns not_found for an unknown bureau", async () => {
@@ -188,12 +221,15 @@ describe("auditoria: bureauId explícito", () => {
 		expect(row.bureau_id).toBe(tenant.bureau.id);
 	});
 
-	it("honors bureauId only for the superadmin cost event; other superadmin events stay platform-level", async () => {
+	it("honors bureauId only for a real superadmin cost event; other superadmin events stay platform-level", async () => {
 		const targetId = (await seedProduct(owner)).id;
 
 		await expect(writeAs(sa, "catalog.test.forced", tenant.bureau.id, targetId)).rejects.toThrow(/row-level security/);
-		await writeAs(sa, "catalog.cost.set", tenant.bureau.id, targetId);
+		// Evento de custo forjado, sem a linha de custo correspondente.
+		await expect(writeAs(sa, "catalog.cost.set", tenant.bureau.id, targetId)).rejects.toThrow(/row-level security/);
+		expect(await auditRows("catalog.cost.set", targetId)).toHaveLength(0);
 
+		expect(await setBureauProductCost(sa, tenant.bureau.id, targetId, "2.00")).toEqual({ ok: true });
 		const [row] = await auditRows("catalog.cost.set", targetId);
 		expect(row.bureau_id).toBe(tenant.bureau.id);
 	});

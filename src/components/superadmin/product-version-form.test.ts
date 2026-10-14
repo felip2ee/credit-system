@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/actions/catalog", () => ({ createProductVersion: vi.fn() }));
 
-import { moneyError } from "./money";
+import { moneyError } from "@/lib/catalog/money-input";
 import { ProductVersionForm } from "./product-version-form";
 
 describe("ProductVersionForm", () => {

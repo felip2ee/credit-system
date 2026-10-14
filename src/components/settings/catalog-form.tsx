@@ -17,16 +17,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { isPriceSellable, toCents } from "@/lib/catalog/money";
+import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
 import type { CatalogEntry } from "@/lib/catalog/queries";
 import { formatCurrency } from "@/lib/utils";
 
 // Máscara pt-BR só na exibição; o envio usa string decimal com ponto.
 const toDisplay = (decimal: string) => decimal.replace(".", ",");
-const toDecimal = (display: string) => display.trim().replace(/\./g, "").replace(",", ".");
 
 function belowCost(priceDisplay: string, cost: string): boolean {
   try {
-    return !isPriceSellable(toCents(toDecimal(priceDisplay)), toCents(cost));
+    return !isPriceSellable(toCents(normalizeMoney(priceDisplay)), toCents(cost));
   } catch {
     return false; // preço vazio ou inválido: a action devolve o erro
   }
@@ -50,15 +50,21 @@ function CatalogRow({
   const addonBlocked = entry.kind === "addon" && !mainOnSale;
   const costDisplay = formatCurrency(Number(entry.effectiveCost));
   // Aviso só quando há preço digitado ou gravado.
+  const costNotSet = Number(entry.effectiveCost) === 0;
   const showWarning = price !== "" && belowCost(price, entry.effectiveCost);
 
   const save = () => {
+    const invalid = moneyError(price);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
     setError(null);
     startTransition(async () => {
       const res = await upsertCatalogItem({
         productId: entry.productId,
         active,
-        salePrice: toDecimal(price),
+        salePrice: normalizeMoney(price),
       });
       if (res.error) setError(res.error);
       else router.refresh();
@@ -91,7 +97,7 @@ function CatalogRow({
         />
         {showWarning && (
           <Badge variant="destructive" className="mt-1">
-            Preço abaixo do custo
+            {costNotSet ? "Custo não definido" : "Preço abaixo do custo"}
           </Badge>
         )}
       </TableCell>
@@ -102,7 +108,7 @@ function CatalogRow({
           aria-label={`Ativar ${entry.name}`}
           checked={active}
           onChange={(e) => setActive(e.target.checked)}
-          disabled={!canWrite || isPending || addonBlocked}
+          disabled={!canWrite || isPending || (addonBlocked && !active)}
           className="h-4 w-4"
         />
       </TableCell>

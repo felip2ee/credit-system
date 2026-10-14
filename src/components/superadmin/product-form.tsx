@@ -7,7 +7,7 @@ import { createProduct, updateProduct } from "@/actions/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { moneyError, normalizeMoney } from "./money";
+import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
 
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm";
