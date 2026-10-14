@@ -16,7 +16,16 @@ const tenantData: Permission[] = [
 const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; allowed: Permission[] }> = {
   superadmin: {
     subject: { role: "superadmin" },
-    allowed: ["bureaus:manage", "support:enter", "settings:read", "settings:write", "catalog:read", "catalog:write"],
+    allowed: [
+      "bureaus:manage",
+      "support:enter",
+      "settings:read",
+      "settings:write",
+      "catalog:read",
+      "catalog:write",
+      "wallet:read",
+      "wallet:adjust",
+    ],
   },
   "superadmin in support": {
     subject: { role: "superadmin", supportSessionId: SUPPORT },
@@ -27,6 +36,8 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
       "settings:write",
       "catalog:read",
       "catalog:write",
+      "wallet:read",
+      "wallet:adjust",
       ...tenantData,
     ],
   },
@@ -37,6 +48,8 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
       "settings:read",
       "catalog:read",
       "catalog:write",
+      "wallet:read",
+      "wallet:topup",
       "users:manage",
       "audit:read",
       "portal:read",
@@ -45,7 +58,7 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
   },
   operator: {
     subject: { role: "operator" },
-    allowed: [...tenantData, "settings:read", "catalog:read"],
+    allowed: [...tenantData, "settings:read", "catalog:read", "wallet:read"],
   },
   client: {
     subject: { role: "client" },
