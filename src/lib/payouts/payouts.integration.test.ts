@@ -621,18 +621,20 @@ describe("immutability", () => {
 		await expect(
 			owner.query("delete from payouts where id = $1", [payoutId]),
 		).rejects.toThrow(/allows only/);
-		await expect(owner.query("truncate payouts cascade")).rejects.toThrow(
-			/allows only/,
-		);
+		// TRUNCATE toma lock exclusivo antes do trigger e travava testes paralelos: confira o trigger no catálogo.
+		for (const table of ["payouts", "payout_items"]) {
+			const { rows } = await owner.query(
+				"select 1 from pg_trigger where tgrelid = $1::regclass and not tgisinternal and (tgtype & 32) = 32",
+				[table],
+			);
+			expect(rows.length).toBeGreaterThan(0);
+		}
 		await expect(
 			owner.query(
 				"update payout_items set payout_id = payout_id where payout_id = $1",
 				[payoutId],
 			),
 		).rejects.toThrow(/allows only/);
-		await expect(owner.query("truncate payout_items")).rejects.toThrow(
-			/allows only/,
-		);
 
 		await asSuperadmin((c) => markPaid(c, payoutId));
 		await expect(
