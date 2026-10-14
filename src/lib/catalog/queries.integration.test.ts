@@ -52,6 +52,7 @@ import {
 	listProducts,
 	listProductVersions,
 	setBureauProductCost,
+	triggerConflict,
 	updateProduct,
 	upsertCatalogItem,
 } from "./queries";
@@ -235,6 +236,79 @@ describe("auditoria: bureauId explícito", () => {
 	});
 });
 
+describe("auditoria de custo: valor ligado à linha de custo", () => {
+	const costAndAudit = (productId: string, cost: string, newCost: string) =>
+		withUserTransaction(sa, async (client) => {
+			await client.query(
+				"insert into bureau_product_costs (bureau_id, product_id, cost, set_by) values ($1, $2, $3, $4)",
+				[tenant.bureau.id, productId, cost, sa.userId],
+			);
+			await writeAuditEvent(client, {
+				actorId: sa.userId,
+				action: "catalog.cost.set",
+				targetTable: "products",
+				targetId: productId,
+				bureauId: tenant.bureau.id,
+				metadata: { new_cost: newCost },
+			});
+		});
+
+	it("rejects an audit event whose new_cost differs from the cost row", async () => {
+		const product = await seedProduct(owner, { baseCost: "1.00" });
+
+		await expect(costAndAudit(product.id, "2.00", "3.00")).rejects.toThrow(/row-level security/);
+		expect(await auditRows("catalog.cost.set", product.id)).toHaveLength(0);
+
+		await costAndAudit(product.id, "2.00", "2.00");
+		expect(await auditRows("catalog.cost.set", product.id)).toHaveLength(1);
+	});
+
+	it("writes new_cost as a plain decimal string in the real flow", async () => {
+		const product = await seedProduct(owner, { baseCost: "1.00" });
+
+		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "4.5")).toEqual({ ok: true });
+		const [row] = await auditRows("catalog.cost.set", product.id);
+		expect(row.metadata.new_cost).toBe("4.50");
+	});
+});
+
+describe("triggerConflict: mensagens reais da trigger", () => {
+	const insertItem = (productId: string, active: boolean, price: string) =>
+		withUserTransaction(admin, (client) =>
+			client.query(
+				"insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, updated_by) values ($1, $2, $3, $4, $5)",
+				[tenant.bureau.id, productId, active, price, admin.userId],
+			),
+		);
+	const conflictOf = async (work: Promise<unknown>) => {
+		try {
+			await work;
+		} catch (error) {
+			return triggerConflict(error);
+		}
+		return "no error";
+	};
+
+	it("maps each trigger rejection to its CatalogConflict", async () => {
+		const priced = await seedProduct(owner, { baseCost: "5.00" });
+		const free = await seedProduct(owner, { baseCost: "0.00" });
+		const inactive = await seedProduct(owner, { baseCost: "1.00" });
+		await owner.query("update products set active = false where id = $1", [inactive.id]);
+		const main = await seedProduct(owner, { baseCost: "1.00" });
+		const addon = await seedProduct(owner, { kind: "addon", addonFor: [main.code], baseCost: "1.00" });
+
+		expect(await conflictOf(insertItem(priced.id, true, "4.99"))).toBe("price_below_cost");
+		expect(await conflictOf(insertItem(free.id, true, "10.00"))).toBe("cost_not_set");
+		expect(await conflictOf(insertItem(inactive.id, true, "10.00"))).toBe("product_inactive");
+		expect(await conflictOf(insertItem(addon.id, true, "3.00"))).toBe("addon_requires_main");
+	});
+
+	it("ignores errors that are not trigger rejections", () => {
+		expect(triggerConflict({ code: "23514", message: "outra" })).toBeNull();
+		expect(triggerConflict({ code: "23505", message: "catalog: cost not set" })).toBeNull();
+	});
+});
+
 describe("itens de catálogo (bureau_admin)", () => {
 	it("rejects a price below cost, activating without cost and an inactive product", async () => {
 		const priced = await seedProduct(owner, { baseCost: "5.00" });
@@ -269,9 +343,9 @@ describe("itens de catálogo (bureau_admin)", () => {
 			onSale: true,
 		});
 		const events = await auditRows("catalog.item.upsert", product.id);
-		expect(events.map((e) => [e.metadata.old_price, e.metadata.new_price, e.metadata.active])).toEqual([
-			[null, "10.00", true],
-			["10.00", "12.50", true],
+		expect(events.map((e) => [e.metadata.old_price, e.metadata.new_price, e.metadata.old_active, e.metadata.active])).toEqual([
+			[null, "10.00", null, true],
+			["10.00", "12.50", true, true],
 		]);
 	});
 

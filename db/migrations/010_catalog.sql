@@ -76,6 +76,7 @@ create function resolve_product_terms(p_bureau_id uuid, p_product_id uuid)
 returns table (product_version_id uuid, effective_cost numeric)
 language sql
 stable
+rows 1
 set search_path = pg_catalog, public
 as $$
   select v.id, coalesce(c.cost, v.base_cost)

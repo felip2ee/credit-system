@@ -1,7 +1,11 @@
 // Catálogo e preços (M2). Produtos e custos: superadmin. Itens de catálogo: bureau_admin.
 // A permissão `catalog:*` é checada na action; aqui o RLS e a trigger de 010_catalog.sql barram o resto.
 import { writeAuditEvent } from "@/lib/audit/write";
-import { platformIdentity, withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import {
+	platformIdentity,
+	withUserTransaction,
+	type DbIdentity,
+} from "@/lib/db/transaction";
 import type { ProductCreate } from "@/lib/validators/catalog";
 
 import { fromCents, isPriceSellable, toCents } from "./money";
@@ -44,7 +48,7 @@ export type BureauCostRow = {
 	productVersionId: string;
 	effectiveCost: string;
 	source: "override" | "default";
-	history: { id: number; cost: string; setBy: string; createdAt: Date }[];
+	history: { id: string; cost: string; setBy: string; createdAt: Date }[];
 };
 
 export type CatalogEntry = {
@@ -66,7 +70,8 @@ const COST_HISTORY_LIMIT = 20;
 
 const TRIGGER_REASONS: Record<string, CatalogConflict> = {
 	"catalog: sale price below effective cost": "price_below_cost",
-	"catalog: addon needs an active compatible main product": "addon_requires_main",
+	"catalog: addon needs an active compatible main product":
+		"addon_requires_main",
 	"catalog: product is inactive": "product_inactive",
 	"catalog: cost not set": "cost_not_set",
 };
@@ -74,9 +79,11 @@ const TRIGGER_REASONS: Record<string, CatalogConflict> = {
 type PgError = { code?: string; constraint?: string; message?: string };
 
 // Falha fechada do SQL (corrida entre a validação e a trigger) vira conflito de negócio.
-function triggerConflict(error: unknown): CatalogConflict | null {
+export function triggerConflict(error: unknown): CatalogConflict | null {
 	const pg = error as PgError;
-	return pg.code === "23514" ? (TRIGGER_REASONS[pg.message ?? ""] ?? null) : null;
+	return pg.code === "23514"
+		? (TRIGGER_REASONS[pg.message ?? ""] ?? null)
+		: null;
 }
 
 function requireBureau(identity: DbIdentity): string {
@@ -88,38 +95,51 @@ export async function createProduct(
 	identity: DbIdentity,
 	input: ProductCreate,
 ): Promise<
-	{ ok: true; id: string; versionId: string } | { ok: false; reason: "code_taken" | "addon_for_unknown" }
+	| { ok: true; id: string; versionId: string }
+	| { ok: false; reason: "code_taken" | "addon_for_unknown" }
 > {
 	try {
-		return await withUserTransaction(platformIdentity(identity), async (client) => {
-			if (input.kind === "addon") {
-				const mains = await client.query<{ code: string }>(
-					"select code from products where kind = 'main' and code = any ($1)",
-					[input.addonFor],
-				);
-				if (new Set(input.addonFor).size !== mains.rowCount) {
-					return { ok: false as const, reason: "addon_for_unknown" as const };
+		return await withUserTransaction(
+			platformIdentity(identity),
+			async (client) => {
+				if (input.kind === "addon") {
+					const mains = await client.query<{ code: string }>(
+						"select code from products where kind = 'main' and code = any ($1)",
+						[input.addonFor],
+					);
+					if (new Set(input.addonFor).size !== mains.rowCount) {
+						return { ok: false as const, reason: "addon_for_unknown" as const };
+					}
 				}
-			}
-			const product = await client.query<{ id: string }>(
-				"insert into products (code, name, kind, addon_for) values ($1, $2, $3, $4) returning id",
-				[input.code, input.name, input.kind, input.kind === "addon" ? input.addonFor : null],
-			);
-			const id = product.rows[0].id;
-			const version = await client.query<{ id: string }>(
-				`insert into product_versions (product_id, version, deps_product, base_cost, created_by)
+				const product = await client.query<{ id: string }>(
+					"insert into products (code, name, kind, addon_for) values ($1, $2, $3, $4) returning id",
+					[
+						input.code,
+						input.name,
+						input.kind,
+						input.kind === "addon" ? input.addonFor : null,
+					],
+				);
+				const id = product.rows[0].id;
+				const version = await client.query<{ id: string }>(
+					`insert into product_versions (product_id, version, deps_product, base_cost, created_by)
          values ($1, 1, $2, $3, $4) returning id`,
-				[id, input.depsProduct, input.baseCost, identity.userId],
-			);
-			await writeAuditEvent(client, {
-				actorId: identity.userId,
-				action: "catalog.product.create",
-				targetTable: "products",
-				targetId: id,
-				metadata: { code: input.code, kind: input.kind, base_cost: input.baseCost },
-			});
-			return { ok: true as const, id, versionId: version.rows[0].id };
-		});
+					[id, input.depsProduct, input.baseCost, identity.userId],
+				);
+				await writeAuditEvent(client, {
+					actorId: identity.userId,
+					action: "catalog.product.create",
+					targetTable: "products",
+					targetId: id,
+					metadata: {
+						code: input.code,
+						kind: input.kind,
+						base_cost: input.baseCost,
+					},
+				});
+				return { ok: true as const, id, versionId: version.rows[0].id };
+			},
+		);
 	} catch (error) {
 		const pg = error as PgError;
 		if (pg.code === "23505" && pg.constraint === "products_code_key") {
@@ -139,11 +159,10 @@ export async function updateProduct(
 			[input.id],
 		);
 		if (!rows[0]) return { ok: false as const, reason: "not_found" as const };
-		await client.query("update products set name = $2, active = $3 where id = $1", [
-			input.id,
-			input.name,
-			input.active,
-		]);
+		await client.query(
+			"update products set name = $2, active = $3 where id = $1",
+			[input.id, input.name, input.active],
+		);
 		await writeAuditEvent(client, {
 			actorId: identity.userId,
 			action: "catalog.product.update",
@@ -164,7 +183,8 @@ export async function createProductVersion(
 	identity: DbIdentity,
 	input: { productId: string; depsProduct: string | null; baseCost: string },
 ): Promise<
-	{ ok: true; versionId: string; version: number } | { ok: false; reason: "not_found" }
+	| { ok: true; versionId: string; version: number }
+	| { ok: false; reason: "not_found" }
 > {
 	return withUserTransaction(platformIdentity(identity), async (client) => {
 		// A trava no produto serializa a numeração das versões.
@@ -172,7 +192,8 @@ export async function createProductVersion(
 			"select 1 from products where id = $1 for update",
 			[input.productId],
 		);
-		if (!locked.rowCount) return { ok: false as const, reason: "not_found" as const };
+		if (!locked.rowCount)
+			return { ok: false as const, reason: "not_found" as const };
 		const previous = await client.query<{ deps_product: string | null }>(
 			"select deps_product from product_versions where product_id = $1 order by version desc limit 1",
 			[input.productId],
@@ -197,7 +218,11 @@ export async function createProductVersion(
 				base_cost: input.baseCost,
 			},
 		});
-		return { ok: true as const, versionId: rows[0].id, version: rows[0].version };
+		return {
+			ok: true as const,
+			versionId: rows[0].id,
+			version: rows[0].version,
+		};
 	});
 }
 
@@ -215,7 +240,9 @@ type ProductRow = {
 };
 
 // Lista todos os produtos (ativos e inativos) com a versão vigente.
-export async function listProducts(identity: DbIdentity): Promise<ProductSummary[]> {
+export async function listProducts(
+	identity: DbIdentity,
+): Promise<ProductSummary[]> {
 	return withUserTransaction(platformIdentity(identity), async (client) => {
 		const { rows } = await client.query<ProductRow>(
 			`select p.id, p.code, p.name, p.kind, p.addon_for, p.active,
@@ -274,29 +301,38 @@ export async function setBureauProductCost(
 	cost: string,
 ): Promise<{ ok: true } | { ok: false; reason: "not_found" }> {
 	try {
-		return await withUserTransaction(platformIdentity(identity), async (client) => {
-			const previous = await client.query<{ effective_cost: string }>(
-				"select effective_cost from resolve_product_terms($1, $2)",
-				[bureauId, productId],
-			);
-			if (!previous.rows[0]) return { ok: false as const, reason: "not_found" as const };
-			await client.query(
-				"insert into bureau_product_costs (bureau_id, product_id, cost, set_by) values ($1, $2, $3, $4)",
-				[bureauId, productId, cost, identity.userId],
-			);
-			await writeAuditEvent(client, {
-				actorId: identity.userId,
-				bureauId,
-				action: "catalog.cost.set",
-				targetTable: "products",
-				targetId: productId,
-				metadata: { old_cost: previous.rows[0].effective_cost, new_cost: cost },
-			});
-			return { ok: true as const };
-		});
+		return await withUserTransaction(
+			platformIdentity(identity),
+			async (client) => {
+				const previous = await client.query<{ effective_cost: string }>(
+					"select effective_cost from resolve_product_terms($1, $2)",
+					[bureauId, productId],
+				);
+				if (!previous.rows[0])
+					return { ok: false as const, reason: "not_found" as const };
+				await client.query(
+					"insert into bureau_product_costs (bureau_id, product_id, cost, set_by) values ($1, $2, $3, $4)",
+					[bureauId, productId, cost, identity.userId],
+				);
+				await writeAuditEvent(client, {
+					actorId: identity.userId,
+					bureauId,
+					action: "catalog.cost.set",
+					targetTable: "products",
+					targetId: productId,
+					// new_cost é decimal simples: a política de 011 compara com o custo gravado.
+					metadata: {
+						old_cost: previous.rows[0].effective_cost,
+						new_cost: fromCents(toCents(cost)),
+					},
+				});
+				return { ok: true as const };
+			},
+		);
 	} catch (error) {
 		// Bureau inexistente.
-		if ((error as PgError).code === "23503") return { ok: false, reason: "not_found" };
+		if ((error as PgError).code === "23503")
+			return { ok: false, reason: "not_found" };
 		throw error;
 	}
 }
@@ -327,7 +363,7 @@ export async function listBureauCosts(
 			[bureauId],
 		);
 		const history = await client.query<{
-			id: number;
+			id: string; // bigint volta como string do pg
 			product_id: string;
 			cost: string;
 			set_by: string;
@@ -350,7 +386,12 @@ export async function listBureauCosts(
 			source: p.override_cost === null ? "default" : "override",
 			history: history.rows
 				.filter((h) => h.product_id === p.id)
-				.map((h) => ({ id: h.id, cost: h.cost, setBy: h.set_by, createdAt: h.created_at })),
+				.map((h) => ({
+					id: h.id,
+					cost: h.cost,
+					setBy: h.set_by,
+					createdAt: h.created_at,
+				})),
 		}));
 	});
 }
@@ -368,7 +409,9 @@ type CatalogRow = {
 };
 
 // Produtos ativos com o item do Bureau da identidade. Sem item: `item` nulo.
-export async function listCatalog(identity: DbIdentity): Promise<CatalogEntry[]> {
+export async function listCatalog(
+	identity: DbIdentity,
+): Promise<CatalogEntry[]> {
 	if (!identity.bureauId) return [];
 	const bureauId = identity.bureauId;
 	const rows = await withUserTransaction(identity, async (client) => {
@@ -386,13 +429,19 @@ export async function listCatalog(identity: DbIdentity): Promise<CatalogEntry[]>
 	});
 
 	const base = rows.map((r) => {
-		const item = r.sale_price === null ? null : { active: r.item_active === true, salePrice: r.sale_price };
+		const item =
+			r.sale_price === null
+				? null
+				: { active: r.item_active === true, salePrice: r.sale_price };
 		const sellable =
-			item !== null && isPriceSellable(toCents(item.salePrice), toCents(r.effective_cost));
+			item !== null &&
+			isPriceSellable(toCents(item.salePrice), toCents(r.effective_cost));
 		return { r, item, sellable, baseOnSale: sellable && item?.active === true };
 	});
 	const mainsOnSale = new Set(
-		base.filter((b) => b.r.kind === "main" && b.baseOnSale).map((b) => b.r.code),
+		base
+			.filter((b) => b.r.kind === "main" && b.baseOnSale)
+			.map((b) => b.r.code),
 	);
 	return base.map(({ r, item, sellable, baseOnSale }) => ({
 		productId: r.product_id,
@@ -404,7 +453,10 @@ export async function listCatalog(identity: DbIdentity): Promise<CatalogEntry[]>
 		effectiveCost: r.effective_cost,
 		item,
 		sellable,
-		onSale: r.kind === "main" ? baseOnSale : baseOnSale && (r.addon_for ?? []).some((c) => mainsOnSale.has(c)),
+		onSale:
+			r.kind === "main"
+				? baseOnSale
+				: baseOnSale && (r.addon_for ?? []).some((c) => mainsOnSale.has(c)),
 	}));
 }
 
@@ -412,15 +464,20 @@ export async function upsertCatalogItem(
 	identity: DbIdentity,
 	productId: string,
 	input: { active: boolean; salePrice: string },
-): Promise<{ ok: true } | { ok: false; reason: CatalogConflict | "not_found" }> {
+): Promise<
+	{ ok: true } | { ok: false; reason: CatalogConflict | "not_found" }
+> {
 	const bureauId = requireBureau(identity);
 	try {
 		return await withUserTransaction(identity, async (client) => {
 			const product = (
-				await client.query<{ kind: ProductKind; addon_for: string[] | null; active: boolean }>(
-					"select kind, addon_for, active from products where id = $1",
-					[productId],
-				)
+				await client.query<{
+					kind: ProductKind;
+					addon_for: string[] | null;
+					active: boolean;
+				}>("select kind, addon_for, active from products where id = $1", [
+					productId,
+				])
 			).rows[0];
 			const terms = (
 				await client.query<{ effective_cost: string }>(
@@ -428,7 +485,8 @@ export async function upsertCatalogItem(
 					[bureauId, productId],
 				)
 			).rows[0];
-			if (!product || !terms) return { ok: false as const, reason: "not_found" as const };
+			if (!product || !terms)
+				return { ok: false as const, reason: "not_found" as const };
 			const existing = (
 				await client.query<{ active: boolean; sale_price: string }>(
 					`select active, sale_price from bureau_catalog_items
@@ -467,7 +525,8 @@ export async function upsertCatalogItem(
 					[bureauId, productId, input.active, input.salePrice, identity.userId],
 				);
 				// O RLS bloqueia o UPDATE sem erro (rowCount 0): não pode passar como sucesso.
-				if (!updated.rowCount) throw new Error("Atualização do item de catálogo bloqueada.");
+				if (!updated.rowCount)
+					throw new Error("Atualização do item de catálogo bloqueada.");
 			} else {
 				await client.query(
 					`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, updated_by)
@@ -483,6 +542,7 @@ export async function upsertCatalogItem(
 				metadata: {
 					old_price: existing?.sale_price ?? null,
 					new_price: fromCents(priceCents),
+					old_active: existing?.active ?? null,
 					active: input.active,
 				},
 			});
