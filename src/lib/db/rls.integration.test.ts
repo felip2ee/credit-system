@@ -614,6 +614,10 @@ describe("superadmin and support sessions", () => {
 	});
 
 	it("superadmin starts and ends only own support session", async () => {
+		await owner.query(
+			"update support_sessions set ended_at = now() where superadmin_id = $1 and ended_at is null",
+			[sa.userId],
+		);
 		await withDbContext(app, superCtx(null, null), async (c) => {
 			const { rows } = await c.query<{ id: string }>(
 				"insert into support_sessions (superadmin_id, bureau_id, reason) values ($1, $2, 'chamado 1') returning id",
@@ -633,6 +637,130 @@ describe("superadmin and support sessions", () => {
 				),
 			),
 		).rejects.toMatchObject({ code: "42501" });
+	});
+
+	describe("support session hardening", () => {
+		const endAll = () =>
+			owner.query(
+				"update support_sessions set ended_at = now() where superadmin_id = $1 and ended_at is null",
+				[sa.userId],
+			);
+		const insertSql =
+			"insert into support_sessions (superadmin_id, bureau_id, reason) values ($1, $2, 'chamado') returning id";
+
+		it("superadmin cannot choose started_at or expires_at", async () => {
+			for (const col of ["started_at", "expires_at"]) {
+				await expect(
+					withDbContext(app, superCtx(null, null), (c) =>
+						c.query(
+							`insert into support_sessions (superadmin_id, bureau_id, reason, ${col}) values ($1, $2, 'x', now())`,
+							[sa.userId, A.bureau.id],
+						),
+					),
+				).rejects.toMatchObject({ code: "42501" });
+			}
+		});
+
+		it("inserted session expires one hour after it starts", async () => {
+			await endAll();
+			const { rows } = await withDbContext(app, superCtx(null, null), (c) =>
+				c.query<{ ok: boolean }>(
+					"insert into support_sessions (superadmin_id, bureau_id, reason) values ($1, $2, 'chamado') returning expires_at = started_at + interval '1 hour' as ok",
+					[sa.userId, A.bureau.id],
+				),
+			);
+			expect(rows[0].ok).toBe(true);
+		});
+
+		it("superadmin cannot hold two open sessions", async () => {
+			await endAll();
+			await expect(
+				withDbContext(app, superCtx(null, null), async (c) => {
+					await c.query(insertSql, [sa.userId, A.bureau.id]);
+					await c.query(insertSql, [sa.userId, A.bureau.id]);
+				}),
+			).rejects.toMatchObject({ code: "23505" });
+		});
+
+		it("ending a session works once and hides tenant rows", async () => {
+			await endAll();
+			const id = await seedSupportSession(owner, {
+				superadminId: sa.userId,
+				bureauId: A.bureau.id,
+			});
+			await withDbContext(app, superCtx(A.bureau.id, id), async (c) => {
+				const before = await c.query("select id from holders");
+				expect(before.rowCount).toBeGreaterThan(0);
+				await c.query("update support_sessions set ended_at = now() where id = $1", [id]);
+				const after = await c.query("select id from holders");
+				expect(after.rowCount).toBe(0);
+			});
+		});
+
+		it("ended_at cannot be reopened or changed after it is set", async () => {
+			const now = Date.now();
+			const id = await seedSupportSession(owner, {
+				superadminId: sa.userId,
+				bureauId: A.bureau.id,
+				startedAt: new Date(now - 10 * MINUTE_MS),
+				expiresAt: new Date(now + 50 * MINUTE_MS),
+				endedAt: new Date(now - 5 * MINUTE_MS),
+			});
+			for (const sql of [
+				"update support_sessions set ended_at = null where id = $1",
+				"update support_sessions set ended_at = now() where id = $1",
+			]) {
+				await expect(
+					withDbContext(app, superCtx(null, null), (c) => c.query(sql, [id])),
+				).rejects.toMatchObject({ code: "23514" });
+			}
+		});
+
+		it("ended_at cannot precede started_at and other columns are immutable", async () => {
+			await endAll();
+			const id = await seedSupportSession(owner, {
+				superadminId: sa.userId,
+				bureauId: A.bureau.id,
+			});
+			await expect(
+				withDbContext(app, superCtx(null, null), (c) =>
+					c.query(
+						"update support_sessions set ended_at = started_at - interval '1 minute' where id = $1",
+						[id],
+					),
+				),
+			).rejects.toMatchObject({ code: "23514" });
+			await expect(
+				withDbContext(app, superCtx(null, null), (c) =>
+					c.query(
+						"update support_sessions set expires_at = expires_at + interval '1 minute' where id = $1",
+						[id],
+					),
+				),
+			).rejects.toMatchObject({ code: "42501" });
+			// owner bypasses column grants: the trigger still blocks it
+			await expect(
+				owner.query("update support_sessions set reason = 'outro' where id = $1", [id]),
+			).rejects.toMatchObject({ code: "23514" });
+		});
+
+		it("session with future started_at grants no access", async () => {
+			const now = Date.now();
+			const id = await seedSupportSession(owner, {
+				superadminId: sa2.userId,
+				bureauId: A.bureau.id,
+				startedAt: new Date(now + 10 * MINUTE_MS),
+				expiresAt: new Date(now + 40 * MINUTE_MS),
+			});
+			await withDbContext(
+				app,
+				{ ...superCtx(A.bureau.id, id), userId: sa2.userId },
+				async (c) => {
+					const { rows } = await c.query("select id from holders");
+					expect(rows).toEqual([]);
+				},
+			);
+		});
 	});
 
 	it("operator cannot read or create support sessions", async () => {

@@ -53,6 +53,7 @@ as $$
        and s.superadmin_id = public.app_user_id()
        and s.bureau_id = public.app_bureau_id()
        and s.ended_at is null
+       and s.started_at <= now()
        and s.expires_at > now())
 $$;
 
@@ -113,7 +114,7 @@ as $$
       select ss.id, ss.bureau_id, ss.expires_at
         from public.support_sessions ss
        where p.role = 'superadmin' and ss.superadmin_id = p.id
-         and ss.ended_at is null and ss.expires_at > now()
+         and ss.ended_at is null and ss.started_at <= now() and ss.expires_at > now()
        order by ss.started_at desc
        limit 1) s on true
    where p.auth_user_id = auth_id
@@ -287,6 +288,52 @@ create policy crm_notes_staff on crm_notes for all
   using (bureau_id = app_bureau_id() and (select app_is_staff()))
   with check (bureau_id = app_bureau_id() and (select app_is_staff()));
 
+-- ended_at é write-once: encerrar uma vez, nunca reabrir, nunca alterar outra coluna.
+create function support_sessions_guard_update()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  if old.ended_at is not null
+     or new.ended_at is null
+     or new.ended_at < old.started_at
+     or (to_jsonb(new) - 'ended_at') is distinct from (to_jsonb(old) - 'ended_at') then
+    raise exception 'support_sessions: only a single ended_at write is allowed'
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end
+$$;
+
+create trigger support_sessions_guard_update before update on support_sessions
+  for each row execute function support_sessions_guard_update();
+
+-- No máximo 1 sessão aberta por superadmin no caminho do app. Seeds e o dono
+-- (migrações, testes) podem manter várias; por isso não é índice único.
+create function support_sessions_guard_insert()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  if current_user = 'app_runtime' then
+    perform pg_advisory_xact_lock(hashtextextended(new.superadmin_id::text, 0));
+    if exists (
+      select 1 from public.support_sessions s
+       where s.superadmin_id = new.superadmin_id
+         and s.ended_at is null and s.expires_at > now()) then
+      raise exception 'support_sessions: superadmin already has an open session'
+        using errcode = 'unique_violation';
+    end if;
+  end if;
+  return new;
+end
+$$;
+
+create trigger support_sessions_guard_insert before insert on support_sessions
+  for each row execute function support_sessions_guard_insert();
+
 create policy support_sessions_superadmin on support_sessions for all
   using (
     app_context_present() and app_user_role() = 'superadmin'
@@ -336,7 +383,9 @@ grant update (validation_status, validation_errors) on bureau_payloads to app_ru
 grant select, insert on bureau_results to app_runtime;
 grant select, insert, update on ai_reports to app_runtime;
 grant select, insert on timeline_events, crm_notes, audit_logs to app_runtime;
-grant select, insert, update (ended_at) on support_sessions to app_runtime;
+-- started_at/expires_at vêm só dos defaults (1 hora); o app não escolhe.
+grant select, insert (superadmin_id, bureau_id, reason), update (ended_at)
+  on support_sessions to app_runtime;
 grant select, insert, update, delete on settings to app_runtime;
 
 grant select on all tables in schema public to backup_reader;
