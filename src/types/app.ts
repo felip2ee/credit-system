@@ -14,19 +14,14 @@ export type QueryStatus =
   | "error"
   | "rejected";
 
-export type BatchStatus =
+export type DossierKind = "PF" | "PJ" | "PJ_FULL";
+
+export type DossierStatus =
   | "pending"
   | "processing"
   | "completed"
   | "completed_with_errors"
   | "cancelled";
-
-export type CrmClientStatus =
-  | "prospect"
-  | "active"
-  | "in_intermediation"
-  | "completed"
-  | "inactive";
 
 export type AptitudeStatus = "pending" | "apt" | "apt_with_caveats" | "inapt";
 
@@ -42,49 +37,11 @@ export interface Profile {
   mfa_enabled: boolean;
 }
 
-// ─── CRM ─────────────────────────────────────────────────────────────────
+// ─── Titular / Sociedade ──────────────────────────────────────────────────
 
-export interface CrmClient {
-  id: string;
-  type: EntityKind;
-  name: string;
-  document: string | null;
-  email: string | null;
-  phone: string | null;
-  address: string | null;
-  address_number: string | null;
-  address_complement: string | null;
-  neighborhood: string | null;
-  city: string | null;
-  state: string | null;
-  zip_code: string | null;
-  status: CrmClientStatus;
-  assigned_to: string | null;
-  user_id: string | null;
-  notes: string | null;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
+export type PartnershipSource = "deps" | "operator";
 
-export type CrmRelationType =
-  | "socio"
-  | "conjuge"
-  | "avalista"
-  | "grupo_economico"
-  | "responsavel";
-
-export interface CrmClientRelation {
-  id: string;
-  client_id: string;
-  related_id: string;
-  relation_type: CrmRelationType;
-  percentage: number | null;
-  role: string | null;
-  created_at: string;
-}
-
-export type TimelineEntityType = "crm_client" | "query";
+export type TimelineEntityType = "holder" | "query";
 
 export interface TimelineEvent {
   id: string;
@@ -98,23 +55,12 @@ export interface TimelineEvent {
   created_at: string;
 }
 
-export interface CrmNote {
+export interface HolderNote {
   id: string;
-  entity_type: TimelineEntityType;
-  entity_id: string;
   content: string;
   created_by: string;
   created_at: string;
-  updated_at: string;
 }
-
-export const CRM_STATUS_LABEL: Record<CrmClientStatus, string> = {
-  prospect: "Prospecto",
-  active: "Ativo",
-  in_intermediation: "Em intermediação",
-  completed: "Concluído",
-  inactive: "Inativo",
-};
 
 // ─── Consultas / SCR ───────────────────────────────────────────────────
 
@@ -127,7 +73,8 @@ export interface QuerySummary {
   document_name: string | null;
   product: string | null;
   status: QueryStatus;
-  crm_client_id: string | null;
+  holder_id: string;
+  dossier_id: string;
   consulted_at: string | null;
   created_at: string;
 }
@@ -138,8 +85,8 @@ export interface ScrAuthorization {
   type: EntityKind;
   name: string | null;
   email: string | null;
-  query_id: string | null;
-  crm_client_id: string | null;
+  consultation_id: string | null;
+  holder_id: string;
   status: ScrStatus;
   requested_at: string;
   authorized_at: string | null;

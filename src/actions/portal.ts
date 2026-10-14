@@ -1,101 +1,89 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
-
 import { revalidatePath } from "next/cache";
 
 import { writeAuditEvent } from "@/lib/audit/write";
-import { auth } from "@/lib/auth/server";
-import { getRequiredSession } from "@/lib/auth/session";
-import { config } from "@/lib/config";
+import { createInvite, sendInviteEmail } from "@/lib/auth/invite";
+import { getRequiredSession, type RequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
-import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { withUserTransaction } from "@/lib/db/transaction";
 
 export interface ActionResult {
   error: string | null;
   id?: string;
 }
 
-async function requireStaff(): Promise<DbIdentity> {
+async function requireStaff(): Promise<RequiredSession> {
   const session = await getRequiredSession();
-  if (!hasPermission(session.role, "users:manage")) throw new Error("forbidden");
+  if (!hasPermission(session, "users:manage")) throw new Error("forbidden");
   return session;
 }
 
-type PortalClient = { id: string; name: string; email: string | null; user_id: string | null };
+type PortalHolder = { id: string; name: string; email: string | null; client_profile_id: string | null };
 
-export async function inviteClientToPortal(crmClientId: string): Promise<ActionResult> {
-  let actor: DbIdentity;
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+// portal.invite: convite com papel `client` no Bureau do chamador; liga o Titular ao perfil na mesma transação.
+export async function inviteHolderToPortal(holderId: string): Promise<ActionResult> {
+  let actor: RequiredSession;
   try {
     actor = await requireStaff();
   } catch {
     return { error: "Apenas a equipe pode conceder acesso ao portal." };
   }
+  const bureauId = actor.bureauId;
+  if (!bureauId) return { error: "Não foi possível criar o acesso." };
 
-  let invited: PortalClient | undefined;
+  let email: string | undefined;
   let userId: string | undefined;
   try {
     await withUserTransaction(actor, async (client) => {
-      const found = await client.query<PortalClient>(
-        "select id, name, email, user_id from crm_clients where id = $1 for update",
-        [crmClientId],
+      const found = await client.query<PortalHolder>(
+        "select id, name, email, client_profile_id from holders where id = $1 for update",
+        [holderId],
       );
-      invited = found.rows[0];
-      if (!invited) throw new Error("client_not_found");
-      if (invited.user_id) throw new Error("already_invited");
+      const holder = found.rows[0];
+      if (!holder) throw new Error("holder_not_found");
+      if (holder.client_profile_id) throw new Error("already_invited");
+      email = holder.email?.trim().toLowerCase();
+      if (!email || !EMAIL_PATTERN.test(email)) throw new Error("invalid_email");
 
-      const email = invited.email?.trim().toLowerCase();
-      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-        throw new Error("invalid_email");
-      }
-      const existing = await client.query<{ id: string }>(
-        'select id from "user" where lower(email) = $1 limit 1',
-        [email],
-      );
-      userId = existing.rows[0]?.id ?? randomUUID();
-      if (existing.rows[0]) {
-        await client.query('update "user" set name = $2, updated_at = now() where id = $1', [userId, invited.name]);
-      } else {
-        await client.query('insert into "user" (id, name, email, email_verified) values ($1, $2, $3, true)', [userId, invited.name, email]);
-      }
-      await client.query(
-        `insert into profiles (id, auth_user_id, full_name, email, role, is_active)
-         values ($1::uuid, $1::text, $2, $3, 'client', true)
-         on conflict (id) do update set full_name = excluded.full_name, email = excluded.email, role = 'client', is_active = true`,
-        [userId, invited.name, email],
-      );
-      await client.query("update crm_clients set user_id = $2 where id = $1", [crmClientId, userId]);
+      const invite = await createInvite(client, actor.userId, {
+        email,
+        fullName: holder.name,
+        role: "client",
+        bureauId,
+      });
+      if (!invite.ok) throw new Error(invite.reason);
+      userId = invite.userId;
+
+      await client.query("update holders set client_profile_id = $2 where id = $1", [holderId, userId]);
       await writeAuditEvent(client, {
         actorId: actor.userId,
         action: "portal.invite",
-        targetTable: "crm_clients",
-        targetId: crmClientId,
+        targetTable: "holders",
+        targetId: holderId,
         metadata: { email },
       });
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "";
-    if (reason === "client_not_found") return { error: "Cliente não encontrado." };
-    if (reason === "already_invited") return { error: "Este cliente já tem acesso ao portal. Revogue antes de reenviar." };
-    if (reason === "invalid_email") return { error: "Cadastre um e-mail válido no cliente antes de convidar." };
+    if (reason === "holder_not_found") return { error: "Titular não encontrado." };
+    if (reason === "already_invited") return { error: "Este Titular já tem acesso ao portal. Revogue antes de reenviar." };
+    if (reason === "invalid_email") return { error: "Cadastre um e-mail válido no Titular antes de convidar." };
+    if (reason === "email_in_use") return { error: "Este e-mail já pertence a outra conta." };
+    if (reason === "already_member") return { error: "Este e-mail já tem acesso ao portal." };
     return { error: "Não foi possível criar o acesso." };
   }
 
-  const email = invited?.email?.trim().toLowerCase();
-  if (!invited || !email || !userId) return { error: "Não foi possível criar o acesso." };
-  try {
-    await auth.api.requestPasswordReset({
-      body: { email, redirectTo: `${config.betterAuthUrl}/update-password` },
-    });
-  } catch {
-    return { error: "Acesso criado, mas o link para definir a senha falhou." };
-  }
-  revalidatePath(`/clients/${crmClientId}`);
+  if (!email || !userId) return { error: "Não foi possível criar o acesso." };
+  if (!(await sendInviteEmail(email))) return { error: "Acesso criado, mas o link para definir a senha falhou." };
+  revalidatePath(`/holders/${holderId}`);
   return { error: null, id: userId };
 }
 
-export async function revokeClientPortalAccess(crmClientId: string): Promise<ActionResult> {
-  let actor: DbIdentity;
+export async function revokeHolderPortalAccess(holderId: string): Promise<ActionResult> {
+  let actor: RequiredSession;
   try {
     actor = await requireStaff();
   } catch {
@@ -103,21 +91,24 @@ export async function revokeClientPortalAccess(crmClientId: string): Promise<Act
   }
   try {
     await withUserTransaction(actor, async (client) => {
-      const found = await client.query<{ user_id: string | null }>("select user_id from crm_clients where id = $1 for update", [crmClientId]);
-      if (!found.rows[0]) throw new Error("client_not_found");
-      const userId = found.rows[0].user_id;
+      const found = await client.query<{ client_profile_id: string | null }>(
+        "select client_profile_id from holders where id = $1 for update",
+        [holderId],
+      );
+      if (!found.rows[0]) throw new Error("holder_not_found");
+      const userId = found.rows[0].client_profile_id;
       if (!userId) throw new Error("not_active");
-      await client.query("update crm_clients set user_id = null where id = $1", [crmClientId]);
+      await client.query("update holders set client_profile_id = null where id = $1", [holderId]);
       await client.query("update profiles set is_active = false, updated_at = now() where id = $1", [userId]);
       await client.query('delete from "session" where user_id = $1', [userId]);
-      await writeAuditEvent(client, { actorId: actor.userId, action: "portal.revoke", targetTable: "crm_clients", targetId: crmClientId, metadata: { user_id: userId } });
+      await writeAuditEvent(client, { actorId: actor.userId, action: "portal.revoke", targetTable: "holders", targetId: holderId, metadata: { user_id: userId } });
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "";
-    if (reason === "client_not_found") return { error: "Cliente não encontrado." };
-    if (reason === "not_active") return { error: "Este cliente não tem acesso ativo." };
+    if (reason === "holder_not_found") return { error: "Titular não encontrado." };
+    if (reason === "not_active") return { error: "Este Titular não tem acesso ativo." };
     return { error: "Não foi possível revogar o acesso." };
   }
-  revalidatePath(`/clients/${crmClientId}`);
+  revalidatePath(`/holders/${holderId}`);
   return { error: null };
 }

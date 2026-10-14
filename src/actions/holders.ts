@@ -2,117 +2,91 @@
 
 import { revalidatePath } from "next/cache";
 
-import { getRequiredSession } from "@/lib/auth/session";
+import { getRequiredSession, type RequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
-import type { DbIdentity } from "@/lib/db/transaction";
 import {
-  addClientNote as addClientNoteQuery,
-  createClientRecord as createClientRecordQuery,
+  addHolderNote as addHolderNoteQuery,
+  createHolder as createHolderQuery,
   linkPartner as linkPartnerQuery,
-  updateClientRecord as updateClientRecordQuery,
-  updateClientStatus as updateClientStatusQuery,
-} from "@/lib/clients/queries";
-import { clientSchema, type ClientFormValues } from "@/lib/validators/client";
+  updateHolder as updateHolderQuery,
+} from "@/lib/holders/queries";
+import { holderSchema, type HolderFormValues } from "@/lib/validators/holder";
 import { isValidCPF, onlyDigits } from "@/lib/utils";
-import type { CrmClientStatus } from "@/types/app";
 
 export interface ActionResult {
   error: string | null;
   id?: string;
 }
 
-async function requireClientWrite(): Promise<DbIdentity | null> {
+async function requireHolderWrite(): Promise<RequiredSession | null> {
   try {
     const session = await getRequiredSession();
-    if (!hasPermission(session.role, "clients:write")) return null;
-    return { userId: session.userId, role: session.role };
+    return hasPermission(session, "holders:write") ? session : null;
   } catch {
     return null;
   }
 }
 
-export async function createClientRecord(
-  values: ClientFormValues
-): Promise<ActionResult> {
-  const parsed = clientSchema.safeParse(values);
+const DUPLICATE_MESSAGE = "Já existe um Titular com este documento.";
+
+export async function createHolder(values: HolderFormValues): Promise<ActionResult> {
+  const parsed = holderSchema.safeParse(values);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
 
-  const identity = await requireClientWrite();
-  if (!identity) return { error: "Sessão expirada." };
+  const session = await requireHolderWrite();
+  if (!session) return { error: "Sessão expirada." };
 
   try {
-    const result = await createClientRecordQuery(identity, parsed.data);
-    if (!result.ok) {
-      return { error: "Já existe um cliente com este documento." };
-    }
-    revalidatePath("/clients");
+    const result = await createHolderQuery(session, parsed.data);
+    if (!result.ok) return { error: DUPLICATE_MESSAGE };
+    revalidatePath("/holders");
     return { error: null, id: result.id };
   } catch {
-    return { error: "Falha ao salvar o cliente." };
+    return { error: "Falha ao salvar o Titular." };
   }
 }
 
-export async function updateClientRecord(
-  id: string,
-  values: ClientFormValues
-): Promise<ActionResult> {
-  const parsed = clientSchema.safeParse(values);
+export async function updateHolder(id: string, values: HolderFormValues): Promise<ActionResult> {
+  const parsed = holderSchema.safeParse(values);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
 
-  const identity = await requireClientWrite();
-  if (!identity) return { error: "Sessão expirada." };
+  const session = await requireHolderWrite();
+  if (!session) return { error: "Sessão expirada." };
 
   try {
-    await updateClientRecordQuery(identity, id, parsed.data);
+    const result = await updateHolderQuery(session, id, parsed.data);
+    if (!result.ok) {
+      return { error: result.reason === "not_found" ? "Titular não encontrado." : DUPLICATE_MESSAGE };
+    }
   } catch {
-    return { error: "Falha ao salvar o cliente." };
+    return { error: "Falha ao salvar o Titular." };
   }
 
-  revalidatePath("/clients");
-  revalidatePath(`/clients/${id}`);
+  revalidatePath("/holders");
+  revalidatePath(`/holders/${id}`);
   return { error: null, id };
 }
 
-export async function updateClientStatus(
-  id: string,
-  status: CrmClientStatus
-): Promise<ActionResult> {
-  const identity = await requireClientWrite();
-  if (!identity) return { error: "Sessão expirada." };
-
-  try {
-    await updateClientStatusQuery(identity, id, status);
-  } catch {
-    return { error: "Falha ao alterar o status." };
-  }
-
-  revalidatePath(`/clients/${id}`);
-  revalidatePath("/clients");
-  return { error: null, id };
-}
-
-export async function addClientNote(
-  clientId: string,
-  content: string
-): Promise<ActionResult> {
+export async function addHolderNote(holderId: string, content: string): Promise<ActionResult> {
   const text = content.trim();
   if (text.length < 1) return { error: "Anotação vazia." };
 
-  const identity = await requireClientWrite();
-  if (!identity) return { error: "Sessão expirada." };
+  const session = await requireHolderWrite();
+  if (!session) return { error: "Sessão expirada." };
 
   try {
-    await addClientNoteQuery(identity, clientId, text);
+    const result = await addHolderNoteQuery(session, holderId, text);
+    if (!result.ok) return { error: "Titular não encontrado." };
   } catch {
     return { error: "Falha ao salvar a anotação." };
   }
 
-  revalidatePath(`/clients/${clientId}`);
-  return { error: null, id: clientId };
+  revalidatePath(`/holders/${holderId}`);
+  return { error: null, id: holderId };
 }
 
 export interface LinkPartnerInput {
@@ -122,19 +96,16 @@ export interface LinkPartnerInput {
   role?: string | null;
 }
 
-export async function linkPartner(
-  pjClientId: string,
-  input: LinkPartnerInput
-): Promise<ActionResult> {
+export async function linkPartner(companyId: string, input: LinkPartnerInput): Promise<ActionResult> {
   if (!isValidCPF(input.cpf)) return { error: "CPF do sócio inválido." };
   const name = input.name.trim();
   if (name.length < 3) return { error: "Informe o nome do sócio." };
 
-  const identity = await requireClientWrite();
-  if (!identity) return { error: "Sessão expirada." };
+  const session = await requireHolderWrite();
+  if (!session) return { error: "Sessão expirada." };
 
   try {
-    const result = await linkPartnerQuery(identity, pjClientId, {
+    const result = await linkPartnerQuery(session, companyId, {
       document: onlyDigits(input.cpf),
       name,
       percentage: input.percentage ?? null,
@@ -144,11 +115,11 @@ export async function linkPartner(
       return {
         error:
           result.reason === "self_link"
-            ? "Não é possível vincular o cliente a ele mesmo."
-            : "Sócio já vinculado.",
+            ? "Não é possível vincular o Titular a ele mesmo."
+            : "A empresa precisa ser um Titular pessoa jurídica.",
       };
     }
-    revalidatePath(`/clients/${pjClientId}`);
+    revalidatePath(`/holders/${companyId}`);
     return { error: null, id: result.id };
   } catch {
     return { error: "Falha ao criar o sócio." };

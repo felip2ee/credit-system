@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { adapt } from "@/lib/deps/adapter";
+import { DEPS_PRODUCT_PF } from "@/lib/deps/products";
 import type { AdaptContext, CanonicalBureauResult } from "@/types/bureau";
 import { toConsultationView, incompatibleView } from "./view-model";
 
@@ -8,7 +9,7 @@ import pfCurrent from "@/lib/deps/__fixtures__/pf-current.json";
 import pjCurrent from "@/lib/deps/__fixtures__/pj-current.json";
 
 const ctx: AdaptContext = {
-  product: "Smart PF 002",
+  product: DEPS_PRODUCT_PF,
   httpStatus: 200,
   receivedAt: new Date("2026-08-31T00:00:00Z"),
 };

@@ -20,8 +20,12 @@
 
 import { createHash } from "node:crypto";
 
+import type { PoolClient } from "pg";
+
 import { adapt } from "@/lib/deps/adapter";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { refreshDossierStatus } from "@/lib/dossiers/queries";
+import { ensureHolder, upsertPartnership } from "@/lib/holders/queries";
 import type {
   AdaptResult,
   AdapterError,
@@ -104,8 +108,8 @@ export async function executeConsultation(
     // unique (consultation_id, payload_sha256) constraint makes this a no-op.
     const inserted = await client.query<{ id: string }>(
       `insert into bureau_payloads
-         (consultation_id, provider, product, received_at, http_status, payload, payload_sha256)
-       values ($1, 'deps', $2, $3, $4, $5::jsonb, $6)
+         (bureau_id, consultation_id, provider, product, received_at, http_status, payload, payload_sha256)
+       values (app_bureau_id(), $1, 'deps', $2, $3, $4, $5::jsonb, $6)
        on conflict (consultation_id, payload_sha256) do nothing
        returning id`,
       [
@@ -137,10 +141,12 @@ export async function executeConsultation(
          where id = $1`,
         [payloadId, JSON.stringify(result.errors)],
       );
-      await client.query(
-        `update consultations set status = 'payload_incompatible' where id = $1`,
+      const incompatible = await client.query<{ dossier_id: string }>(
+        `update consultations set status = 'payload_incompatible' where id = $1
+         returning dossier_id`,
         [input.consultationId],
       );
+      await refreshDossierStatus(client, incompatible.rows[0].dossier_id);
       return { status: "payload_incompatible", errors: result.errors };
     }
 
@@ -151,9 +157,9 @@ export async function executeConsultation(
     );
     await client.query(
       `insert into bureau_results
-         (consultation_id, payload_id, adapter_version, canonical_result,
+         (bureau_id, consultation_id, payload_id, adapter_version, canonical_result,
           document, person_name, score, risk_level)
-       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)`,
+       values (app_bureau_id(), $1, $2, $3, $4::jsonb, $5, $6, $7, $8)`,
       [
         input.consultationId,
         payloadId,
@@ -165,14 +171,15 @@ export async function executeConsultation(
         c.score.riskBand,
       ],
     );
-    await client.query(
+    const completed = await client.query<{ dossier_id: string }>(
       `update consultations
          set status = 'completed',
              document_name = $2,
              consulted_at = coalesce($3, consulted_at),
              historico_consulta_id = coalesce($4, historico_consulta_id),
              api_version = coalesce($5, api_version)
-       where id = $1`,
+       where id = $1
+       returning dossier_id`,
       [
         input.consultationId,
         c.subject.name,
@@ -182,6 +189,47 @@ export async function executeConsultation(
       ],
     );
 
+    await refreshDossierStatus(client, completed.rows[0].dossier_id);
+    if (input.entityKind === "PJ") {
+      await recordPartnershipsFromDeps(client, input.identity.userId, input.consultationId, c);
+    }
+
     return { status: "completed", canonical: c };
   });
+}
+
+const CPF_LENGTH = 11;
+const CNPJ_LENGTH = 14;
+
+// partnership.from-deps: o quadro societário da consulta PJ vira Sociedade. Sem novas consultas.
+// Sócio sem documento completo (11 ou 14 dígitos) fica de fora.
+async function recordPartnershipsFromDeps(
+  client: PoolClient,
+  actorId: string,
+  consultationId: string,
+  result: CanonicalBureauResult,
+): Promise<void> {
+  const { rows } = await client.query<{ holder_id: string }>(
+    "select holder_id from consultations where id = $1",
+    [consultationId],
+  );
+  const companyId = rows[0]?.holder_id;
+  if (!companyId) return;
+
+  for (const owner of result.companyOwnership) {
+    const document = owner.document?.replace(/\D/g, "") ?? "";
+    if (document.length !== CPF_LENGTH && document.length !== CNPJ_LENGTH) continue;
+    const partnerId = await ensureHolder(client, actorId, {
+      type: document.length === CNPJ_LENGTH ? "PJ" : "PF",
+      name: owner.name?.trim() || document,
+      document,
+    });
+    await upsertPartnership(client, actorId, {
+      companyId,
+      partnerId,
+      percentage: owner.sharePct,
+      role: owner.role,
+      source: "deps",
+    });
+  }
 }

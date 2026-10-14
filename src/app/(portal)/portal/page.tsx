@@ -7,7 +7,7 @@ import { hasPermission } from "@/lib/db/permissions";
 
 export default async function PortalHomePage() {
   const session = await getRequiredSession();
-  if (!hasPermission(session.role, "portal:read")) return null;
+  if (!hasPermission(session, "portal:read")) return null;
   const profile = await getCurrentProfile();
   const firstName = profile?.full_name.split(" ")[0] ?? "";
 
