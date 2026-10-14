@@ -1,3 +1,5 @@
+import type { NfseConfig } from "@/lib/config";
+
 export type PixChargeInput = {
 	// Reais, string decimal com até 2 casas.
 	amount: string;
@@ -13,6 +15,20 @@ export type PixChargeResult = {
 	qrImageBase64: string;
 };
 
+export type InvoiceInput = {
+	// Pagamento do Asaas já confirmado; a nota nasce dele.
+	paymentId: string;
+	// Reais, string decimal com até 2 casas (o valor da cobrança no banco).
+	amount: string;
+	// Nossa referência (id da cobrança).
+	externalReference: string;
+	service: NfseConfig;
+};
+
+export type InvoiceResult = { asaasInvoiceId: string };
+
 export type AsaasClient = {
 	createPixCharge(input: PixChargeInput): Promise<PixChargeResult>;
+	// Agenda a NFS-e. Agendar não é emitir: a emissão chega depois pelo evento INVOICE_AUTHORIZED.
+	scheduleInvoice(input: InvoiceInput): Promise<InvoiceResult>;
 };

@@ -4,21 +4,35 @@
 // (o authToken do webhook) e corpo { id, event, payment: { id, value } }.
 // Não conferido: que a cobrança PIX sem customer próprio aceita um customer único da conta (ASAAS_CUSTOMER_ID).
 // Prova real: item (post-deploy) da spec.
+//
+// NFS-e, conferido em 2026-10-14 em docs.asaas.com (agendar nota fiscal; webhooks de notas fiscais):
+// POST /v3/invoices { payment, municipalServiceId | municipalServiceCode, municipalServiceName, serviceDescription,
+// value, effectiveDate, externalReference, observations, deductions, taxes } -> { id, status, number, pdfUrl };
+// status SCHEDULED | AUTHORIZED | PROCESSING_CANCELLATION | CANCELED | CANCELLATION_DENIED | ERROR; agendar não emite.
+// Eventos INVOICE_CREATED | UPDATED | SYNCHRONIZED | AUTHORIZED | PROCESSING_CANCELLATION | CANCELED |
+// CANCELLATION_DENIED | ERROR, corpo { id, event, invoice: { id, status, number, pdfUrl, payment } }; entrega "at least once".
+// Não conferido: quais subcampos de `taxes` cada prefeitura exige (enviamos retainIss e iss), se `observations` pode
+// ir vazio, se o id municipal serve a toda prefeitura (há o código como alternativa) e se `invoice.externalReference`
+// vem nos eventos (por isso o webhook casa a nota pela cobrança, `invoice.payment`). Prova real: item (post-deploy).
 import { z } from "zod";
 
-import type { AsaasClient, PixChargeInput, PixChargeResult } from "./types";
+import type { AsaasClient, InvoiceInput, InvoiceResult, PixChargeInput, PixChargeResult } from "./types";
 
 export const ASAAS_API_KEY_HEADER = "access_token";
 export const ASAAS_WEBHOOK_TOKEN_HEADER = "asaas-access-token";
 export const ASAAS_EVENT_PAYMENT_RECEIVED = "PAYMENT_RECEIVED";
 export const ASAAS_EVENT_PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED";
 export const ASAAS_EVENT_PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
+export const ASAAS_INVOICE_EVENT_PREFIX = "INVOICE_";
+export const ASAAS_EVENT_INVOICE_AUTHORIZED = "INVOICE_AUTHORIZED";
+export const ASAAS_EVENT_INVOICE_ERROR = "INVOICE_ERROR";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export type AsaasClientSettings = { apiKey: string; baseUrl: string; customerId: string };
 
 const paymentSchema = z.object({ id: z.string().min(1) });
+const invoiceSchema = z.object({ id: z.string().min(1) });
 const qrSchema = z.object({ encodedImage: z.string().min(1), payload: z.string().min(1) });
 
 // Vencimento no fuso de Brasília (a data é local ao negócio, não UTC).
@@ -67,6 +81,26 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 				qrSchema,
 			);
 			return { asaasPaymentId: payment.id, pixPayload: qr.payload, qrImageBase64: qr.encodedImage };
+		},
+
+		async scheduleInvoice(input: InvoiceInput): Promise<InvoiceResult> {
+			const { service } = input;
+			const invoice = await call("POST", "/v3/invoices", "POST /v3/invoices", invoiceSchema, {
+				payment: input.paymentId,
+				...(service.municipalServiceId
+					? { municipalServiceId: service.municipalServiceId }
+					: { municipalServiceCode: service.municipalServiceCode }),
+				municipalServiceName: service.municipalServiceName,
+				serviceDescription: service.serviceDescription,
+				// Valor da cobrança no banco (2 casas); nenhuma conta em ponto flutuante.
+				value: Number(input.amount),
+				deductions: 0,
+				effectiveDate: todayInSaoPaulo(),
+				observations: "",
+				externalReference: input.externalReference,
+				taxes: { retainIss: service.retainIss, iss: service.issRate },
+			});
+			return { asaasInvoiceId: invoice.id };
 		},
 	};
 }
