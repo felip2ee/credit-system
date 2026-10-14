@@ -1444,3 +1444,364 @@ describe("audit_logs", () => {
 		expect(Number(supportRows.rows[0].n)).toBe(0);
 	});
 });
+
+// O dono é superusuário, mas o trigger protect_profile_identity também vale para ele.
+// Para semear estado de teste, desliga os triggers só nesta transação.
+async function ownerUpdateProfile(
+	userId: string,
+	set: "must_change_password = true" | "is_active = false",
+) {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		await client.query("set local session_replication_role = replica");
+		await client.query(`update profiles set ${set} where id = $1`, [userId]);
+		await client.query("commit");
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
+}
+
+describe("admin_set_credentials target rules", () => {
+	// Hash fixo e falso: o teste nunca usa senha real.
+	const FAKE_HASH = "salt:fake-hash-for-tests";
+	const OLD_HASH = "salt:old-fake-hash";
+
+	const addAccount = (userId: string, hash: string = OLD_HASH) =>
+		owner.query(
+			`insert into account (issuer, account_id, provider_id, user_id, password, updated_at)
+       values ('local:credential', $1, 'credential', $1, $2, now())`,
+			[userId, hash],
+		);
+	const addSession = (userId: string) =>
+		owner.query(
+			`insert into "session" (expires_at, token, updated_at, user_id)
+       values (now() + interval '1 hour', $2, now(), $1)`,
+			[userId, randomBytes(16).toString("hex")],
+		);
+
+	type Snapshot = { password: string | null; flag: boolean; sessions: number };
+	// Lê pelo dono: o RLS esconde o alvo de quem chama (ex.: superadmin fora de suporte).
+	const snapshot = async (userId: string): Promise<Snapshot> => {
+		const { rows } = await owner.query<{
+			password: string | null;
+			flag: boolean;
+			sessions: string;
+		}>(
+			`select (select password from account where user_id = $1 and provider_id = 'credential') as password,
+              (select must_change_password from profiles where id = $1::uuid) as flag,
+              (select count(*) from "session" where user_id = $1) as sessions`,
+			[userId],
+		);
+		return {
+			password: rows[0].password,
+			flag: rows[0].flag,
+			sessions: Number(rows[0].sessions),
+		};
+	};
+	// Confirma a transação do chamador (como a action faz) e lê o estado do alvo depois.
+	const call = async (
+		actor: Actor,
+		targetId: string,
+		bureauId: string,
+		hash: string | null,
+	) => {
+		const client = await app.connect();
+		try {
+			await client.query("begin");
+			await client.query(
+				`select set_config('app.user_id', $1, true),
+                set_config('app.user_role', $2, true),
+                set_config('app.bureau_id', $3, true),
+                set_config('app.support_session_id', '', true)`,
+				[actor.userId, actor.role, actor.bureauId ?? ""],
+			);
+			const { rows } = await client.query<{ ok: boolean }>(
+				"select admin_set_credentials($1::uuid, $2::uuid, $3) as ok",
+				[targetId, bureauId, hash],
+			);
+			await client.query("commit");
+			return { ok: rows[0].ok, after: await snapshot(targetId) };
+		} catch (error) {
+			await client.query("rollback");
+			throw error;
+		} finally {
+			client.release();
+		}
+	};
+	const asSuper = (): Actor => ({
+		userId: sa.userId,
+		role: "superadmin",
+		bureauId: null,
+	});
+	const untouched = { password: OLD_HASH, flag: false, sessions: 1 };
+
+	// Bureau novo, com conta e sessão para o admin e o operador.
+	const fresh = async (label: string) => {
+		const t = await seedTenant(owner, label);
+		for (const id of [t.bureauAdmin.userId, t.operator.userId]) {
+			await addAccount(id);
+			await addSession(id);
+		}
+		return t;
+	};
+
+	it("superadmin sets the hash of a bureau_admin of the given bureau", async () => {
+		const T = await fresh("creds sa");
+		const result = await call(
+			asSuper(),
+			T.bureauAdmin.userId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(result).toEqual({
+			ok: true,
+			after: { password: FAKE_HASH, flag: true, sessions: 0 },
+		});
+		expect(await snapshot(T.operator.userId)).toEqual(untouched);
+	});
+
+	it("superadmin refuses operator, other superadmin and wrong bureau", async () => {
+		const T = await fresh("creds sa refuse");
+		const U = await fresh("creds sa other");
+		const op = await call(
+			asSuper(),
+			T.operator.userId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(op).toEqual({ ok: false, after: untouched });
+		const peer = await call(asSuper(), sa2.userId, T.bureau.id, FAKE_HASH);
+		expect(peer.ok).toBe(false);
+		const wrong = await call(
+			asSuper(),
+			U.bureauAdmin.userId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(wrong).toEqual({ ok: false, after: untouched });
+	});
+
+	it("superadmin with a bureau in the context is refused", async () => {
+		const T = await fresh("creds sa support");
+		await expectRejectCode(
+			call(
+				{ ...asSuper(), bureauId: T.bureau.id },
+				T.bureauAdmin.userId,
+				T.bureau.id,
+				FAKE_HASH,
+			),
+			"42501",
+		);
+		expect(await snapshot(T.bureauAdmin.userId)).toEqual(untouched);
+	});
+
+	it("bureau_admin sets the hash of an operator of the own bureau", async () => {
+		const T = await fresh("creds admin");
+		const result = await call(
+			ctxOf(T.bureauAdmin),
+			T.operator.userId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(result).toEqual({
+			ok: true,
+			after: { password: FAKE_HASH, flag: true, sessions: 0 },
+		});
+		expect(await snapshot(T.bureauAdmin.userId)).toEqual(untouched);
+	});
+
+	it("bureau_admin refuses a peer admin, self and a client", async () => {
+		const T = await fresh("creds peer");
+		const peerAdminId = randomUUID();
+		await owner.query(
+			'insert into "user" (id, name, email) values ($1, $2, $3)',
+			[peerAdminId, "par", `${peerAdminId}@example.test`],
+		);
+		await owner.query(
+			"insert into profiles (id, auth_user_id, full_name, email, role, bureau_id) values ($1::uuid, $1::text, 'par', $2, 'bureau_admin', $3)",
+			[peerAdminId, `${peerAdminId}@example.test`, T.bureau.id],
+		);
+		await addAccount(peerAdminId);
+		await addSession(peerAdminId);
+		const peer = await call(
+			ctxOf(T.bureauAdmin),
+			peerAdminId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(peer).toEqual({ ok: false, after: untouched });
+		const self = await call(
+			ctxOf(T.bureauAdmin),
+			T.bureauAdmin.userId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(self).toEqual({ ok: false, after: untouched });
+		const client = await call(
+			ctxOf(T.bureauAdmin),
+			T.client.userId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(client.ok).toBe(false);
+	});
+
+	it("bureau_admin cannot target another bureau, and its operators stay intact", async () => {
+		const T = await fresh("creds own");
+		const U = await fresh("creds foreign");
+		await expectRejectCode(
+			call(ctxOf(T.bureauAdmin), U.operator.userId, U.bureau.id, FAKE_HASH),
+			"42501",
+		);
+		const crossed = await call(
+			ctxOf(T.bureauAdmin),
+			U.operator.userId,
+			T.bureau.id,
+			FAKE_HASH,
+		);
+		expect(crossed).toEqual({ ok: false, after: untouched });
+	});
+
+	it("operator, client and inactive bureau_admin are refused with 42501", async () => {
+		const T = await fresh("creds roles");
+		for (const actor of [T.operator, T.client]) {
+			await expectRejectCode(
+				call(ctxOf(actor), T.operator.userId, T.bureau.id, FAKE_HASH),
+				"42501",
+			);
+		}
+		const inactive = await fresh("creds inactive");
+		await ownerUpdateProfile(inactive.bureauAdmin.userId, "is_active = false");
+		await expectRejectCode(
+			call(
+				ctxOf(inactive.bureauAdmin),
+				inactive.operator.userId,
+				inactive.bureau.id,
+				FAKE_HASH,
+			),
+			"42501",
+		);
+		expect(await snapshot(inactive.operator.userId)).toEqual(untouched);
+	});
+
+	it("null hash on a target with an account keeps the password and sets the flag", async () => {
+		const T = await fresh("creds null hash");
+		const result = await call(
+			ctxOf(T.bureauAdmin),
+			T.operator.userId,
+			T.bureau.id,
+			null,
+		);
+		expect(result).toEqual({
+			ok: true,
+			after: { password: OLD_HASH, flag: true, sessions: 0 },
+		});
+	});
+
+	it("null hash on a pending invite returns false and leaves the flag", async () => {
+		const pending = await seedTenant(owner, "creds pending");
+		const result = await call(
+			ctxOf(pending.bureauAdmin),
+			pending.operator.userId,
+			pending.bureau.id,
+			null,
+		);
+		expect(result.ok).toBe(false);
+		expect(result.after.flag).toBe(false);
+	});
+
+	it("hash on a pending invite creates the credential account", async () => {
+		const pending = await seedTenant(owner, "creds pending hash");
+		const id = pending.operator.userId;
+		const result = await call(
+			ctxOf(pending.bureauAdmin),
+			id,
+			pending.bureau.id,
+			FAKE_HASH,
+		);
+		expect(result.ok).toBe(true);
+		const { rows } = await owner.query(
+			"select provider_id, account_id, user_id, password from account where user_id = $1",
+			[id],
+		);
+		expect(rows).toEqual([
+			{
+				provider_id: "credential",
+				account_id: id,
+				user_id: id,
+				password: FAKE_HASH,
+			},
+		]);
+	});
+});
+
+describe("trigger blocks flag writes", () => {
+	const setFlag = (actor: Actor, targetId: string, value: boolean) =>
+		withDbContext(app, actor, (c) =>
+			c.query("update profiles set must_change_password = $2 where id = $1", [
+				targetId,
+				value,
+			]),
+		);
+	const FLAG_ERROR = /must_change_password changes only through/;
+
+	it("bureau_admin cannot turn the flag on or off for an operator", async () => {
+		const T = await seedTenant(owner, "tenant flag");
+		await expect(
+			setFlag(ctxOf(T.bureauAdmin), T.operator.userId, true),
+		).rejects.toThrow(FLAG_ERROR);
+		await ownerUpdateProfile(T.operator.userId, "must_change_password = true");
+		await expect(
+			setFlag(ctxOf(T.bureauAdmin), T.operator.userId, false),
+		).rejects.toThrow(FLAG_ERROR);
+	});
+
+	it("a user cannot turn the own flag on, but can turn it off", async () => {
+		const T = await seedTenant(owner, "tenant flag self");
+		await expect(
+			setFlag(ctxOf(T.operator), T.operator.userId, true),
+		).rejects.toThrow(FLAG_ERROR);
+		await ownerUpdateProfile(T.operator.userId, "must_change_password = true");
+		await expect(
+			setFlag(ctxOf(T.operator), T.operator.userId, false),
+		).resolves.toBeDefined();
+	});
+});
+
+describe("auth_profile_for_session returns the flag", () => {
+	it("is true after admin_set_credentials", async () => {
+		const T = await seedTenant(owner, "tenant lookup");
+		await owner.query(
+			`insert into account (issuer, account_id, provider_id, user_id, password, updated_at)
+			 values ('local:credential', $1, 'credential', $1, 'salt:fake', now())`,
+			[T.operator.userId],
+		);
+		const read = () =>
+			app.query<{ must_change_password: boolean }>(
+				"select must_change_password from auth_profile_for_session($1)",
+				[T.operator.userId],
+			);
+		expect((await read()).rows[0].must_change_password).toBe(false);
+		await ownerUpdateProfile(T.operator.userId, "must_change_password = true");
+		expect((await read()).rows[0].must_change_password).toBe(true);
+	});
+});
+
+describe("change-password is a reserved slug", () => {
+	it("rejects the slug", async () => {
+		await expectCode(
+			owner,
+			"insert into bureaus (name, slug) values ('X', 'change-password')",
+			[],
+			"23514",
+		);
+	});
+});
+
+async function expectRejectCode(promise: Promise<unknown>, code: string) {
+	await expect(promise).rejects.toMatchObject({ code });
+}

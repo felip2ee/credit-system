@@ -99,7 +99,8 @@ returns table (
   mfa_enabled boolean,
   support_session_id uuid,
   support_bureau_id uuid,
-  support_expires_at timestamptz
+  support_expires_at timestamptz,
+  must_change_password boolean
 )
 language sql
 stable
@@ -107,7 +108,8 @@ security definer
 set search_path = pg_catalog, public
 as $$
   select p.id, p.role::text, p.bureau_id, coalesce(b.status = 'active', false),
-         p.is_active, p.mfa_enabled, s.id, s.bureau_id, s.expires_at
+         p.is_active, p.mfa_enabled, s.id, s.bureau_id, s.expires_at,
+         p.must_change_password
     from public.profiles p
     left join public.bureaus b on b.id = p.bureau_id
     left join lateral (
@@ -143,6 +145,14 @@ begin
   if old.role is distinct from new.role
     and not (old.role in ('bureau_admin', 'operator') and new.role in ('bureau_admin', 'operator')) then
     raise exception 'role may only change between bureau_admin and operator';
+  end if;
+
+  -- A flag só muda pelo gateway admin_set_credentials ou pelo próprio usuário, de true para false.
+  if old.must_change_password is distinct from new.must_change_password
+     and current_user <> 'auth_profile_lookup'
+     and not (old.must_change_password and not new.must_change_password
+              and new.id = app_user_id()) then
+    raise exception 'must_change_password changes only through the password flows';
   end if;
 
   return new;

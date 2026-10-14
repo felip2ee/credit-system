@@ -2,7 +2,7 @@
 -- bypass it; these grants and policies are the complete boundary of the public
 -- SCR gateway and of the cross-tenant SECURITY DEFINER functions
 -- (auth_profile_for_session, app_support_active, public_bureau_by_slug,
--- platform_bureau_metrics).
+-- platform_bureau_metrics, admin_set_credentials).
 
 alter role auth_profile_lookup NOLOGIN NOINHERIT NOBYPASSRLS;
 
@@ -23,8 +23,13 @@ revoke all on public.holders from auth_profile_lookup;
 revoke all on public.dossiers from auth_profile_lookup;
 revoke all on public.consultations from auth_profile_lookup;
 
-grant select (id, auth_user_id, role, is_active, mfa_enabled, bureau_id)
+grant select (id, auth_user_id, role, is_active, mfa_enabled, bureau_id, must_change_password)
   on public.profiles to auth_profile_lookup;
+grant update (must_change_password) on public.profiles to auth_profile_lookup;
+grant select (user_id, provider_id), update (password, updated_at),
+  insert (id, issuer, account_id, provider_id, user_id, password, updated_at)
+  on public.account to auth_profile_lookup;
+grant select (user_id), delete on public."session" to auth_profile_lookup;
 grant select (id, name, slug, status) on public.bureaus to auth_profile_lookup;
 grant select (id, superadmin_id, bureau_id, started_at, expires_at, ended_at)
   on public.support_sessions to auth_profile_lookup;
@@ -45,6 +50,9 @@ grant select (id, bureau_id, created_at) on public.consultations to auth_profile
 
 create policy profiles_gateway_lookup on public.profiles for select to auth_profile_lookup
   using (true);
+create policy profiles_gateway_update on public.profiles for update to auth_profile_lookup
+  using (role in ('bureau_admin', 'operator'))
+  with check (role in ('bureau_admin', 'operator'));
 create policy bureaus_gateway_select on public.bureaus for select to auth_profile_lookup
   using (true);
 create policy support_sessions_gateway_select on public.support_sessions for select to auth_profile_lookup
@@ -186,3 +194,64 @@ $$;
 alter function public.platform_bureau_metrics() owner to auth_profile_lookup;
 revoke all on function public.platform_bureau_metrics() from public;
 grant execute on function public.platform_bureau_metrics() to app_runtime;
+
+-- Define a senha temporária (hash) e/ou liga must_change_password; apaga as sessões do alvo.
+-- Quem chama: superadmin em contexto de plataforma, ou bureau_admin ativo no próprio Bureau.
+-- Alvo: superadmin → bureau_admin de p_bureau_id; bureau_admin → operator do próprio Bureau.
+-- false = alvo inexistente, de outro papel/Bureau, ou convite pendente sem hash (sem enumerar).
+create function public.admin_set_credentials(
+  p_target_id uuid,
+  p_bureau_id uuid,
+  p_password_hash text
+)
+returns boolean
+language plpgsql
+volatile
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_role text := public.app_user_role();
+begin
+  if public.app_user_id() is null
+     or not exists (
+       select 1 from public.profiles c
+        where c.id = public.app_user_id() and c.role::text = v_role and c.is_active)
+     or not (
+       (v_role = 'superadmin' and public.app_bureau_id() is null)
+       or (v_role = 'bureau_admin' and p_bureau_id = public.app_bureau_id())) then
+    raise exception 'admin context required' using errcode = '42501';
+  end if;
+
+  perform 1 from public.profiles p
+   where p.id = p_target_id
+     and p.bureau_id = p_bureau_id
+     and p.role::text = case v_role when 'superadmin' then 'bureau_admin' else 'operator' end
+   for update;
+  if not found then
+    return false;
+  end if;
+
+  if p_password_hash is not null then
+    update public.account set password = p_password_hash, updated_at = now()
+     where user_id = p_target_id::text and provider_id = 'credential';
+    if not found then
+      insert into public.account (id, issuer, account_id, provider_id, user_id, password, updated_at)
+      values (gen_random_uuid()::text, 'local:credential', p_target_id::text, 'credential',
+              p_target_id::text, p_password_hash, now());
+    end if;
+  elsif not exists (
+    select 1 from public.account a
+     where a.user_id = p_target_id::text and a.provider_id = 'credential') then
+    return false;
+  end if;
+
+  update public.profiles set must_change_password = true where id = p_target_id;
+  delete from public."session" where user_id = p_target_id::text;
+  return true;
+end
+$$;
+
+alter function public.admin_set_credentials(uuid, uuid, text) owner to auth_profile_lookup;
+revoke all on function public.admin_set_credentials(uuid, uuid, text) from public;
+grant execute on function public.admin_set_credentials(uuid, uuid, text) to app_runtime;
