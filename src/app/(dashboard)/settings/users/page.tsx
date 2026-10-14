@@ -24,9 +24,8 @@ import { withUserTransaction } from "@/lib/db/transaction";
 import { formatDate } from "@/lib/utils";
 
 const ROLE_LABEL: Record<string, string> = {
-  admin: "Administrador",
-  consultant: "Consultor",
-  client: "Cliente",
+  bureau_admin: "Administrador",
+  operator: "Operador",
 };
 
 interface UserRow {
@@ -36,17 +35,22 @@ interface UserRow {
   role: string;
   is_active: boolean;
   created_at: string;
+  has_account: boolean;
 }
 
 export default async function UsersPage() {
   const session = await getRequiredSession().catch(() => redirect("/login"));
-  if (!hasPermission(session.role, "users:manage")) {
+  if (!hasPermission(session, "users:manage")) {
     redirect("/settings");
   }
 
   const { rows } = await withUserTransaction(session, (client) =>
     client.query<UserRow>(
-      "select id, full_name, email, role, is_active, created_at::text from profiles order by created_at asc",
+      `select id, full_name, email, role, is_active, created_at::text,
+              exists (select 1 from account a where a.user_id = profiles.auth_user_id) as has_account
+         from profiles
+        where role in ('bureau_admin', 'operator')
+        order by created_at asc`,
     ),
   );
   const users = rows;
@@ -54,13 +58,13 @@ export default async function UsersPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Usuários"
-        description="Crie e gerencie consultores e administradores"
+        title="Equipe"
+        description="Convide e gerencie operadores e administradores"
       />
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Novo usuário</CardTitle>
+          <CardTitle className="text-lg">Convidar membro</CardTitle>
         </CardHeader>
         <CardContent>
           <CreateUserForm />
@@ -70,7 +74,7 @@ export default async function UsersPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">
-            Usuários cadastrados ({users.length})
+            Membros da equipe ({users.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -92,7 +96,9 @@ export default async function UsersPage() {
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{ROLE_LABEL[user.role] ?? user.role}</TableCell>
                   <TableCell>
-                    {user.is_active ? (
+                    {!user.has_account ? (
+                      <Badge variant="muted">Convite pendente</Badge>
+                    ) : user.is_active ? (
                       <Badge variant="success">Ativo</Badge>
                     ) : (
                       <Badge variant="muted">Inativo</Badge>
@@ -103,6 +109,8 @@ export default async function UsersPage() {
                     <UserRowActions
                       userId={user.id}
                       isActive={user.is_active}
+                      role={user.role}
+                      pendingInvite={!user.has_account}
                       disabled={user.id === session.userId}
                     />
                   </TableCell>
@@ -114,7 +122,7 @@ export default async function UsersPage() {
                     colSpan={6}
                     className="text-center text-muted-foreground"
                   >
-                    Nenhum usuário cadastrado.
+                    Nenhum membro na equipe.
                   </TableCell>
                 </TableRow>
               )}

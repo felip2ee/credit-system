@@ -1,11 +1,5 @@
 import Link from "next/link";
-import {
-  Bot,
-  FileSignature,
-  ScrollText,
-  ShieldCheck,
-  Users,
-} from "lucide-react";
+import { ScrollText, ShieldCheck, Users } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -20,7 +14,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 
 export default async function SettingsPage() {
   const session = await getRequiredSession().catch(() => redirect("/login"));
-  const admin = session.role === "admin";
+  const admin = session.role === "bureau_admin";
 
   return (
     <div>
@@ -47,37 +41,9 @@ export default async function SettingsPage() {
             <Card className="h-full transition-colors hover:bg-muted/50">
               <CardHeader>
                 <Users className="mb-2 h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-lg">Usuários</CardTitle>
+                <CardTitle className="text-lg">Equipe</CardTitle>
                 <CardDescription>
-                  Crie e gerencie consultores e administradores.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </Link>
-        )}
-
-        {admin && (
-          <Link href="/settings/prompts">
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardHeader>
-                <Bot className="mb-2 h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-lg">Prompts da IA</CardTitle>
-                <CardDescription>
-                  Edite os prompts dos analisadores PF, PJ e de Empresa.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </Link>
-        )}
-
-        {admin && (
-          <Link href="/settings/scr">
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardHeader>
-                <FileSignature className="mb-2 h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-lg">Termo SCR</CardTitle>
-                <CardDescription>
-                  Configure o termo de consentimento da autogestão de SCR.
+                  Convide e gerencie operadores e administradores.
                 </CardDescription>
               </CardHeader>
             </Card>
