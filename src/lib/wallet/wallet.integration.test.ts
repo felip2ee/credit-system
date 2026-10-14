@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
+import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL, TEST_DATABASE_WEBHOOK_URL } from "@/test/db-env";
 import {
 	seedPixCharge,
 	seedSuperadmin,
@@ -18,6 +18,7 @@ import {
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const app = new Pool({ connectionString: TEST_DATABASE_URL, max: 6 });
+const hook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 4 });
 
 let superadmin: SeedSuperadmin;
 
@@ -26,7 +27,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-	await Promise.all([owner.end(), app.end()]);
+	await Promise.all([owner.end(), app.end(), hook.end()]);
 });
 
 type Ctx = { userId: string; role: string; bureauId: string | null };
@@ -454,6 +455,7 @@ describe("ledger_entries (imutabilidade e conciliação)", () => {
 		}>(
 			`select
          (select sum(case kind when 'topup' then amount when 'capture' then -amount
+                                when 'reversal' then -amount
                                 when 'adjustment' then amount else 0 end)
             from ledger_entries where bureau_id = $1) as net,
          w.available + w.reserved as total,
@@ -566,11 +568,14 @@ describe("RLS da carteira", () => {
 			for (const table of [
 				"holders",
 				"bureau_catalog_items",
-				"pix_charges",
 				"asaas_webhook_events",
 			]) {
 				expect((await c.query(`select 1 from ${table}`)).rowCount).toBe(0);
 			}
+			// Só as cobranças com estorno não recuperado (pix_charges_select_shortfall) são visíveis.
+			expect(
+				(await c.query("select 1 from pix_charges where refund_shortfall = 0")).rowCount,
+			).toBe(0);
 		});
 	});
 });
@@ -582,7 +587,7 @@ describe("apply_asaas_payment", () => {
 		type = "PAYMENT_RECEIVED",
 		payload = {},
 	) =>
-		app
+		hook
 			.query<{ apply_asaas_payment: string }>(
 				"select apply_asaas_payment($1, $2, $3, $4::jsonb)",
 				[eventId, type, paymentId, JSON.stringify(payload)],
@@ -761,6 +766,385 @@ describe("apply_asaas_payment", () => {
 				amount: "10.00",
 			}),
 		).resolves.toBeDefined();
+	});
+});
+
+const payHook = (eventId: string, paymentId: string, type: string) =>
+	hook
+		.query<{ apply_asaas_payment: string }>(
+			"select apply_asaas_payment($1, $2, $3, '{}'::jsonb)",
+			[eventId, type, paymentId],
+		)
+		.then((r) => r.rows[0].apply_asaas_payment);
+
+describe("apply_asaas_payment (estorno)", () => {
+	async function paidCharge(tenant: SeededTenant, amount = "100.00") {
+		const charge = await seedPixCharge(owner, {
+			bureauId: tenant.bureau.id,
+			requestedBy: tenant.bureauAdmin.userId,
+			amount,
+		});
+		expect(await payHook(newKey(), charge.asaasPaymentId, "PAYMENT_RECEIVED")).toBe("credited");
+		return charge;
+	}
+	const refund = (paymentId: string, eventId = newKey()) => payHook(eventId, paymentId, "PAYMENT_REFUNDED");
+	async function charge(id: string) {
+		const { rows } = await owner.query<{ status: string; refund_shortfall: string }>(
+			"select status, refund_shortfall from pix_charges where id = $1",
+			[id],
+		);
+		return rows[0];
+	}
+	const reversals = async (bureauId: string) =>
+		(
+			await owner.query(
+				"select amount, idempotency_key, reference, created_by, available_after, reserved_after from ledger_entries where bureau_id = $1 and kind = 'reversal'",
+				[bureauId],
+			)
+		).rows;
+
+	it("reverses the whole amount when the balance covers it", async () => {
+		const tenant = await seedTenant(owner, "Estorno cheio");
+		const c = await paidCharge(tenant, "100.00");
+		const eventId = newKey();
+
+		expect(await refund(c.asaasPaymentId, eventId)).toBe("refunded");
+
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
+		expect(await charge(c.id)).toEqual({ status: "refunded", refund_shortfall: "0.00" });
+		expect(await reversals(tenant.bureau.id)).toEqual([
+			{
+				amount: "100.00",
+				idempotency_key: `pixrefund:${c.id}`,
+				reference: `pix_charge:${c.id}`,
+				created_by: tenant.bureauAdmin.userId,
+				available_after: "0.00",
+				reserved_after: "0.00",
+			},
+		]);
+		const entry = await owner.query("select id from ledger_entries where bureau_id = $1 and kind = 'reversal'", [tenant.bureau.id]);
+		const audit = await owner.query(
+			"select user_id, table_name, record_id, metadata from audit_logs where action = 'wallet.reversal' and bureau_id = $1",
+			[tenant.bureau.id],
+		);
+		expect(audit.rows).toHaveLength(1);
+		expect(audit.rows[0]).toMatchObject({
+			user_id: tenant.bureauAdmin.userId,
+			table_name: "ledger_entries",
+			record_id: entry.rows[0].id,
+		});
+		expect(audit.rows[0].metadata).toMatchObject({ source: "asaas_webhook", amount: "100.00", shortfall: "0.00" });
+		const stored = await owner.query("select result from asaas_webhook_events where event_id = $1", [eventId]);
+		expect(stored.rows).toEqual([{ result: "refunded" }]);
+	});
+
+	it("reverses only what is available and records the shortfall", async () => {
+		const tenant = await seedTenant(owner, "Estorno parcial");
+		const c = await paidCharge(tenant, "100.00");
+		await committed(superadminCtx(), (cl) => apply(cl, tenant.bureau.id, "adjustment", "-30.00", newKey(), "saque"));
+
+		expect(await refund(c.asaasPaymentId)).toBe("refunded");
+
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
+		expect(await charge(c.id)).toEqual({ status: "refunded", refund_shortfall: "30.00" });
+		expect((await reversals(tenant.bureau.id)).map((r) => r.amount)).toEqual(["70.00"]);
+	});
+
+	it("never touches reserved funds", async () => {
+		const tenant = await seedTenant(owner, "Estorno reservado");
+		const c = await paidCharge(tenant, "100.00");
+		await committed(adminOf(tenant), (cl) => apply(cl, tenant.bureau.id, "reserve", "60.00", newKey()));
+
+		expect(await refund(c.asaasPaymentId)).toBe("refunded");
+
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "60.00" });
+		expect(await charge(c.id)).toEqual({ status: "refunded", refund_shortfall: "60.00" });
+		expect((await reversals(tenant.bureau.id)).map((r) => r.amount)).toEqual(["40.00"]);
+	});
+
+	it("writes no ledger row when nothing is available, only the shortfall and an audit on the charge", async () => {
+		const tenant = await seedTenant(owner, "Estorno zero");
+		const c = await paidCharge(tenant, "100.00");
+		await committed(adminOf(tenant), (cl) => apply(cl, tenant.bureau.id, "reserve", "100.00", newKey()));
+
+		expect(await refund(c.asaasPaymentId)).toBe("refunded");
+
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "100.00" });
+		expect(await charge(c.id)).toEqual({ status: "refunded", refund_shortfall: "100.00" });
+		expect(await reversals(tenant.bureau.id)).toEqual([]);
+		const audit = await owner.query(
+			"select table_name, record_id, metadata from audit_logs where action = 'wallet.reversal' and bureau_id = $1",
+			[tenant.bureau.id],
+		);
+		expect(audit.rows).toHaveLength(1);
+		expect(audit.rows[0]).toMatchObject({ table_name: "pix_charges", record_id: c.id });
+		expect(audit.rows[0].metadata).toMatchObject({ amount: "0.00", shortfall: "100.00" });
+	});
+
+	it("applies a refund once: same event, other event and a late payment event are duplicates", async () => {
+		const tenant = await seedTenant(owner, "Estorno duplicado");
+		const c = await paidCharge(tenant, "100.00");
+		const eventId = newKey();
+
+		expect(await refund(c.asaasPaymentId, eventId)).toBe("refunded");
+		expect(await refund(c.asaasPaymentId, eventId)).toBe("duplicate");
+		expect(await refund(c.asaasPaymentId)).toBe("duplicate");
+		// Um PAYMENT_RECEIVED atrasado não pode creditar de novo uma cobrança estornada.
+		expect(await payHook(newKey(), c.asaasPaymentId, "PAYMENT_RECEIVED")).toBe("duplicate");
+
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
+		expect(await reversals(tenant.bureau.id)).toHaveLength(1);
+	});
+
+	it("parallel refund events reverse once", async () => {
+		const tenant = await seedTenant(owner, "Estorno paralelo");
+		const c = await paidCharge(tenant, "100.00");
+
+		const results = await Promise.all([refund(c.asaasPaymentId), refund(c.asaasPaymentId)]);
+
+		expect([...results].sort()).toEqual(["duplicate", "refunded"]);
+		expect(await reversals(tenant.bureau.id)).toHaveLength(1);
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
+	});
+
+	it("ignores a refund for a charge that was not paid, and unknown charges", async () => {
+		const tenant = await seedTenant(owner, "Estorno sem pagamento");
+		const base = { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId };
+		const pending = await seedPixCharge(owner, base);
+		const expired = await seedPixCharge(owner, { ...base, status: "expired" });
+		const cancelled = await seedPixCharge(owner, { ...base, status: "cancelled" });
+
+		for (const c of [pending, expired, cancelled]) {
+			expect(await refund(c.asaasPaymentId)).toBe("ignored");
+		}
+		expect(await refund("pay_desconhecido_estorno")).toBe("unknown_charge");
+
+		expect((await charge(pending.id)).status).toBe("pending");
+		expect((await charge(expired.id)).status).toBe("expired");
+		expect((await charge(cancelled.id)).status).toBe("cancelled");
+		expect(await reversals(tenant.bureau.id)).toEqual([]);
+		// Depois do estorno ignorado, o pagamento da pendente ainda credita.
+		expect(await payHook(newKey(), pending.asaasPaymentId, "PAYMENT_RECEIVED")).toBe("credited");
+	});
+
+	it("ignores PAYMENT_PARTIALLY_REFUNDED and PAYMENT_DELETED on a paid charge", async () => {
+		const tenant = await seedTenant(owner, "Estorno outros eventos");
+		const c = await paidCharge(tenant, "100.00");
+
+		for (const type of ["PAYMENT_PARTIALLY_REFUNDED", "PAYMENT_DELETED", "PAYMENT_REFUND_IN_PROGRESS"]) {
+			expect(await payHook(newKey(), c.asaasPaymentId, type)).toBe("ignored");
+		}
+
+		expect((await charge(c.id)).status).toBe("paid");
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "100.00", reserved: "0.00" });
+	});
+
+	it("keeps entries equal to available plus reserved after a reversal", async () => {
+		const tenant = await seedTenant(owner, "Estorno conciliação");
+		const c = await paidCharge(tenant, "100.00");
+		await paidCharge(tenant, "50.00");
+		await committed(adminOf(tenant), (cl) => apply(cl, tenant.bureau.id, "reserve", "20.00", newKey()));
+		await refund(c.asaasPaymentId);
+
+		const { rows } = await owner.query<{ net: string; total: string }>(
+			`select
+         (select sum(case kind when 'topup' then amount when 'capture' then -amount
+                                when 'reversal' then -amount
+                                when 'adjustment' then amount else 0 end)
+            from ledger_entries where bureau_id = $1) as net,
+         w.available + w.reserved as total
+       from wallets w where w.bureau_id = $1`,
+			[tenant.bureau.id],
+		);
+		expect(rows[0].net).toBe(rows[0].total);
+		expect(rows[0].net).toBe("50.00");
+	});
+
+	it("blocks the pixrefund: key from the session path", async () => {
+		const tenant = await fundedTenant("50.00");
+		await withDbContext(app, adminOf(tenant), async (c) => {
+			expect(await apply(c, tenant.bureau.id, "reserve", "1.00", `pixrefund:${randomBytes(4).toString("hex")}`)).toMatchObject({
+				ok: false,
+				reason: "invalid_key",
+			});
+		});
+	});
+
+	it("refuses a reversal through wallet_apply", async () => {
+		const tenant = await fundedTenant("50.00");
+		await withDbContext(app, adminOf(tenant), async (c) => {
+			expect(await apply(c, tenant.bureau.id, "reversal", "1.00", newKey())).toMatchObject({
+				ok: false,
+				reason: "not_allowed",
+			});
+		});
+	});
+});
+
+describe("webhook event storage", () => {
+	it("keeps the payload for a known charge and drops it for an unknown one", async () => {
+		const tenant = await seedTenant(owner, "Payload");
+		const c = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId });
+		const known = newKey();
+		const unknown = newKey();
+		const body = JSON.stringify({ hello: "world" });
+		await hook.query("select apply_asaas_payment($1, 'PAYMENT_CREATED', $2, $3::jsonb)", [known, c.asaasPaymentId, body]);
+		await hook.query("select apply_asaas_payment($1, 'PAYMENT_RECEIVED', 'pay_sem_cobranca', $2::jsonb)", [unknown, body]);
+
+		const { rows } = await owner.query<{ event_id: string; payload: unknown; result: string }>(
+			"select event_id, payload, result from asaas_webhook_events where event_id = any($1)",
+			[[known, unknown]],
+		);
+		const byId = Object.fromEntries(rows.map((r) => [r.event_id, r]));
+		expect(byId[known]).toMatchObject({ payload: { hello: "world" }, result: "ignored" });
+		expect(byId[unknown]).toMatchObject({ payload: null, result: "unknown_charge" });
+	});
+});
+
+describe("role app_webhook", () => {
+	it("is the only role that executes apply_asaas_payment", async () => {
+		const sig = "public.apply_asaas_payment(text, text, text, jsonb)";
+		const { rows } = await owner.query<Record<string, boolean>>(
+			`select has_function_privilege('app_runtime', $1, 'execute') as runtime,
+              has_function_privilege('app_webhook', $1, 'execute') as webhook,
+              has_function_privilege('public', $1, 'execute') as public_role`,
+			[sig],
+		);
+		expect(rows[0]).toEqual({ runtime: false, webhook: true, public_role: false });
+
+		await expect(
+			app.query("select apply_asaas_payment($1, 'PAYMENT_RECEIVED', 'pay_x', '{}'::jsonb)", [newKey()]),
+		).rejects.toThrow(/permission denied/);
+	});
+
+	it("has no table or column privilege and no other function", async () => {
+		const { rows } = await owner.query<{ relname: string }>(
+			`select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'S')
+          and (has_table_privilege('app_webhook', c.oid, 'select, insert, update, delete, truncate, references, trigger')
+               or has_any_column_privilege('app_webhook', c.oid, 'select, insert, update, references'))`,
+		);
+		expect(rows).toEqual([]);
+
+		await expect(hook.query("select 1 from pix_charges")).rejects.toThrow(/permission denied/);
+		await expect(hook.query("select 1 from wallets")).rejects.toThrow(/permission denied/);
+		await expect(
+			hook.query(
+				`insert into pix_charges (bureau_id, asaas_payment_id, amount, pix_payload, expires_at, requested_by)
+         values (gen_random_uuid(), 'pay_fake', 50, 'x', now(), gen_random_uuid())`,
+			),
+		).rejects.toThrow(/permission denied/);
+		await expect(
+			hook.query("select * from wallet_post_entry(gen_random_uuid(), 'topup', 5, 'x', null, null, gen_random_uuid())"),
+		).rejects.toThrow(/permission denied/);
+		await expect(
+			hook.query("select * from wallet_apply(gen_random_uuid(), 'reserve', 5, 'x', null, null)"),
+		).rejects.toThrow(/permission denied/);
+	});
+
+	it("is a plain login role without superuser or RLS bypass", async () => {
+		const { rows } = await owner.query(
+			"select rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolcanlogin from pg_roles where rolname = 'app_webhook'",
+		);
+		expect(rows[0]).toEqual({
+			rolsuper: false,
+			rolbypassrls: false,
+			rolcreaterole: false,
+			rolcreatedb: false,
+			rolcanlogin: true,
+		});
+	});
+
+	it("keeps the app role from forging a charge and crediting it", async () => {
+		const tenant = await seedTenant(owner, "Fraude");
+		const paymentId = `pay_forged_${randomBytes(4).toString("hex")}`;
+		await withDbContext(app, adminOf(tenant), (c) =>
+			c.query(
+				`insert into pix_charges (bureau_id, asaas_payment_id, amount, pix_payload, expires_at, requested_by)
+         values ($1, $2, 5000, 'x', now() + interval '30 minutes', $3)`,
+				[tenant.bureau.id, paymentId, tenant.bureauAdmin.userId],
+			),
+		);
+		await expect(
+			app.query("select apply_asaas_payment($1, 'PAYMENT_RECEIVED', $2, '{}'::jsonb)", [newKey(), paymentId]),
+		).rejects.toThrow(/permission denied/);
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
+	});
+});
+
+describe("auditoria do estorno", () => {
+	const insertReversalAudit = (
+		client: Pick<PoolClient, "query">,
+		input: { bureauId: string | null; userId: string; table: string; recordId: string | null },
+	) =>
+		client.query(
+			`insert into audit_logs (user_id, action, table_name, record_id, bureau_id)
+       values ($1, 'wallet.reversal', $2, $3, $4)`,
+			[input.userId, input.table, input.recordId, input.bureauId],
+		);
+
+	it("keeps wallet.reversal out of reach of the app role", async () => {
+		const tenant = await fundedTenant("10.00");
+		const charge = await seedPixCharge(owner, {
+			bureauId: tenant.bureau.id,
+			requestedBy: tenant.bureauAdmin.userId,
+			status: "paid",
+		});
+		const input = {
+			bureauId: tenant.bureau.id,
+			userId: tenant.bureauAdmin.userId,
+			table: "pix_charges",
+			recordId: charge.id,
+		};
+		// Sem contexto de usuário (como o webhook): só o dono da função tem política.
+		await expect(insertReversalAudit(app, input)).rejects.toThrow(/permission denied|row-level security/);
+		await withDbContext(app, superadminCtx(), async (c) => {
+			await expect(insertReversalAudit(c, { ...input, userId: superadmin.userId })).rejects.toThrow(
+				/row-level security/,
+			);
+		});
+	});
+
+	it("lets the function owner audit a reversal only next to its own ledger entry or refunded charge", async () => {
+		const a = await fundedTenant("50.00");
+		const b = await fundedTenant("50.00");
+		const chargeA = await seedPixCharge(owner, {
+			bureauId: a.bureau.id,
+			requestedBy: a.bureauAdmin.userId,
+		});
+		const topup = await owner.query<{ id: string }>("select id from ledger_entries where bureau_id = $1", [a.bureau.id]);
+
+		// Como o dono das funções (com RLS), depois de preparar o estado como superusuário; sempre com rollback.
+		const asDefiner = async (markRefunded: boolean, work: (c: PoolClient) => Promise<unknown>) => {
+			const client = await owner.connect();
+			try {
+				await client.query("begin");
+				if (markRefunded) await client.query("update pix_charges set status = 'refunded' where id = $1", [chargeA.id]);
+				await client.query("set local role auth_profile_lookup");
+				await work(client);
+			} finally {
+				await client.query("rollback");
+				client.release();
+			}
+		};
+		const base = { bureauId: a.bureau.id, userId: a.bureauAdmin.userId };
+		const chargeAudit = { ...base, table: "pix_charges", recordId: chargeA.id };
+
+		// Cobrança refunded do mesmo Bureau e autor: passa.
+		await expect(asDefiner(true, (c) => insertReversalAudit(c, chargeAudit))).resolves.toBeUndefined();
+
+		const denied: Array<[string, boolean, Parameters<typeof insertReversalAudit>[1]]> = [
+			["charge still pending", false, chargeAudit],
+			["other author", true, { ...chargeAudit, userId: a.operator.userId }],
+			["other bureau", true, { ...chargeAudit, bureauId: b.bureau.id }],
+			["no bureau", true, { ...chargeAudit, bureauId: null }],
+			["topup entry is not a reversal", true, { ...base, table: "ledger_entries", recordId: topup.rows[0].id }],
+			["no record", true, { ...base, table: "ledger_entries", recordId: null }],
+			["foreign table", true, { ...chargeAudit, table: "wallets" }],
+		];
+		for (const [label, markRefunded, input] of denied) {
+			await expect(asDefiner(markRefunded, (c) => insertReversalAudit(c, input)), label).rejects.toThrow(/row-level security/);
+		}
 	});
 });
 

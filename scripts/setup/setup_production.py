@@ -38,7 +38,8 @@ ENV_KEYS = [
 
 SECRET_NAMES = [
     "postgres_password", "schema_owner_password", "app_runtime_password",
-    "backup_reader_password", "database_url", "database_owner_url",
+    "backup_reader_password", "app_webhook_password", "database_url",
+    "database_webhook_url", "database_owner_url",
     "better_auth_secret", "smtp_pass", "deps_api_password", "openai_api_key",
     "restic_password", "superadmin_password",
 ]
@@ -134,13 +135,15 @@ def gen_password() -> str:
 
 
 def build_secrets(provided: dict[str, str]) -> dict[str, str]:
-    pg, owner, app, backup = gen_hex(), gen_hex(), gen_hex(), gen_hex()
+    pg, owner, app, backup, webhook = gen_hex(), gen_hex(), gen_hex(), gen_hex(), gen_hex()
     return {
         "postgres_password": pg,
         "schema_owner_password": owner,
         "app_runtime_password": app,
         "backup_reader_password": backup,
+        "app_webhook_password": webhook,
         "database_url": f"postgresql://app_runtime:{app}@postgres:5432/credit_system",
+        "database_webhook_url": f"postgresql://app_webhook:{webhook}@postgres:5432/credit_system",
         "database_owner_url": f"postgresql://postgres:{pg}@postgres:5432/credit_system",
         "better_auth_secret": gen_hex(32),
         "smtp_pass": provided["smtp_pass"],

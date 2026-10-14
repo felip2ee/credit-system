@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 const env = vi.hoisted(() => {
@@ -17,7 +20,13 @@ const env = vi.hoisted(() => {
 	return { token: "t".repeat(32) };
 });
 
-import { ASAAS_API_KEY_HEADER, createAsaasClient } from "./client";
+import {
+	ASAAS_API_KEY_HEADER,
+	ASAAS_EVENT_PAYMENT_CONFIRMED,
+	ASAAS_EVENT_PAYMENT_RECEIVED,
+	ASAAS_EVENT_PAYMENT_REFUNDED,
+	createAsaasClient,
+} from "./client";
 import { buildFakePaymentEvent, createFakeAsaasClient } from "./fake";
 import { getAsaasClient } from "./index";
 
@@ -120,4 +129,16 @@ describe("getAsaasClient", () => {
 		expect(result.asaasPaymentId).toBe("pay_fake_ref-1");
 		vi.unstubAllEnvs();
 	});
+});
+
+// apply_asaas_payment decide por nome de evento em SQL: o nome do SQL e o da constante não podem divergir.
+describe("event names in apply_asaas_payment", () => {
+	const sql = readFileSync(resolve(process.cwd(), "db/migrations/014_wallet_refund_and_webhook_role.sql"), "utf8");
+
+	it.each([ASAAS_EVENT_PAYMENT_RECEIVED, ASAAS_EVENT_PAYMENT_CONFIRMED, ASAAS_EVENT_PAYMENT_REFUNDED])(
+		"spells %s the same in SQL",
+		(name) => {
+			expect(sql).toContain(`'${name}'`);
+		},
+	);
 });

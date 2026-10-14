@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       INIT_ALLOW_WEAK_SECRETS: "1"
-    secrets: [postgres_password, schema_owner_password, app_runtime_password, backup_reader_password]
+    secrets: [postgres_password, schema_owner_password, app_runtime_password, backup_reader_password, app_webhook_password]
     volumes:
       - postgres_data:/var/lib/postgresql
       - ./docker/postgres/init/001-users.sh:/docker-entrypoint-initdb.d/001-users.sh:ro
@@ -34,3 +34,4 @@ secrets:
   schema_owner_password: { file: ./docker/dev-secrets/schema_owner_password }
   app_runtime_password: { file: ./docker/dev-secrets/app_runtime_password }
   backup_reader_password: { file: ./docker/dev-secrets/backup_reader_password }
+  app_webhook_password: { file: ./docker/dev-secrets/app_webhook_password }

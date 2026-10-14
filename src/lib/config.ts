@@ -101,6 +101,14 @@ export type AsaasConfig =
   | { driver: "fake"; webhookToken: string }
   | { driver: "asaas"; apiKey: string; baseUrl: string; customerId: string; webhookToken: string };
 
+// Valor de exemplo do .env.example: público, nunca vale como token real.
+export const ASAAS_WEBHOOK_TOKEN_EXAMPLE = "local-webhook-token-0123456789abcdef";
+
+// DSN da role app_webhook. Fora de readConfig: só o webhook precisa dele.
+export function readWebhookDatabaseUrl(env: Environment): string {
+  return url(env, "DATABASE_WEBHOOK_URL");
+}
+
 // Lida sob demanda (não entra em readConfig): só a recarga PIX e o webhook precisam do Asaas.
 // Sem driver explícito falha; "fake" nunca roda em produção.
 export function readAsaasConfig(env: Environment): AsaasConfig {
@@ -115,6 +123,9 @@ export function readAsaasConfig(env: Environment): AsaasConfig {
   const webhookToken = required(env, "ASAAS_WEBHOOK_TOKEN");
   if (webhookToken.length < 32) {
     throw new Error("ASAAS_WEBHOOK_TOKEN must be at least 32 characters");
+  }
+  if ((driver === "asaas" || env.NODE_ENV === "production") && webhookToken === ASAAS_WEBHOOK_TOKEN_EXAMPLE) {
+    throw new Error("ASAAS_WEBHOOK_TOKEN must not be the .env.example placeholder");
   }
   if (driver === "fake") return { driver, webhookToken };
 

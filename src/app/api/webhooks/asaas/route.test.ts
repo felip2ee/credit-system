@@ -4,10 +4,12 @@ const TOKEN = "w".repeat(32);
 
 const state = vi.hoisted(() => ({
 	applyAsaasPayment: vi.fn(),
+	readWebhookDatabaseUrl: vi.fn(),
 }));
 
 vi.mock("@/lib/config", () => ({
 	readAsaasConfig: () => ({ driver: "fake", webhookToken: "w".repeat(32) }),
+	readWebhookDatabaseUrl: state.readWebhookDatabaseUrl,
 }));
 vi.mock("@/lib/wallet/pix-charges", () => ({ applyAsaasPayment: state.applyAsaasPayment }));
 
@@ -36,6 +38,7 @@ function call(payload: unknown, token: string | null = TOKEN) {
 beforeEach(() => {
 	vi.clearAllMocks();
 	state.applyAsaasPayment.mockResolvedValue("credited");
+	state.readWebhookDatabaseUrl.mockReturnValue("postgres://app_webhook:x@localhost/db");
 });
 
 describe("POST /api/webhooks/asaas auth", () => {
@@ -56,7 +59,6 @@ describe("POST /api/webhooks/asaas body", () => {
 	});
 
 	it.each([
-		["no event id", { event: "PAYMENT_RECEIVED", payment: { id: "pay_1" } }],
 		["no event type", { id: "evt_1", payment: { id: "pay_1" } }],
 		["no payment id", { id: "evt_1", event: "PAYMENT_RECEIVED", payment: {} }],
 		["no payment", { id: "evt_1", event: "ACCOUNT_STATUS_UPDATED" }],
@@ -73,6 +75,43 @@ describe("POST /api/webhooks/asaas body", () => {
 	});
 });
 
+describe("POST /api/webhooks/asaas event id", () => {
+	it.each(["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED", "PAYMENT_REFUNDED"])(
+		"derives the event id from event and payment id for %s without a top-level id",
+		async (event) => {
+			const payload = { event, payment: { id: "pay_1" } };
+
+			const response = await call(payload);
+
+			expect(response.status).toBe(200);
+			expect(state.applyAsaasPayment).toHaveBeenCalledWith({
+				eventId: `${event}:pay_1`,
+				eventType: event,
+				asaasPaymentId: "pay_1",
+				payload,
+			});
+		},
+	);
+
+	it("keeps the top-level id when present", async () => {
+		await call(body);
+
+		expect(state.applyAsaasPayment.mock.calls[0][0].eventId).toBe("evt_1");
+	});
+
+	it("answers 500 and writes nothing when DATABASE_WEBHOOK_URL is missing", async () => {
+		state.readWebhookDatabaseUrl.mockImplementation(() => {
+			throw new Error("DATABASE_WEBHOOK_URL is required");
+		});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const response = await call(body);
+
+		expect(response.status).toBe(500);
+		expect(state.applyAsaasPayment).not.toHaveBeenCalled();
+	});
+});
+
 describe("POST /api/webhooks/asaas result", () => {
 	it("forwards event id, type, payment id and the raw payload", async () => {
 		const response = await call(body);
@@ -86,7 +125,7 @@ describe("POST /api/webhooks/asaas result", () => {
 		});
 	});
 
-	it.each(["credited", "duplicate", "ignored", "unknown_charge"])("answers 200 for %s", async (result) => {
+	it.each(["credited", "refunded", "duplicate", "ignored", "unknown_charge"])("answers 200 for %s", async (result) => {
 		state.applyAsaasPayment.mockResolvedValue(result);
 
 		expect((await call(body)).status).toBe(200);

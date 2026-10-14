@@ -3,14 +3,14 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
 import { ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
-import { readAsaasConfig } from "@/lib/config";
+import { readAsaasConfig, readWebhookDatabaseUrl } from "@/lib/config";
 import { applyAsaasPayment } from "@/lib/wallet/pix-charges";
 
 // Rota pública (sem sessão): a autenticação é o token do header. O valor creditado nunca vem do corpo.
 const MAX_BODY_CHARS = 65_536;
 
 const eventSchema = z.object({
-	id: z.string().trim().min(1).max(200),
+	id: z.string().trim().min(1).max(200).optional(),
 	event: z.string().trim().min(1).max(100),
 	payment: z.object({ id: z.string().trim().min(1).max(200) }),
 });
@@ -27,6 +27,7 @@ export async function POST(request: Request): Promise<Response> {
 	let expectedToken: string;
 	try {
 		expectedToken = readAsaasConfig(process.env).webhookToken;
+		readWebhookDatabaseUrl(process.env);
 	} catch (error) {
 		console.error("[asaas-webhook] configuração inválida", { name: error instanceof Error ? error.name : typeof error });
 		return respond(500);
@@ -43,14 +44,15 @@ export async function POST(request: Request): Promise<Response> {
 	}
 	const parsed = eventSchema.safeParse(raw);
 	if (!parsed.success) {
-		// Evento sem cobrança (ou sem id): não há o que gravar. 200 evita reenvios; o corpo não vai ao log.
+		// Evento sem cobrança: não há o que gravar. 200 evita reenvios; o corpo não vai ao log.
 		console.warn("[asaas-webhook] evento sem payment.id ignorado");
 		return respond(200);
 	}
 
 	try {
 		await applyAsaasPayment({
-			eventId: parsed.data.id,
+			// Sem id de evento no corpo, o par evento+cobrança o identifica: o reenvio do Asaas continua idempotente.
+			eventId: parsed.data.id ?? `${parsed.data.event}:${parsed.data.payment.id}`,
 			eventType: parsed.data.event,
 			asaasPaymentId: parsed.data.payment.id,
 			payload: raw,

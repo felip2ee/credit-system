@@ -1,16 +1,16 @@
 // Cobranças PIX de recarga da carteira (M3a). A linha só nasce depois que o Asaas respondeu.
-// O crédito não passa por aqui: apply_asaas_payment (012_wallet.sql) decide, sem sessão.
+// O crédito e o estorno não passam por aqui: apply_asaas_payment (014_wallet_refund_and_webhook_role.sql) decide, sem sessão.
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
-import { pool } from "@/lib/db/pool";
 import type { DbIdentity } from "@/lib/db/transaction";
+import { getWebhookPool } from "@/lib/db/webhook-pool";
 import { topupAmountSchema } from "@/lib/validators/wallet";
 
 export const PIX_CHARGE_TTL_MINUTES = 30;
 export const MAX_PENDING_PIX_CHARGES = 10;
 
-export type PixChargeStatus = "pending" | "paid" | "expired" | "cancelled";
+export type PixChargeStatus = "pending" | "paid" | "expired" | "cancelled" | "refunded";
 
 // Sem asaas_payment_id: ele não sai do servidor.
 export type PixCharge = {
@@ -100,16 +100,29 @@ export async function listPixCharges(client: PoolClient, bureauId: string): Prom
 	return rows.map(toCharge);
 }
 
-export type AsaasPaymentResult = "credited" | "duplicate" | "ignored" | "unknown_charge";
+export type AsaasPaymentResult = "credited" | "refunded" | "duplicate" | "ignored" | "unknown_charge";
 
-// Webhook sem sessão: a função SECURITY DEFINER é a única porta de escrita e usa pix_charges.amount.
+// Estorno de PIX que o saldo disponível não cobriu (pix_charges.refund_shortfall > 0), para o superadmin.
+export type RefundShortfall = { chargeId: string; amount: string; shortfall: string; createdAt: Date };
+
+export async function listRefundShortfalls(client: PoolClient, bureauId: string): Promise<RefundShortfall[]> {
+	const { rows } = await client.query<{ id: string; amount: string; refund_shortfall: string; created_at: Date }>(
+		`select id, amount, refund_shortfall, created_at from pix_charges
+		  where bureau_id = $1 and refund_shortfall > 0
+		  order by created_at desc limit $2`,
+		[bureauId, LIST_LIMIT],
+	);
+	return rows.map((r) => ({ chargeId: r.id, amount: r.amount, shortfall: r.refund_shortfall, createdAt: r.created_at }));
+}
+
+// Webhook sem sessão, na role app_webhook: a função SECURITY DEFINER é a única porta de escrita e usa pix_charges.amount.
 export async function applyAsaasPayment(event: {
 	eventId: string;
 	eventType: string;
 	asaasPaymentId: string;
 	payload: unknown;
 }): Promise<AsaasPaymentResult> {
-	const { rows } = await pool.query<{ result: AsaasPaymentResult }>(
+	const { rows } = await getWebhookPool().query<{ result: AsaasPaymentResult }>(
 		"select public.apply_asaas_payment($1, $2, $3, $4::jsonb) as result",
 		[event.eventId, event.eventType, event.asaasPaymentId, JSON.stringify(event.payload)],
 	);

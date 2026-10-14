@@ -11,6 +11,8 @@ import type { AsaasClient, PixChargeInput, PixChargeResult } from "./types";
 export const ASAAS_API_KEY_HEADER = "access_token";
 export const ASAAS_WEBHOOK_TOKEN_HEADER = "asaas-access-token";
 export const ASAAS_EVENT_PAYMENT_RECEIVED = "PAYMENT_RECEIVED";
+export const ASAAS_EVENT_PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED";
+export const ASAAS_EVENT_PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 

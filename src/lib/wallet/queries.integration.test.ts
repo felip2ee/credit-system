@@ -247,6 +247,38 @@ describe("listLedger", () => {
 		).rejects.toThrow(RangeError);
 	});
 
+	it("orders numerically across a seq digit boundary with no duplicates or gaps", async () => {
+		const { tenant, admin } = await fundedTenant("Wallet Q8n");
+		const bureauId = tenant.bureau.id;
+		// seq é uma identity global: avança-a para 55 antes da próxima potência de 10, para o teste cruzar 9..9 -> 10..0.
+		await owner.query(
+			`select setval(s, (power(10, length(greatest((select last_value from ledger_entries_seq_seq), 10)::text))::bigint) - 55)
+			   from (select pg_get_serial_sequence('ledger_entries', 'seq') as s) x`,
+		);
+		await withUserTransaction(admin, async (c) => {
+			for (let i = 0; i < 110; i++) {
+				await reserve(c, { bureauId, amount: "0.01", idempotencyKey: key(), reference: `n${i}` });
+			}
+		});
+
+		const expected = await owner.query<{ seq: string }>(
+			"select seq::text as seq from ledger_entries where bureau_id = $1 order by ledger_entries.seq desc",
+			[bureauId],
+		);
+		const seqs: string[] = [];
+		let cursor: string | null = null;
+		do {
+			const page: Awaited<ReturnType<typeof listLedger>> = await withUserTransaction(admin, (c) =>
+				listLedger(c, bureauId, { limit: 7, cursor }),
+			);
+			seqs.push(...page.rows.map((r) => r.seq));
+			cursor = page.nextCursor;
+		} while (cursor !== null);
+
+		expect(seqs).toHaveLength(111);
+		expect(seqs).toEqual(expected.rows.map((r) => r.seq));
+	});
+
 	it("does not show another bureau's entries to a bureau identity", async () => {
 		const { admin } = await fundedTenant("Wallet Q9");
 		const { tenant: other } = await fundedTenant("Wallet Q9b");

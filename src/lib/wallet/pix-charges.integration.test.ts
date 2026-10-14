@@ -20,6 +20,8 @@ vi.hoisted(() => {
 		SMTP_PASS: "test-password",
 		ASAAS_DRIVER: "fake",
 		ASAAS_WEBHOOK_TOKEN: "i".repeat(32),
+		DATABASE_WEBHOOK_URL:
+			process.env.TEST_DATABASE_WEBHOOK_URL ?? "postgres://app_webhook:test@localhost:54329/credit_system",
 	});
 });
 
@@ -34,16 +36,17 @@ import { ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
 import { buildFakePaymentEvent } from "@/lib/asaas/fake";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { getWebhookPool } from "@/lib/db/webhook-pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedPixCharge, seedTenant } from "@/test/seed";
+import { seedPixCharge, seedSuperadmin, seedTenant } from "@/test/seed";
 
-import { countPendingPixCharges, createPixCharge, getPixCharge, listPixCharges } from "./pix-charges";
+import { countPendingPixCharges, createPixCharge, getPixCharge, listPixCharges, listRefundShortfalls } from "./pix-charges";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const TOKEN = "i".repeat(32);
 
 afterAll(async () => {
-	await Promise.all([owner.end(), pool.end()]);
+	await Promise.all([owner.end(), pool.end(), getWebhookPool().end()]);
 });
 
 function webhook(payload: unknown, token: string | null = TOKEN) {
@@ -128,6 +131,69 @@ describe("countPendingPixCharges", () => {
 		await seedPixCharge(owner, { bureauId: other.bureau.id, requestedBy: other.bureauAdmin.userId });
 
 		expect(await withUserTransaction(admin, (c) => countPendingPixCharges(c, tenant.bureau.id))).toBe(2);
+	});
+});
+
+describe("pix_charges_pending_idx", () => {
+	it("serves the countPendingPixCharges predicate", async () => {
+		const client = await owner.connect();
+		try {
+			await client.query("begin");
+			await client.query("set local enable_seqscan = off");
+			const { rows } = await client.query<{ "QUERY PLAN": string }>(
+				"explain select count(*) from pix_charges where bureau_id = $1 and status = 'pending' and expires_at > now()",
+				[randomUUID()],
+			);
+			expect(rows.map((r) => r["QUERY PLAN"]).join("\n")).toContain("pix_charges_pending_idx");
+		} finally {
+			await client.query("rollback");
+			client.release();
+		}
+	});
+});
+
+describe("listRefundShortfalls", () => {
+	async function shortfallCharge(tenant: Awaited<ReturnType<typeof seedTenant>>, shortfall: string) {
+		const charge = await seedPixCharge(owner, {
+			bureauId: tenant.bureau.id,
+			requestedBy: tenant.bureauAdmin.userId,
+			amount: "100.00",
+			status: "paid",
+		});
+		await owner.query("update pix_charges set status = 'refunded', refund_shortfall = $2 where id = $1", [charge.id, shortfall]);
+		return charge;
+	}
+
+	it("lists only charges with an unrecovered refund, without Asaas ids, for the superadmin and the own Bureau", async () => {
+		const tenant = await seedTenant(owner, "Shortfall A");
+		const other = await seedTenant(owner, "Shortfall B");
+		const superadmin = await seedSuperadmin(owner);
+		const short = await shortfallCharge(tenant, "30.00");
+		await shortfallCharge(tenant, "0.00");
+		await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId });
+		await shortfallCharge(other, "50.00");
+
+		const asSuperadmin = await withUserTransaction(superadmin, (c) => listRefundShortfalls(c, tenant.bureau.id));
+		const asAdmin = await withUserTransaction(tenant.bureauAdmin, (c) => listRefundShortfalls(c, tenant.bureau.id));
+
+		for (const rows of [asSuperadmin, asAdmin]) {
+			expect(rows).toEqual([{ chargeId: short.id, amount: "100.00", shortfall: "30.00", createdAt: expect.any(Date) }]);
+			expect(JSON.stringify(rows)).not.toContain(short.asaasPaymentId);
+		}
+	});
+
+	it("hides other Bureaus from a Bureau admin and from an operator, and charges with no shortfall from the superadmin", async () => {
+		const tenant = await seedTenant(owner, "Shortfall C");
+		const other = await seedTenant(owner, "Shortfall D");
+		const superadmin = await seedSuperadmin(owner);
+		await shortfallCharge(other, "50.00");
+		await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId });
+
+		expect(await withUserTransaction(tenant.bureauAdmin, (c) => listRefundShortfalls(c, other.bureau.id))).toEqual([]);
+		expect(await withUserTransaction(tenant.operator, (c) => listRefundShortfalls(c, other.bureau.id))).toEqual([]);
+		expect(await withUserTransaction(superadmin, (c) => listRefundShortfalls(c, tenant.bureau.id))).toEqual([]);
+		const { rows } = await owner.query("select 1 from pix_charges where bureau_id = $1", [tenant.bureau.id]);
+		expect(rows).toHaveLength(1);
 	});
 });
 
@@ -269,5 +335,41 @@ describe("POST /api/webhooks/asaas", () => {
 		expect(await balance(tenant.bureau.id)).toBe("0.00");
 		const { rows } = await owner.query("select result from asaas_webhook_events where event_id = $1", [eventId]);
 		expect(rows[0].result).toBe("ignored");
+	});
+
+	it("derives the event id from event and payment id when the body has none", async () => {
+		const tenant = await seedTenant(owner, "Hook G");
+		const charge = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId });
+		const body = { event: "PAYMENT_RECEIVED", payment: { object: "payment", id: charge.asaasPaymentId, value: 1 } };
+
+		const responses = await Promise.all([webhook(body), webhook(body)]);
+
+		expect(responses.map((r) => r.status)).toEqual([200, 200]);
+		expect(await balance(tenant.bureau.id)).toBe("100.00");
+		expect(await eventCount(`PAYMENT_RECEIVED:${charge.asaasPaymentId}`)).toBe(1);
+	});
+
+	it("reverses a paid charge on PAYMENT_REFUNDED through the webhook pool", async () => {
+		const tenant = await seedTenant(owner, "Hook H");
+		const charge = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId });
+		await webhook(buildFakePaymentEvent({ eventId: evt(), asaasPaymentId: charge.asaasPaymentId, value: 100 }));
+
+		const response = await webhook(
+			buildFakePaymentEvent({ eventId: evt(), asaasPaymentId: charge.asaasPaymentId, value: 100, event: "PAYMENT_REFUNDED" }),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await balance(tenant.bureau.id)).toBe("0.00");
+		const { rows } = await owner.query("select status from pix_charges where id = $1", [charge.id]);
+		expect(rows[0].status).toBe("refunded");
+	});
+
+	it("stores no payload for an unknown payment", async () => {
+		const eventId = evt();
+
+		await webhook(buildFakePaymentEvent({ eventId, asaasPaymentId: `pay_unknown_${randomUUID()}`, value: 100 }));
+
+		const { rows } = await owner.query("select payload, result from asaas_webhook_events where event_id = $1", [eventId]);
+		expect(rows[0]).toEqual({ payload: null, result: "unknown_charge" });
 	});
 });

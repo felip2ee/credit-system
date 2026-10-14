@@ -19,7 +19,10 @@ const valid = vi.hoisted(() => {
   return value;
 });
 
-import { readAsaasConfig, readConfig } from "./config";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import { ASAAS_WEBHOOK_TOKEN_EXAMPLE, readAsaasConfig, readConfig, readWebhookDatabaseUrl } from "./config";
 
 describe("readConfig", () => {
   it("rejects a missing required value", () => {
@@ -217,5 +220,48 @@ describe("readAsaasConfig", () => {
       customerId: "cus_test",
       webhookToken,
     });
+  });
+});
+
+describe("readAsaasConfig webhook token placeholder", () => {
+  const asaas = {
+    ASAAS_DRIVER: "asaas",
+    ASAAS_API_KEY: "test-api-key",
+    ASAAS_API_BASE_URL: "https://api-sandbox.asaas.example",
+    ASAAS_CUSTOMER_ID: "cus_test",
+    ASAAS_WEBHOOK_TOKEN: ASAAS_WEBHOOK_TOKEN_EXAMPLE,
+  };
+
+  it("matches the value shipped in .env.example", () => {
+    const example = readFileSync(path.resolve(process.cwd(), ".env.example"), "utf8");
+    expect(example).toContain(`ASAAS_WEBHOOK_TOKEN=${ASAAS_WEBHOOK_TOKEN_EXAMPLE}\n`);
+  });
+
+  it("rejects the example token for the asaas driver", () => {
+    expect(() => readAsaasConfig(asaas)).toThrow("ASAAS_WEBHOOK_TOKEN must not be the .env.example placeholder");
+  });
+
+  it("rejects the example token in production", () => {
+    expect(() => readAsaasConfig({ ...asaas, NODE_ENV: "production" })).toThrow(
+      "ASAAS_WEBHOOK_TOKEN must not be the .env.example placeholder",
+    );
+  });
+
+  it("accepts the example token for the fake driver outside production", () => {
+    expect(
+      readAsaasConfig({ ASAAS_DRIVER: "fake", ASAAS_WEBHOOK_TOKEN: ASAAS_WEBHOOK_TOKEN_EXAMPLE, NODE_ENV: "development" }),
+    ).toEqual({ driver: "fake", webhookToken: ASAAS_WEBHOOK_TOKEN_EXAMPLE });
+  });
+});
+
+describe("readWebhookDatabaseUrl", () => {
+  it("requires a valid URL", () => {
+    expect(() => readWebhookDatabaseUrl({})).toThrow("DATABASE_WEBHOOK_URL is required");
+    expect(() => readWebhookDatabaseUrl({ DATABASE_WEBHOOK_URL: "not a URL" })).toThrow(
+      "DATABASE_WEBHOOK_URL must be a valid URL",
+    );
+    expect(readWebhookDatabaseUrl({ DATABASE_WEBHOOK_URL: "postgres://app_webhook:x@db/app" })).toBe(
+      "postgres://app_webhook:x@db/app",
+    );
   });
 });

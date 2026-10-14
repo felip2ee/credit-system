@@ -38,7 +38,7 @@ export type WalletBalance = { available: string; reserved: string };
 export type LedgerEntry = {
 	id: string;
 	seq: string;
-	kind: "topup" | "reserve" | "capture" | "release" | "adjustment";
+	kind: "topup" | "reserve" | "capture" | "release" | "adjustment" | "reversal";
 	amount: string;
 	availableAfter: string;
 	reservedAfter: string;
@@ -132,6 +132,7 @@ type LedgerRow = {
 	created_at: Date;
 };
 
+// order by qualificado: "seq" sozinho ordenaria pela coluna de saída (texto).
 // Keyset por seq (created_at repete entre lançamentos da mesma transação). cursor = seq da última linha da página.
 export async function listLedger(
 	client: PoolClient,
@@ -146,7 +147,7 @@ export async function listLedger(
 		`select id, seq::text as seq, kind, amount, available_after, reserved_after, reference, reason, created_by, created_at
 		   from ledger_entries
 		  where bureau_id = $1 and ($2::bigint is null or seq < $2::bigint)
-		  order by seq desc
+		  order by ledger_entries.seq desc
 		  limit $3`,
 		[bureauId, cursor, limit + 1],
 	);

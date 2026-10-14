@@ -24,3 +24,9 @@ export const TEST_DATABASE_OWNER_URL = assertLocal(
   process.env.TEST_DATABASE_OWNER_URL ??
     "postgres://postgres:test@localhost:54329/credit_system",
 );
+
+export const TEST_DATABASE_WEBHOOK_URL = assertLocal(
+  "TEST_DATABASE_WEBHOOK_URL",
+  process.env.TEST_DATABASE_WEBHOOK_URL ??
+    "postgres://app_webhook:test@localhost:54329/credit_system",
+);
