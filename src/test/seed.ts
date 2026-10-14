@@ -182,3 +182,86 @@ export async function withDbContext<T>(
 		}
 	}
 }
+
+export type SeededProduct = { id: string; code: string; versionId: string };
+
+// Produto novo com código único e versão 1. Evita depender do custo dos produtos do seed.
+export async function seedProduct(
+	owner: Pool,
+	input: {
+		kind?: "main" | "addon";
+		addonFor?: string[];
+		baseCost?: string;
+		depsProduct?: string | null;
+	} = {},
+): Promise<SeededProduct> {
+	const kind = input.kind ?? "main";
+	const code = `${kind}_${randomBytes(6).toString("hex")}`;
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		const product = await client.query<{ id: string }>(
+			`insert into products (code, name, kind, addon_for)
+       values ($1, $2, $3, $4) returning id`,
+			[code, `Produto ${code}`, kind, kind === "addon" ? input.addonFor : null],
+		);
+		const version = await client.query<{ id: string }>(
+			`insert into product_versions (product_id, version, deps_product, base_cost)
+       values ($1, 1, $2, $3) returning id`,
+			[product.rows[0].id, input.depsProduct ?? null, input.baseCost ?? "0.00"],
+		);
+		await client.query("commit");
+		return { id: product.rows[0].id, code, versionId: version.rows[0].id };
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
+}
+
+export async function seedProductVersion(
+	owner: Pool,
+	input: { productId: string; version: number; baseCost: string },
+): Promise<string> {
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into product_versions (product_id, version, base_cost)
+     values ($1, $2, $3) returning id`,
+		[input.productId, input.version, input.baseCost],
+	);
+	return rows[0].id;
+}
+
+export async function seedBureauCost(
+	owner: Pool,
+	input: { bureauId: string; productId: string; cost: string; setBy: string },
+): Promise<void> {
+	await owner.query(
+		`insert into bureau_product_costs (bureau_id, product_id, cost, set_by)
+     values ($1, $2, $3, $4)`,
+		[input.bureauId, input.productId, input.cost, input.setBy],
+	);
+}
+
+export async function seedCatalogItem(
+	owner: Pool,
+	input: {
+		bureauId: string;
+		productId: string;
+		salePrice: string;
+		updatedBy: string;
+		active?: boolean;
+	},
+): Promise<void> {
+	await owner.query(
+		`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, updated_by)
+     values ($1, $2, $3, $4, $5)`,
+		[
+			input.bureauId,
+			input.productId,
+			input.active ?? true,
+			input.salePrice,
+			input.updatedBy,
+		],
+	);
+}

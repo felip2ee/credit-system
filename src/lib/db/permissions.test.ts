@@ -16,19 +16,36 @@ const tenantData: Permission[] = [
 const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; allowed: Permission[] }> = {
   superadmin: {
     subject: { role: "superadmin" },
-    allowed: ["bureaus:manage", "support:enter", "settings:read", "settings:write"],
+    allowed: ["bureaus:manage", "support:enter", "settings:read", "settings:write", "catalog:read", "catalog:write"],
   },
   "superadmin in support": {
     subject: { role: "superadmin", supportSessionId: SUPPORT },
-    allowed: ["bureaus:manage", "support:enter", "settings:read", "settings:write", ...tenantData],
+    allowed: [
+      "bureaus:manage",
+      "support:enter",
+      "settings:read",
+      "settings:write",
+      "catalog:read",
+      "catalog:write",
+      ...tenantData,
+    ],
   },
   bureau_admin: {
     subject: { role: "bureau_admin" },
-    allowed: [...tenantData, "settings:read", "users:manage", "audit:read", "portal:read", "portal:write"],
+    allowed: [
+      ...tenantData,
+      "settings:read",
+      "catalog:read",
+      "catalog:write",
+      "users:manage",
+      "audit:read",
+      "portal:read",
+      "portal:write",
+    ],
   },
   operator: {
     subject: { role: "operator" },
-    allowed: [...tenantData, "settings:read"],
+    allowed: [...tenantData, "settings:read", "catalog:read"],
   },
   client: {
     subject: { role: "client" },

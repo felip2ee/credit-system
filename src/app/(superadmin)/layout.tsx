@@ -2,15 +2,10 @@ import { redirect } from "next/navigation";
 
 import { SuperadminNav } from "@/components/superadmin/superadmin-nav";
 import { Topbar } from "@/components/layout/topbar";
-import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
+import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 
 export default async function SuperadminLayout({ children }: { children: React.ReactNode }) {
-  const session = await getRequiredSession().catch((err) => {
-    if (err instanceof SessionAccessError && err.code === "mfa_setup_required") {
-      redirect("/mfa/setup");
-    }
-    redirect("/login");
-  });
+  const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
 
   if (session.role !== "superadmin") redirect("/");
 

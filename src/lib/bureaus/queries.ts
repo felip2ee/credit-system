@@ -1,6 +1,10 @@
 // Painel do superadmin: Bureaus, convite do primeiro admin e métricas.
 // A permissão `bureaus:manage` é checada na action; aqui o RLS barra quem não é superadmin.
 import { writeAuditEvent } from "@/lib/audit/write";
+import {
+	setTemporaryCredentials,
+	type CredentialsOutcome,
+} from "@/lib/auth/credentials";
 import { createInvite, type InviteOutcome } from "@/lib/auth/invite";
 import { platformIdentity, withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import type { BureauCreate, BureauUpdate } from "@/lib/validators/bureau";
@@ -51,6 +55,7 @@ export async function createBureau(
 				fullName: input.adminName,
 				role: "bureau_admin",
 				bureauId: id,
+				password: input.adminPassword,
 			});
 			if (!invite.ok) throw new EmailInUse();
 			await writeAuditEvent(client, {
@@ -170,7 +175,7 @@ export async function listBureauMetrics(
 
 export async function inviteBureauAdmin(
 	identity: DbIdentity,
-	input: { bureauId: string; name: string; email: string },
+	input: { bureauId: string; name: string; email: string; password?: string },
 ): Promise<InviteOutcome> {
 	return withUserTransaction(platformIdentity(identity), (client) =>
 		createInvite(client, identity.userId, {
@@ -178,6 +183,27 @@ export async function inviteBureauAdmin(
 			fullName: input.name,
 			role: "bureau_admin",
 			bureauId: input.bureauId,
+			password: input.password,
 		}),
 	);
+}
+
+// Define a senha temporária (ou só força a troca, com password null) do admin de um Bureau.
+// O gateway SQL confere que o e-mail é de um bureau_admin deste Bureau.
+export async function setBureauAdminCredentials(
+	identity: DbIdentity,
+	input: { bureauId: string; email: string; password: string | null },
+): Promise<CredentialsOutcome> {
+	return withUserTransaction(platformIdentity(identity), async (client) => {
+		const { rows } = await client.query<{ id: string }>(
+			'select id from "user" where lower(email) = $1',
+			[input.email.trim().toLowerCase()],
+		);
+		if (!rows[0]) return { ok: false as const, reason: "not_found" as const };
+		return setTemporaryCredentials(client, identity.userId, {
+			targetId: rows[0].id,
+			bureauId: input.bureauId,
+			password: input.password,
+		});
+	});
 }

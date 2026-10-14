@@ -30,6 +30,9 @@ vi.mock("@/lib/db/transaction", () => ({
 vi.mock("@/lib/audit/write", () => ({
 	writeAuditEvent: state.writeAuditEvent,
 }));
+vi.mock("@/lib/auth/credentials", () => ({
+	setTemporaryCredentials: vi.fn(),
+}));
 vi.mock("@/lib/auth/invite", () => ({
 	createInvite: state.createInvite,
 	sendInviteEmail: state.sendInviteEmail,
@@ -40,6 +43,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 import {
 	inviteTeamMember,
 	resendTeamInvite,
+	setTeamMemberCredentials,
 	setUserActive,
 	setUserRole,
 } from "./users";
@@ -70,6 +74,7 @@ describe("permissions and validation", () => {
 			resendTeamInvite({ userId: OTHER_ID }),
 			setUserRole({ userId: OTHER_ID, role: "operator" }),
 			setUserActive({ userId: OTHER_ID, isActive: false }),
+			setTeamMemberCredentials({ userId: OTHER_ID }),
 		]);
 		for (const result of results) expect(result.error).toBeTruthy();
 		expect(state.query).not.toHaveBeenCalled();
@@ -118,7 +123,11 @@ describe("inviteTeamMember", () => {
 			bureauId: OTHER_BUREAU_ID,
 		} as typeof invite);
 
-		expect(result).toEqual({ error: null, email: "maria@example.test" });
+		expect(result).toEqual({
+			error: null,
+			email: "maria@example.test",
+			invited: true,
+		});
 		expect(state.createInvite).toHaveBeenCalledWith(
 			expect.anything(),
 			ADMIN_ID,
@@ -138,11 +147,33 @@ describe("inviteTeamMember", () => {
 		expect(state.createInvite).toHaveBeenCalledTimes(1);
 	});
 
+	it("tells to use Definir senha when a member with a password already exists", async () => {
+		state.createInvite.mockResolvedValue({ ok: false, reason: "already_member" });
+
+		expect((await inviteTeamMember({ ...invite, password: "twelve-character-password" })).error).toBe(
+			"Esse usuário já faz parte da equipe. Use Definir senha.",
+		);
+		expect((await inviteTeamMember(invite)).error).toBe(
+			"Esse usuário já faz parte da equipe.",
+		);
+	});
+
 	it("maps email_in_use", async () => {
 		state.createInvite.mockResolvedValue({ ok: false, reason: "email_in_use" });
 
 		expect((await inviteTeamMember(invite)).error).toBe("E-mail já em uso.");
 		expect(state.sendInviteEmail).not.toHaveBeenCalled();
+	});
+});
+
+describe("setTeamMemberCredentials", () => {
+	it("points to the login reset when the target is the own account", async () => {
+		const result = await setTeamMemberCredentials({ userId: ADMIN_ID });
+
+		expect(result.error).toBe(
+			'Para alterar a sua senha, use "Esqueci a senha" na tela de login.',
+		);
+		expect(state.query).not.toHaveBeenCalled();
 	});
 });
 
@@ -223,17 +254,6 @@ describe("setUserActive and setUserRole", () => {
 		expect(wrote()).toBe(false);
 	});
 
-	it("blocks demoting the last active bureau_admin", async () => {
-		target("bureau_admin", [OTHER_ID]);
-
-		const result = await setUserRole({ userId: OTHER_ID, role: "operator" });
-
-		expect(result.error).toBe(
-			"O Bureau precisa de ao menos um administrador ativo.",
-		);
-		expect(wrote()).toBe(false);
-	});
-
 	it("deactivates, revokes sessions and audits in the same transaction", async () => {
 		target("operator", [ADMIN_ID]);
 
@@ -254,19 +274,43 @@ describe("setUserActive and setUserRole", () => {
 		);
 	});
 
-	it("demotes an admin when another active admin remains", async () => {
-		target("bureau_admin", [OTHER_ID, ADMIN_ID]);
+	it("refuses any target role except bureau_admin before touching the database", async () => {
+		const result = await setUserRole({ userId: OTHER_ID, role: "operator" });
 
-		expect(await setUserRole({ userId: OTHER_ID, role: "operator" })).toEqual({
-			error: null,
+		expect(result).toEqual({
+			error: "Só é possível promover operador a administrador.",
 		});
+		expect(state.query).not.toHaveBeenCalled();
+		expect(state.writeAuditEvent).not.toHaveBeenCalled();
+	});
+
+	it("promotes an operator, revokes sessions and audits in the same transaction", async () => {
+		target("operator", [ADMIN_ID]);
+
+		expect(
+			await setUserRole({ userId: OTHER_ID, role: "bureau_admin" }),
+		).toEqual({ error: null });
+
+		const sqls = state.query.mock.calls.map(([sql]) => sql as string);
+		expect(sqls.some((s) => s.includes("update profiles set role"))).toBe(true);
+		expect(sqls.some((s) => s.includes('delete from "session"'))).toBe(true);
 		expect(state.writeAuditEvent).toHaveBeenCalledWith(
-			expect.anything(),
+			expect.objectContaining({ query: state.query }),
 			expect.objectContaining({
 				action: "user.role_change",
-				metadata: { role: "operator", previousRole: "bureau_admin" },
+				metadata: { role: "bureau_admin", previousRole: "operator" },
 			}),
 		);
+	});
+
+	it("does nothing when the target is already an administrator", async () => {
+		target("bureau_admin", [OTHER_ID, ADMIN_ID]);
+
+		expect(
+			await setUserRole({ userId: OTHER_ID, role: "bureau_admin" }),
+		).toEqual({ error: null });
+		expect(wrote()).toBe(false);
+		expect(state.writeAuditEvent).not.toHaveBeenCalled();
 	});
 
 	it("reports a missing target", async () => {
