@@ -11,7 +11,7 @@ import {
 } from "@/actions/users";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
-import { newPasswordSchema } from "@/lib/validators/password";
+import { firstPasswordError } from "@/lib/validators/password";
 
 interface UserRowActionsProps {
   userId: string;
@@ -57,9 +57,9 @@ export function UserRowActions({
 
   const savePassword = (e: React.FormEvent) => {
     e.preventDefault();
-    const check = newPasswordSchema.safeParse({ password, confirm });
-    if (!check.success) {
-      setError(check.error.issues[0]?.message ?? "Senha inválida.");
+    const passwordError = firstPasswordError(password, confirm);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
     runCredentials(password, "Senha definida. As sessões do usuário foram encerradas.");

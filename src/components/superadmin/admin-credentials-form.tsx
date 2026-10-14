@@ -7,7 +7,7 @@ import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { newPasswordSchema } from "@/lib/validators/password";
+import { firstPasswordError } from "@/lib/validators/password";
 
 export function AdminCredentialsForm({ bureauId }: { bureauId: string }) {
   const [email, setEmail] = useState("");
@@ -21,9 +21,9 @@ export function AdminCredentialsForm({ bureauId }: { bureauId: string }) {
     setError(null);
     setSuccess(null);
     if (withPassword) {
-      const check = newPasswordSchema.safeParse({ password, confirm });
-      if (!check.success) {
-        setError(check.error.issues[0]?.message ?? "Senha inválida.");
+      const passwordError = firstPasswordError(password, confirm);
+      if (passwordError) {
+        setError(passwordError);
         return;
       }
     }

@@ -13,24 +13,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { bureauCreateSchema } from "@/lib/validators/bureau";
-import { passwordSchema } from "@/lib/validators/password";
+import { refineOptionalNewPassword } from "@/lib/validators/password";
 
 const formSchema = bureauCreateSchema
   .omit({ adminPassword: true })
   .extend({ adminPassword: z.string(), confirm: z.string() })
-  .superRefine((v, ctx) => {
-    const strength = v.adminPassword ? passwordSchema.safeParse(v.adminPassword) : null;
-    if (strength && !strength.success) {
-      ctx.addIssue({
-        code: "custom",
-        message: strength.error.issues[0]?.message ?? "Senha inválida.",
-        path: ["adminPassword"],
-      });
-    }
-    if (v.adminPassword !== v.confirm) {
-      ctx.addIssue({ code: "custom", message: "As senhas não coincidem.", path: ["confirm"] });
-    }
-  });
+  .superRefine((v, ctx) =>
+    refineOptionalNewPassword(ctx, {
+      password: v.adminPassword,
+      confirm: v.confirm,
+      passwordPath: "adminPassword",
+    }),
+  );
 type FormValues = z.infer<typeof formSchema>;
 
 export function BureauCreateForm() {

@@ -10,7 +10,7 @@ import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { passwordSchema } from "@/lib/validators/password";
+import { refineOptionalNewPassword } from "@/lib/validators/password";
 
 const schema = z
   .object({
@@ -20,19 +20,9 @@ const schema = z
     password: z.string(),
     confirm: z.string(),
   })
-  .superRefine((v, ctx) => {
-    const strength = v.password ? passwordSchema.safeParse(v.password) : null;
-    if (strength && !strength.success) {
-      ctx.addIssue({
-        code: "custom",
-        message: strength.error.issues[0]?.message ?? "Senha inválida.",
-        path: ["password"],
-      });
-    }
-    if (v.password !== v.confirm) {
-      ctx.addIssue({ code: "custom", message: "As senhas não coincidem.", path: ["confirm"] });
-    }
-  });
+  .superRefine((v, ctx) =>
+    refineOptionalNewPassword(ctx, { password: v.password, confirm: v.confirm, passwordPath: "password" }),
+  );
 
 type FormValues = z.infer<typeof schema>;
 

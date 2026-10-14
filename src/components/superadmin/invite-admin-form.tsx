@@ -7,7 +7,7 @@ import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { newPasswordSchema } from "@/lib/validators/password";
+import { firstPasswordError } from "@/lib/validators/password";
 
 export function InviteAdminForm({ bureauId }: { bureauId: string }) {
   const [name, setName] = useState("");
@@ -23,9 +23,9 @@ export function InviteAdminForm({ bureauId }: { bureauId: string }) {
     setError(null);
     setSent(null);
     if (password || confirm) {
-      const check = newPasswordSchema.safeParse({ password, confirm });
-      if (!check.success) {
-        setError(check.error.issues[0]?.message ?? "Senha inválida.");
+      const passwordError = firstPasswordError(password, confirm);
+      if (passwordError) {
+        setError(passwordError);
         return;
       }
     }
