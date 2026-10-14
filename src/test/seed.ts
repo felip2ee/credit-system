@@ -265,3 +265,47 @@ export async function seedCatalogItem(
 		],
 	);
 }
+
+// Saldo inicial por topup real (wallet_post_entry), para a conciliação continuar válida.
+export async function seedWalletTopup(
+	owner: Pool,
+	input: { bureauId: string; amount: string; createdBy: string },
+): Promise<void> {
+	await owner.query(
+		"select * from wallet_post_entry($1, 'topup', $2, $3, 'seed', null, $4)",
+		[
+			input.bureauId,
+			input.amount,
+			`seed-${randomBytes(6).toString("hex")}`,
+			input.createdBy,
+		],
+	);
+}
+
+export type SeededPixCharge = { id: string; asaasPaymentId: string };
+
+export async function seedPixCharge(
+	owner: Pool,
+	input: {
+		bureauId: string;
+		requestedBy: string;
+		amount?: string;
+		status?: "pending" | "paid" | "expired" | "cancelled";
+		expiresAt?: Date;
+	},
+): Promise<SeededPixCharge> {
+	const asaasPaymentId = `pay_${randomBytes(8).toString("hex")}`;
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into pix_charges (bureau_id, asaas_payment_id, amount, status, pix_payload, expires_at, requested_by)
+     values ($1, $2, $3, $4, 'pix-copia-e-cola-teste', $5, $6) returning id`,
+		[
+			input.bureauId,
+			asaasPaymentId,
+			input.amount ?? "100.00",
+			input.status ?? "pending",
+			input.expiresAt ?? new Date(Date.now() + 30 * 60 * 1000),
+			input.requestedBy,
+		],
+	);
+	return { id: rows[0].id, asaasPaymentId };
+}
