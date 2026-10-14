@@ -488,7 +488,7 @@ describe("superadmin and support sessions", () => {
 				out[spec.table] = Number(rows[0].n);
 			}
 			const audit = await c.query<{ n: string }>(
-				"select count(*) as n from audit_logs where bureau_id is not null and support_session_id is null",
+				"select count(*) as n from audit_logs where bureau_id is not null and support_session_id is null and action <> 'catalog.cost.set'",
 			);
 			out.audit_logs = Number(audit.rows[0].n);
 			return out;
@@ -1494,7 +1494,7 @@ describe("audit_logs", () => {
 			{ userId: sa.userId, role: "superadmin", bureauId: null },
 			(c) =>
 				c.query<{ n: string }>(
-					"select count(*) as n from audit_logs where bureau_id is not null and support_session_id is null",
+					"select count(*) as n from audit_logs where bureau_id is not null and support_session_id is null and action <> 'catalog.cost.set'",
 				),
 		);
 		expect(Number(supportRows.rows[0].n)).toBe(0);

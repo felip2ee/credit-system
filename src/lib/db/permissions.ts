@@ -15,6 +15,8 @@ export const permissions = [
   "portal:write",
   "bureaus:manage",
   "support:enter",
+  "catalog:read",
+  "catalog:write",
 ] as const;
 
 export type Permission = (typeof permissions)[number];
@@ -29,12 +31,21 @@ const operatorPermissions = [
   "reports:read",
   "reports:write",
   "settings:read",
+  "catalog:read",
 ] as const satisfies readonly Permission[];
 
 export const rolePermissions = {
-  superadmin: ["bureaus:manage", "support:enter", "settings:read", "settings:write"],
+  superadmin: [
+    "bureaus:manage",
+    "support:enter",
+    "settings:read",
+    "settings:write",
+    "catalog:read",
+    "catalog:write",
+  ],
   bureau_admin: [
     ...operatorPermissions,
+    "catalog:write",
     "users:manage",
     "audit:read",
     "portal:read",

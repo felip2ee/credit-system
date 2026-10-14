@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  PackageSearch,
   Search,
   Settings,
   ShieldCheck,
@@ -23,11 +24,13 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dossiers", label: "Pesquisas", icon: Search },
   { href: "/holders", label: "Titulares", icon: Users },
   { href: "/scr", label: "Autorizações SCR", icon: ShieldCheck },
+  { href: "/settings/catalog", label: "Catálogo", icon: PackageSearch },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
+  if (href === "/settings" && pathname.startsWith("/settings/catalog")) return false;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
