@@ -97,4 +97,34 @@ export function readConfig(env: Environment) {
   });
 }
 
+export type AsaasConfig =
+  | { driver: "fake"; webhookToken: string }
+  | { driver: "asaas"; apiKey: string; baseUrl: string; customerId: string; webhookToken: string };
+
+// Lida sob demanda (não entra em readConfig): só a recarga PIX e o webhook precisam do Asaas.
+// Sem driver explícito falha; "fake" nunca roda em produção.
+export function readAsaasConfig(env: Environment): AsaasConfig {
+  const driver = required(env, "ASAAS_DRIVER");
+  if (driver !== "asaas" && driver !== "fake") {
+    throw new Error("ASAAS_DRIVER must be asaas or fake");
+  }
+  if (driver === "fake" && env.NODE_ENV === "production") {
+    throw new Error("ASAAS_DRIVER=fake is not allowed in production");
+  }
+
+  const webhookToken = required(env, "ASAAS_WEBHOOK_TOKEN");
+  if (webhookToken.length < 32) {
+    throw new Error("ASAAS_WEBHOOK_TOKEN must be at least 32 characters");
+  }
+  if (driver === "fake") return { driver, webhookToken };
+
+  return {
+    driver,
+    apiKey: required(env, "ASAAS_API_KEY"),
+    baseUrl: url(env, "ASAAS_API_BASE_URL"),
+    customerId: required(env, "ASAAS_CUSTOMER_ID"),
+    webhookToken,
+  };
+}
+
 export const config = readConfig(hydrateSecretEnv(process.env));

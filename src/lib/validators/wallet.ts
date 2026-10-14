@@ -19,3 +19,18 @@ export const walletAdjustSchema = z.object({
 });
 
 export type WalletAdjustInput = z.infer<typeof walletAdjustSchema>;
+
+// Recarga PIX: R$ 10,00 a R$ 5.000,00 por cobrança, em reais com até 2 casas (contas em centavos inteiros).
+const MIN_TOPUP_CENTS = 1000;
+const MAX_TOPUP_CENTS = 500000;
+
+export const topupAmountSchema = z.string().refine((value) => {
+	try {
+		const cents = toCents(value);
+		return cents >= MIN_TOPUP_CENTS && cents <= MAX_TOPUP_CENTS;
+	} catch {
+		return false;
+	}
+}, "Informe um valor entre R$ 10,00 e R$ 5.000,00, com até 2 casas decimais.");
+
+export const walletTopupSchema = z.object({ amount: topupAmountSchema });

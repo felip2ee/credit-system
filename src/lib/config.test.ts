@@ -19,7 +19,7 @@ const valid = vi.hoisted(() => {
   return value;
 });
 
-import { readConfig } from "./config";
+import { readAsaasConfig, readConfig } from "./config";
 
 describe("readConfig", () => {
   it("rejects a missing required value", () => {
@@ -137,5 +137,70 @@ describe("readConfig", () => {
 
     expect(config.clamavHost).toBe("localhost");
     expect(Object.isFrozen(config)).toBe(true);
+  });
+});
+
+describe("readAsaasConfig", () => {
+  const webhookToken = "w".repeat(32);
+  const asaas = {
+    ASAAS_DRIVER: "asaas",
+    ASAAS_API_KEY: "test-api-key",
+    ASAAS_API_BASE_URL: "https://api-sandbox.asaas.example",
+    ASAAS_CUSTOMER_ID: "cus_test",
+    ASAAS_WEBHOOK_TOKEN: webhookToken,
+  };
+
+  it("fails without a driver, with no silent fallback", () => {
+    expect(() => readAsaasConfig({ ASAAS_WEBHOOK_TOKEN: webhookToken })).toThrow(
+      "ASAAS_DRIVER is required",
+    );
+  });
+
+  it("rejects an unknown driver", () => {
+    expect(() => readAsaasConfig({ ...asaas, ASAAS_DRIVER: "mock" })).toThrow(
+      "ASAAS_DRIVER must be asaas or fake",
+    );
+  });
+
+  it("rejects the fake driver in production", () => {
+    expect(() =>
+      readAsaasConfig({ ASAAS_DRIVER: "fake", ASAAS_WEBHOOK_TOKEN: webhookToken, NODE_ENV: "production" }),
+    ).toThrow("ASAAS_DRIVER=fake is not allowed in production");
+  });
+
+  it("accepts the fake driver outside production", () => {
+    expect(readAsaasConfig({ ASAAS_DRIVER: "fake", ASAAS_WEBHOOK_TOKEN: webhookToken, NODE_ENV: "test" })).toEqual({
+      driver: "fake",
+      webhookToken,
+    });
+  });
+
+  it.each(["ASAAS_API_KEY", "ASAAS_API_BASE_URL", "ASAAS_CUSTOMER_ID", "ASAAS_WEBHOOK_TOKEN"])(
+    "requires %s for the asaas driver",
+    (name) => {
+      expect(() => readAsaasConfig({ ...asaas, [name]: " " })).toThrow(`${name} is required`);
+    },
+  );
+
+  it("rejects a base URL that is not a URL", () => {
+    expect(() => readAsaasConfig({ ...asaas, ASAAS_API_BASE_URL: "not a URL" })).toThrow(
+      "ASAAS_API_BASE_URL must be a valid URL",
+    );
+  });
+
+  it("rejects a webhook token shorter than 32 characters", () => {
+    expect(() => readAsaasConfig({ ...asaas, ASAAS_WEBHOOK_TOKEN: "short" })).toThrow(
+      "ASAAS_WEBHOOK_TOKEN must be at least 32 characters",
+    );
+  });
+
+  it("returns the asaas settings", () => {
+    expect(readAsaasConfig(asaas)).toEqual({
+      driver: "asaas",
+      apiKey: "test-api-key",
+      baseUrl: "https://api-sandbox.asaas.example",
+      customerId: "cus_test",
+      webhookToken,
+    });
   });
 });
