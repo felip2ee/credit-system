@@ -7,8 +7,8 @@ import { useRouter } from "next/navigation";
 import {
   findRecentConsultation,
   runConsultation,
-  searchClients,
-  type ClientPick,
+  searchHolders,
+  type HolderPick,
 } from "@/actions/consultations";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,14 +20,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCNPJ, formatCPF } from "@/lib/utils";
+import type { EntityKind } from "@/types/app";
 
-export function ConsultationForm() {
+interface ConsultationFormProps {
+  productNames: Record<EntityKind, string>;
+}
+
+export function ConsultationForm({ productNames }: ConsultationFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [term, setTerm] = useState("");
-  const [results, setResults] = useState<ClientPick[]>([]);
-  const [selected, setSelected] = useState<ClientPick | null>(null);
+  const [results, setResults] = useState<HolderPick[]>([]);
+  const [selected, setSelected] = useState<HolderPick | null>(null);
   const [observations, setObservations] = useState("");
   // E-mail do titular: usado para (re)enviar a autorização SCR caso ainda não
   // haja aceite. Pré-preenchido com o do cadastro. Opcional.
@@ -50,13 +55,13 @@ export function ConsultationForm() {
   useEffect(() => {
     if (selected) return;
     const id = setTimeout(async () => {
-      const r = await searchClients(term);
+      const r = await searchHolders(term);
       setResults(r);
     }, 300);
     return () => clearTimeout(id);
   }, [term, selected]);
 
-  const fmtDoc = (c: ClientPick) =>
+  const fmtDoc = (c: HolderPick) =>
     c.document
       ? c.type === "PJ"
         ? formatCNPJ(c.document)
@@ -69,9 +74,8 @@ export function ConsultationForm() {
     setPending(null);
     startTransition(async () => {
       const result = await runConsultation({
-        crmClientId: selected.id,
         type: selected.type,
-        document: selected.document ?? "",
+        document: selected.document,
         documentName: selected.name,
         observations,
         email: scrEmail.trim() || null,
@@ -97,11 +101,11 @@ export function ConsultationForm() {
 
   const onConsult = () => {
     if (!selected) {
-      setError("Selecione um cliente.");
+      setError("Selecione um titular.");
       return;
     }
     if (!selected.document) {
-      setError("O cliente não possui documento cadastrado.");
+      setError("O titular não possui documento cadastrado.");
       return;
     }
     setError(null);
@@ -126,7 +130,7 @@ export function ConsultationForm() {
       <CardContent className="space-y-6">
         {/* Cliente */}
         <div className="space-y-2">
-          <Label>Cliente</Label>
+          <Label>Titular</Label>
           {selected ? (
             <div className="flex items-center justify-between rounded-md border p-3">
               <div className="text-sm">
@@ -151,7 +155,7 @@ export function ConsultationForm() {
           ) : (
             <div className="space-y-2">
               <Input
-                placeholder="Buscar cliente por nome, CPF ou CNPJ..."
+                placeholder="Buscar titular por nome, CPF ou CNPJ..."
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
               />
@@ -180,8 +184,8 @@ export function ConsultationForm() {
               )}
               <p className="text-xs text-muted-foreground">
                 Não encontrou?{" "}
-                <Link href="/clients/new" className="underline">
-                  Cadastrar novo cliente
+                <Link href="/holders/new" className="underline">
+                  Cadastrar novo titular
                 </Link>
               </p>
             </div>
@@ -193,7 +197,7 @@ export function ConsultationForm() {
           <div className="space-y-1">
             <Label>Produto</Label>
             <p className="text-sm text-muted-foreground">
-              {selected.type === "PF" ? "Smart PF 002" : "Smart PJ 010"}
+              {productNames[selected.type]}
             </p>
           </div>
         )}

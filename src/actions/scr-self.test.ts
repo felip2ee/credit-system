@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Map()) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({
-  getRequiredSession: vi.fn(async () => ({ userId: "00000000-0000-0000-0000-000000000001", role: "admin" })),
+  getRequiredSession: vi.fn(async () => ({ userId: "00000000-0000-0000-0000-000000000001", role: "operator", bureauId: "00000000-0000-0000-0000-0000000000b1" })),
 }));
 vi.mock("@/actions/settings", () => ({
   getScrTermSettings: vi.fn(async () => ({

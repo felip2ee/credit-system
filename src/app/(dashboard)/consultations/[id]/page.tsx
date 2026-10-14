@@ -35,9 +35,8 @@ export default async function ConsultationDetailPage({
   params: { id: string };
 }) {
   const session = await getRequiredSession();
-  if (!hasPermission(session.role, "consultations:read")) notFound();
-  const identity = { userId: session.userId, role: session.role } as const;
-  const query = await getConsultation(identity, params.id);
+  if (!hasPermission(session, "consultations:read")) notFound();
+  const query = await getConsultation(session, params.id);
   if (!query) notFound();
 
   const docLabel =
@@ -47,7 +46,7 @@ export default async function ConsultationDetailPage({
   let view: ConsultationView | IncompatibleView | null = null;
   let opinion: OpinionData | null = null;
   if (query.status === "completed" || query.status === "payload_incompatible") {
-    const canonical = await loadCanonicalResult(identity, query.id);
+    const canonical = await loadCanonicalResult(session, query.id);
     if (canonical) {
       view = toConsultationView(canonical);
     } else {
@@ -55,7 +54,7 @@ export default async function ConsultationDetailPage({
       view = incompatibleView(query.id);
     }
 
-    const reportRow = await getConsultationReport(identity, query.id);
+    const reportRow = await getConsultationReport(session, query.id);
     if (reportRow) {
       const r = reportRow as Record<string, unknown>;
       opinion = {
@@ -85,11 +84,12 @@ export default async function ConsultationDetailPage({
             </a>
           </Button>
         )}
-        {query.crm_client_id && (
-          <Button asChild variant="outline">
-            <Link href={`/clients/${query.crm_client_id}`}>Ver cliente</Link>
-          </Button>
-        )}
+        <Button asChild variant="outline">
+          <Link href={`/dossiers/${query.dossier_id}`}>Ver pesquisa</Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link href={`/holders/${query.holder_id}`}>Ver titular</Link>
+        </Button>
       </PageHeader>
 
       {query.status === "pending_authorization" && (

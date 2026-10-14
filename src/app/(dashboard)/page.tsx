@@ -180,14 +180,14 @@ export default async function DashboardPage() {
 
   // ── KPIs ───────────────────────────────────────────────────
   const primary = [
-    { label: "Consultas hoje", value: String(counts.today), hint: "Criadas hoje", href: "/consultations", icon: Search },
-    { label: "Consultas no mês", value: String(counts.month), hint: "Mês corrente", href: "/consultations", icon: Search },
+    { label: "Consultas hoje", value: String(counts.today), hint: "Criadas hoje", href: "/dossiers", icon: Search },
+    { label: "Consultas no mês", value: String(counts.month), hint: "Mês corrente", href: "/dossiers", icon: Search },
     { label: "Aguardando SCR", value: String(counts.scrPending), hint: "Autorizações pendentes", href: "/scr", icon: ShieldCheck },
   ];
   const secondary = [
-    { label: "Clientes", value: String(counts.clients), hint: "Cadastrados", href: "/clients", icon: Users },
-    { label: "Pareceres de IA", value: String(counts.aiCompleted), hint: "Gerados", href: "/consultations", icon: Bot },
-    { label: "Processos em andamento", value: String(counts.batchesProcessing), hint: "Empresas em análise", href: "/batch", icon: Layers },
+    { label: "Titulares", value: String(counts.holders), hint: "Cadastrados", href: "/holders", icon: Users },
+    { label: "Pareceres de IA", value: String(counts.aiCompleted), hint: "Gerados", href: "/dossiers", icon: Bot },
+    { label: "Pesquisas em andamento", value: String(counts.dossiersProcessing), hint: "Dossiês em análise", href: "/dossiers", icon: Layers },
   ];
 
   const pipeline = {
@@ -218,10 +218,10 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <PageHeader title="Dashboard" description="Visão geral da operação de crédito">
         <Button asChild variant="outline">
-          <Link href="/batch/new">Novo processo</Link>
+          <Link href="/dossiers/new">PJ completo</Link>
         </Button>
         <Button asChild>
-          <Link href="/consultations/new">Nova consulta</Link>
+          <Link href="/consultations/new">Consulta PF/PJ</Link>
         </Button>
       </PageHeader>
 

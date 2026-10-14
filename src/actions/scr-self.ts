@@ -25,17 +25,16 @@ export interface SendSelfResult { error: string | null; }
 export async function sendScrSelfAuthorization(scrId: string): Promise<SendSelfResult> {
   let session;
   try { session = await getRequiredSession(); } catch { return { error: "Sess\u00e3o expirada." }; }
-  const identity = { userId: session.userId, role: session.role } as const;
-  const scr = await resolveScrContact(identity, scrId);
+  const scr = await resolveScrContact(session, scrId);
   if (!scr) return { error: "Registro SCR n\u00e3o encontrado." };
-  const email = scr.email?.trim() || scr.client_email?.trim() || null;
+  const email = scr.email?.trim() || scr.holder_email?.trim() || null;
   if (!email || !isValidEmail(email)) return { error: "Titular sem e-mail v\u00e1lido \u2014 cadastre o e-mail antes de enviar." };
-  const clientName = scr.name?.trim() || scr.client_name?.trim() || scr.document;
+  const clientName = scr.name?.trim() || scr.holder_name?.trim() || scr.document;
   const document = scr.type === "PJ" ? formatCNPJ(scr.document) : formatCPF(scr.document);
   const term = await getScrTermSettings();
   const consent = buildScrConsentTerm({ authorizedName: term.authorizedName, authorizedDocument: term.authorizedDocument || undefined, institutionName: term.institutionName, clientName, document, city: term.city, date: formatDate(new Date()) });
   const code = generateCode();
-  const issued = await issueSelfScrAuthorization(identity, scrId, { code, email, consentText: consent.fullText, consentName: clientName, consentDocument: document });
+  const issued = await issueSelfScrAuthorization(session, scrId, { code, email, consentText: consent.fullText, consentName: clientName, consentDocument: document });
   if (!issued) return { error: "Registro SCR n\u00e3o encontrado." };
   const mail = buildScrAuthorizationEmail({ clientName, authorizedName: term.authorizedName, code, url: `${siteUrl()}/autorizacao-scr/${issued.public_token}` });
   try { await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text }); }

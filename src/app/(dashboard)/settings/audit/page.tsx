@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/layout/page-header";
 import {
   Card,
@@ -16,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getRequiredSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
 import { listAuditLogs } from "@/lib/audit/read";
 import { formatCNPJ, formatCPF, formatDateTime } from "@/lib/utils";
 
@@ -34,7 +36,7 @@ function describeDocument(data: Record<string, unknown> | null): string {
 
 export default async function AuditPage() {
   const session = await getRequiredSession().catch(() => redirect("/login"));
-  if (session.role !== "admin") {
+  if (!hasPermission(session, "audit:read")) {
     redirect("/settings");
   }
 
@@ -73,7 +75,14 @@ export default async function AuditPage() {
                   <TableCell className="font-medium">
                     {log.actor_name ?? log.actor_email ?? "—"}
                   </TableCell>
-                  <TableCell>{ACTION_LABEL[log.action] ?? log.action}</TableCell>
+                  <TableCell>
+                    {ACTION_LABEL[log.action] ?? log.action}
+                    {log.supportSessionId && (
+                      <Badge variant="muted" className="ml-2">
+                        Suporte
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {describeDocument(log.metadata ?? log.new_data)}
                   </TableCell>

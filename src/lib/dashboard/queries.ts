@@ -10,9 +10,9 @@ export interface DashboardMetrics {
     today: number;
     month: number;
     scrPending: number;
-    clients: number;
+    holders: number;
     aiCompleted: number;
-    batchesProcessing: number;
+    dossiersProcessing: number;
     cCompleted: number;
     cPending: number;
     cProcessing: number;
@@ -49,15 +49,15 @@ export async function getDashboardMetrics(
 
     const misc = await client.query<{
       scr_pending: number;
-      clients: number;
+      holders: number;
       ai_completed: number;
-      batches_processing: number;
+      dossiers_processing: number;
     }>(
       `select
          (select count(*) from scr_authorizations where status = 'pending')::int as scr_pending,
-         (select count(*) from crm_clients)::int as clients,
+         (select count(*) from holders)::int as holders,
          (select count(*) from ai_reports where status = 'completed')::int as ai_completed,
-         (select count(*) from batches where status = 'processing')::int as batches_processing`,
+         (select count(*) from dossiers where status = 'processing')::int as dossiers_processing`,
     );
 
     const scr = await client.query<{ status: string }>(
@@ -80,9 +80,9 @@ export async function getDashboardMetrics(
         today: cc.today,
         month: cc.month,
         scrPending: m.scr_pending,
-        clients: m.clients,
+        holders: m.holders,
         aiCompleted: m.ai_completed,
-        batchesProcessing: m.batches_processing,
+        dossiersProcessing: m.dossiers_processing,
         cCompleted: cc.c_completed,
         cPending: cc.c_pending,
         cProcessing: cc.c_processing,

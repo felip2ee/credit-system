@@ -8,6 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
@@ -30,6 +31,9 @@ vi.hoisted(() => {
 
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
+import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
+import { seedTenant, type SeededTenant } from "@/test/seed";
 import type { DepsRawConsult } from "@/types/deps";
 import {
   canonicalJson,
@@ -38,8 +42,11 @@ import {
 } from "./service";
 
 import pfCurrent from "../deps/__fixtures__/pf-current.json";
+import pjCurrent from "../deps/__fixtures__/pj-current.json";
 
-const staff: DbIdentity = { userId: randomUUID(), role: "consultant" };
+const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 2 });
+let tenant: SeededTenant;
+let staff: DbIdentity;
 
 // A valid PF body straight from the adapter fixture (array-wrapped envelope).
 const validBody: unknown = pfCurrent;
@@ -53,7 +60,7 @@ const noDataBody: unknown = { mix: { score: { data: { valor: 700 } } } };
 
 const rawOf = (body: unknown): DepsRawConsult => ({
   httpStatus: 200,
-  product: "Smart PF 002",
+  product: DEPS_PRODUCT_PF,
   body,
   receivedAt: "2026-08-31T00:00:00.000Z",
 });
@@ -68,14 +75,22 @@ const consultationIds = {
   network: randomUUID(),
 };
 
+// Cada consulta pertence a um Dossiê do Titular do seed.
 async function seedConsultation(
-  client: Parameters<Parameters<typeof withUserTransaction>[1]>[0],
   id: string,
+  type: "PF" | "PJ" = "PF",
+  holderId = tenant.holder.id,
+  document = tenant.holder.document.replace(/\D/g, ""),
 ): Promise<void> {
-  await client.query(
-    `insert into consultations (id, type, document, created_by, status)
-     values ($1, 'PF', '39053344705', $2, 'processing')`,
-    [id, staff.userId],
+  const dossier = await owner.query<{ id: string }>(
+    `insert into dossiers (bureau_id, kind, holder_id, product, created_by)
+     values ($1, $2::dossier_kind, $3, $4, $5) returning id`,
+    [tenant.bureau.id, type, holderId, type === "PF" ? DEPS_PRODUCT_PF : DEPS_PRODUCT_PJ, tenant.bureauAdmin.userId],
+  );
+  await owner.query(
+    `insert into consultations (id, bureau_id, type, document, holder_id, dossier_id, created_by, status)
+     values ($1, $2, $3::query_type, $4, $5, $6, $7, 'processing')`,
+    [id, tenant.bureau.id, type, document, holderId, dossier.rows[0].id, staff.userId],
   );
 }
 
@@ -118,27 +133,19 @@ async function resultRow(consultationId: string) {
 
 describe.sequential("executeConsultation", () => {
   beforeAll(async () => {
-    // Only an administrator may insert profiles (RLS).
-    await withUserTransaction({ ...staff, role: "admin" }, async (client) => {
-      await client.query(
-        'insert into "user" (id, name, email) values ($1, $2, $3)',
-        [staff.userId, "Persist staff", `${staff.userId}@example.test`],
-      );
-      await client.query(
-        `insert into profiles (id, auth_user_id, full_name, email, role)
-         values ($1::uuid, $1::text, $2, $3, 'consultant')`,
-        [staff.userId, "Persist staff", `${staff.userId}@example.test`],
-      );
-    });
-    await withUserTransaction(staff, async (client) => {
-      for (const id of Object.values(consultationIds)) {
-        await seedConsultation(client, id);
-      }
-    });
+    tenant = await seedTenant(owner, "Persist");
+    staff = tenant.operator;
+    for (const id of Object.values(consultationIds)) {
+      await seedConsultation(id);
+    }
   });
 
   afterAll(async () => {
-    await pool.end();
+    try {
+      await owner.end();
+    } finally {
+      await pool.end();
+    }
   });
 
   it("hashes a deterministic UTF-8 serialization regardless of key order", () => {
@@ -287,5 +294,44 @@ describe.sequential("executeConsultation", () => {
 
     expect(await payloadRows(id)).toHaveLength(0);
     expect(await consultationStatus(id)).toBe("processing");
+  });
+
+  it("cria Sociedades source 'deps' a partir do quadro societário da consulta PJ, sem novas consultas", async () => {
+    const cnpj = String(Date.now()).padStart(14, "7").slice(-14);
+    const company = await owner.query<{ id: string }>(
+      `insert into holders (bureau_id, type, name, document, created_by)
+       values ($1, 'PJ', 'Empresa Fixture', $2, $3) returning id`,
+      [tenant.bureau.id, cnpj, tenant.bureauAdmin.userId],
+    );
+    const id = randomUUID();
+    await seedConsultation(id, "PJ", company.rows[0].id, cnpj);
+    const before = await owner.query("select 1 from consultations where bureau_id = $1", [tenant.bureau.id]);
+
+    const out = await executeConsultation({
+      identity: staff,
+      consultationId: id,
+      entityKind: "PJ",
+      consult: async () => ({ ...rawOf(pjCurrent), product: DEPS_PRODUCT_PJ }),
+    });
+    expect(out.status).toBe("completed");
+
+    const links = await owner.query<{ source: string; percentage: string; document_digits: string }>(
+      `select p.source, p.percentage, h.document_digits
+         from holder_partnerships p join holders h on h.id = p.partner_id
+        where p.company_id = $1 order by h.document_digits`,
+      [company.rows[0].id],
+    );
+    expect(links.rows).toEqual([
+      { source: "deps", percentage: "60.00", document_digits: "39053344705" },
+      { source: "deps", percentage: "40.00", document_digits: "52998224725" },
+    ]);
+    const after = await owner.query("select 1 from consultations where bureau_id = $1", [tenant.bureau.id]);
+    expect(after.rowCount).toBe(before.rowCount);
+
+    const dossier = await owner.query<{ status: string }>(
+      "select d.status::text from dossiers d join consultations c on c.dossier_id = d.id where c.id = $1",
+      [id],
+    );
+    expect(dossier.rows[0].status).toBe("completed");
   });
 });

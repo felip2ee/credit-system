@@ -1,8 +1,8 @@
 import type { DbIdentity } from "./transaction";
 
 export const permissions = [
-  "clients:read",
-  "clients:write",
+  "holders:read",
+  "holders:write",
   "consultations:read",
   "consultations:write",
   "reports:read",
@@ -13,27 +13,47 @@ export const permissions = [
   "audit:read",
   "portal:read",
   "portal:write",
+  "bureaus:manage",
+  "support:enter",
 ] as const;
 
 export type Permission = (typeof permissions)[number];
 
+export type PermissionSubject = Pick<DbIdentity, "role" | "supportSessionId">;
+
+const operatorPermissions = [
+  "holders:read",
+  "holders:write",
+  "consultations:read",
+  "consultations:write",
+  "reports:read",
+  "reports:write",
+  "settings:read",
+] as const satisfies readonly Permission[];
+
 export const rolePermissions = {
-  admin: permissions,
-  consultant: [
-    "clients:read",
-    "clients:write",
-    "consultations:read",
-    "consultations:write",
-    "reports:read",
-    "reports:write",
-    "settings:read",
+  superadmin: ["bureaus:manage", "support:enter", "settings:read", "settings:write"],
+  bureau_admin: [
+    ...operatorPermissions,
+    "users:manage",
+    "audit:read",
+    "portal:read",
+    "portal:write",
   ],
+  operator: operatorPermissions,
   client: ["portal:read", "portal:write"],
 } as const satisfies Record<DbIdentity["role"], readonly Permission[]>;
 
-export function hasPermission(
-  role: DbIdentity["role"],
-  permission: Permission,
-): boolean {
-  return (rolePermissions[role] as readonly Permission[]).includes(permission);
+// Superadmin sem sessão de suporte não lê dados de tenant; em suporte, ganha as permissões do operator.
+export function permissionsFor(subject: PermissionSubject): readonly Permission[] {
+  const base: readonly Permission[] = rolePermissions[subject.role];
+  if (subject.role === "superadmin" && subject.supportSessionId) {
+    const inSupport: readonly Permission[] = operatorPermissions;
+    return permissions.filter((p) => base.includes(p) || inSupport.includes(p));
+  }
+  return base;
+}
+
+export function hasPermission(subject: PermissionSubject, permission: Permission): boolean {
+  return permissionsFor(subject).includes(permission);
 }

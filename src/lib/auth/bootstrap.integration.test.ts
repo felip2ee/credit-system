@@ -39,8 +39,13 @@ function freshEmail() {
 }
 
 async function rowsFor(email: string) {
-  const { rows } = await owner.query<{ id: string; role: string; password: string }>(
-    `select u.id, p.role::text as role, a.password
+  const { rows } = await owner.query<{
+    id: string;
+    role: string;
+    bureauId: string | null;
+    password: string;
+  }>(
+    `select u.id, p.role::text as role, p.bureau_id as "bureauId", a.password
        from "user" u
        join profiles p on p.auth_user_id = u.id
        join account a on a.user_id = u.id and a.provider_id = 'credential'
@@ -77,7 +82,7 @@ describe("ensureSuperadmin", () => {
     await expect(ensureSuperadmin({})).resolves.toBe("disabled");
   });
 
-  it("creates an admin with a verifiable password and audit entry", async () => {
+  it("creates a superadmin without a bureau, with a verifiable password and audit entry", async () => {
     const email = freshEmail();
     await expect(
       ensureSuperadmin({ SUPERADMIN_EMAIL: email, SUPERADMIN_PASSWORD: password }),
@@ -85,14 +90,15 @@ describe("ensureSuperadmin", () => {
 
     const rows = await rowsFor(email);
     expect(rows).toHaveLength(1);
-    expect(rows[0].role).toBe("admin");
+    expect(rows[0].role).toBe("superadmin");
+    expect(rows[0].bureauId).toBeNull();
     expect(await verifyPassword({ hash: rows[0].password, password })).toBe(true);
 
     const audit = await owner.query(
-      "select 1 from audit_logs where user_id = $1::uuid and action = 'superadmin.bootstrap'",
+      "select bureau_id, support_session_id from audit_logs where user_id = $1::uuid and action = 'superadmin.bootstrap'",
       [rows[0].id],
     );
-    expect(audit.rowCount).toBe(1);
+    expect(audit.rows).toEqual([{ bureau_id: null, support_session_id: null }]);
   });
 
   it("never overwrites an existing user, matching email case-insensitively", async () => {
@@ -108,8 +114,7 @@ describe("ensureSuperadmin", () => {
     ).resolves.toBe("exists");
 
     const after = await rowsFor(email);
-    expect(after).toHaveLength(1);
-    expect(after[0].password).toBe(before[0].password);
+    expect(after).toEqual(before);
   });
 
   it("creates exactly one user when two instances race", async () => {

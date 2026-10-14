@@ -2,10 +2,19 @@ import type { PoolClient } from "pg";
 
 import { pool } from "./pool";
 
+export type AppRole = "superadmin" | "bureau_admin" | "operator" | "client";
+
 export type DbIdentity = {
   userId: string;
-  role: "admin" | "consultant" | "client";
+  role: AppRole;
+  bureauId: string | null;
+  supportSessionId?: string | null;
 };
+
+// Eventos da plataforma não levam Bureau nem sessão de suporte, mesmo se o superadmin estiver em suporte.
+export function platformIdentity(identity: DbIdentity): DbIdentity {
+  return { userId: identity.userId, role: identity.role, bureauId: null };
+}
 
 export async function withUserTransaction<T>(
   identity: DbIdentity,
@@ -23,6 +32,12 @@ export async function withUserTransaction<T>(
     ]);
     await client.query("select set_config('app.user_role', $1, true)", [
       identity.role,
+    ]);
+    await client.query("select set_config('app.bureau_id', $1, true)", [
+      identity.bureauId ?? "",
+    ]);
+    await client.query("select set_config('app.support_session_id', $1, true)", [
+      identity.supportSessionId ?? "",
     ]);
 
     const result = await work(client);

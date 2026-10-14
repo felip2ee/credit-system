@@ -9,13 +9,19 @@ const publicPaths = [
   "/mfa/verify",
 ];
 
+const publicPrefixes = ["/b/", "/autorizacao-scr/"];
+
 function hasSessionCookie(request: NextRequest): boolean {
   return request.cookies.getAll().some(({ name }) => name.endsWith(".session_token"));
 }
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (pathname.startsWith("/api/auth") || publicPaths.includes(pathname)) {
+  if (
+    pathname.startsWith("/api/auth") ||
+    publicPaths.includes(pathname) ||
+    publicPrefixes.some((prefix) => pathname.startsWith(prefix))
+  ) {
     return NextResponse.next();
   }
   if (!hasSessionCookie(request)) {

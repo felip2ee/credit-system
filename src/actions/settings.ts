@@ -23,16 +23,18 @@ import {
   SCR_TERM_DEFAULTS,
 } from "@/lib/scr/consent-term";
 
+// Exported readers are public endpoints ("use server"): reject roles without settings:read (client).
 async function readerIdentity(): Promise<DbIdentity> {
   const session = await getRequiredSession();
-  return { userId: session.userId, role: session.role };
+  if (!hasPermission(session, "settings:read")) throw new Error("Não autorizado.");
+  return session;
 }
 
 async function adminIdentity(): Promise<DbIdentity | null> {
   try {
     const session = await getRequiredSession();
-    if (!hasPermission(session.role, "settings:write")) return null;
-    return { userId: session.userId, role: session.role };
+    if (!hasPermission(session, "settings:write")) return null;
+    return session;
   } catch {
     return null;
   }
@@ -90,7 +92,7 @@ export interface SaveResult {
 export async function saveAiPrompts(input: SaveAiPromptsInput): Promise<SaveResult> {
   const identity = await adminIdentity();
   if (!identity) {
-    return { error: "Apenas administradores podem editar os prompts." };
+    return { error: "Apenas o superadmin pode editar os prompts." };
   }
 
   const values: Record<AiPromptKind, string> = {
@@ -126,7 +128,7 @@ export async function saveAiPrompts(input: SaveAiPromptsInput): Promise<SaveResu
     return { error: "Falha ao salvar os prompts." };
   }
 
-  revalidatePath("/settings/prompts");
+  revalidatePath("/superadmin/settings/prompts");
   return { error: null };
 }
 
@@ -172,7 +174,7 @@ export async function saveScrTermSettings(
 ): Promise<SaveResult> {
   const identity = await adminIdentity();
   if (!identity) {
-    return { error: "Apenas administradores podem editar o termo SCR." };
+    return { error: "Apenas o superadmin pode editar o termo SCR." };
   }
 
   const authorizedName = input.authorizedName.trim();
@@ -204,6 +206,6 @@ export async function saveScrTermSettings(
     return { error: "Falha ao salvar o termo SCR." };
   }
 
-  revalidatePath("/settings/scr");
+  revalidatePath("/superadmin/settings/scr");
   return { error: null };
 }

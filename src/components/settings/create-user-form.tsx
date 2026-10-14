@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
-import { createConsultant } from "@/actions/users";
+import { inviteTeamMember } from "@/actions/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 const schema = z.object({
   fullName: z.string().min(3, "Informe o nome completo."),
   email: z.string().email("E-mail inválido."),
-  role: z.enum(["consultant", "admin"]),
+  role: z.enum(["operator", "bureau_admin"]),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -30,18 +30,14 @@ export function CreateUserForm() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { fullName: "", email: "", role: "consultant" },
+    defaultValues: { fullName: "", email: "", role: "operator" },
   });
 
   const onSubmit = (values: FormValues) => {
     setServerError(null);
     setCreated(null);
     startTransition(async () => {
-      const result = await createConsultant(
-        values.fullName,
-        values.email,
-        values.role
-      );
+      const result = await inviteTeamMember(values);
       if (result.error) {
         setServerError(result.error);
         return;
@@ -80,13 +76,13 @@ export function CreateUserForm() {
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             {...register("role")}
           >
-            <option value="consultant">Consultor</option>
-            <option value="admin">Administrador</option>
+            <option value="operator">Operador</option>
+            <option value="bureau_admin">Administrador</option>
           </select>
         </div>
 
         <Button type="submit" disabled={isPending}>
-          {isPending ? "Criando..." : "Criar usuário"}
+          {isPending ? "Enviando..." : "Convidar"}
         </Button>
       </form>
 

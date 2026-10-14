@@ -1,50 +1,62 @@
 import { describe, expect, it } from "vitest";
 
-import { hasPermission, type Permission } from "./permissions";
+import { hasPermission, permissionsFor, permissions, type Permission } from "./permissions";
+
+const SUPPORT = "11111111-1111-4111-8111-111111111111";
+
+const tenantData: Permission[] = [
+  "holders:read",
+  "holders:write",
+  "consultations:read",
+  "consultations:write",
+  "reports:read",
+  "reports:write",
+];
+
+const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; allowed: Permission[] }> = {
+  superadmin: {
+    subject: { role: "superadmin" },
+    allowed: ["bureaus:manage", "support:enter", "settings:read", "settings:write"],
+  },
+  "superadmin in support": {
+    subject: { role: "superadmin", supportSessionId: SUPPORT },
+    allowed: ["bureaus:manage", "support:enter", "settings:read", "settings:write", ...tenantData],
+  },
+  bureau_admin: {
+    subject: { role: "bureau_admin" },
+    allowed: [...tenantData, "settings:read", "users:manage", "audit:read", "portal:read", "portal:write"],
+  },
+  operator: {
+    subject: { role: "operator" },
+    allowed: [...tenantData, "settings:read"],
+  },
+  client: {
+    subject: { role: "client" },
+    allowed: ["portal:read", "portal:write"],
+  },
+};
 
 describe("hasPermission", () => {
-  it.each(
-    [
-      ["admin", "clients:read", true],
-      ["admin", "clients:write", true],
-      ["admin", "consultations:read", true],
-      ["admin", "consultations:write", true],
-      ["admin", "reports:read", true],
-      ["admin", "reports:write", true],
-      ["admin", "settings:read", true],
-      ["admin", "settings:write", true],
-      ["admin", "users:manage", true],
-      ["admin", "audit:read", true],
-      ["admin", "portal:read", true],
-      ["admin", "portal:write", true],
-      ["consultant", "clients:read", true],
-      ["consultant", "clients:write", true],
-      ["consultant", "consultations:read", true],
-      ["consultant", "consultations:write", true],
-      ["consultant", "reports:read", true],
-      ["consultant", "reports:write", true],
-      ["consultant", "settings:read", true],
-      ["consultant", "settings:write", false],
-      ["consultant", "users:manage", false],
-      ["consultant", "audit:read", false],
-      ["consultant", "portal:read", false],
-      ["consultant", "portal:write", false],
-      ["client", "clients:read", false],
-      ["client", "clients:write", false],
-      ["client", "consultations:read", false],
-      ["client", "consultations:write", false],
-      ["client", "reports:read", false],
-      ["client", "reports:write", false],
-      ["client", "settings:read", false],
-      ["client", "settings:write", false],
-      ["client", "users:manage", false],
-      ["client", "audit:read", false],
-      ["client", "portal:read", true],
-      ["client", "portal:write", true],
-    ] as const satisfies ReadonlyArray<
-      readonly ["admin" | "consultant" | "client", Permission, boolean]
-    >,
-  )("returns %s for %s to %s", (role, permission, expected) => {
-    expect(hasPermission(role, permission)).toBe(expected);
+  describe.each(Object.entries(matrix))("%s", (_name, { subject, allowed }) => {
+    it.each(permissions)("%s", (permission) => {
+      expect(hasPermission(subject, permission)).toBe(allowed.includes(permission));
+    });
+  });
+
+  it("ignores a support session on non-superadmin roles", () => {
+    expect(hasPermission({ role: "client", supportSessionId: SUPPORT }, "holders:read")).toBe(false);
+    expect(hasPermission({ role: "bureau_admin", supportSessionId: SUPPORT }, "bureaus:manage")).toBe(false);
+  });
+
+  it("treats a null support session as absent", () => {
+    expect(hasPermission({ role: "superadmin", supportSessionId: null }, "holders:read")).toBe(false);
+  });
+});
+
+describe("permissionsFor", () => {
+  it("lists the same permissions hasPermission accepts", () => {
+    const subject = { role: "superadmin", supportSessionId: SUPPORT } as const;
+    expect(permissionsFor(subject).every((p) => hasPermission(subject, p))).toBe(true);
+    expect(permissionsFor(subject)).not.toContain("users:manage");
   });
 });

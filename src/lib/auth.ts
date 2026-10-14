@@ -18,7 +18,3 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     return null;
   }
 }
-
-export async function isAdmin(): Promise<boolean> {
-  return (await getCurrentProfile())?.role === "admin";
-}

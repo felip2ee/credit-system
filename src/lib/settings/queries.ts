@@ -1,8 +1,9 @@
-// `settings` key/value store — parameterized SQL under Task 3 transaction/RLS
-// boundaries. Reads need admin/consultant, writes need admin (004_rls.sql:
-// settings_select / settings_admin_write). No PoolClient escapes this module.
+// `settings` key/value store — parameterized SQL under transaction/RLS
+// boundaries. Reads need superadmin, bureau_admin or operator; writes need superadmin
+// (004_rls.sql: settings_select / settings_superadmin_write) and run as platform events,
+// without bureau or support session. No PoolClient escapes this module.
 
-import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { platformIdentity, withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { writeAuditEvent } from "@/lib/audit/write";
 
 // jsonb comes back already parsed by node-pg.
@@ -43,7 +44,7 @@ export async function upsertSettings(
   entries: UpsertSettingInput[],
   auditAction: string,
 ): Promise<void> {
-  await withUserTransaction(identity, async (client) => {
+  await withUserTransaction(platformIdentity(identity), async (client) => {
     for (const e of entries) {
       await client.query(
         `insert into settings (key, value, description, updated_by, updated_at)
@@ -70,7 +71,7 @@ export async function deleteSettings(
   keys: string[],
   auditAction: string,
 ): Promise<void> {
-  await withUserTransaction(identity, async (client) => {
+  await withUserTransaction(platformIdentity(identity), async (client) => {
     await client.query("delete from settings where key = any($1::text[])", [keys]);
     await writeAuditEvent(client, {
       actorId: identity.userId,

@@ -70,8 +70,8 @@ export async function writeAuditEvent(
   const metadata = redact(event.metadata ?? {}) as Record<string, unknown>;
   await client.query(
     `insert into audit_logs
-       (user_id, action, table_name, record_id, outcome, request_id, metadata)
-     values ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+       (user_id, action, table_name, record_id, outcome, request_id, metadata, bureau_id, support_session_id)
+     values ($1, $2, $3, $4, $5, $6, $7::jsonb, app_bureau_id(), app_support_session_id())`,
     [
       event.actorId,
       event.action,

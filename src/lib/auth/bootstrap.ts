@@ -29,7 +29,7 @@ export async function ensureSuperadmin(env: Env = process.env): Promise<Superadm
   const id = randomUUID();
   const passwordHash = await hashPassword(password);
 
-  return withUserTransaction({ userId: id, role: "admin" }, async (client) => {
+  return withUserTransaction({ userId: id, role: "superadmin", bureauId: null }, async (client) => {
     // Serialises concurrent replicas; the existence check must run under it.
     await client.query("select pg_advisory_xact_lock(hashtext('credit-system-superadmin'))");
     const existing = await client.query('select 1 from "user" where lower(email) = $1', [email]);
@@ -44,7 +44,7 @@ export async function ensureSuperadmin(env: Env = process.env): Promise<Superadm
       [randomUUID(), id, passwordHash],
     );
     await client.query(
-      "insert into profiles (id, auth_user_id, full_name, email, role) values ($1::uuid, $1::text, $2, $3, 'admin')",
+      "insert into profiles (id, auth_user_id, full_name, email, role) values ($1::uuid, $1::text, $2, $3, 'superadmin')",
       [id, "Superadmin", email],
     );
     await writeAuditEvent(client, {

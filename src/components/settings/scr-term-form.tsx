@@ -44,7 +44,7 @@ export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
       <CardHeader>
         <CardTitle className="text-lg">Termo de consentimento SCR</CardTitle>
         <CardDescription>
-          Estes valores entram no termo enviado ao titular na autogestão de SCR.
+          Estes valores entram no termo enviado ao titular na autogestão de SCR e valem para todos os Bureaus.
         </CardDescription>
       </CardHeader>
       <CardContent>
