@@ -34,11 +34,30 @@ export const authConfig = {
     onPasswordReset: async ({ user }) => clearMustChangePassword(user.id),
   },
   hooks: {
-    // A troca autenticada vale como troca da senha temporária: limpa a flag.
     after: createAuthMiddleware(async (ctx) => {
-      if (ctx.path !== "/change-password") return;
-      const userId = changedPasswordUserId(ctx.context.returned);
-      if (userId) await clearMustChangePassword(userId);
+      // A troca autenticada vale como troca da senha temporária: limpa a flag. A senha já mudou
+      // e as outras sessões já caíram; lançar aqui daria 500 e perderia o cookie da nova sessão.
+      // Se a flag ficar ligada, o layout manda o usuário de volta a /change-password.
+      if (ctx.path === "/change-password") {
+        const userId = changedPasswordUserId(ctx.context.returned);
+        if (!userId) return;
+        try {
+          await clearMustChangePassword(userId);
+        } catch (error) {
+          console.error("[auth] falha ao limpar must_change_password", {
+            userId,
+            error: error instanceof Error ? error.message : "desconhecido",
+          });
+        }
+        return;
+      }
+      // Cadastro do MFA: o Better Auth troca a sessão atual por uma nova. Qualquer outra sessão
+      // aberta antes do TOTP passaria a valer como "MFA completo" (twoFactorEnabled é do usuário,
+      // não da sessão), então cai aqui. O login com TOTP não tem sessão prévia e não passa por aqui.
+      if (ctx.path === "/two-factor/verify-totp" && ctx.context.session && ctx.context.newSession) {
+        const { session, user } = ctx.context.newSession;
+        await pool.query('delete from "session" where user_id = $1 and id <> $2', [user.id, session.id]);
+      }
     }),
   },
   user: {

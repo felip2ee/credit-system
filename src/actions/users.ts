@@ -24,6 +24,7 @@ const inviteSchema = z.object({
 const NOT_ALLOWED = "Sem permissão para gerenciar a equipe.";
 const NOT_FOUND = "Usuário não encontrado.";
 const LAST_ADMIN = "O Bureau precisa de ao menos um administrador ativo.";
+const PROMOTE_ONLY = "Só é possível promover operador a administrador.";
 const EMAIL_FAILED = "Convite registrado, mas o e-mail falhou. Use Reenviar.";
 
 type TeamSession = RequiredSession & { bureauId: string };
@@ -103,7 +104,9 @@ export async function inviteTeamMember(input: {
 		return {
 			error:
 				outcome.reason === "already_member"
-					? "Esse usuário já faz parte da equipe."
+					? parsed.data.password
+						? "Esse usuário já faz parte da equipe. Use Definir senha."
+						: "Esse usuário já faz parte da equipe."
 					: "E-mail já em uso.",
 		};
 	}
@@ -132,7 +135,10 @@ export async function setTeamMemberCredentials(input: {
 	if (!password.success)
 		return { error: password.error.issues[0]?.message ?? "Senha inválida." };
 	if (userId.data === session.userId)
-		return { error: "Use Trocar senha para a sua própria conta." };
+		return {
+			error:
+				'Para alterar a sua senha, use "Esqueci a senha" na tela de login.',
+		};
 
 	try {
 		const outcome = await withUserTransaction(session, (client) =>
@@ -193,6 +199,7 @@ export async function resendTeamInvite(input: {
 	return { error: await sendOrReport(email) };
 }
 
+// Só promove operador a administrador: o banco recusa qualquer outra troca de papel.
 export async function setUserRole(input: {
 	userId: string;
 	role: "bureau_admin" | "operator";
@@ -200,8 +207,8 @@ export async function setUserRole(input: {
 	const session = await requireTeamManager();
 	if (!session) return { error: NOT_ALLOWED };
 	const userId = userIdSchema.safeParse(input.userId);
-	const role = staffRoleSchema.safeParse(input.role);
-	if (!userId.success || !role.success) return { error: "Dados inválidos." };
+	if (!userId.success) return { error: "Dados inválidos." };
+	if (input.role !== "bureau_admin") return { error: PROMOTE_ONLY };
 	if (userId.data === session.userId)
 		return { error: "Você não pode alterar o próprio perfil." };
 
@@ -213,17 +220,10 @@ export async function setUserRole(input: {
 				userId.data,
 			);
 			if (!target) return NOT_FOUND;
-			if (target.role === role.data) return null;
-			if (
-				target.role === "bureau_admin" &&
-				target.isActive &&
-				!(await hasOtherActiveAdmin(client, session.bureauId, userId.data))
-			) {
-				return LAST_ADMIN;
-			}
+			if (target.role === "bureau_admin") return null;
 			await client.query(
-				"update profiles set role = $1::user_role, updated_at = now() where id = $2",
-				[role.data, userId.data],
+				"update profiles set role = 'bureau_admin'::user_role, updated_at = now() where id = $1",
+				[userId.data],
 			);
 			await client.query('delete from "session" where user_id = $1', [
 				userId.data,
@@ -233,7 +233,7 @@ export async function setUserRole(input: {
 				action: "user.role_change",
 				targetTable: "profiles",
 				targetId: userId.data,
-				metadata: { role: role.data, previousRole: target.role },
+				metadata: { role: "bureau_admin", previousRole: target.role },
 			});
 			return null;
 		});

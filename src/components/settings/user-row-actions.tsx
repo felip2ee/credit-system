@@ -87,21 +87,16 @@ export function UserRowActions({
             Reenviar
           </Button>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={disabled || isPending}
-          onClick={() =>
-            run(() =>
-              setUserRole({
-                userId,
-                role: role === "bureau_admin" ? "operator" : "bureau_admin",
-              }),
-            )
-          }
-        >
-          {role === "bureau_admin" ? "Tornar operador" : "Tornar administrador"}
-        </Button>
+        {role === "operator" && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disabled || isPending}
+            onClick={() => run(() => setUserRole({ userId, role: "bureau_admin" }))}
+          >
+            Tornar administrador
+          </Button>
+        )}
         {canManageCredentials && (
           <Button
             variant="outline"

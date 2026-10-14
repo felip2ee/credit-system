@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import { hashPassword } from "better-auth/crypto";
+import { base32 } from "@better-auth/utils/base32";
+import { createOTP } from "@better-auth/utils/otp";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const resetEmail = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const clearFlag = vi.hoisted(() => ({ fail: false }));
 
 vi.hoisted(() => {
   Object.assign(process.env, {
@@ -25,6 +28,17 @@ vi.hoisted(() => {
 });
 
 vi.mock("./email", () => ({ sendPasswordResetEmail: resetEmail }));
+// Real implementation, except when a test forces the after-hook clear to fail.
+vi.mock("./credentials", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./credentials")>();
+  return {
+    ...actual,
+    clearMustChangePassword: async (authUserId: string) => {
+      if (clearFlag.fail) throw new Error("forced failure");
+      return actual.clearMustChangePassword(authUserId);
+    },
+  };
+});
 
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction } from "@/lib/db/transaction";
@@ -506,6 +520,146 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
       const dump = JSON.stringify(rows);
       expect(dump).not.toContain(chosen);
       expect(dump).not.toContain(stored.rows[0].password);
+    });
+
+    it("rejects a change to the same password; flag and password stay", async () => {
+      const tenant = await freshTenant();
+      const user = await enable(tenant.operator.userId);
+      await setMustChange(user.id, true);
+      const headers = await login(user);
+
+      const response = await authRequest(
+        "/change-password",
+        { currentPassword: password, newPassword: password },
+        headers,
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ code: "PASSWORD_UNCHANGED" });
+      expect(await mustChange(user.id)).toBe(true);
+      expect(await sessionCount(user.id)).toBe(1);
+      await login(user);
+    });
+
+    it("a failed change (wrong current password) leaves the flag set", async () => {
+      const tenant = await freshTenant();
+      const user = await enable(tenant.operator.userId);
+      await setMustChange(user.id, true);
+      const headers = await login(user);
+
+      const response = await authRequest(
+        "/change-password",
+        { currentPassword: "wrong-current-password", newPassword: chosen },
+        headers,
+      );
+
+      expect(response.status).toBe(400);
+      expect(await mustChange(user.id)).toBe(true);
+      await login(user);
+    });
+
+    it("keeps the response and the new session when clearing the flag fails", async () => {
+      const tenant = await freshTenant();
+      const user = await enable(tenant.operator.userId);
+      await setMustChange(user.id, true);
+      const headers = await login(user);
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      clearFlag.fail = true;
+      let response: Response;
+      try {
+        response = await authRequest(
+          "/change-password",
+          { currentPassword: password, newPassword: chosen },
+          headers,
+        );
+      } finally {
+        clearFlag.fail = false;
+      }
+
+      expect(response.status).toBe(200);
+      expect(await mustChange(user.id)).toBe(true);
+      expect(logged).toHaveBeenCalled();
+      expect(JSON.stringify(logged.mock.calls)).not.toContain(chosen);
+      logged.mockRestore();
+      await owner.query('update "user" set two_factor_enabled = true where id = $1', [user.id]);
+      await expect(getRequiredSessionFromHeaders(sessionHeaders(response))).rejects.toMatchObject({
+        code: "password_change_required",
+      } satisfies Partial<SessionAccessError>);
+      await login(user, chosen);
+    });
+
+    it("an e-mail password reset clears the flag", async () => {
+      const tenant = await freshTenant();
+      const user = await enable(tenant.operator.userId);
+      await setMustChange(user.id, true);
+      await authRequest("/request-password-reset", {
+        email: user.email,
+        redirectTo: "http://localhost:3000/auth/reset-password",
+      });
+      const { rows } = await pool.query<{ identifier: string }>(
+        "select identifier from verification where value = $1 and identifier like 'reset-password:%'",
+        [user.id],
+      );
+      const token = rows[0].identifier.replace("reset-password:", "");
+
+      const response = await authRequest("/reset-password", { token, newPassword: chosen });
+
+      expect(response.status).toBe(200);
+      expect(await mustChange(user.id)).toBe(false);
+    });
+  });
+
+  describe("MFA enrolment", () => {
+    // Plain TOTP secret of the user: the enrol URI carries it base32-encoded.
+    async function enrolWithTotp(user: TestUser, headers: Headers): Promise<{ response: Response; code: () => Promise<string> }> {
+      const enableResponse = await authRequest("/two-factor/enable", { password }, headers);
+      expect(enableResponse.status).toBe(200);
+      const { totpURI } = (await enableResponse.json()) as { totpURI: string };
+      const encoded = new URL(totpURI).searchParams.get("secret") ?? "";
+      const secret = new TextDecoder().decode(base32.decode(encoded));
+      const code = () => createOTP(secret).totp();
+      const response = await authRequest("/two-factor/verify-totp", { code: await code() }, headers);
+      return { response, code };
+    }
+
+    it("enrolling revokes the sessions opened before it", async () => {
+      const tenant = await freshTenant();
+      const user = await enable(tenant.operator.userId);
+      const stale = await login(user);
+      const enrolling = await login(user);
+      expect(await sessionCount(user.id)).toBe(2);
+
+      const { response } = await enrolWithTotp(user, enrolling);
+
+      expect(response.status).toBe(200);
+      await expect(getRequiredSessionFromHeaders(stale)).rejects.toMatchObject({
+        code: "session_required",
+      } satisfies Partial<SessionAccessError>);
+      expect(await sessionCount(user.id)).toBe(1);
+      await expect(getRequiredSessionFromHeaders(sessionHeaders(response))).resolves.toMatchObject({
+        userId: user.id,
+        mfaComplete: true,
+      });
+    });
+
+    it("signing in with TOTP keeps the other sessions", async () => {
+      const tenant = await freshTenant();
+      const user = await enable(tenant.operator.userId);
+      const { code, response } = await enrolWithTotp(user, await login(user));
+      const enrolled = sessionHeaders(response);
+
+      const signIn = await authRequest("/sign-in/email", { email: user.email, password });
+      const challenge = new Headers({
+        cookie: signIn.headers
+          .getSetCookie()
+          .map((cookie) => cookie.split(";", 1)[0])
+          .join("; "),
+      });
+      const verified = await authRequest("/two-factor/verify-totp", { code: await code() }, challenge);
+
+      expect(verified.status).toBe(200);
+      expect(await sessionCount(user.id)).toBe(2);
+      await expect(getRequiredSessionFromHeaders(enrolled)).resolves.toMatchObject({ userId: user.id });
     });
   });
 });

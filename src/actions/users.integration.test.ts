@@ -145,17 +145,20 @@ describe("team actions against the database", () => {
 		expect(await profileOf(target)).toEqual({ role: "bureau_admin", is_active: false });
 	});
 
-	it("does not demote the last admin that can log in, then allows it with another one", async () => {
+	it("refuses to demote an admin, even when another admin can log in", async () => {
 		const tenant = await seedTenant(owner, "team");
 		const target = await addActiveAdmin(tenant);
+		await addAccount(tenant.bureauAdmin.userId);
+		await addSession(target);
 		actAs(tenant.bureauAdmin);
 
-		await expect(setUserRole({ userId: target, role: "operator" })).resolves.toEqual({ error: LAST_ADMIN });
-		expect(await profileOf(target)).toEqual({ role: "bureau_admin", is_active: true });
+		await expect(setUserRole({ userId: target, role: "operator" })).resolves.toEqual({
+			error: "Só é possível promover operador a administrador.",
+		});
 
-		await addAccount(tenant.bureauAdmin.userId);
-		await expect(setUserRole({ userId: target, role: "operator" })).resolves.toEqual({ error: null });
-		expect(await profileOf(target)).toEqual({ role: "operator", is_active: true });
+		expect(await profileOf(target)).toEqual({ role: "bureau_admin", is_active: true });
+		expect(await sessionCount(target)).toBe(1);
+		expect(await auditActions(target)).toEqual([]);
 	});
 
 	it("deletes the target sessions and audits a role change", async () => {

@@ -53,6 +53,27 @@ describe("authHandler", () => {
     });
   });
 
+  it("rejects a password change to the same password with PASSWORD_UNCHANGED", async () => {
+    handler.mockClear();
+    const response = await authHandler(
+      new Request("http://localhost:3000/api/auth/change-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: "twelve-character-password",
+          newPassword: "twelve-character-password",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      code: "PASSWORD_UNCHANGED",
+      message: "A nova senha deve ser diferente da senha atual.",
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("rejects form-encoded trusted-device MFA requests", async () => {
     const response = await authHandler(
       new Request("http://localhost:3000/api/auth/two-factor/verify-totp", {

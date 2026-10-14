@@ -153,7 +153,7 @@ export async function setBureauAdminCredentials(values: unknown): Promise<Bureau
       email: parsed.data.email,
       password: parsed.data.password ?? null,
     });
-    if (!result.ok) return { error: "Administrador não encontrado neste Bureau." };
+    if (!result.ok) return { error: "Administrador não encontrado, ou ainda sem acesso. Defina uma senha." };
   } catch {
     return { error: "Falha ao definir a senha." };
   }

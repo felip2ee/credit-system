@@ -60,6 +60,13 @@ export async function authHandler(request: Request): Promise<Response> {
   }
 
   if (path === "/change-password" && body) {
+    // A troca obrigatória só vale com senha nova: senão a senha que o administrador escolheu ficaria.
+    if (typeof body.newPassword === "string" && body.newPassword === body.currentPassword) {
+      return Response.json(
+        { code: "PASSWORD_UNCHANGED", message: "A nova senha deve ser diferente da senha atual." },
+        { status: 400 },
+      );
+    }
     return auth.handler(
       requestWithBody(request, { ...body, revokeOtherSessions: true }),
     );
