@@ -111,7 +111,7 @@ export function PromptsForm({ prompts }: { prompts: AiPromptEntry[] }) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Os prompts definem como a IA escreve os pareceres. Mantenha o formato de
+        Os prompts valem para todos os Bureaus e definem como a IA escreve os pareceres. Mantenha o formato de
         saída JSON descrito no texto — alterá-lo pode quebrar a geração. Deixar o
         texto igual ao padrão (ou vazio) remove a personalização e volta a seguir
         o padrão do sistema.

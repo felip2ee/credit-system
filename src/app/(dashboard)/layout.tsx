@@ -23,6 +23,11 @@ export default async function DashboardLayout({
     redirect("/portal");
   }
 
+  // Superadmin só entra no painel do Bureau em modo suporte.
+  if (session.role === "superadmin" && !session.supportSessionId) {
+    redirect("/superadmin");
+  }
+
   const email = await getTopbarEmail(session);
 
   return (
