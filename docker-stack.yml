@@ -90,6 +90,9 @@ services:
       - source: postgres-init-users
         target: /docker-entrypoint-initdb.d/001-users.sh
         mode: 0555
+    # PG18 layout: PGDATA=/var/lib/postgresql/18/docker, so mount at /var/lib/postgresql.
+    # A stack deployed earlier with the old /var/lib/postgresql/data mount keeps its data
+    # in an anonymous volume: run pg_dump BEFORE redeploy.
     volumes: [postgres_data:/var/lib/postgresql]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d credit_system"]

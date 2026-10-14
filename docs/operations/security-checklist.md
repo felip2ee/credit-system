@@ -82,6 +82,7 @@ Run after schema migrate (`\du` and the queries below as `postgres`):
   consistent `pg_dump`).
 - [ ] `auth_profile_lookup` (migration 009): `NOLOGIN`, `NOINHERIT`,
   **`NOBYPASSRLS`**, narrow column grants + role-specific FORCE-RLS policies only.
+- [ ] Volume do Postgres montado em `/var/lib/postgresql` (layout do PG18). Stack antiga, com mount em `/var/lib/postgresql/data`, guarda os dados em volume anônimo. Rode `pg_dump` antes de redeployar.
 - [ ] `schema_owner`: owns objects, not used at runtime.
   ```sql
   select rolname, rolsuper, rolbypassrls, rolcanlogin, rolinherit
