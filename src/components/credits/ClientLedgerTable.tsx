@@ -16,7 +16,7 @@ const KIND_LABEL: Record<ClientLedgerRow["kind"], string> = {
   reversal: "Estorno",
 };
 
-const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 
 interface ClientLedgerTableProps {
   initialRows: ClientLedgerRow[];

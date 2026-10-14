@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
@@ -34,18 +34,30 @@ vi.mock("next/headers", () => ({
 
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
-import { captureOrder, reserveOrder } from "@/lib/settlement/queries";
-import type { OrderQuote } from "@/lib/settlement/types";
+import { captureOrder, reserveOrder as reserveOrderRaw } from "@/lib/settlement/queries";
+import type { OrderQuote, ReserveOrderInput } from "@/lib/settlement/types";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedClientWalletTopup, seedSuperadmin, seedTenant, type SeededTenant } from "@/test/seed";
+import {
+	seedClientWalletTopup,
+	seedOrderDossierForSession,
+	seedSuperadmin,
+	seedTenant,
+	type SeededTenant,
+} from "@/test/seed";
 
-import { getPayableBalance, listPayableEntries } from "./queries";
+import { getPayableBalance, getPayableBalances, listPayableEntries } from "./queries";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 
 afterAll(async () => {
 	await Promise.all([owner.end(), pool.end()]);
 });
+
+// reserve_order exige um Dossiê do Bureau com o id do pedido.
+const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
+	await seedOrderDossierForSession(owner, c, { orderRef: input.orderRef, clientProfileId: input.clientProfileId });
+	return reserveOrderRaw(c, input);
+};
 
 const quoteOf = (priceCents: number, costCents: number): OrderQuote => ({
 	ok: true,
@@ -111,6 +123,40 @@ describe("getPayableBalance", () => {
 		const identity: DbIdentity = { ...sa };
 
 		expect(await withUserTransaction(identity, (c) => getPayableBalance(c, tenant.bureau.id))).toBe("20.00");
+	});
+});
+
+describe("getPayableBalances", () => {
+	it("returns each Bureau's sum in one grouped query and omits Bureaus without entries", async () => {
+		const a = await tenantWithClientFunds("Payable GA");
+		const b = await tenantWithClientFunds("Payable GB");
+		const empty = await seedTenant(owner, "Payable GE");
+		const first = await sell(a, 5000, 3000); // +20.00
+		await sell(a, 1010, 1000); // +0.10
+		await sell(b, 9000, 3000); // +60.00
+		await owner.query(
+			"insert into bureau_payable_entries (bureau_id, kind, amount, order_ref) values ($1, 'reversal', -7.25, $2)",
+			[a.bureau.id, first],
+		);
+		const sa: DbIdentity = { ...(await seedSuperadmin(owner)) };
+
+		const balances = await withUserTransaction(sa, (c) => getPayableBalances(c));
+
+		expect(balances.get(a.bureau.id)).toBe("12.85");
+		expect(balances.get(b.bureau.id)).toBe("60.00");
+		expect(balances.has(empty.bureau.id)).toBe(false);
+	});
+
+	it("shows a bureau_admin only its own Bureau", async () => {
+		const a = await tenantWithClientFunds("Payable GO");
+		const b = await tenantWithClientFunds("Payable GP");
+		await sell(a, 5000, 3000);
+		await sell(b, 9000, 3000);
+		const adminA: DbIdentity = { ...a.bureauAdmin };
+
+		const balances = await withUserTransaction(adminA, (c) => getPayableBalances(c));
+
+		expect(Array.from(balances.keys())).toEqual([a.bureau.id]);
 	});
 });
 

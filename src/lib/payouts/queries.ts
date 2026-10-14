@@ -68,7 +68,7 @@ export async function createPayout(
 			input.cutoffAt,
 		]);
 		const row = rows[0];
-		if (!row.ok) return { ok: false, reason: row.reason as PayoutFailure };
+		if (!row.ok) return { ok: false, reason: row.reason ?? "invalid_state" };
 		await writeAuditEvent(client, {
 			actorId: identity.userId,
 			action: "payout.create",
@@ -88,15 +88,17 @@ export async function createPayout(
 	});
 }
 
-async function bureauOf(
+// written_here: a linha foi escrita por esta transação (mesmo sinal da política de auditoria, 017). Repetição de
+// um cancelamento já feito devolve ok sem escrever; a política recusaria o evento sem a linha escrita aqui.
+async function cancelledHere(
 	client: PoolClient,
 	payoutId: string,
-): Promise<string | null> {
-	const { rows } = await client.query<{ bureau_id: string }>(
-		"select bureau_id from payouts where id = $1",
+): Promise<{ bureauId: string; writtenHere: boolean } | null> {
+	const { rows } = await client.query<{ bureau_id: string; written_here: boolean }>(
+		"select bureau_id, xmin = pg_current_xact_id()::xid as written_here from payouts where id = $1",
 		[payoutId],
 	);
-	return rows[0]?.bureau_id ?? null;
+	return rows[0] ? { bureauId: rows[0].bureau_id, writtenHere: rows[0].written_here } : null;
 }
 
 // O comprovante (chave, mime, sha256) vem de storePayoutReceipt; a auditoria não leva nada do arquivo.
@@ -118,7 +120,7 @@ export async function markPayoutPaid(
 			],
 		);
 		const row = rows[0];
-		if (!row.ok) return { ok: false, reason: row.reason as PayoutFailure };
+		if (!row.ok) return { ok: false, reason: row.reason ?? "invalid_state" };
 
 		const stored = await client.query<{
 			bureau_id: string;
@@ -148,25 +150,24 @@ export async function cancelPayout(
 	payoutId: string,
 ): Promise<CancelPayoutResult> {
 	return withUserTransaction(identity, async (client) => {
-		const bureauId = await bureauOf(client, payoutId);
 		const { rows } = await client.query<StatusRow>(
 			"select ok, reason, status from cancel_payout($1)",
 			[payoutId],
 		);
 		const row = rows[0];
-		if (!row.ok || !bureauId)
-			return {
-				ok: false,
-				reason: (row.reason ?? "not_found") as PayoutFailure,
-			};
-		await writeAuditEvent(client, {
-			actorId: identity.userId,
-			action: "payout.cancel",
-			targetTable: "payouts",
-			targetId: payoutId,
-			bureauId,
-		});
-		return { ok: true, bureauId };
+		if (!row.ok) return { ok: false, reason: row.reason ?? "invalid_state" };
+		const payout = await cancelledHere(client, payoutId);
+		if (!payout) return { ok: false, reason: "not_found" };
+		if (payout.writtenHere) {
+			await writeAuditEvent(client, {
+				actorId: identity.userId,
+				action: "payout.cancel",
+				targetTable: "payouts",
+				targetId: payoutId,
+				bureauId: payout.bureauId,
+			});
+		}
+		return { ok: true, bureauId: payout.bureauId };
 	});
 }
 

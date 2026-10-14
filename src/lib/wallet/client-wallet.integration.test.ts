@@ -216,9 +216,10 @@ describe.each([
 			ok: false,
 			reason: "insufficient_balance",
 		});
+		// O estorno também pode tirar da reserva; acima de disponível mais reservado, não há de onde tirar.
 		expect(await t.call("reversal", "100.01", newKey())).toMatchObject({
 			ok: false,
-			reason: "insufficient_balance",
+			reason: "reservation_exceeded",
 		});
 		expect(await t.call("capture", "1.00", newKey())).toMatchObject({
 			ok: false,
@@ -450,7 +451,6 @@ describe("RLS da carteira do cliente", () => {
 		}
 		for (const sql of [
 			"select * from client_wallet_post_entry(gen_random_uuid(), 'topup', 5, 'x', null, null, gen_random_uuid())",
-			"select * from client_wallet_apply(gen_random_uuid(), 'reserve', 5, 'x', null, null)",
 		]) {
 			await expect(
 				withDbContext(app, ctxOf(tenant.client), (c) => c.query(sql)),
@@ -466,13 +466,17 @@ describe("RLS da carteira do cliente", () => {
 	it("keeps the internal functions away from every role but their owner", async () => {
 		const { rows } = await owner.query<Record<string, boolean>>(
 			`select has_function_privilege('app_runtime', 'public.client_wallet_post_entry(uuid, text, numeric, text, text, text, uuid)', 'execute') as runtime_post,
-              has_function_privilege('app_runtime', 'public.client_wallet_apply(uuid, text, numeric, text, text, text)', 'execute') as runtime_apply,
               has_function_privilege('app_webhook', 'public.client_wallet_post_entry(uuid, text, numeric, text, text, text, uuid)', 'execute') as webhook_post,
-              has_function_privilege('app_webhook', 'public.client_wallet_apply(uuid, text, numeric, text, text, text)', 'execute') as webhook_apply,
-              has_function_privilege('public', 'public.client_wallet_post_entry(uuid, text, numeric, text, text, text, uuid)', 'execute') as public_post,
-              has_function_privilege('public', 'public.client_wallet_apply(uuid, text, numeric, text, text, text)', 'execute') as public_apply`,
+              has_function_privilege('public', 'public.client_wallet_post_entry(uuid, text, numeric, text, text, text, uuid)', 'execute') as public_post`,
 		);
 		expect(Object.values(rows[0]).every((v) => v === false)).toBe(true);
+	});
+
+	it("has no client_wallet_apply: the client session moves funds only through the settlement functions", async () => {
+		const { rows } = await owner.query(
+			"select 1 from pg_proc where proname = 'client_wallet_apply'",
+		);
+		expect(rows).toHaveLength(0);
 	});
 });
 
@@ -516,78 +520,6 @@ describe("chaves reservadas", () => {
 				).rows[0],
 		);
 		expect(ok.ok).toBe(true);
-	});
-
-	it("makes client_wallet_apply refuse the same prefixes and require a session", async () => {
-		const tenant = await fundedClient("50.00");
-		const call = (key: string) =>
-			withDbContext(
-				owner,
-				ctxOf(tenant.client),
-				async (c) =>
-					(
-						await c.query<PostRow>(
-							"select * from client_wallet_apply($1, 'reserve', 1, $2, null, null)",
-							[tenant.client.userId, key],
-						)
-					).rows[0],
-			);
-		for (const key of ["order:reserve:x", "pix:abc", "pixrefund:abc"]) {
-			expect(await call(key), key).toMatchObject({
-				ok: false,
-				reason: "invalid_key",
-			});
-		}
-		expect(await call("myorder:1")).toMatchObject({
-			ok: true,
-			available: "49.00",
-			reserved: "1.00",
-		});
-		const noSession = await owner.query<PostRow>(
-			"select * from client_wallet_apply($1, 'reserve', 1, 'abc', null, null)",
-			[tenant.client.userId],
-		);
-		expect(noSession.rows[0]).toMatchObject({
-			ok: false,
-			reason: "not_allowed",
-		});
-	});
-
-	it("makes client_wallet_apply refuse a client that is not the caller (nor a Bureau peer)", async () => {
-		const tenant = await fundedClient("50.00");
-		const other = await seedClientProfile(owner, tenant.bureau.id);
-		await seedClientWalletTopup(owner, {
-			clientProfileId: other.userId,
-			amount: "9.00",
-			createdBy: other.userId,
-		});
-		const call = (ctx: Ctx, clientId: string) =>
-			withDbContext(
-				owner,
-				ctx,
-				async (c) =>
-					(
-						await c.query<PostRow>(
-							"select * from client_wallet_apply($1, 'reserve', 1, $2, null, null)",
-							[clientId, newKey()],
-						)
-					).rows[0],
-			);
-		expect(await call(ctxOf(tenant.client), other.userId)).toMatchObject({
-			ok: false,
-			reason: "not_allowed",
-		});
-		expect(
-			await call(ctxOf(tenant.operator), tenant.client.userId),
-		).toMatchObject({ ok: false, reason: "not_allowed" });
-		expect(await call(superadminCtx(), tenant.client.userId)).toMatchObject({
-			ok: false,
-			reason: "not_allowed",
-		});
-		expect(await clientBalance(other.userId)).toEqual({
-			available: "9.00",
-			reserved: "0.00",
-		});
 	});
 });
 
@@ -885,9 +817,9 @@ describe("apply_asaas_payment (cliente)", () => {
 			]);
 		});
 
-		it("reverses only what is available and records the shortfall", async () => {
+		it("takes the reservation for what the available balance does not cover", async () => {
 			const { t, charge } = await paidCharge("100.00");
-			// O cliente já reservou 70: só 30 estão disponíveis.
+			// O cliente já reservou 70: só 30 estão disponíveis e os outros 70 saem da reserva.
 			await owner.query(
 				"select * from client_wallet_post_entry($1, 'reserve', 70, $2, null, null, $1)",
 				[t.client.userId, newKey()],
@@ -895,29 +827,44 @@ describe("apply_asaas_payment (cliente)", () => {
 			expect(
 				await callPayment(newKey(), charge.asaasPaymentId, "PAYMENT_REFUNDED"),
 			).toBe("refunded");
-			expect(await clientBalance(t.client.userId)).toEqual({
-				available: "0.00",
-				reserved: "70.00",
+			expect(await clientBalance(t.client.userId)).toEqual(ZERO);
+			expect(await chargeRow(charge.id)).toEqual({
+				status: "refunded",
+				refund_shortfall: "0.00",
 			});
+		});
+
+		it("reverses only what the wallet holds and records the shortfall", async () => {
+			const { t, charge } = await paidCharge("100.00");
+			// O cliente gastou 70 (reserva e captura): sobram 30.
+			for (const kind of ["reserve", "capture"]) {
+				await owner.query(
+					"select * from client_wallet_post_entry($1, $2, 70, $3, null, null, $1)",
+					[t.client.userId, kind, newKey()],
+				);
+			}
+			expect(
+				await callPayment(newKey(), charge.asaasPaymentId, "PAYMENT_REFUNDED"),
+			).toBe("refunded");
+			expect(await clientBalance(t.client.userId)).toEqual(ZERO);
 			expect(await chargeRow(charge.id)).toEqual({
 				status: "refunded",
 				refund_shortfall: "70.00",
 			});
 		});
 
-		it("records the whole amount as shortfall when nothing is available, without a ledger entry", async () => {
+		it("records the whole amount as shortfall when the wallet is empty, without a ledger entry", async () => {
 			const { t, charge } = await paidCharge("100.00");
-			await owner.query(
-				"select * from client_wallet_post_entry($1, 'reserve', 100, $2, null, null, $1)",
-				[t.client.userId, newKey()],
-			);
+			for (const kind of ["reserve", "capture"]) {
+				await owner.query(
+					"select * from client_wallet_post_entry($1, $2, 100, $3, null, null, $1)",
+					[t.client.userId, kind, newKey()],
+				);
+			}
 			expect(
 				await callPayment(newKey(), charge.asaasPaymentId, "PAYMENT_REFUNDED"),
 			).toBe("refunded");
-			expect(await clientBalance(t.client.userId)).toEqual({
-				available: "0.00",
-				reserved: "100.00",
-			});
+			expect(await clientBalance(t.client.userId)).toEqual(ZERO);
 			expect(await chargeRow(charge.id)).toEqual({
 				status: "refunded",
 				refund_shortfall: "100.00",
@@ -962,10 +909,12 @@ describe("apply_asaas_payment (cliente)", () => {
 
 		it("lets the superadmin see a client charge with an unrecovered refund, and nothing else", async () => {
 			const { t, charge } = await paidCharge("100.00");
-			await owner.query(
-				"select * from client_wallet_post_entry($1, 'reserve', 100, $2, null, null, $1)",
-				[t.client.userId, newKey()],
-			);
+			for (const kind of ["reserve", "capture"]) {
+				await owner.query(
+					"select * from client_wallet_post_entry($1, $2, 100, $3, null, null, $1)",
+					[t.client.userId, kind, newKey()],
+				);
+			}
 			await callPayment(newKey(), charge.asaasPaymentId, "PAYMENT_REFUNDED");
 			await withDbContext(app, superadminCtx(), async (c) => {
 				const rows = await c.query(
@@ -992,7 +941,6 @@ describe("role app_webhook (cliente)", () => {
 		);
 		for (const sql of [
 			"select * from client_wallet_post_entry(gen_random_uuid(), 'topup', 5, 'x', null, null, gen_random_uuid())",
-			"select * from client_wallet_apply(gen_random_uuid(), 'topup', 5, 'x', null, null)",
 			"select * from reserve_order(gen_random_uuid(), 'counter', null, 5, 1, '{}'::jsonb)",
 			"select * from capture_order(gen_random_uuid())",
 			"select * from release_order(gen_random_uuid())",

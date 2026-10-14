@@ -62,17 +62,23 @@ beforeEach(() => {
 });
 
 describe("counter payment permission", () => {
-	it("allows operator, bureau_admin and a superadmin in support", async () => {
-		for (const [role, supportSessionId] of [
-			["operator", null],
-			["bureau_admin", null],
-			["superadmin", "00000000-0000-4000-8000-0000000000e1"],
-		] as const) {
+	it("allows operator and bureau_admin", async () => {
+		for (const role of ["operator", "bureau_admin"]) {
 			state.role = role;
-			state.supportSessionId = supportSessionId;
 			expect(await registerCounterPaymentAction(form)).toEqual({ error: null, id: PAYMENT_ID });
 			expect((await voidCounterPaymentAction(voidForm)).error).toBeNull();
 		}
+	});
+
+	it("refuses a superadmin in support with a clear message before touching the database", async () => {
+		state.role = "superadmin";
+		state.supportSessionId = "00000000-0000-4000-8000-0000000000e1";
+		const message = "Encerre a sessão de suporte para registrar pagamentos de balcão.";
+
+		expect((await registerCounterPaymentAction(form)).error).toBe(message);
+		expect((await voidCounterPaymentAction(voidForm)).error).toBe(message);
+		expect(state.registerCounterPayment).not.toHaveBeenCalled();
+		expect(state.voidCounterPayment).not.toHaveBeenCalled();
 	});
 
 	it("denies client and a superadmin outside support", async () => {
@@ -119,6 +125,15 @@ describe("registerCounterPaymentAction validation", () => {
 		state.registerCounterPayment.mockResolvedValue({ ok: false, reason: "not_found" });
 		expect((await registerCounterPaymentAction(form)).error).toBe("Dossiê não encontrado.");
 		expect(revalidatePath).not.toHaveBeenCalled();
+	});
+
+	it("maps an unknown or missing failure reason to a generic error, never undefined", async () => {
+		for (const reason of ["invalid_state", "surprise", undefined]) {
+			state.registerCounterPayment.mockResolvedValue({ ok: false, reason });
+			state.voidCounterPayment.mockResolvedValue({ ok: false, reason });
+			expect((await registerCounterPaymentAction(form)).error).toBe("Não foi possível concluir a operação.");
+			expect((await voidCounterPaymentAction(voidForm)).error).toBe("Não foi possível concluir a operação.");
+		}
 	});
 
 	it("returns a generic error when the query throws", async () => {

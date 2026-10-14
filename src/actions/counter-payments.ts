@@ -13,12 +13,15 @@ export interface CounterPaymentActionResult {
 }
 
 const NOT_ALLOWED = "Você não tem permissão para registrar pagamentos de balcão.";
+const SUPPORT_ACTIVE = "Encerre a sessão de suporte para registrar pagamentos de balcão.";
+const GENERIC_FAILURE = "Não foi possível concluir a operação.";
 
 const FAILURE_MESSAGES: Record<CounterFailure, string> = {
 	not_found: "Dossiê não encontrado.",
 	not_allowed: NOT_ALLOWED,
 	reason_required: "Informe o motivo da anulação.",
 	already_voided: "Este pagamento já foi anulado.",
+	invalid_state: GENERIC_FAILURE,
 };
 
 // Só nome e código do erro: sem valores nem dados pessoais.
@@ -33,7 +36,9 @@ function logFailure(step: string, error: unknown): void {
 async function counterWriter(step: string) {
 	try {
 		const session = await getRequiredSession();
-		return hasPermission(session, "counter:write") ? { session } : { error: NOT_ALLOWED };
+		if (!hasPermission(session, "counter:write")) return { error: NOT_ALLOWED };
+		// O balcão é da equipe do Bureau: o superadmin em suporte não passa pela RLS e veria "Dossiê não encontrado".
+		return session.supportSessionId ? { error: SUPPORT_ACTIVE } : { session };
 	} catch (error) {
 		if (error instanceof SessionAccessError) return { error: NOT_ALLOWED };
 		logFailure(step, error);
@@ -50,7 +55,7 @@ export async function registerCounterPaymentAction(values: unknown): Promise<Cou
 
 	try {
 		const result = await registerCounterPayment(auth.session, parsed.data);
-		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] };
+		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] ?? GENERIC_FAILURE };
 		revalidatePath("/settings/counter-payments");
 		return { error: null, id: result.id };
 	} catch (error) {
@@ -68,7 +73,7 @@ export async function voidCounterPaymentAction(values: unknown): Promise<Counter
 
 	try {
 		const result = await voidCounterPayment(auth.session, parsed.data);
-		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] };
+		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] ?? GENERIC_FAILURE };
 		revalidatePath("/settings/counter-payments");
 		return { error: null, id: parsed.data.id };
 	} catch (error) {

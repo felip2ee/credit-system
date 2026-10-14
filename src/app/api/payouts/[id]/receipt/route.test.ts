@@ -58,6 +58,16 @@ describe("GET /api/payouts/[id]/receipt", () => {
 		expect(response.headers.get("content-type")).toBe("image/png");
 	});
 
+	it.each([
+		["application/pdf", "comprovante.pdf"],
+		["image/png", "comprovante.png"],
+		["image/jpeg", "comprovante.jpg"],
+	])("names the %s download %s", async (mime, name) => {
+		s.ref.mockResolvedValue({ bureauId: bureauA, objectKey: "ab/obj", mime });
+
+		expect((await call()).headers.get("content-disposition")).toBe(`attachment; filename="${name}"`);
+	});
+
 	it("answers 401 without a session", async () => {
 		s.session.mockRejectedValue(new SessionAccessError("session_required"));
 

@@ -6,6 +6,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
 	root: "",
+	openObject: null as null | ((key: string) => Promise<unknown>),
 	scan: { mode: "clean" as "clean" | "infected" | "down", seen: [] as Buffer[] },
 }));
 
@@ -34,6 +35,11 @@ vi.mock("@/lib/documents/clamav", () => {
 	};
 });
 
+vi.mock("@/lib/documents/storage", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/documents/storage")>();
+	return { ...actual, openObject: (key: string) => (h.openObject ? h.openObject(key) : actual.openObject(key)) };
+});
+
 import { ScannerUnavailableError } from "@/lib/documents/clamav";
 
 import { MAX_RECEIPT_BYTES, openPayoutReceipt, ReceiptRejectedError, storePayoutReceipt } from "./receipt";
@@ -54,6 +60,7 @@ const dirs = () => ({
 });
 
 beforeEach(() => {
+	h.openObject = null;
 	h.scan.mode = "clean";
 	h.scan.seen = [];
 	rmSync(path.join(h.root, "quarantine"), { recursive: true, force: true });
@@ -137,6 +144,28 @@ describe("openPayoutReceipt", () => {
 		expect(opened).not.toBeNull();
 		expect(opened!.size).toBe(PDF.length);
 		expect(Buffer.from(await new Response(opened!.body).arrayBuffer())).toEqual(PDF);
+	});
+
+	it("closes the file handle and rethrows when stat fails", async () => {
+		const close = vi.fn().mockResolvedValue(undefined);
+		h.openObject = async () => ({ stat: async () => Promise.reject(new Error("EIO")), createReadStream: vi.fn(), close });
+
+		await expect(openPayoutReceipt("ab/obj")).rejects.toThrow("EIO");
+		expect(close).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes the file handle and rethrows when the stream cannot be created", async () => {
+		const close = vi.fn().mockResolvedValue(undefined);
+		h.openObject = async () => ({
+			stat: async () => ({ size: 1 }),
+			createReadStream: () => {
+				throw new Error("EMFILE");
+			},
+			close,
+		});
+
+		await expect(openPayoutReceipt("ab/obj")).rejects.toThrow("EMFILE");
+		expect(close).toHaveBeenCalledTimes(1);
 	});
 
 	it("returns null for a missing object and for a traversal key", async () => {

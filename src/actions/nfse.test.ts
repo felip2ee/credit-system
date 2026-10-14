@@ -82,6 +82,12 @@ describe("retryNfseAction", () => {
 		expect(s.reschedule).not.toHaveBeenCalled();
 	});
 
+	it("maps a missing failure reason to a generic error, never undefined", async () => {
+		s.retry.mockResolvedValue({ ok: false, reason: undefined });
+
+		expect((await retryNfseAction({ chargeId })).error).toBe("Não foi possível concluir a operação.");
+	});
+
 	it("reports an error when scheduling fails again", async () => {
 		s.reschedule.mockResolvedValue("failed");
 

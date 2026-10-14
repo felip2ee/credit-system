@@ -9,6 +9,7 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import type {
 	ReserveOrderInput,
 	Settlement,
+	SettlementCost,
 	SettlementFailure,
 	SettlementResult,
 	SettlementStatus,
@@ -35,21 +36,28 @@ async function auditTransition(
 		mode: string;
 		status: string;
 		price: string;
-		cost: string;
 		fresh: boolean;
 	}>(
-		`select id, app_user_id()::text as actor, mode, status, price, cost, (${stamp} = now()) as fresh
+		`select id, app_user_id()::text as actor, mode, status, price, (${stamp} = now()) as fresh
 		   from order_settlements where order_ref = $1`,
 		[orderRef],
 	);
 	const row = rows[0];
 	if (!row?.fresh) return;
+	// O custo só consta quando quem age pode lê-lo (equipe); o cliente não o vê, nem pela auditoria que ele dispara.
+	const cost = await readCost(client, orderRef);
 	await writeAuditEvent(client, {
 		actorId: row.actor,
 		action,
 		targetTable: "order_settlements",
 		targetId: row.id,
-		metadata: { order_ref: orderRef, mode: row.mode, status: row.status, price: row.price, cost: row.cost },
+		metadata: {
+			order_ref: orderRef,
+			mode: row.mode,
+			status: row.status,
+			price: row.price,
+			...(cost && { cost: cost.cost }),
+		},
 	});
 }
 
@@ -92,21 +100,26 @@ type SettlementRow = {
 	mode: Settlement["mode"];
 	client_profile_id: string | null;
 	price: string;
-	cost: string;
-	quote: Settlement["quote"];
 	status: SettlementStatus;
 	created_at: Date;
 	closed_at: Date | null;
 };
 
+// Custo e cotação saem só pela função order_settlement_cost (equipe do Bureau e superadmin); sem direito, sem linha.
+async function readCost(client: PoolClient, orderRef: string): Promise<SettlementCost | null> {
+	const { rows } = await client.query<SettlementCost>("select cost, quote from order_settlement_cost($1)", [orderRef]);
+	return rows[0] ?? null;
+}
+
 export async function getSettlement(client: PoolClient, orderRef: string): Promise<Settlement | null> {
 	const { rows } = await client.query<SettlementRow>(
-		`select id, order_ref, bureau_id, mode, client_profile_id, price, cost, quote, status, created_at, closed_at
+		`select id, order_ref, bureau_id, mode, client_profile_id, price, status, created_at, closed_at
 		   from order_settlements where order_ref = $1`,
 		[orderRef],
 	);
 	const r = rows[0];
 	if (!r) return null;
+	const secret = await readCost(client, orderRef);
 	return {
 		id: r.id,
 		orderRef: r.order_ref,
@@ -114,8 +127,8 @@ export async function getSettlement(client: PoolClient, orderRef: string): Promi
 		mode: r.mode,
 		clientProfileId: r.client_profile_id,
 		price: r.price,
-		cost: r.cost,
-		quote: r.quote,
+		cost: secret?.cost ?? null,
+		quote: secret?.quote ?? null,
 		status: r.status,
 		createdAt: r.created_at,
 		closedAt: r.closed_at,

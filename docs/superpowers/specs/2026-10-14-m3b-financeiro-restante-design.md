@@ -150,3 +150,19 @@ Ondas: 1 → 2 → 3 → 4. O M3b é grande. Se o plano passar de 8 tarefas, div
 - #28: remover o critério "cartão"; criar issue nova "Cartão e chargeback" no backlog.
 - #27: manter aberta até o M6 ligar as funções ao pedido.
 - #30, #31, #32, #33: fechadas pelo PR do M3b que entregar cada uma.
+
+## Alterações pós-review
+
+Mudanças feitas depois do review do painel. Elas valem mais que o texto acima onde houver conflito.
+
+- **Pedido de balcão com custo zero.** A migration 018 permite criar a liquidação no modo balcão com custo zero.
+- **Custo e cotação.** O custo e a cotação ficam ocultos para o cliente. Ele vê só o preço.
+- **Estorno de recarga.** O estorno também retira do saldo reservado, não só do disponível.
+- **NFS-e: reparo no reenvio.** O reenvio do webhook de um crédito já aplicado repara a nota que ficou em `not_requested`. A função SQL `set_nfse_status` evita uma segunda emissão: só quem muda `not_requested` para `pending` agenda a nota.
+- **Tipo `reversal`.** O tipo de lançamento `reversal` em `bureau_payable_entries` fica reservado para o M6.
+
+### Limites conhecidos
+
+- **Limite de cobranças pendentes.** O limite é brando. Duas criações ao mesmo tempo podem passar dele.
+- **Limite de 6 MB.** O limite global de corpo de Server Action é 6 MB. O envio do comprovante deve migrar para um Route Handler.
+- **Nota presa em `pending`.** Se o processo cair entre o pedido da nota e o registro, a cobrança fica em `pending` sem varredura que a retome.

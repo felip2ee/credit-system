@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
 	applyAsaasPayment: vi.fn(),
 	readWebhookDatabaseUrl: vi.fn(),
 	requestInvoiceForPayment: vi.fn(),
+	repairInvoiceForPayment: vi.fn(),
 	applyInvoiceEvent: vi.fn(),
 }));
 
@@ -22,6 +23,7 @@ vi.mock("@/lib/nfse/invoice", async () => {
 	return {
 		parseInvoiceEvent,
 		requestInvoiceForPayment: state.requestInvoiceForPayment,
+		repairInvoiceForPayment: state.repairInvoiceForPayment,
 		applyInvoiceEvent: state.applyInvoiceEvent,
 	};
 });
@@ -53,6 +55,7 @@ beforeEach(() => {
 	state.applyAsaasPayment.mockResolvedValue("credited");
 	state.readWebhookDatabaseUrl.mockReturnValue("postgres://app_webhook:x@localhost/db");
 	state.requestInvoiceForPayment.mockResolvedValue("pending");
+	state.repairInvoiceForPayment.mockResolvedValue("not_requested");
 	state.applyInvoiceEvent.mockResolvedValue("issued");
 });
 
@@ -223,6 +226,33 @@ describe("POST /api/webhooks/asaas invoice scheduling after the credit", () => {
 		await call(body);
 
 		expect(state.requestInvoiceForPayment).not.toHaveBeenCalled();
+	});
+
+	it("repairs the invoice on a duplicate credit event", async () => {
+		state.applyAsaasPayment.mockResolvedValue("duplicate");
+
+		expect((await call(body)).status).toBe(200);
+		expect(state.repairInvoiceForPayment).toHaveBeenCalledWith("pay_1");
+	});
+
+	it.each([
+		["duplicate", "PAYMENT_REFUNDED"],
+		["credited", "PAYMENT_RECEIVED"],
+		["ignored", "PAYMENT_RECEIVED"],
+		["unknown_charge", "PAYMENT_RECEIVED"],
+	])("does not repair the invoice for %s %s", async (result, event) => {
+		state.applyAsaasPayment.mockResolvedValue(result);
+
+		await call({ ...body, event });
+
+		expect(state.repairInvoiceForPayment).not.toHaveBeenCalled();
+	});
+
+	it("keeps the 200 when the repair rejects", async () => {
+		state.applyAsaasPayment.mockResolvedValue("duplicate");
+		state.repairInvoiceForPayment.mockRejectedValue(new Error("x"));
+
+		expect((await call(body)).status).toBe(200);
 	});
 
 	it("keeps the 200 when the invoice step fails", async () => {

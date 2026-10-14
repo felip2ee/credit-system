@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
 	sessionError: null as Error | null,
 	role: "bureau_admin" as string,
 	bureauId: "00000000-0000-4000-8000-0000000000b1" as string | null,
+	supportSessionId: null as string | null,
 	listPayableEntries: vi.fn(),
 }));
 
@@ -22,7 +23,7 @@ vi.mock("@/lib/auth/session", () => ({
 			userId: "u1",
 			role: state.role,
 			bureauId: state.bureauId,
-			supportSessionId: null,
+			supportSessionId: state.supportSessionId,
 		};
 	}),
 }));
@@ -47,6 +48,7 @@ beforeEach(() => {
 	state.sessionError = null;
 	state.role = "bureau_admin";
 	state.bureauId = OWN_BUREAU;
+	state.supportSessionId = null;
 	state.listPayableEntries.mockResolvedValue({ rows: [], nextCursor: null });
 });
 
@@ -76,6 +78,16 @@ describe("loadMorePayablesAction", () => {
 		expect(state.listPayableEntries).toHaveBeenCalledWith({}, OTHER_BUREAU, {
 			cursor,
 		});
+	});
+
+	it("refuses a session in support, even a superadmin", async () => {
+		state.role = "superadmin";
+		state.supportSessionId = "00000000-0000-4000-8000-0000000000e1";
+
+		const result = await loadMorePayablesAction({ bureauId: OTHER_BUREAU, cursor });
+
+		expect(result.error).toBe("Encerre a sessão de suporte para ver os lançamentos.");
+		expect(state.listPayableEntries).not.toHaveBeenCalled();
 	});
 
 	it("denies the operator, who has no payout:read", async () => {

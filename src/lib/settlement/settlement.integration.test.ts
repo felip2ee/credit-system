@@ -5,11 +5,18 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
 import {
+	TEST_DATABASE_OWNER_URL,
+	TEST_DATABASE_URL,
+	TEST_DATABASE_WEBHOOK_URL,
+} from "@/test/db-env";
+import {
+	randomCpf,
 	seedClientProfile,
 	seedClientWalletTopup,
 	seedDossier,
+	seedOrderDossierForSession,
+	seedPixCharge,
 	seedSuperadmin,
 	seedTenant,
 	seedWalletTopup,
@@ -20,6 +27,7 @@ import {
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const app = new Pool({ connectionString: TEST_DATABASE_URL, max: 12 });
+const hook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 2 });
 
 let superadmin: SeedSuperadmin;
 
@@ -28,7 +36,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-	await Promise.all([owner.end(), app.end()]);
+	await Promise.all([owner.end(), app.end(), hook.end()]);
 });
 
 type Ctx = { userId: string; role: string; bureauId: string | null };
@@ -72,17 +80,25 @@ async function committed<T>(
 type SettleRow = { ok: boolean; reason: string | null; status: string | null };
 type Mode = "online" | "counter";
 
-const reserve = (
-	c: PoolClient,
-	input: {
-		orderRef: string;
-		mode: Mode | string;
-		clientId: string | null;
-		price: string;
-		cost: string;
-		quote?: unknown;
-	},
-) =>
+type ReserveInput = {
+	orderRef: string;
+	mode: Mode | string;
+	clientId: string | null;
+	price: string;
+	cost: string;
+	quote?: unknown;
+};
+
+// reserve_order exige um Dossiê do Bureau da sessão: cria o Dossiê do pedido antes de chamar (o caso sem Dossiê
+// usa reserveRaw).
+async function reserve(c: PoolClient, input: ReserveInput) {
+	await seedOrderDossierForSession(owner, c, {
+		orderRef: input.orderRef,
+		clientProfileId: input.mode === "online" ? input.clientId : null,
+	});
+	return reserveRaw(c, input);
+}
+const reserveRaw = (c: PoolClient, input: ReserveInput) =>
 	c
 		.query<SettleRow>(
 			"select * from reserve_order($1, $2, $3, $4, $5, $6::jsonb)",
@@ -179,7 +195,7 @@ const online = (
 	t: SeededTenant,
 	price = "50.00",
 	cost = "30.00",
-	orderRef = randomUUID(),
+	orderRef: string = randomUUID(),
 ) => ({
 	orderRef,
 	mode: "online" as const,
@@ -187,7 +203,7 @@ const online = (
 	price,
 	cost,
 });
-const counter = (price = "50.00", cost = "30.00", orderRef = randomUUID()) => ({
+const counter = (price = "50.00", cost = "30.00", orderRef: string = randomUUID()) => ({
 	orderRef,
 	mode: "counter" as const,
 	clientId: null,
@@ -359,11 +375,6 @@ describe("regras de reserva", () => {
 				reason: "invalid_amount",
 			});
 		}
-		// Balcão reserva o custo: custo zero não tem o que reservar.
-		const zeroCost = counter("10.00", "0.00");
-		expect(
-			await committed(operatorCtx(t), (c) => reserve(c, zeroCost)),
-		).toMatchObject({ ok: false, reason: "invalid_amount" });
 		expect(await clientBalance(t.client.userId)).toEqual({
 			available: "100.00",
 			reserved: "0.00",
@@ -580,7 +591,7 @@ describe("idempotência e estados", () => {
 				status: null,
 			});
 		}
-		// Outro Bureau com o mesmo order_ref não vê nem toca o pedido.
+		// Outro Bureau com o mesmo order_ref não tem esse Dossiê: não vê nem toca o pedido.
 		const foreign = await setup();
 		expect(
 			await committed(clientCtx(foreign), (c) =>
@@ -588,7 +599,7 @@ describe("idempotência e estados", () => {
 			),
 		).toMatchObject({
 			ok: false,
-			reason: "not_allowed",
+			reason: "not_found",
 		});
 	});
 
@@ -949,7 +960,13 @@ describe("bureau_payable_entries", () => {
 		await expect(
 			insert("reversal", "-5.00", order.orderRef),
 		).resolves.toBeDefined();
-		await expect(insert("payout", "-5.00", null)).resolves.toBeDefined();
+		// O repasse pago sempre aponta para o repasse (payout_id): sem ele o lançamento não entra.
+		await expect(insert("payout", "-5.00", null)).rejects.toThrow(
+			/bureau_payable_entries_payout_required/,
+		);
+		await expect(insert("accrual", "5.00", null)).rejects.toThrow(
+			/bureau_payable_entries_accrual_order/,
+		);
 	});
 
 	it("shows entries to the admin and operator of the Bureau and to the superadmin, never to a client or another Bureau", async () => {
@@ -1013,6 +1030,12 @@ describe("RLS da liquidação", () => {
 			amount: "100.00",
 			createdBy: other.userId,
 		});
+		// O pedido online do outro cliente precisa de um titular dele.
+		await owner.query(
+			`insert into holders (bureau_id, type, name, document, created_by, client_profile_id)
+       values ($1, 'PF', 'Outro titular', $2, $3, $4)`,
+			[a.bureau.id, randomCpf(), a.bureauAdmin.userId, other.userId],
+		);
 		const b = await setup("100.00", "100.00");
 		const mine = online(a);
 		const theirs = { ...online(a), clientId: other.userId };
@@ -1384,5 +1407,413 @@ describe("counter_payments", () => {
 				[id, b.bureauAdmin.userId],
 			),
 		).rejects.toThrow(/foreign key/);
+	});
+});
+
+describe("018: custo fora do alcance do cliente", () => {
+	it("denies the cost and quote columns to app_runtime for every role, while price and status stay readable", async () => {
+		const t = await setup("100.00", "100.00");
+		const order = online(t, "50.00", "30.00");
+		await committed(clientCtx(t), (c) => reserve(c, order));
+
+		for (const ctx of [
+			clientCtx(t),
+			adminCtx(t),
+			operatorCtx(t),
+			superadminCtx(),
+		]) {
+			for (const sql of [
+				"select cost from order_settlements",
+				"select quote from order_settlements",
+				"select * from order_settlements",
+				"select (order_settlements.*)::text from order_settlements",
+			]) {
+				await expect(
+					withDbContext(app, ctx, (c) => c.query(sql)),
+					`${ctx.role}: ${sql}`,
+				).rejects.toThrow(/permission denied/);
+			}
+		}
+		await withDbContext(app, clientCtx(t), async (c) => {
+			const { rows } = await c.query(
+				"select order_ref, price, status from order_settlements",
+			);
+			expect(rows).toEqual([
+				{ order_ref: order.orderRef, price: "50.00", status: "reserved" },
+			]);
+		});
+	});
+
+	it("returns cost and quote only to the staff of the Bureau and to the superadmin", async () => {
+		const t = await setup("100.00", "100.00");
+		const foreign = await setup("0", "0");
+		const quote = { lines: [{ code: "smart_pf", costCents: 3000 }] };
+		const order = { ...online(t, "50.00", "30.00"), quote };
+		await committed(clientCtx(t), (c) => reserve(c, order));
+
+		const read = (ctx: Ctx) =>
+			withDbContext(app, ctx, async (c) =>
+				(
+					await c.query<{ cost: string; quote: unknown }>(
+						"select * from order_settlement_cost($1)",
+						[order.orderRef],
+					)
+				).rows,
+			);
+		for (const ctx of [adminCtx(t), operatorCtx(t), superadminCtx()]) {
+			expect(await read(ctx), ctx.role).toEqual([{ cost: "30.00", quote }]);
+		}
+		for (const ctx of [clientCtx(t), adminCtx(foreign), operatorCtx(foreign), ctxOf(foreign.client)]) {
+			expect(await read(ctx), ctx.role).toEqual([]);
+		}
+		expect(
+			(
+				await app.query("select * from order_settlement_cost($1)", [
+					order.orderRef,
+				])
+			).rows,
+		).toEqual([]);
+	});
+
+	it("keeps the cost function away from public, app_webhook and the web roles other than app_runtime", async () => {
+		const exec = async (role: string) =>
+			(
+				await owner.query<{ ok: boolean }>(
+					"select has_function_privilege($1, 'public.order_settlement_cost(uuid)', 'execute') as ok",
+					[role],
+				)
+			).rows[0].ok;
+		expect(await exec("app_runtime")).toBe(true);
+		expect(await exec("public")).toBe(false);
+		expect(await exec("app_webhook")).toBe(false);
+	});
+});
+
+describe("018: o pedido é um Dossiê do Bureau", () => {
+	it("refuses an order_ref that is no dossier, a dossier of another Bureau and, online, a dossier of another client", async () => {
+		const t = await setup();
+		const other = await seedClientProfile(owner, t.bureau.id);
+		await seedClientWalletTopup(owner, {
+			clientProfileId: other.userId,
+			amount: "100.00",
+			createdBy: other.userId,
+		});
+		const foreign = await setup();
+		const foreignDossier = await seedDossier(owner, {
+			bureauId: foreign.bureau.id,
+			holderId: foreign.holder.id,
+			createdBy: foreign.bureauAdmin.userId,
+		});
+		// Dossiê do titular que é do cliente `t.client`, não do `other`.
+		const ownDossier = await seedDossier(owner, {
+			bureauId: t.bureau.id,
+			holderId: t.holder.id,
+			createdBy: t.bureauAdmin.userId,
+		});
+		const notFound = { ok: false, reason: "not_found", status: null };
+
+		expect(
+			await committed(clientCtx(t), (c) => reserveRaw(c, online(t))),
+			"no dossier",
+		).toEqual(notFound);
+		expect(
+			await committed(operatorCtx(t), (c) => reserveRaw(c, counter())),
+			"no dossier (counter)",
+		).toEqual(notFound);
+		expect(
+			await committed(clientCtx(t), (c) =>
+				reserveRaw(c, online(t, "50.00", "30.00", foreignDossier)),
+			),
+			"dossier of another Bureau",
+		).toEqual(notFound);
+		expect(
+			await committed(operatorCtx(t), (c) =>
+				reserveRaw(c, counter("50.00", "30.00", foreignDossier)),
+			),
+			"dossier of another Bureau (counter)",
+		).toEqual(notFound);
+		expect(
+			await committed(ctxOf(other), (c) =>
+				reserveRaw(c, {
+					...online(t, "50.00", "30.00", ownDossier),
+					clientId: other.userId,
+				}),
+			),
+			"dossier of a holder of another client",
+		).toEqual(notFound);
+		expect(await settlement(ownDossier)).toBeUndefined();
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "100.00",
+			reserved: "0.00",
+		});
+
+		expect(
+			await committed(clientCtx(t), (c) =>
+				reserveRaw(c, online(t, "50.00", "30.00", ownDossier)),
+			),
+		).toEqual({ ok: true, reason: null, status: "reserved" });
+	});
+
+	it("lets the counter staff reserve on any dossier of the Bureau", async () => {
+		const t = await setup("0", "100.00");
+		const dossier = await seedDossier(owner, {
+			bureauId: t.bureau.id,
+			holderId: t.holder.id,
+			createdBy: t.bureauAdmin.userId,
+		});
+		expect(
+			await committed(operatorCtx(t), (c) =>
+				reserveRaw(c, counter("50.00", "30.00", dossier)),
+			),
+		).toEqual({ ok: true, reason: null, status: "reserved" });
+	});
+});
+
+describe("018: balcão com custo zero", () => {
+	it("records the settlement and makes capture and release no-ops on the Bureau wallet", async () => {
+		const t = await setup("0", "100.00");
+		const toCapture = counter("50.00", "0.00");
+		const toRelease = counter("50.00", "0.00");
+
+		for (const order of [toCapture, toRelease]) {
+			expect(
+				await committed(operatorCtx(t), (c) => reserve(c, order)),
+			).toEqual({ ok: true, reason: null, status: "reserved" });
+			// Repetir devolve o mesmo resultado.
+			expect(
+				await committed(operatorCtx(t), (c) => reserve(c, order)),
+			).toEqual({ ok: true, reason: null, status: "reserved" });
+		}
+		expect(await bureauBalance(t.bureau.id)).toEqual({
+			available: "100.00",
+			reserved: "0.00",
+		});
+		expect(await settlement(toCapture.orderRef)).toMatchObject({
+			status: "reserved",
+			cost: "0.00",
+			price: "50.00",
+			mode: "counter",
+		});
+
+		expect(
+			await committed(operatorCtx(t), (c) => capture(c, toCapture.orderRef)),
+		).toEqual({ ok: true, reason: null, status: "captured" });
+		expect(
+			await committed(operatorCtx(t), (c) => release(c, toRelease.orderRef)),
+		).toEqual({ ok: true, reason: null, status: "released" });
+		expect(await bureauBalance(t.bureau.id)).toEqual({
+			available: "100.00",
+			reserved: "0.00",
+		});
+		expect(await orderEntryCount(toCapture.orderRef)).toBe(0);
+		expect(await orderEntryCount(toRelease.orderRef)).toBe(0);
+		expect(await accruals(toCapture.orderRef)).toEqual([]);
+	});
+
+	it("still refuses a negative cost and a price below cost", async () => {
+		const t = await setup("0", "100.00");
+		expect(
+			await committed(operatorCtx(t), (c) =>
+				reserve(c, counter("10.00", "-0.01")),
+			),
+		).toMatchObject({ ok: false, reason: "invalid_amount" });
+		expect(
+			await committed(operatorCtx(t), (c) =>
+				reserve(c, counter("0.00", "0.00")),
+			),
+		).toMatchObject({ ok: false, reason: "invalid_amount" });
+	});
+});
+
+describe("018: estorno de PIX cobre a reserva", () => {
+	const refund = (asaasPaymentId: string) =>
+		hook
+			.query<{ apply_asaas_payment: string }>(
+				"select apply_asaas_payment($1, 'PAYMENT_REFUNDED', $2, '{}'::jsonb)",
+				[`evt-${randomBytes(6).toString("hex")}`, asaasPaymentId],
+			)
+			.then((r) => r.rows[0].apply_asaas_payment);
+	const shortfallOf = async (chargeId: string) =>
+		(
+			await owner.query<{ status: string; refund_shortfall: string }>(
+				"select status, refund_shortfall from pix_charges where id = $1",
+				[chargeId],
+			)
+		).rows[0];
+	const clientNet = async (clientId: string) =>
+		(
+			await owner.query<{ net: string; total: string }>(
+				`select
+           (select sum(case kind when 'topup' then amount when 'capture' then -amount
+                                  when 'reversal' then -amount else 0 end)
+              from client_ledger_entries where client_profile_id = $1) as net,
+           w.available + w.reserved as total
+         from client_wallets w where w.client_profile_id = $1`,
+				[clientId],
+			)
+		).rows[0];
+	const lastClientEntry = async (clientId: string) =>
+		(
+			await owner.query(
+				`select kind, amount, available_after, reserved_after from client_ledger_entries
+          where client_profile_id = $1 order by seq desc limit 1`,
+				[clientId],
+			)
+		).rows[0];
+
+	it("takes the reservation back when the refund finds funds only in reserved, and then refuses release and capture", async () => {
+		const t = await setup("1000.00", "0");
+		const charge = await seedPixCharge(owner, {
+			bureauId: t.bureau.id,
+			requestedBy: t.client.userId,
+			clientProfileId: t.client.userId,
+			amount: "1000.00",
+			status: "paid",
+		});
+		const order = online(t, "1000.00", "600.00");
+		const toRelease = order;
+		await committed(clientCtx(t), (c) => reserve(c, order));
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "0.00",
+			reserved: "1000.00",
+		});
+
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "0.00",
+			reserved: "0.00",
+		});
+		expect(await shortfallOf(charge.id)).toEqual({
+			status: "refunded",
+			refund_shortfall: "0.00",
+		});
+		expect(await lastClientEntry(t.client.userId)).toEqual({
+			kind: "reversal",
+			amount: "1000.00",
+			available_after: "0.00",
+			reserved_after: "0.00",
+		});
+
+		expect(
+			await committed(clientCtx(t), (c) => release(c, toRelease.orderRef)),
+		).toEqual({ ok: false, reason: "reservation_exceeded", status: "reserved" });
+		expect(
+			await committed(adminCtx(t), (c) => capture(c, order.orderRef)),
+		).toEqual({ ok: false, reason: "reservation_exceeded", status: "reserved" });
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "0.00",
+			reserved: "0.00",
+		});
+		expect(await accruals(order.orderRef)).toEqual([]);
+		expect((await settlement(order.orderRef)).status).toBe("reserved");
+		expect(await clientNet(t.client.userId)).toEqual({ net: "0.00", total: "0.00" });
+	});
+
+	it("takes the available balance first and the reservation for the rest", async () => {
+		const t = await setup("1000.00", "0");
+		const charge = await seedPixCharge(owner, {
+			bureauId: t.bureau.id,
+			requestedBy: t.client.userId,
+			clientProfileId: t.client.userId,
+			amount: "600.00",
+			status: "paid",
+		});
+		const order = online(t, "700.00", "400.00");
+		await committed(clientCtx(t), (c) => reserve(c, order));
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "300.00",
+			reserved: "700.00",
+		});
+
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "0.00",
+			reserved: "400.00",
+		});
+		expect(await shortfallOf(charge.id)).toMatchObject({ refund_shortfall: "0.00" });
+		expect(await lastClientEntry(t.client.userId)).toMatchObject({
+			kind: "reversal",
+			amount: "600.00",
+			available_after: "0.00",
+			reserved_after: "400.00",
+		});
+		// A reserva restante (400) não cobre o pedido de 700: nenhum crédito sai dela.
+		expect(
+			await committed(clientCtx(t), (c) => release(c, order.orderRef)),
+		).toMatchObject({ ok: false, reason: "reservation_exceeded" });
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "0.00",
+			reserved: "400.00",
+		});
+		expect(await clientNet(t.client.userId)).toEqual({ net: "400.00", total: "400.00" });
+	});
+
+	it("records as shortfall only what neither the available balance nor the reservation covers", async () => {
+		const t = await setup("100.00", "0");
+		const charge = await seedPixCharge(owner, {
+			bureauId: t.bureau.id,
+			requestedBy: t.client.userId,
+			clientProfileId: t.client.userId,
+			amount: "100.00",
+			status: "paid",
+		});
+		// O cliente gastou 70 (reserva + captura): sobram 30 e nada reservado.
+		const order = online(t, "70.00", "50.00");
+		await committed(clientCtx(t), (c) => reserve(c, order));
+		await committed(adminCtx(t), (c) => capture(c, order.orderRef));
+
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		expect(await shortfallOf(charge.id)).toEqual({
+			status: "refunded",
+			refund_shortfall: "70.00",
+		});
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "0.00",
+			reserved: "0.00",
+		});
+		expect(await clientNet(t.client.userId)).toEqual({ net: "0.00", total: "0.00" });
+	});
+
+	it("applies the same rule to the Bureau wallet reserved for a counter order", async () => {
+		const t = await setup("0", "1000.00");
+		const charge = await seedPixCharge(owner, {
+			bureauId: t.bureau.id,
+			requestedBy: t.bureauAdmin.userId,
+			amount: "1000.00",
+			status: "paid",
+		});
+		const order = counter("1500.00", "1000.00");
+		await committed(operatorCtx(t), (c) => reserve(c, order));
+		expect(await bureauBalance(t.bureau.id)).toEqual({
+			available: "0.00",
+			reserved: "1000.00",
+		});
+
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		expect(await bureauBalance(t.bureau.id)).toEqual({
+			available: "0.00",
+			reserved: "0.00",
+		});
+		expect(await shortfallOf(charge.id)).toMatchObject({ refund_shortfall: "0.00" });
+		expect(
+			await committed(operatorCtx(t), (c) => capture(c, order.orderRef)),
+		).toEqual({ ok: false, reason: "reservation_exceeded", status: "reserved" });
+		expect(
+			await committed(operatorCtx(t), (c) => release(c, order.orderRef)),
+		).toEqual({ ok: false, reason: "reservation_exceeded", status: "reserved" });
+		const { rows } = await owner.query<{ net: string; total: string }>(
+			`select
+         (select sum(case kind when 'topup' then amount when 'capture' then -amount
+                                when 'reversal' then -amount when 'adjustment' then amount else 0 end)
+            from ledger_entries where bureau_id = $1) as net,
+         w.available + w.reserved as total
+       from wallets w where w.bureau_id = $1`,
+			[t.bureau.id],
+		);
+		expect(rows[0]).toEqual({ net: "0.00", total: "0.00" });
 	});
 });

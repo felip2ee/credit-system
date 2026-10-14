@@ -4,11 +4,17 @@ import { getRequiredSession, SessionAccessError, type RequiredSession } from "@/
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getPayoutReceiptRef } from "@/lib/payouts/queries";
-import { openPayoutReceipt } from "@/lib/payouts/receipt";
+import { openPayoutReceipt, type ReceiptMime } from "@/lib/payouts/receipt";
 
 // Download do comprovante. Sessão obrigatória. Qualquer negativa (papel, outro Bureau, sem comprovante,
 // id inexistente ou inválido) responde o mesmo 404: a rota não revela que um repasse existe.
 const notFound = () => new Response(null, { status: 404 });
+
+const EXTENSION_BY_MIME: Record<ReceiptMime, string> = {
+	"application/pdf": "pdf",
+	"image/png": "png",
+	"image/jpeg": "jpg",
+};
 
 // Superadmin fora de suporte, ou bureau_admin (que a RLS limita ao próprio Bureau).
 function mayReadReceipts(session: RequiredSession): boolean {
@@ -41,7 +47,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 			headers: {
 				"Content-Type": ref.mime,
 				"Content-Length": String(opened.size),
-				"Content-Disposition": 'attachment; filename="comprovante"',
+				"Content-Disposition": `attachment; filename="comprovante.${EXTENSION_BY_MIME[ref.mime]}"`,
 				"X-Content-Type-Options": "nosniff",
 				"Cache-Control": "private, no-store",
 			},

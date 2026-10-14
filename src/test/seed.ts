@@ -362,3 +362,59 @@ export async function seedDossier(
 	);
 	return rows[0].id;
 }
+
+// reserve_order exige que order_ref seja um Dossiê do Bureau. Cria o Dossiê com esse id sobre o titular do cliente
+// (ou sobre qualquer titular do Bureau, no balcão). Repetir não faz nada; sem titular elegível não cria nada.
+export async function seedOrderDossier(
+	owner: Pool,
+	input: { orderRef: string; bureauId: string; clientProfileId: string | null },
+): Promise<void> {
+	await owner.query(
+		`insert into dossiers (id, bureau_id, kind, holder_id, product, created_by)
+     select $1, $2, 'PF', h.id, 'smart_pf', h.created_by from holders h
+      where h.bureau_id = $2 and ($3::uuid is null or h.client_profile_id = $3)
+      order by h.created_at limit 1
+     on conflict do nothing`,
+		[input.orderRef, input.bureauId, input.clientProfileId],
+	);
+}
+
+// Como seedOrderDossier, com o Bureau lido do contexto da transação `session` (a que vai chamar reserve_order).
+export async function seedOrderDossierForSession(
+	owner: Pool,
+	session: PoolClient,
+	input: { orderRef: string; clientProfileId: string | null },
+): Promise<void> {
+	const { rows } = await session.query<{ id: string | null }>(
+		"select nullif(current_setting('app.bureau_id', true), '') as id",
+	);
+	if (rows[0].id) await seedOrderDossier(owner, { ...input, bureauId: rows[0].id });
+}
+
+// Lançamento de valor a repassar já assinado (acréscimo +, estorno −). O acréscimo exige order_ref (FK para
+// order_settlements): cria a liquidação mínima, de balcão e já capturada, e liga o lançamento a ela.
+export async function seedPayableEntry(
+	owner: Pool,
+	input: {
+		bureauId: string;
+		kind: "accrual" | "reversal";
+		amount: string;
+		createdAt?: string;
+	},
+): Promise<string> {
+	let orderRef: string | null = null;
+	if (input.kind === "accrual") {
+		orderRef = randomUUID();
+		await owner.query(
+			`insert into order_settlements (order_ref, bureau_id, mode, price, cost, status, closed_at)
+       values ($1, $2, 'counter', 1, 0, 'captured', now())`,
+			[orderRef, input.bureauId],
+		);
+	}
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into bureau_payable_entries (bureau_id, kind, amount, order_ref, created_at)
+     values ($1, $2, $3, $4, coalesce($5::timestamptz, now())) returning id`,
+		[input.bureauId, input.kind, input.amount, orderRef, input.createdAt ?? null],
+	);
+	return rows[0].id;
+}

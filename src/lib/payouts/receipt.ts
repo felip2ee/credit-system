@@ -110,12 +110,18 @@ export async function openPayoutReceipt(
 	} catch {
 		return null;
 	}
-	const { size } = await handle.stat();
-	// createReadStream fecha o handle ao terminar ou ao ser cancelado.
-	const body = Readable.toWeb(
-		handle.createReadStream(),
-	) as unknown as ReadableStream<Uint8Array>;
-	return { body, size };
+	try {
+		const { size } = await handle.stat();
+		// createReadStream fecha o handle ao terminar ou ao ser cancelado.
+		const body = Readable.toWeb(
+			handle.createReadStream(),
+		) as unknown as ReadableStream<Uint8Array>;
+		return { body, size };
+	} catch (error) {
+		// Sem o stream, ninguém mais fecharia o handle.
+		await handle.close().catch(() => {});
+		throw error;
+	}
 }
 
 export async function discardPayoutReceipt(objectKey: string): Promise<void> {

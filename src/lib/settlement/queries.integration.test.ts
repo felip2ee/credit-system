@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
@@ -37,15 +37,22 @@ import { getClientWallet } from "@/lib/wallet/client-queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
+	seedOrderDossierForSession,
 	seedTenant,
 	seedWalletTopup,
 	type SeededTenant,
 } from "@/test/seed";
 
-import { captureOrder, getSettlement, releaseOrder, reserveOrder } from "./queries";
-import type { OrderQuote } from "./types";
+import { captureOrder, getSettlement, releaseOrder, reserveOrder as reserveOrderRaw } from "./queries";
+import type { OrderQuote, ReserveOrderInput } from "./types";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
+
+// reserve_order exige um Dossiê do Bureau com o id do pedido.
+const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
+	await seedOrderDossierForSession(owner, c, { orderRef: input.orderRef, clientProfileId: input.clientProfileId });
+	return reserveOrderRaw(c, input);
+};
 
 afterAll(async () => {
 	await Promise.all([owner.end(), pool.end()]);
@@ -133,14 +140,14 @@ describe("online settlement", () => {
 	});
 
 	it("stores price, cost and the quote lines intact", async () => {
-		const { client } = await setup("Settle O3", { client: "100.00" });
+		const { client, operator } = await setup("Settle O3", { client: "100.00" });
 		const orderRef = randomUUID();
 		const quote = quoteOf(4590, 1230);
 		await withUserTransaction(client, (c) =>
 			reserveOrder(c, { orderRef, mode: "online", clientProfileId: client.userId, quote }),
 		);
 
-		const stored = await withUserTransaction(client, (c) => getSettlement(c, orderRef));
+		const stored = await withUserTransaction(operator, (c) => getSettlement(c, orderRef));
 		expect(stored).toMatchObject({
 			orderRef,
 			mode: "online",
@@ -150,6 +157,24 @@ describe("online settlement", () => {
 			status: "reserved",
 			quote: { lines: quote.lines },
 		});
+	});
+
+	it("hides cost and quote from the client and shows them to the Bureau staff and the superadmin", async () => {
+		const { tenant, client, operator } = await setup("Settle O3b", { client: "100.00" });
+		const orderRef = randomUUID();
+		const quote = quoteOf(4590, 1230);
+		await withUserTransaction(client, (c) =>
+			reserveOrder(c, { orderRef, mode: "online", clientProfileId: client.userId, quote }),
+		);
+
+		const asClient = await withUserTransaction(client, (c) => getSettlement(c, orderRef));
+		expect(asClient).toMatchObject({ orderRef, price: "45.90", status: "reserved", cost: null, quote: null });
+		const asAdmin = await withUserTransaction({ ...tenant.bureauAdmin }, (c) => getSettlement(c, orderRef));
+		expect(asAdmin).toMatchObject({ cost: "12.30", quote: { lines: quote.lines } });
+		const asOperator = await withUserTransaction(operator, (c) => getSettlement(c, orderRef));
+		expect(asOperator).toMatchObject({ cost: "12.30" });
+		const outsider = await setup("Settle O3c");
+		expect(await withUserTransaction(outsider.operator, (c) => getSettlement(c, orderRef))).toBeNull();
 	});
 
 	it("repeats are idempotent and move money once", async () => {
@@ -298,10 +323,17 @@ describe("counter settlement", () => {
 		expect(result).toEqual({ ok: false, reason: "insufficient_balance" });
 	});
 
-	it("refuses a counter reserve by a client and a zero cost", async () => {
-		const { client, operator } = await setup("Settle C4", { client: "100.00", bureau: "100.00" });
+	it("refuses a counter reserve by a client", async () => {
+		const { client } = await setup("Settle C4", { client: "100.00", bureau: "100.00" });
 		expect(await withUserTransaction(client, (c) => reserveOrder(c, counterInput(randomUUID())))).toEqual({ ok: false, reason: "not_allowed" });
-		expect(await withUserTransaction(operator, (c) => reserveOrder(c, counterInput(randomUUID(), 5000, 0)))).toEqual({ ok: false, reason: "invalid_amount" });
+	});
+
+	it("accepts a counter order with zero cost and leaves the Bureau wallet alone", async () => {
+		const { operator } = await setup("Settle C5", { bureau: "100.00" });
+		const orderRef = randomUUID();
+		expect(await withUserTransaction(operator, (c) => reserveOrder(c, counterInput(orderRef, 5000, 0)))).toEqual({ ok: true, status: "reserved" });
+		expect(await withUserTransaction(operator, (c) => captureOrder(c, orderRef))).toEqual({ ok: true, status: "captured" });
+		expect(await bureauBalance(operator)).toEqual({ available: "100.00", reserved: "0.00" });
 	});
 });
 

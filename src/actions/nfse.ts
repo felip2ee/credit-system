@@ -55,7 +55,7 @@ export async function retryNfseAction(values: unknown): Promise<NfseActionResult
 	const { chargeId } = parsed.data;
 	try {
 		const retry = await requestNfseRetry(session, chargeId);
-		if (!retry.ok) return { error: FAILURE_MESSAGES[retry.reason] };
+		if (!retry.ok) return { error: FAILURE_MESSAGES[retry.reason] ?? "Não foi possível concluir a operação." };
 
 		const outcome = await rescheduleInvoice(session, chargeId);
 		revalidatePath("/superadmin/nfse");

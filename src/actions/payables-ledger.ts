@@ -14,6 +14,7 @@ const schema = z.object({
 });
 
 const NOT_ALLOWED = "Você não tem permissão para ver os lançamentos.";
+const SUPPORT_ACTIVE = "Encerre a sessão de suporte para ver os lançamentos.";
 
 // Só nome e código do erro: sem valores nem dados pessoais.
 function logFailure(error: unknown): void {
@@ -34,6 +35,7 @@ export async function loadMorePayablesAction(
 	if (!parsed.success) return { error: "Dados inválidos." };
 	try {
 		const session = await getRequiredSession();
+		if (session.supportSessionId) return { error: SUPPORT_ACTIVE };
 		if (!hasPermission(session, "payout:read")) return { error: NOT_ALLOWED };
 		// Só o superadmin escolhe o Bureau; os demais papéis leem o próprio, ignorando o id enviado.
 		const bureauId =

@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
 import {
+	seedPayableEntry,
 	seedPixCharge,
 	seedSuperadmin,
 	seedSupportSession,
@@ -37,19 +38,13 @@ async function rejected(c: PoolClient, attempt: () => Promise<unknown>): Promise
 }
 
 const accrue = (bureauId: string) =>
-	owner.query(
-		"insert into bureau_payable_entries (bureau_id, kind, amount) values ($1, 'accrual', '40.00')",
-		[bureauId],
-	);
+	seedPayableEntry(owner, { bureauId, kind: "accrual", amount: "40.00" });
 
 async function setup() {
 	const superadmin = await seedSuperadmin(owner);
 	const a = await seedTenant(owner, "audA");
 	const b = await seedTenant(owner, "audB");
-	await owner.query(
-		"insert into bureau_payable_entries (bureau_id, kind, amount) values ($1, 'accrual', '40.00')",
-		[a.bureau.id],
-	);
+	await accrue(a.bureau.id);
 	const sa: Ctx = {
 		userId: superadmin.userId,
 		role: "superadmin",

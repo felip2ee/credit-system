@@ -29,7 +29,7 @@ vi.mock("next/headers", () => ({
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedSuperadmin, seedSupportSession, seedTenant } from "@/test/seed";
+import { seedPayableEntry, seedSuperadmin, seedSupportSession, seedTenant } from "@/test/seed";
 
 import {
 	cancelPayout,
@@ -51,10 +51,7 @@ const sha = () => createHash("sha256").update(randomUUID()).digest("hex");
 const receipt = () => ({ objectKey: `ab/${randomUUID()}`, mime: "application/pdf" as const, sha256: sha() });
 
 async function seedAccrual(bureauId: string, amount: string) {
-	await owner.query("insert into bureau_payable_entries (bureau_id, kind, amount) values ($1, 'accrual', $2)", [
-		bureauId,
-		amount,
-	]);
+	await seedPayableEntry(owner, { bureauId, kind: "accrual", amount });
 }
 
 async function setup(amount = "40.00") {
@@ -176,6 +173,22 @@ describe("cancelPayout", () => {
 		if (!second.ok) throw new Error("setup");
 		await markPayoutPaid(superadmin, { payoutId: second.payoutId, receipt: receipt() });
 		expect(await cancelPayout(superadmin, second.payoutId)).toEqual({ ok: false, reason: "invalid_state" });
+	});
+});
+
+describe("cancelPayout replay", () => {
+	it("returns ok for an already cancelled payout without a second audit event", async () => {
+		const { superadmin, tenant } = await setup();
+		const open = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		if (!open.ok) throw new Error("setup");
+
+		const first = await cancelPayout(superadmin, open.payoutId);
+		const second = await cancelPayout(superadmin, open.payoutId);
+
+		expect(first).toEqual({ ok: true, bureauId: tenant.bureau.id });
+		expect(second).toEqual({ ok: true, bureauId: tenant.bureau.id });
+		expect(await auditRows("payout.cancel", open.payoutId)).toHaveLength(1);
+		expect(await cancelPayout(superadmin, randomUUID())).toEqual({ ok: false, reason: "not_found" });
 	});
 });
 

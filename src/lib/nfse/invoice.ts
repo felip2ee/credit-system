@@ -15,7 +15,19 @@ import type { DbIdentity } from "@/lib/db/transaction";
 
 // Só nome do erro: nada de chave, corpo do Asaas nem dados da cobrança.
 function logFailure(step: string, error: unknown): void {
-	console.error(`[nfse] ${step} falhou`, { name: error instanceof Error ? error.name : typeof error });
+	console.error(`[nfse] ${step} falhou`, {
+		name: error instanceof Error ? error.name : typeof error,
+		code: error instanceof Error && "code" in error ? error.code : undefined,
+	});
+}
+
+// Melhor esforço: se nem o registro de "failed" grava, a nota fica como está e o erro só vai ao log.
+async function tryRecordFailed(chargeId: string): Promise<void> {
+	try {
+		await setNfseStatus(chargeId, "failed");
+	} catch (error) {
+		logFailure("registro da falha", error);
+	}
 }
 
 type ConfigState = { kind: "off" } | { kind: "invalid" } | { kind: "ready"; service: NfseConfig };
@@ -51,7 +63,7 @@ async function scheduleAndRecord(
 		});
 	} catch (error) {
 		logFailure("agendamento", error);
-		await setNfseStatus(chargeId, "failed");
+		await tryRecordFailed(chargeId);
 		return "failed";
 	}
 	// A nota já existe no Asaas: se só o registro falhar, o status fica e o evento INVOICE_AUTHORIZED o corrige.
@@ -77,16 +89,39 @@ export async function requestInvoiceForPayment(asaasPaymentId: string): Promise<
 	}
 }
 
+// Reenvio do webhook de um pagamento já creditado: repara a nota que ficou em not_requested (processo caiu depois do
+// crédito, ou o registro de "failed" falhou). set_nfse_status(pending) só muda not_requested, então só quem a "reivindica"
+// agenda; nota pending, issued ou failed nunca é agendada de novo. Nunca lança.
+// shortcut: reivindicar antes de agendar deixa a nota pending se o processo cair entre os dois passos; migrar para uma varredura de pending antigas se isso ocorrer.
+export async function repairInvoiceForPayment(asaasPaymentId: string): Promise<ScheduleOutcome> {
+	const state = nfseConfigState();
+	if (state.kind === "off") return "not_requested";
+	try {
+		const charge: NfseCharge | null = await findNfseChargeByPayment(asaasPaymentId);
+		if (!charge) return "unknown_charge";
+		const claim = await setNfseStatus(charge.chargeId, "pending");
+		if (!claim.ok || !claim.changed) return "not_requested";
+		return await scheduleAndRecord(state, charge.chargeId, asaasPaymentId, charge.amount);
+	} catch (error) {
+		logFailure("reparo da nota", error);
+		return "failed";
+	}
+}
+
 // Nova tentativa depois de request_nfse_retry (a cobrança já está pending). Nunca lança.
 export async function rescheduleInvoice(identity: DbIdentity, chargeId: string): Promise<ScheduleOutcome> {
 	const state = nfseConfigState();
 	if (state.kind === "off") return "not_requested";
 	try {
 		const target = await findNfseRetryTarget(identity, chargeId);
-		if (!target) return "unknown_charge";
+		if (!target) {
+			await tryRecordFailed(chargeId);
+			return "unknown_charge";
+		}
 		return await scheduleAndRecord(state, chargeId, target.asaasPaymentId, target.amount);
 	} catch (error) {
 		logFailure("nova tentativa", error);
+		await tryRecordFailed(chargeId);
 		return "failed";
 	}
 }

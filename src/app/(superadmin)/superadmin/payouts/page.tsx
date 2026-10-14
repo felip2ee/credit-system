@@ -6,7 +6,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { listBureauMetrics } from "@/lib/bureaus/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
-import { getPayableBalance } from "@/lib/payables/queries";
+import { getPayableBalances } from "@/lib/payables/queries";
 import { listPayouts } from "@/lib/payouts/queries";
 
 export const metadata = { title: "Repasses" };
@@ -32,7 +32,7 @@ export default async function SuperadminPayoutsPage() {
   const bureaus = await listBureauMetrics(session);
   const data = await withUserTransaction(session, async (client) => ({
     payouts: await listPayouts(client),
-    payable: await Promise.all(bureaus.map((b) => getPayableBalance(client, b.bureauId))),
+    payable: await getPayableBalances(client),
   }));
   const bureauNames = Object.fromEntries(bureaus.map((b) => [b.bureauId, b.name]));
 
@@ -40,7 +40,7 @@ export default async function SuperadminPayoutsPage() {
     <div className="space-y-6">
       <PageHeader title="Repasses" description="Repasses aos Bureaus: criar, pagar com comprovante e cancelar" />
       {canManage && (
-        <CreatePayoutForm bureaus={bureaus.map((b, i) => ({ id: b.bureauId, name: b.name, payable: data.payable[i] }))} />
+        <CreatePayoutForm bureaus={bureaus.map((b) => ({ id: b.bureauId, name: b.name, payable: data.payable.get(b.bureauId) ?? "0.00" }))} />
       )}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Repasses</h2>

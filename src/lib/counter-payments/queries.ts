@@ -18,7 +18,7 @@ export type RegisterInput = {
 
 export type VoidInput = { id: string; reason: string };
 
-export type CounterFailure = "not_found" | "not_allowed" | "reason_required" | "already_voided";
+export type CounterFailure = "not_found" | "not_allowed" | "reason_required" | "already_voided" | "invalid_state";
 
 export type RegisterResult = { ok: true; id: string } | { ok: false; reason: "not_found" };
 export type VoidResult = { ok: true } | { ok: false; reason: CounterFailure };
@@ -80,7 +80,7 @@ export async function voidCounterPayment(identity: DbIdentity, input: VoidInput)
 			"select ok, reason from void_counter_payment($1, $2)",
 			[input.id, input.reason],
 		);
-		if (!rows[0].ok) return { ok: false, reason: rows[0].reason as CounterFailure };
+		if (!rows[0].ok) return { ok: false, reason: rows[0].reason ?? "invalid_state" };
 		// O motivo fica na linha; a auditoria leva só o contexto do valor.
 		const payment = await client.query<{ dossier_id: string; amount: string }>(
 			"select dossier_id, amount from counter_payments where id = $1",

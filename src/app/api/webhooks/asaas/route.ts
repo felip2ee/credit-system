@@ -4,7 +4,12 @@ import { z } from "zod";
 
 import { ASAAS_INVOICE_EVENT_PREFIX, ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
 import { readAsaasConfig, readWebhookDatabaseUrl } from "@/lib/config";
-import { applyInvoiceEvent, parseInvoiceEvent, requestInvoiceForPayment } from "@/lib/nfse/invoice";
+import {
+	applyInvoiceEvent,
+	parseInvoiceEvent,
+	repairInvoiceForPayment,
+	requestInvoiceForPayment,
+} from "@/lib/nfse/invoice";
 import { applyAsaasPayment } from "@/lib/wallet/pix-charges";
 
 // Rota pública (sem sessão): a autenticação é o token do header. O valor creditado nunca vem do corpo.
@@ -21,6 +26,9 @@ function tokenMatches(received: string | null, expected: string): boolean {
 	const digest = (value: string) => createHash("sha256").update(value).digest();
 	return timingSafeEqual(digest(received ?? ""), digest(expected));
 }
+
+// Eventos que creditam (iguais aos de apply_asaas_payment): o reenvio de um estorno não pede nota.
+const PAYMENT_CREDIT_EVENTS = new Set(["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"]);
 
 const respond = (status: number) => new Response(null, { status });
 
@@ -98,6 +106,9 @@ export async function POST(request: Request): Promise<Response> {
 	// Depois do crédito e fora dele: a nota nunca desfaz o crédito nem muda o status da resposta.
 	if (result === "credited") {
 		await requestInvoiceForPayment(parsed.data.payment.id).catch(() => {});
+	} else if (result === "duplicate" && PAYMENT_CREDIT_EVENTS.has(parsed.data.event)) {
+		// Reenvio de um crédito já aplicado: repara a nota que ficou em not_requested. Nota já pedida não é agendada de novo.
+		await repairInvoiceForPayment(parsed.data.payment.id).catch(() => {});
 	}
 	return respond(200);
 }

@@ -57,7 +57,7 @@ export async function requestNfseRetry(identity: DbIdentity, chargeId: string): 
 			"select ok, reason from request_nfse_retry($1)",
 			[chargeId],
 		);
-		if (!rows[0].ok) return { ok: false, reason: rows[0].reason as NfseFailure };
+		if (!rows[0].ok) return { ok: false, reason: rows[0].reason ?? "invalid_state" };
 		if (!target.rows[0]) throw new Error("nfse retry without a Bureau target");
 		await writeAuditEvent(client, {
 			actorId: identity.userId,

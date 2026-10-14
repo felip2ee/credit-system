@@ -27,6 +27,7 @@ export interface PayoutActionResult {
 const NOT_ALLOWED = "Você não tem permissão para gerenciar repasses.";
 const SUPPORT_ACTIVE = "Encerre a sessão de suporte para gerenciar repasses.";
 const RECEIPT_REQUIRED = "Anexe o comprovante do repasse.";
+const GENERIC_FAILURE = "Não foi possível concluir a operação.";
 
 const FAILURE_MESSAGES: Record<PayoutFailure, string> = {
 	not_allowed: NOT_ALLOWED,
@@ -82,7 +83,7 @@ export async function createPayoutAction(values: unknown): Promise<PayoutActionR
 
 	try {
 		const result = await createPayout(auth.session, parsed.data);
-		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] };
+		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] ?? GENERIC_FAILURE };
 		revalidate();
 		return { error: null, id: result.payoutId };
 	} catch (error) {
@@ -118,7 +119,7 @@ export async function markPayoutPaidAction(formData: FormData): Promise<PayoutAc
 	let keep = false;
 	try {
 		const result = await markPayoutPaid(auth.session, { payoutId: parsed.data.payoutId, receipt: stored });
-		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] };
+		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] ?? GENERIC_FAILURE };
 		keep = !result.replayed;
 		revalidate();
 		return { error: null, id: parsed.data.payoutId };
@@ -139,7 +140,7 @@ export async function cancelPayoutAction(values: unknown): Promise<PayoutActionR
 
 	try {
 		const result = await cancelPayout(auth.session, parsed.data.payoutId);
-		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] };
+		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] ?? GENERIC_FAILURE };
 		revalidate();
 		return { error: null, id: parsed.data.payoutId };
 	} catch (error) {

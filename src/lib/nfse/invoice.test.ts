@@ -16,7 +16,13 @@ vi.mock("./queries", () => ({
 	setNfseStatus: s.setStatus,
 }));
 
-import { applyInvoiceEvent, parseInvoiceEvent, requestInvoiceForPayment, rescheduleInvoice } from "./invoice";
+import {
+	applyInvoiceEvent,
+	parseInvoiceEvent,
+	repairInvoiceForPayment,
+	requestInvoiceForPayment,
+	rescheduleInvoice,
+} from "./invoice";
 
 const service = { municipalServiceId: "svc", municipalServiceName: "n", serviceDescription: "d", issRate: 2, retainIss: false };
 const charge = { chargeId: "11111111-1111-4111-8111-111111111111", amount: "100.00" };
@@ -89,6 +95,55 @@ describe("requestInvoiceForPayment", () => {
 		expect(await requestInvoiceForPayment("pay_1")).toBe("pending");
 		expect(s.setStatus).not.toHaveBeenCalledWith(charge.chargeId, "failed");
 	});
+
+	it("still returns failed and logs when recording failed throws too", async () => {
+		s.schedule.mockRejectedValue(new Error("Asaas respondeu 500"));
+		s.setStatus.mockRejectedValue(Object.assign(new Error("connection lost"), { code: "57P01" }));
+
+		expect(await requestInvoiceForPayment("pay_1")).toBe("failed");
+		expect(console.error).toHaveBeenCalledWith("[nfse] registro da falha falhou", { name: "Error", code: "57P01" });
+	});
+});
+
+describe("repairInvoiceForPayment", () => {
+	it("claims a not_requested charge with pending, then schedules it", async () => {
+		expect(await repairInvoiceForPayment("pay_1")).toBe("pending");
+
+		expect(s.setStatus).toHaveBeenNthCalledWith(1, charge.chargeId, "pending");
+		expect(s.schedule).toHaveBeenCalledTimes(1);
+	});
+
+	it("never schedules a charge that is already pending, issued or failed", async () => {
+		s.setStatus.mockResolvedValue({ ok: true, status: "issued", changed: false });
+
+		expect(await repairInvoiceForPayment("pay_1")).toBe("not_requested");
+		expect(s.schedule).not.toHaveBeenCalled();
+	});
+
+	it("records failed when Asaas refuses after the claim", async () => {
+		s.schedule.mockRejectedValue(new Error("x"));
+
+		expect(await repairInvoiceForPayment("pay_1")).toBe("failed");
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "failed");
+	});
+
+	it("without municipal configuration touches nothing; with an unknown charge schedules nothing", async () => {
+		s.readNfseConfig.mockReturnValue(null);
+		expect(await repairInvoiceForPayment("pay_1")).toBe("not_requested");
+		expect(s.findCharge).not.toHaveBeenCalled();
+
+		s.readNfseConfig.mockReturnValue(service);
+		s.findCharge.mockResolvedValue(null);
+		expect(await repairInvoiceForPayment("pay_x")).toBe("unknown_charge");
+		expect(s.schedule).not.toHaveBeenCalled();
+	});
+
+	it("never throws when the claim fails", async () => {
+		s.setStatus.mockRejectedValue(new Error("connection lost"));
+
+		expect(await repairInvoiceForPayment("pay_1")).toBe("failed");
+		expect(s.schedule).not.toHaveBeenCalled();
+	});
 });
 
 describe("rescheduleInvoice", () => {
@@ -105,6 +160,27 @@ describe("rescheduleInvoice", () => {
 
 		expect(await rescheduleInvoice(identity, charge.chargeId)).toBe("failed");
 		expect(s.setStatus).toHaveBeenCalledWith(charge.chargeId, "failed");
+	});
+
+	it("records failed instead of leaving the charge pending when the target is gone", async () => {
+		s.findRetryTarget.mockResolvedValue(null);
+
+		expect(await rescheduleInvoice(identity, charge.chargeId)).toBe("unknown_charge");
+		expect(s.setStatus).toHaveBeenCalledWith(charge.chargeId, "failed");
+	});
+
+	it("records failed instead of leaving the charge pending when the lookup throws", async () => {
+		s.findRetryTarget.mockRejectedValue(new Error("connection lost"));
+
+		expect(await rescheduleInvoice(identity, charge.chargeId)).toBe("failed");
+		expect(s.setStatus).toHaveBeenCalledWith(charge.chargeId, "failed");
+	});
+
+	it("never throws when recording failed also throws", async () => {
+		s.findRetryTarget.mockRejectedValue(new Error("connection lost"));
+		s.setStatus.mockRejectedValue(new Error("connection lost"));
+
+		expect(await rescheduleInvoice(identity, charge.chargeId)).toBe("failed");
 	});
 });
 

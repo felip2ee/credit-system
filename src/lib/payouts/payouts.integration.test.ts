@@ -12,6 +12,8 @@ import {
 } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
+	seedOrderDossier,
+	seedPayableEntry,
 	seedPixCharge,
 	seedSuperadmin,
 	seedSupportSession,
@@ -117,7 +119,7 @@ const cancelPayout = (c: PoolClient, payoutId: string) =>
 const asSuperadmin = <T>(work: (c: PoolClient) => Promise<T>) =>
 	committed(superadminCtx(), work);
 
-// Lançamento sem pedido: o repasse só olha bureau, tipo, valor e data.
+// Lançamento com liquidação mínima: o repasse só olha bureau, tipo, valor e data.
 async function seedEntry(
 	bureauId: string,
 	kind: "accrual" | "reversal",
@@ -125,12 +127,7 @@ async function seedEntry(
 	createdAt = "2026-01-10T12:00:00Z",
 ): Promise<string> {
 	const signed = kind === "accrual" ? amount : `-${amount}`;
-	const { rows } = await owner.query<{ id: string }>(
-		`insert into bureau_payable_entries (bureau_id, kind, amount, created_at)
-     values ($1, $2, $3, $4) returning id`,
-		[bureauId, kind, signed, createdAt],
-	);
-	return rows[0].id;
+	return seedPayableEntry(owner, { bureauId, kind, amount: signed, createdAt });
 }
 
 async function payableBalance(bureauId: string): Promise<string> {
@@ -696,11 +693,17 @@ describe("immutability", () => {
 			createPayout(c, t.bureau.id, FAR_FUTURE),
 		);
 
+		const orderRef = randomUUID();
+		await owner.query(
+			`insert into order_settlements (order_ref, bureau_id, mode, price, cost)
+       values ($1, $2, 'counter', 1, 0)`,
+			[orderRef, t.bureau.id],
+		);
 		await expect(
 			owner.query(
-				`insert into bureau_payable_entries (bureau_id, kind, amount, payout_id)
-         values ($1, 'accrual', 5, $2)`,
-				[t.bureau.id, made.payout_id],
+				`insert into bureau_payable_entries (bureau_id, kind, amount, order_ref, payout_id)
+         values ($1, 'accrual', 5, $2, $3)`,
+				[t.bureau.id, orderRef, made.payout_id],
 			),
 		).rejects.toThrow(/bureau_payable_entries_payout_link/);
 		await asSuperadmin((c) => markPaid(c, made.payout_id!));
@@ -729,6 +732,7 @@ describe("reconciliation", () => {
 		});
 		// Acréscimo real, pelo fluxo de liquidação: preço 80, custo 50 -> 30.
 		const orderRef = randomUUID();
+		await seedOrderDossier(owner, { orderRef, bureauId: t.bureau.id, clientProfileId: t.client.userId });
 		await committed(ctxOf(t.client), async (c) => {
 			await c.query(
 				"select * from reserve_order($1, 'online', $2, '80.00', '50.00', '{}'::jsonb)",

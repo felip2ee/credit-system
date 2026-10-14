@@ -102,6 +102,17 @@ describe("createPayoutAction", () => {
 		expect(s.createPayout).not.toHaveBeenCalled();
 	});
 
+	it("maps an unknown or missing failure reason to a generic error, never undefined", async () => {
+		for (const reason of ["surprise", undefined]) {
+			s.createPayout.mockResolvedValueOnce({ ok: false, reason });
+			s.cancelPayout.mockResolvedValueOnce({ ok: false, reason });
+			expect((await createPayoutAction({ bureauId, cutoffAt: new Date().toISOString() })).error).toBe(
+				"Não foi possível concluir a operação.",
+			);
+			expect((await cancelPayoutAction({ payoutId })).error).toBe("Não foi possível concluir a operação.");
+		}
+	});
+
 	it("maps a business failure and hides a thrown error", async () => {
 		s.createPayout.mockResolvedValueOnce({ ok: false, reason: "nothing_to_pay" });
 		expect((await createPayoutAction({ bureauId, cutoffAt: new Date().toISOString() })).error).toMatch(/Não há valor/);

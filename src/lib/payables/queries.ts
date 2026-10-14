@@ -26,6 +26,14 @@ export async function getPayableBalance(client: PoolClient, bureauId: string): P
 	return rows[0].balance;
 }
 
+// Saldo de todos os Bureaus visíveis numa consulta só. Bureau sem lançamento não aparece no mapa (saldo 0.00).
+export async function getPayableBalances(client: PoolClient): Promise<Map<string, string>> {
+	const { rows } = await client.query<{ bureau_id: string; balance: string }>(
+		"select bureau_id, coalesce(sum(amount), 0.00)::text as balance from bureau_payable_entries group by bureau_id",
+	);
+	return new Map(rows.map((r) => [r.bureau_id, r.balance]));
+}
+
 type EntryRow = {
 	id: string;
 	kind: PayableEntry["kind"];

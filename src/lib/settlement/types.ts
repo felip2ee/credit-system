@@ -13,6 +13,7 @@ export type SettlementFailure =
 	| "insufficient_balance"
 	| "price_below_cost"
 	| "invalid_amount"
+	| "reservation_exceeded"
 	| "already_exists";
 
 export type SettlementResult =
@@ -27,6 +28,10 @@ export type ReserveOrderInput = {
 	quote: OrderQuote;
 };
 
+// Custo de atacado do Bureau e cotação por linha (custo por produto): só a equipe do Bureau e o superadmin leem.
+export type SettlementCost = { cost: string; quote: { lines: OrderQuote["lines"] } };
+
+// O cliente lê preço e status. Para ele, cost e quote vêm null.
 export type Settlement = {
 	id: string;
 	orderRef: string;
@@ -34,8 +39,8 @@ export type Settlement = {
 	mode: SettlementMode;
 	clientProfileId: string | null;
 	price: string;
-	cost: string;
-	quote: { lines: OrderQuote["lines"] };
+	cost: SettlementCost["cost"] | null;
+	quote: SettlementCost["quote"] | null;
 	status: SettlementStatus;
 	createdAt: Date;
 	closedAt: Date | null;
