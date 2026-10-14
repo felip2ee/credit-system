@@ -97,7 +97,7 @@ begin
   select s.id, s.status::text, s.auth_code, s.bureau_id, s.holder_id
     into v_id, v_status, v_auth_code, v_bureau_id, v_holder_id
     from public.scr_authorizations s
-   where s.public_token::text = p_token
+   where s.public_token = case when p_token ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then p_token::uuid end
      and s.channel = p_channel
      and p_channel = 'internal'
    for update;

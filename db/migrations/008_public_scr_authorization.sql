@@ -25,7 +25,9 @@ as $$
     coalesce(s.consent_document, s.document),
     s.expires_at
   from public.scr_authorizations s
-  where s.public_token::text = p_token
+  -- Compare as uuid so the unique index on public_token is usable; a malformed token
+  -- yields null (no match) instead of an invalid-cast error.
+  where s.public_token = case when p_token ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then p_token::uuid end
     and s.channel = p_channel
     and p_channel = 'internal'
 $$;

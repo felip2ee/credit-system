@@ -205,7 +205,7 @@ create policy profiles_select on profiles for select
     and (
       id = app_user_id()
       or (bureau_id = app_bureau_id() and (select app_is_staff()))
-      or (app_user_role() = 'superadmin' and role in ('superadmin', 'bureau_admin'))
+      or (app_user_role() = 'superadmin' and role = 'superadmin')
     )
   );
 create policy profiles_update on profiles for update
@@ -345,7 +345,7 @@ create policy support_sessions_superadmin on support_sessions for all
   );
 
 create policy settings_select on settings for select
-  using (app_context_present());
+  using (app_context_present() and app_user_role() in ('superadmin', 'bureau_admin', 'operator'));
 create policy settings_superadmin_write on settings for all
   using (app_context_present() and app_user_role() = 'superadmin')
   with check (app_context_present() and app_user_role() = 'superadmin');

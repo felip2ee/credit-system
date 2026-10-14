@@ -914,6 +914,21 @@ describe("public SCR gateway", () => {
 		).rejects.toMatchObject({ code: "42501" });
 	});
 
+	it("returns not_found for a malformed token without raising", async () => {
+		const token = await seedScr(A, "SECRET4");
+		for (const bad of ["", "not-a-uuid", `${token}x`, `${token.slice(1)}`]) {
+			await expect(
+				app.query("select * from public.public_scr_authorization($1, 'internal')", [bad]),
+			).resolves.toMatchObject({ rows: [] });
+			await expect(confirm(bad, "SECRET4", "authorize")).resolves.toBe("not_found");
+		}
+		await expect(
+			app.query("select status from public.public_scr_authorization($1, 'internal')", [
+				token.toUpperCase(),
+			]),
+		).resolves.toMatchObject({ rows: [{ status: "pending" }] });
+	});
+
 	it("keeps profiles deny-by-default without a context", async () => {
 		const { rows } = await app.query("select id from profiles where id = $1", [
 			A.operator.userId,
@@ -1126,7 +1141,7 @@ describe("profiles", () => {
 		);
 	});
 
-	it("visibility: self, own bureau staff view, superadmin sees admins only", async () => {
+	it("visibility: self, own bureau staff view, superadmin sees only superadmins outside support", async () => {
 		const all = [A, B].flatMap((t) => [
 			t.bureauAdmin.userId,
 			t.operator.userId,
@@ -1151,7 +1166,27 @@ describe("profiles", () => {
 		expect(await idsOf(ctxOf(A.client))).toEqual([A.client.userId]);
 		expect(
 			await idsOf({ userId: sa.userId, role: "superadmin", bureauId: null }),
-		).toEqual(sorted([A.bureauAdmin.userId, B.bureauAdmin.userId, sa.userId]));
+		).toEqual([sa.userId]);
+
+		const session = await seedSupportSession(owner, {
+			superadminId: sa.userId,
+			bureauId: A.bureau.id,
+		});
+		expect(
+			await idsOf({
+				userId: sa.userId,
+				role: "superadmin",
+				bureauId: A.bureau.id,
+				supportSessionId: session,
+			}),
+		).toEqual(
+			sorted([
+				A.bureauAdmin.userId,
+				A.operator.userId,
+				A.client.userId,
+				sa.userId,
+			]),
+		);
 	});
 
 	it("insert: bureau_admin only inside own bureau; operator never; superadmin only bureau_admin", async () => {
@@ -1241,8 +1276,8 @@ describe("settings", () => {
 		);
 	});
 
-	it("every authenticated role reads", async () => {
-		for (const actor of [A.operator, A.bureauAdmin, A.client]) {
+	it("superadmin, bureau_admin and operator read; client reads none", async () => {
+		for (const actor of [A.operator, A.bureauAdmin]) {
 			const { rows } = await withDbContext(app, ctxOf(actor), (c) =>
 				c.query("select key from settings where key = $1", [key]),
 			);
@@ -1254,6 +1289,10 @@ describe("settings", () => {
 			(c) => c.query("select key from settings where key = $1", [key]),
 		);
 		expect(rows).toHaveLength(1);
+		const client = await withDbContext(app, ctxOf(A.client), (c) =>
+			c.query("select key from settings"),
+		);
+		expect(client.rows).toHaveLength(0);
 	});
 
 	it("operator and bureau_admin cannot write; superadmin can", async () => {

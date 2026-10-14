@@ -34,7 +34,7 @@ test("rejects an applied migration missing from disk", () => {
 	);
 });
 
-test("limits profile SELECT policy to self, own-bureau staff and superadmin admins", async () => {
+test("limits profile SELECT policy to self, own-bureau staff and superadmins", async () => {
 	const sql = await readFile("db/migrations/004_rls.sql", "utf8");
 	const policy = sql.match(
 		/create policy profiles_select on profiles for select\s+using \(([\s\S]*?)\);\n\ncreate policy/,
@@ -48,7 +48,7 @@ test("limits profile SELECT policy to self, own-bureau staff and superadmin admi
 	);
 	assert.match(
 		policy,
-		/app_user_role\(\) = 'superadmin' and role in \('superadmin', 'bureau_admin'\)/,
+		/app_user_role\(\) = 'superadmin' and role = 'superadmin'/,
 	);
 });
 
