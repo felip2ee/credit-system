@@ -4,6 +4,7 @@ import { z } from "zod";
 import { PageHeader } from "@/components/layout/page-header";
 import { BureauEditForm } from "@/components/superadmin/bureau-edit-form";
 import { InviteAdminForm } from "@/components/superadmin/invite-admin-form";
+import { SupportStartForm } from "@/components/superadmin/support-start-form";
 import { getRequiredSession } from "@/lib/auth/session";
 import { getBureau } from "@/lib/bureaus/queries";
 
@@ -20,6 +21,7 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
       <PageHeader title={bureau.name} description={`Endereço público: /b/${bureau.slug}`} />
       <BureauEditForm bureau={bureau} />
       <InviteAdminForm bureauId={bureau.id} />
+      <SupportStartForm bureauId={bureau.id} />
     </div>
   );
 }
