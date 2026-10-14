@@ -9,6 +9,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
+  Wallet,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -25,12 +26,13 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/holders", label: "Titulares", icon: Users },
   { href: "/scr", label: "Autorizações SCR", icon: ShieldCheck },
   { href: "/settings/catalog", label: "Catálogo", icon: PackageSearch },
+  { href: "/settings/wallet", label: "Carteira", icon: Wallet },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
-  if (href === "/settings" && pathname.startsWith("/settings/catalog")) return false;
+  if (href === "/settings" && (pathname.startsWith("/settings/catalog") || pathname.startsWith("/settings/wallet"))) return false;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

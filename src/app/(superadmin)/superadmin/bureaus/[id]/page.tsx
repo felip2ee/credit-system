@@ -11,6 +11,11 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { getBureau } from "@/lib/bureaus/queries";
 import { listBureauCosts } from "@/lib/catalog/queries";
 import { hasPermission } from "@/lib/db/permissions";
+import { withUserTransaction } from "@/lib/db/transaction";
+import { getWallet, listLedger } from "@/lib/wallet/queries";
+import { LedgerTable } from "@/components/wallet/LedgerTable";
+import { WalletBalance } from "@/components/wallet/WalletBalance";
+import { WalletAdjustForm } from "@/components/superadmin/WalletAdjustForm";
 
 export const metadata = { title: "Bureau" };
 
@@ -20,6 +25,15 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
   const bureau = await getBureau(session, params.id);
   if (!bureau) notFound();
   const costs = hasPermission(session, "catalog:read") ? await listBureauCosts(session, bureau.id) : null;
+
+  const wallet = hasPermission(session, "wallet:read")
+    ? await withUserTransaction(session, async (client) => ({
+        balance: await getWallet(client, bureau.id),
+        ledger: await listLedger(client, bureau.id),
+      }))
+    : null;
+  // Sem ajuste em sessão de suporte (a action também recusa).
+  const canAdjust = hasPermission(session, "wallet:adjust") && !session.supportSessionId;
 
   return (
     <div className="space-y-6">
@@ -35,6 +49,14 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
             Custo que o Bureau paga por produto. Sem override, vale o custo padrão.
           </p>
           <BureauCostsPanel bureauId={bureau.id} rows={costs} />
+        </section>
+      )}
+      {wallet?.balance && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold">Carteira</h2>
+          <WalletBalance wallet={wallet.balance} />
+          {canAdjust && <WalletAdjustForm bureauId={bureau.id} />}
+          <LedgerTable bureauId={bureau.id} initialRows={wallet.ledger.rows} initialCursor={wallet.ledger.nextCursor} />
         </section>
       )}
     </div>
