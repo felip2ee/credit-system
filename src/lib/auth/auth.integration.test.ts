@@ -30,10 +30,6 @@ import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedSuperadmin, seedSupportSession, seedTenant, type SeededTenant } from "@/test/seed";
 
-import {
-  changeRoleAndRevokeSessions,
-  deactivateUserAndRevokeSessions,
-} from "./authorization";
 import { authHandler } from "./server";
 import {
   getRequiredSessionFromHeaders,
@@ -386,56 +382,5 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
       supportSessionId: null,
       support: null,
     });
-  });
-
-  it("revokes every session when an administrator changes a user role", async () => {
-    const tenant = await freshTenant();
-    const administrator = await enable(tenant.bureauAdmin.userId);
-    const user = await enable(tenant.operator.userId);
-    const headers = await login(user);
-
-    await changeRoleAndRevokeSessions(administrator.id, user.id, "bureau_admin");
-
-    await expect(getRequiredSessionFromHeaders(headers)).rejects.toMatchObject({
-      code: "session_required",
-    } satisfies Partial<SessionAccessError>);
-  });
-
-  it("revokes every session when an administrator deactivates a user", async () => {
-    const tenant = await freshTenant();
-    const administrator = await enable(tenant.bureauAdmin.userId);
-    const user = await enable(tenant.operator.userId);
-    const headers = await login(user);
-
-    await deactivateUserAndRevokeSessions(administrator.id, user.id);
-
-    await expect(getRequiredSessionFromHeaders(headers)).rejects.toMatchObject({
-      code: "session_required",
-    } satisfies Partial<SessionAccessError>);
-  });
-
-  it("does not let an administrator touch a user of another bureau", async () => {
-    const mine = await freshTenant();
-    const other = await freshTenant();
-
-    await expect(
-      deactivateUserAndRevokeSessions(mine.bureauAdmin.userId, other.operator.userId),
-    ).rejects.toThrow("profile not found");
-    await expect(
-      changeRoleAndRevokeSessions(mine.bureauAdmin.userId, other.operator.userId, "bureau_admin"),
-    ).rejects.toThrow("profile not found");
-  });
-
-  it("requires an active bureau_admin of an active bureau to administer users", async () => {
-    const tenant = await freshTenant();
-
-    await expect(
-      deactivateUserAndRevokeSessions(tenant.operator.userId, tenant.client.userId),
-    ).rejects.toThrow("administrator authorization is required");
-
-    await owner.query("update bureaus set status = 'inactive' where id = $1", [tenant.bureau.id]);
-    await expect(
-      deactivateUserAndRevokeSessions(tenant.bureauAdmin.userId, tenant.operator.userId),
-    ).rejects.toThrow("administrator authorization is required");
   });
 });

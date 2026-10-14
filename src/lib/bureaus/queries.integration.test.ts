@@ -40,7 +40,7 @@ import { saveAiPrompts } from "@/actions/settings";
 import { getPublicBureau } from "@/lib/bureaus/public";
 import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedSuperadmin, seedTenant, type SeedSuperadmin } from "@/test/seed";
+import { seedSuperadmin, seedSupportSession, seedTenant, type SeedSuperadmin } from "@/test/seed";
 
 import {
 	createBureau,
@@ -203,17 +203,18 @@ describe("updateBureau / setBureauStatus", () => {
 });
 
 describe("inviteBureauAdmin", () => {
-	it("resends safely to a pending admin and rejects a duplicate e-mail of another role", async () => {
+	it("rejects the e-mail of a pending admin (profile hidden by RLS) and of another role", async () => {
 		const input = newInput();
 		const created = await createBureau(superadmin, input);
 		if (!created.ok) throw new Error("setup");
 
-		const resend = await inviteBureauAdmin(superadmin, {
-			bureauId: created.id,
-			name: input.adminName,
-			email: input.adminEmail,
-		});
-		expect(resend).toMatchObject({ ok: true, resent: true });
+		await expect(
+			inviteBureauAdmin(superadmin, {
+				bureauId: created.id,
+				name: input.adminName,
+				email: input.adminEmail,
+			}),
+		).resolves.toEqual({ ok: false, reason: "email_in_use" });
 
 		const tenant = await seedTenant(owner, "inv");
 		const { rows } = await owner.query<{ email: string }>(
@@ -227,6 +228,34 @@ describe("inviteBureauAdmin", () => {
 				email: rows[0].email,
 			}),
 		).resolves.toEqual({ ok: false, reason: "email_in_use" });
+	});
+});
+
+describe("audit attribution of platform mutations", () => {
+	it("keeps bureau_id and support_session_id null while the superadmin is in a support session", async () => {
+		const tenant = await seedTenant(owner, "support");
+		const sessionId = await seedSupportSession(owner, {
+			superadminId: superadmin.userId,
+			bureauId: tenant.bureau.id,
+		});
+		const inSupport = { ...superadmin, bureauId: tenant.bureau.id, supportSessionId: sessionId };
+
+		const created = await createBureau(inSupport, newInput());
+		if (!created.ok) throw new Error("setup");
+		await updateBureau(inSupport, { id: created.id, name: "Outro Nome" });
+		await setBureauStatus(inSupport, created.id, "inactive");
+
+		const { rows } = await owner.query(
+			"select action, bureau_id, support_session_id from audit_logs where user_id = $1 order by action",
+			[superadmin.userId],
+		);
+		expect(rows.map((r) => r.action)).toEqual([
+			"bureau.create",
+			"bureau.deactivate",
+			"bureau.update",
+			"user.invite",
+		]);
+		for (const row of rows) expect(row).toMatchObject({ bureau_id: null, support_session_id: null });
 	});
 });
 

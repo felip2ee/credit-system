@@ -26,7 +26,13 @@ const EMAIL_FAILED = "Convite registrado, mas o e-mail falhou. Use Reenviar.";
 type TeamSession = RequiredSession & { bureauId: string };
 
 async function requireTeamManager(): Promise<TeamSession | null> {
-	const session = await getRequiredSession();
+	// Sessão expirada lança SessionAccessError: a action devolve { error } em vez de lançar ao cliente.
+	let session: RequiredSession;
+	try {
+		session = await getRequiredSession();
+	} catch {
+		return null;
+	}
 	if (!hasPermission(session, "users:manage") || !session.bureauId) return null;
 	return { ...session, bureauId: session.bureauId };
 }
@@ -47,16 +53,17 @@ async function lockStaffTarget(
 	return rows[0] ?? null;
 }
 
-// Trava os admins ativos e confere se sobra outro além do alvo.
+// Trava os admins ativos que conseguem entrar (têm conta; convite pendente não conta) e confere se sobra outro além do alvo.
 async function hasOtherActiveAdmin(
 	client: PoolClient,
 	bureauId: string,
 	userId: string,
 ): Promise<boolean> {
 	const { rows } = await client.query<{ id: string }>(
-		`select id from profiles
-      where bureau_id = $1 and role = 'bureau_admin' and is_active
-        for update`,
+		`select p.id from profiles p
+      where p.bureau_id = $1 and p.role = 'bureau_admin' and p.is_active
+        and exists (select 1 from account a where a.user_id = p.auth_user_id)
+        for update of p`,
 		[bureauId],
 	);
 	return rows.some((row) => row.id !== userId);

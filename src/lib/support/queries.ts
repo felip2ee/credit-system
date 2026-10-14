@@ -3,7 +3,7 @@
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
-import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { platformIdentity, withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
 export const SUPPORT_REASON_MAX = 500;
 
@@ -17,9 +17,25 @@ export type EndSupportResult =
 
 type EndedSession = { id: string; bureau_id: string; reason: string };
 
-// Início e fim são eventos da plataforma: sem Bureau e sem sessão de suporte no contexto.
-function platformIdentity(identity: DbIdentity): DbIdentity {
-	return { userId: identity.userId, role: identity.role, bureauId: null };
+// Início e fim ficam na trilha do Bureau alvo: o contexto de auditoria passa a ser o da sessão de suporte
+// só para esta escrita (o RLS de audit_logs exige que a linha repita o contexto).
+async function writeSupportAudit(
+	client: PoolClient,
+	action: "support.start" | "support.end",
+	session: { id: string; bureauId: string; reason: string },
+	actorId: string,
+): Promise<void> {
+	await client.query(
+		`select set_config('app.bureau_id', $1, true), set_config('app.support_session_id', $2, true)`,
+		[session.bureauId, session.id],
+	);
+	await writeAuditEvent(client, {
+		actorId,
+		action,
+		targetTable: "support_sessions",
+		targetId: session.id,
+		metadata: { bureauId: session.bureauId, reason: session.reason },
+	});
 }
 
 async function endOpenSessions(
@@ -33,13 +49,12 @@ async function endOpenSessions(
 		[identity.userId],
 	);
 	for (const row of rows) {
-		await writeAuditEvent(client, {
-			actorId: identity.userId,
-			action: "support.end",
-			targetTable: "support_sessions",
-			targetId: row.id,
-			metadata: { bureauId: row.bureau_id, reason: row.reason },
-		});
+		await writeSupportAudit(
+			client,
+			"support.end",
+			{ id: row.id, bureauId: row.bureau_id, reason: row.reason },
+			identity.userId,
+		);
 	}
 	return rows;
 }
@@ -67,13 +82,12 @@ export async function startSupportSession(
        values ($1, $2, $3) returning id, expires_at`,
 			[platform.userId, input.bureauId, reason],
 		);
-		await writeAuditEvent(client, {
-			actorId: platform.userId,
-			action: "support.start",
-			targetTable: "support_sessions",
-			targetId: rows[0].id,
-			metadata: { bureauId: input.bureauId, reason },
-		});
+		await writeSupportAudit(
+			client,
+			"support.start",
+			{ id: rows[0].id, bureauId: input.bureauId, reason },
+			platform.userId,
+		);
 		return { ok: true, id: rows[0].id, expiresAt: rows[0].expires_at };
 	});
 }

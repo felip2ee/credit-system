@@ -11,6 +11,11 @@ export type DbIdentity = {
   supportSessionId?: string | null;
 };
 
+// Eventos da plataforma não levam Bureau nem sessão de suporte, mesmo se o superadmin estiver em suporte.
+export function platformIdentity(identity: DbIdentity): DbIdentity {
+  return { userId: identity.userId, role: identity.role, bureauId: null };
+}
+
 export async function withUserTransaction<T>(
   identity: DbIdentity,
   work: (client: PoolClient) => Promise<T>,

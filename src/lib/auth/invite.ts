@@ -1,24 +1,22 @@
 // Convite de usuário: cria user + profile + auditoria no cliente da transação do chamador.
 // O e-mail sai só depois do commit (sendInviteEmail); o reenvio é seguro (idempotente).
 import type { PoolClient } from "pg";
-import { z } from "zod";
 
 import { writeAuditEvent } from "@/lib/audit/write";
 import { config } from "@/lib/config";
 
 import { auth } from "./server";
 
-export const inviteInputSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
-  fullName: z.string().trim().min(3),
-  role: z.enum(["bureau_admin", "operator", "client"]),
-  bureauId: z.string().uuid(),
-});
-
-export type InviteInput = z.infer<typeof inviteInputSchema>;
+// Os chamadores já validam a entrada com zod (users.ts, validators/bureau, portal.ts).
+export type InviteInput = {
+  email: string;
+  fullName: string;
+  role: "bureau_admin" | "operator" | "client";
+  bureauId: string;
+};
 
 export type InviteOutcome =
-  | { ok: true; userId: string; resent: boolean }
+  | { ok: true; userId: string; resent: boolean; reactivated?: true }
   | { ok: false; reason: "email_in_use" | "already_member" };
 
 type ExistingUser = {
@@ -26,6 +24,7 @@ type ExistingUser = {
   role: string | null;
   bureauId: string | null;
   hasAccount: boolean;
+  isActive: boolean | null;
 };
 
 export async function createInvite(
@@ -37,7 +36,7 @@ export async function createInvite(
 
   // O RLS só mostra perfis do Bureau do chamador: perfil invisível equivale a "sem perfil".
   const { rows } = await client.query<ExistingUser>(
-    `select u.id, p.role::text as role, p.bureau_id as "bureauId",
+    `select u.id, p.role::text as role, p.bureau_id as "bureauId", p.is_active as "isActive",
             exists (select 1 from account a where a.user_id = u.id) as "hasAccount"
        from "user" u
        left join profiles p on p.auth_user_id = u.id
@@ -49,6 +48,11 @@ export async function createInvite(
   if (existing) {
     if (existing.role !== input.role || existing.bureauId !== input.bureauId) {
       return { ok: false, reason: "email_in_use" };
+    }
+    // Cliente revogado volta pelo convite do Titular; equipe desativada volta só por setUserActive.
+    if (input.role === "client" && existing.isActive === false) {
+      await client.query("update profiles set is_active = true, updated_at = now() where id = $1", [existing.id]);
+      return { ok: true, userId: existing.id, resent: true, reactivated: true };
     }
     if (existing.hasAccount) return { ok: false, reason: "already_member" };
     return { ok: true, userId: existing.id, resent: true };

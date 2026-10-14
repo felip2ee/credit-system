@@ -35,7 +35,7 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedTenant, type SeededTenant } from "@/test/seed";
 
-import { createInvite, inviteInputSchema, sendInviteEmail, type InviteInput } from "./invite";
+import { createInvite, sendInviteEmail, type InviteInput } from "./invite";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
 
@@ -186,29 +186,75 @@ describe("createInvite", () => {
   });
 });
 
-describe("inviteInputSchema", () => {
-  const valid = {
-    email: "  Pessoa@Example.TEST ",
-    fullName: "  Pessoa Convidada ",
-    role: "operator",
-    bureauId: "66666666-6666-4666-8666-666666666666",
-  };
+// O gatilho de perfil só deixa um bureau_admin mudar is_active, até para o dono do banco.
+async function deactivateProfile(id: string) {
+  const client = await owner.connect();
+  try {
+    await client.query("begin");
+    await client.query("select set_config('app.user_role', 'bureau_admin', true)");
+    await client.query("update profiles set is_active = false where id = $1", [id]);
+    await client.query("commit");
+  } finally {
+    client.release();
+  }
+}
 
-  it("normalizes e-mail and name", () => {
-    expect(inviteInputSchema.parse(valid)).toEqual({
-      ...valid,
-      email: "pessoa@example.test",
-      fullName: "Pessoa Convidada",
+describe("createInvite re-invite of a revoked client", () => {
+  async function revokeClient(tenant: SeededTenant, withAccount: boolean) {
+    if (withAccount) {
+      await owner.query(
+        "insert into account (id, issuer, account_id, provider_id, user_id, password, updated_at) values ($1, 'local:credential', $2, 'credential', $2, 'hash', now())",
+        [randomUUID(), tenant.client.userId],
+      );
+    }
+    await deactivateProfile(tenant.client.userId);
+    const { rows } = await owner.query<{ email: string }>("select email from profiles where id = $1", [
+      tenant.client.userId,
+    ]);
+    return rows[0].email;
+  }
+
+  it.each([true, false])("reactivates the inactive client profile (account: %s)", async (withAccount) => {
+    const tenant = await seedTenant(owner, "invite");
+    const email = await revokeClient(tenant, withAccount);
+
+    const outcome = await asAdmin(
+      tenant,
+      inviteFor(tenant, { email, role: "client" }),
+    );
+
+    expect(outcome).toEqual({ ok: true, userId: tenant.client.userId, resent: true, reactivated: true });
+    const { rows } = await owner.query("select is_active from profiles where id = $1", [tenant.client.userId]);
+    expect(rows).toEqual([{ is_active: true }]);
+  });
+
+  it("does not reactivate an inactive staff profile", async () => {
+    const tenant = await seedTenant(owner, "invite");
+    await owner.query(
+      "insert into account (id, issuer, account_id, provider_id, user_id, password, updated_at) values ($1, 'local:credential', $2, 'credential', $2, 'hash', now())",
+      [randomUUID(), tenant.operator.userId],
+    );
+    await deactivateProfile(tenant.operator.userId);
+    const { rows } = await owner.query<{ email: string }>("select email from profiles where id = $1", [
+      tenant.operator.userId,
+    ]);
+
+    await expect(asAdmin(tenant, inviteFor(tenant, { email: rows[0].email }))).resolves.toEqual({
+      ok: false,
+      reason: "already_member",
     });
   });
 
-  it.each([
-    ["bureauId is not a uuid", { bureauId: "not-a-uuid" }],
-    ["name is too short", { fullName: "ab" }],
-    ["e-mail is invalid", { email: "nope" }],
-    ["role is superadmin", { role: "superadmin" }],
-  ])("fails when %s", (_name, patch) => {
-    expect(inviteInputSchema.safeParse({ ...valid, ...patch }).success).toBe(false);
+  it("rejects the client e-mail of another bureau", async () => {
+    const tenant = await seedTenant(owner, "invite");
+    const other = await seedTenant(owner, "invite-other");
+    const email = await revokeClient(other, true);
+
+    await expect(
+      asAdmin(tenant, inviteFor(tenant, { email, role: "client" })),
+    ).resolves.toEqual({ ok: false, reason: "email_in_use" });
+    const { rows } = await owner.query("select is_active from profiles where id = $1", [other.client.userId]);
+    expect(rows).toEqual([{ is_active: false }]);
   });
 });
 

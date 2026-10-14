@@ -35,6 +35,8 @@ vi.mock("@/lib/auth/invite", () => ({
 	sendInviteEmail: state.sendInviteEmail,
 }));
 
+import { getRequiredSession } from "@/lib/auth/session";
+
 import {
 	inviteTeamMember,
 	resendTeamInvite,
@@ -72,6 +74,19 @@ describe("permissions and validation", () => {
 		for (const result of results) expect(result.error).toBeTruthy();
 		expect(state.query).not.toHaveBeenCalled();
 		expect(state.createInvite).not.toHaveBeenCalled();
+	});
+
+	it("returns an error instead of throwing when the session is expired", async () => {
+		const expired = new Error("session_idle_expired");
+		for (let i = 0; i < 4; i++) vi.mocked(getRequiredSession).mockRejectedValueOnce(expired);
+		const results = await Promise.all([
+			inviteTeamMember(invite),
+			resendTeamInvite({ userId: OTHER_ID }),
+			setUserRole({ userId: OTHER_ID, role: "operator" }),
+			setUserActive({ userId: OTHER_ID, isActive: false }),
+		]);
+		for (const result of results) expect(result.error).toBeTruthy();
+		expect(state.query).not.toHaveBeenCalled();
 	});
 
 	it("rejects a non-uuid userId and roles outside the enum", async () => {

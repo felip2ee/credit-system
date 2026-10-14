@@ -44,7 +44,14 @@ export async function inviteHolderToPortal(holderId: string): Promise<ActionResu
       );
       const holder = found.rows[0];
       if (!holder) throw new Error("holder_not_found");
-      if (holder.client_profile_id) throw new Error("already_invited");
+      // Convite ainda sem conta (e-mail falhou, por exemplo) segue o caminho seguro de reenvio.
+      if (holder.client_profile_id) {
+        const accepted = await client.query(
+          "select 1 from account where user_id = $1::text",
+          [holder.client_profile_id],
+        );
+        if (accepted.rows[0]) throw new Error("already_invited");
+      }
       email = holder.email?.trim().toLowerCase();
       if (!email || !EMAIL_PATTERN.test(email)) throw new Error("invalid_email");
 
@@ -60,7 +67,7 @@ export async function inviteHolderToPortal(holderId: string): Promise<ActionResu
       await client.query("update holders set client_profile_id = $2 where id = $1", [holderId, userId]);
       await writeAuditEvent(client, {
         actorId: actor.userId,
-        action: "portal.invite",
+        action: invite.reactivated ? "portal.reinvite" : "portal.invite",
         targetTable: "holders",
         targetId: holderId,
         metadata: { email },
@@ -77,8 +84,10 @@ export async function inviteHolderToPortal(holderId: string): Promise<ActionResu
   }
 
   if (!email || !userId) return { error: "Não foi possível criar o acesso." };
-  if (!(await sendInviteEmail(email))) return { error: "Acesso criado, mas o link para definir a senha falhou." };
+  // O vínculo já foi gravado: revalida mesmo se o e-mail falhar; novo convite reenvia.
   revalidatePath(`/holders/${holderId}`);
+  if (!(await sendInviteEmail(email)))
+    return { error: "Acesso criado, mas o link para definir a senha falhou. Tente convidar de novo." };
   return { error: null, id: userId };
 }
 

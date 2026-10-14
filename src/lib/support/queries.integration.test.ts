@@ -142,7 +142,7 @@ describe("startSupportSession", () => {
 		expect(open.map((r) => r.id)).toEqual([second.id]);
 	});
 
-	it("writes support.start with null bureau_id", async () => {
+	it("writes support.start with the target bureau and the new session", async () => {
 		const result = await startSupportSession(superadmin, {
 			bureauId: tenant.bureau.id,
 			reason: "chamado 9",
@@ -154,8 +154,8 @@ describe("startSupportSession", () => {
 		);
 		expect(rows).toEqual([
 			{
-				bureau_id: null,
-				support_session_id: null,
+				bureau_id: tenant.bureau.id,
+				support_session_id: result.id,
 				metadata: { bureauId: tenant.bureau.id, reason: "chamado 9" },
 			},
 		]);
@@ -170,7 +170,7 @@ describe("endSupportSession", () => {
 		});
 	});
 
-	it("ends the session and writes support.end with null bureau_id", async () => {
+	it("ends the session and writes support.end with the target bureau and session", async () => {
 		const started = await startSupportSession(superadmin, {
 			bureauId: tenant.bureau.id,
 			reason: "chamado 5",
@@ -188,12 +188,13 @@ describe("endSupportSession", () => {
 		);
 		expect(session.rows[0].ended_at).not.toBeNull();
 		const audit = await owner.query(
-			"select bureau_id, metadata from audit_logs where action = 'support.end' and record_id = $1",
+			"select bureau_id, support_session_id, metadata from audit_logs where action = 'support.end' and record_id = $1",
 			[started.id],
 		);
 		expect(audit.rows).toEqual([
 			{
-				bureau_id: null,
+				bureau_id: tenant.bureau.id,
+				support_session_id: started.id,
 				metadata: { bureauId: tenant.bureau.id, reason: "chamado 5" },
 			},
 		]);
@@ -278,7 +279,22 @@ describe("audit trail", () => {
 		const logs = await listAuditLogs(tenant.bureauAdmin);
 		const row = logs.find((l) => l.action === "holder.view");
 		expect(row?.supportSessionId).toBe(started.id);
-		// O início é evento da plataforma: o Bureau não o vê.
-		expect(logs.some((l) => l.action === "support.start")).toBe(false);
+		// O Bureau vê quando o suporte entrou, com o motivo.
+		const start = logs.find((l) => l.action === "support.start");
+		expect(start?.supportSessionId).toBe(started.id);
+	});
+
+	it("shows support.start and support.end to the bureau_admin and to the platform", async () => {
+		const started = await startSupportSession(superadmin, {
+			bureauId: tenant.bureau.id,
+			reason: "chamado 12",
+		});
+		if (!started.ok) throw new Error("setup");
+		await endSupportSession(superadmin);
+
+		const bureauActions = (await listAuditLogs(tenant.bureauAdmin)).map((l) => l.action);
+		expect(bureauActions).toEqual(expect.arrayContaining(["support.start", "support.end"]));
+		const platformActions = (await listAuditLogs(superadmin)).map((l) => l.action);
+		expect(platformActions).toEqual(expect.arrayContaining(["support.start", "support.end"]));
 	});
 });

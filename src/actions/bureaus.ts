@@ -118,7 +118,7 @@ export async function inviteBureauAdmin(values: unknown): Promise<BureauActionRe
       error:
         result.reason === "already_member"
           ? "Este usuário já ativou a conta."
-          : "Este e-mail já pertence a outro usuário.",
+          : "E-mail já cadastrado. Peça ao administrador para usar 'Esqueci a senha' na tela de login.",
     };
   }
   if (!(await sendInviteEmail(parsed.data.email))) return { error: INVITE_EMAIL_FAILED };

@@ -2,7 +2,7 @@
 // A permissão `bureaus:manage` é checada na action; aqui o RLS barra quem não é superadmin.
 import { writeAuditEvent } from "@/lib/audit/write";
 import { createInvite, type InviteOutcome } from "@/lib/auth/invite";
-import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { platformIdentity, withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import type { BureauCreate, BureauUpdate } from "@/lib/validators/bureau";
 
 export type BureauStatus = "active" | "inactive";
@@ -40,7 +40,7 @@ export async function createBureau(
 	input: BureauCreate,
 ): Promise<CreateBureauResult> {
 	try {
-		return await withUserTransaction(identity, async (client) => {
+		return await withUserTransaction(platformIdentity(identity), async (client) => {
 			const { rows } = await client.query<{ id: string }>(
 				"insert into bureaus (name, slug) values ($1, $2) returning id",
 				[input.name.trim(), input.slug],
@@ -84,7 +84,7 @@ export async function updateBureau(
 	identity: DbIdentity,
 	input: BureauUpdate,
 ): Promise<{ ok: true } | { ok: false; reason: "not_found" }> {
-	return withUserTransaction(identity, async (client) => {
+	return withUserTransaction(platformIdentity(identity), async (client) => {
 		const { rowCount } = await client.query(
 			"update bureaus set name = $2 where id = $1",
 			[input.id, input.name.trim()],
@@ -105,7 +105,7 @@ export async function setBureauStatus(
 	id: string,
 	status: BureauStatus,
 ): Promise<{ ok: true } | { ok: false; reason: "not_found" }> {
-	return withUserTransaction(identity, async (client) => {
+	return withUserTransaction(platformIdentity(identity), async (client) => {
 		const { rowCount } = await client.query(
 			"update bureaus set status = $2 where id = $1",
 			[id, status],
@@ -172,7 +172,7 @@ export async function inviteBureauAdmin(
 	identity: DbIdentity,
 	input: { bureauId: string; name: string; email: string },
 ): Promise<InviteOutcome> {
-	return withUserTransaction(identity, (client) =>
+	return withUserTransaction(platformIdentity(identity), (client) =>
 		createInvite(client, identity.userId, {
 			email: input.email,
 			fullName: input.name,

@@ -1,5 +1,5 @@
 import { pool } from "@/lib/db/pool";
-import { withUserTransaction, type AppRole } from "@/lib/db/transaction";
+import type { AppRole } from "@/lib/db/transaction";
 
 export type AuthProfile = {
   userId: string;
@@ -53,44 +53,4 @@ export async function findAuthProfile(authUserId: string): Promise<AuthProfile |
 
 export async function revokeUserSessions(userId: string): Promise<void> {
   await pool.query('delete from "session" where user_id = $1', [userId]);
-}
-
-async function withAdministratorTransaction<T>(
-  actorUserId: string,
-  work: Parameters<typeof withUserTransaction<T>>[1],
-): Promise<T> {
-  const actor = await findAuthProfile(actorUserId);
-  if (!actor?.isActive || !actor.bureauActive || actor.role !== "bureau_admin") {
-    throw new Error("administrator authorization is required");
-  }
-  return withUserTransaction({ userId: actor.userId, role: actor.role, bureauId: actor.bureauId }, work);
-}
-
-export async function changeRoleAndRevokeSessions(
-  actorUserId: string,
-  userId: string,
-  role: "bureau_admin" | "operator",
-): Promise<void> {
-  await withAdministratorTransaction(actorUserId, async (client) => {
-    const result = await client.query(
-      "update profiles set role = $1, updated_at = now() where id = $2",
-      [role, userId],
-    );
-    if (result.rowCount !== 1) throw new Error("profile not found");
-    await client.query('delete from "session" where user_id = $1', [userId]);
-  });
-}
-
-export async function deactivateUserAndRevokeSessions(
-  actorUserId: string,
-  userId: string,
-): Promise<void> {
-  await withAdministratorTransaction(actorUserId, async (client) => {
-    const result = await client.query(
-      "update profiles set is_active = false, updated_at = now() where id = $1",
-      [userId],
-    );
-    if (result.rowCount !== 1) throw new Error("profile not found");
-    await client.query('delete from "session" where user_id = $1', [userId]);
-  });
 }
