@@ -6,15 +6,10 @@ import { signOut } from "@/actions/auth";
 import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { Button } from "@/components/ui/button";
 import { getCurrentProfile } from "@/lib/auth";
-import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
+import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
-  const session = await getRequiredSession().catch((err) => {
-    if (err instanceof SessionAccessError && err.code === "mfa_setup_required") {
-      redirect("/mfa/setup");
-    }
-    redirect("/login");
-  });
+  const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
   if (session.role !== "client") redirect("/");
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
