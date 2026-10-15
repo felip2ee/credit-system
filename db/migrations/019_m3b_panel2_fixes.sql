@@ -16,6 +16,75 @@
 -- 4) Sai o índice pix_charges_bureau_created_idx (012): a 018 criou pix_charges_bureau_own_created_idx, que atende
 --    a lista de cobranças do Bureau (client_profile_id is null); as consultas de cobrança do cliente usam
 --    pix_charges_client_created_idx.
+-- 8) Cobrança PIX do cliente nasce antes da chamada ao Asaas, com external_reference. O id do pagamento e o código PIX
+--    entram depois, por bind_pix_charge. Falha do Asaas fecha a linha por cancel_unbound_pix_charge (não conta no teto).
+--    O webhook acha a cobrança também por payment.externalReference, quando o bind falhou.
+
+-- 8) Cobrança sem id de pagamento: a referência externa a identifica até o bind. Pago ou estornado exige o id (o webhook
+-- o grava ao achar a cobrança pela referência).
+alter table pix_charges alter column asaas_payment_id drop not null;
+alter table pix_charges alter column pix_payload drop not null;
+alter table pix_charges add column external_reference uuid unique;
+alter table pix_charges add constraint pix_charges_unbound_check
+  check (asaas_payment_id is not null or (external_reference is not null and status in ('pending', 'cancelled')));
+grant insert (external_reference) on pix_charges to app_runtime;
+grant update (asaas_payment_id, pix_payload) on pix_charges to auth_profile_lookup;
+
+-- 8) Liga a cobrança pré-criada ao pagamento do Asaas. Só o autor, só enquanto pendente e sem id; repetir o mesmo id é
+-- inofensivo (o webhook pode ter ligado antes). Uma única transição: asaas_payment_id e pix_payload saem de nulo.
+create function bind_pix_charge(p_charge_id uuid, p_asaas_payment_id text, p_pix_payload text)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_charge public.pix_charges;
+begin
+  if not public.app_context_present() or public.app_user_id() is null or p_charge_id is null
+     or p_asaas_payment_id is null or btrim(p_asaas_payment_id) = ''
+     or p_pix_payload is null or btrim(p_pix_payload) = '' then
+    return false;
+  end if;
+  select * into v_charge from public.pix_charges
+   where id = p_charge_id and requested_by = public.app_user_id() and bureau_id = public.app_bureau_id()
+   for update;
+  if v_charge.id is null or v_charge.status <> 'pending' then
+    return false;
+  end if;
+  if v_charge.asaas_payment_id is null then
+    update public.pix_charges set asaas_payment_id = p_asaas_payment_id, pix_payload = p_pix_payload
+     where id = v_charge.id;
+    return true;
+  end if;
+  return v_charge.asaas_payment_id = p_asaas_payment_id;
+end
+$$;
+
+-- 8) Fecha a cobrança que o Asaas não criou: sai do teto de pendentes. Só o autor, só sem id de pagamento.
+create function cancel_unbound_pix_charge(p_charge_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if not public.app_context_present() or public.app_user_id() is null or p_charge_id is null then
+    return false;
+  end if;
+  update public.pix_charges set status = 'cancelled'
+   where id = p_charge_id and requested_by = public.app_user_id() and bureau_id = public.app_bureau_id()
+     and status = 'pending' and asaas_payment_id is null;
+  return found;
+end
+$$;
+
+alter function bind_pix_charge(uuid, text, text) owner to auth_profile_lookup;
+alter function cancel_unbound_pix_charge(uuid) owner to auth_profile_lookup;
+revoke all on function bind_pix_charge(uuid, text, text) from public;
+revoke all on function cancel_unbound_pix_charge(uuid) from public;
+grant execute on function bind_pix_charge(uuid, text, text) to app_runtime;
+grant execute on function cancel_unbound_pix_charge(uuid) to app_runtime;
 
 -- 5) Ordem dos pedidos de uma carteira: seq cresce a cada reserva (created_at empata na mesma transação).
 alter table order_settlements add column seq bigint generated always as identity;
@@ -257,8 +326,22 @@ declare
   v_clawback numeric := 0;
   v_audit_table text;
   v_audit_record uuid;
+  v_ref text;
 begin
   select * into v_charge from public.pix_charges where asaas_payment_id = p_asaas_payment_id;
+
+  -- Reserva: o bind do id do pagamento falhou. A cobrança sem id é achada por payment.externalReference e ganha o id.
+  -- O valor creditado continua sendo pix_charges.amount.
+  if v_charge.id is null then
+    v_ref := p_payload -> 'payment' ->> 'externalReference';
+    if v_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+      select * into v_charge from public.pix_charges
+       where external_reference = v_ref::uuid and asaas_payment_id is null for update;
+      if v_charge.id is not null then
+        update public.pix_charges set asaas_payment_id = p_asaas_payment_id where id = v_charge.id;
+      end if;
+    end if;
+  end if;
 
   -- Cobrança desconhecida: guarda só o registro do evento, sem o corpo (evita inchar a tabela).
   insert into public.asaas_webhook_events (bureau_id, event_id, event_type, asaas_payment_id, payload, result)

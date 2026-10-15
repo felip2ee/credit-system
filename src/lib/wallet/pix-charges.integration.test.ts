@@ -45,13 +45,16 @@ import { seedClientProfile, seedPixCharge, seedSuperadmin, seedTenant } from "@/
 
 import {
 	countPendingClientPixCharges,
+	bindPixCharge,
+	cancelUnboundPixCharge,
 	countPendingPixCharges,
-	createClientPixCharge,
 	createPixCharge,
 	getPixCharge,
 	listClientPixCharges,
 	listPixCharges,
 	listRefundShortfalls,
+	lockClientPixCharges,
+	reserveClientPixCharge,
 } from "./pix-charges";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
@@ -607,25 +610,22 @@ async function clientBalance(clientProfileId: string): Promise<string> {
 	return rows[0].available;
 }
 
-const clientInput = (amount = "100.00") => ({
-	asaasPaymentId: `pay_${randomUUID()}`,
-	pixPayload: "000201clientpix",
-	amount,
-});
+const clientInput = (amount = "100.00") => ({ externalReference: randomUUID(), amount });
+const boundInput = () => ({ asaasPaymentId: `pay_${randomUUID()}`, pixPayload: "000201clientpix" });
 
-describe("createClientPixCharge", () => {
-	it("stores a pending charge of the client for 30 minutes and audits the request", async () => {
+describe("reserveClientPixCharge", () => {
+	it("stores an unbound pending charge of the client for 30 minutes and audits the request", async () => {
 		const tenant = await seedTenant(owner, "Cli Pix A");
 		const client = tenant.client;
 
 		const result = await withUserTransaction(client, (c) =>
-			createClientPixCharge(c, client, clientInput()),
+			reserveClientPixCharge(c, client, clientInput()),
 		);
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		const { rows } = await owner.query(
-			`select status, amount, client_profile_id, requested_by, bureau_id,
+			`select status, amount, client_profile_id, requested_by, bureau_id, asaas_payment_id, pix_payload,
 			  round(extract(epoch from (expires_at - created_at)) / 60)::text as minutes
 			 from pix_charges where id = $1`,
 			[result.id],
@@ -637,13 +637,14 @@ describe("createClientPixCharge", () => {
 			client_profile_id: client.userId,
 			requested_by: client.userId,
 			bureau_id: tenant.bureau.id,
+			asaas_payment_id: null,
+			pix_payload: null,
 		});
 		const audit = await owner.query(
 			"select metadata from audit_logs where action = 'wallet.topup.request' and record_id = $1",
 			[result.id],
 		);
 		expect(audit.rows).toHaveLength(1);
-		expect(JSON.stringify(audit.rows[0].metadata)).not.toContain("000201clientpix");
 	});
 
 	it.each(["9.99", "5000.01", "10.005", "x"])("rejects amount %s", async (amount) => {
@@ -651,7 +652,7 @@ describe("createClientPixCharge", () => {
 		const client = tenant.client;
 
 		const result = await withUserTransaction(client, (c) =>
-			createClientPixCharge(c, client, clientInput(amount)),
+			reserveClientPixCharge(c, client, clientInput(amount)),
 		);
 
 		expect(result).toEqual({ ok: false, reason: "invalid_amount" });
@@ -662,7 +663,7 @@ describe("createClientPixCharge", () => {
 		for (const identity of [tenant.operator, tenant.bureauAdmin]) {
 			await expect(
 				withUserTransaction(identity, (c) =>
-					createClientPixCharge(c, { ...identity, userId: tenant.client.userId }, clientInput()),
+					reserveClientPixCharge(c, { ...identity, userId: tenant.client.userId }, clientInput()),
 				),
 			).rejects.toThrow(/row-level security/);
 		}
@@ -674,7 +675,7 @@ describe("createClientPixCharge", () => {
 
 		await expect(
 			withUserTransaction(tenant.client, (c) =>
-				createClientPixCharge(c, { ...tenant.client, userId: other.userId }, clientInput()),
+				reserveClientPixCharge(c, { ...tenant.client, userId: other.userId }, clientInput()),
 			),
 		).rejects.toThrow(/row-level security/);
 	});
@@ -775,10 +776,15 @@ describe("client top-up through the webhook (fake driver)", () => {
 	async function clientCharge(label: string, amount = "100.00") {
 		const tenant = await seedTenant(owner, label);
 		const client = tenant.client;
-		const input = { ...clientInput(amount) };
-		const created = await withUserTransaction(client, (c) => createClientPixCharge(c, client, input));
+		const input = clientInput(amount);
+		const bind = boundInput();
+		const created = await withUserTransaction(client, async (c) => {
+			const row = await reserveClientPixCharge(c, client, input);
+			if (row.ok) await bindPixCharge(c, row.id, bind);
+			return row;
+		});
 		if (!created.ok) throw new Error("charge not created");
-		return { tenant, client, input, id: created.id };
+		return { tenant, client, input: { ...input, ...bind }, id: created.id };
 	}
 
 	it("credits the client wallet with the local amount, leaves the Bureau wallet intact and ignores a repeated event", async () => {
@@ -819,5 +825,140 @@ describe("client top-up through the webhook (fake driver)", () => {
 
 		expect(await clientBalance(tenant.client.userId)).toBe("50.00");
 		expect(await balance(tenant.bureau.id)).toBe("0.00");
+	});
+});
+
+describe("client PIX charge reserved before Asaas (B4)", () => {
+	const chargeRow = async (id: string) =>
+		(
+			await owner.query(
+				"select status, asaas_payment_id, pix_payload, external_reference from pix_charges where id = $1",
+				[id],
+			)
+		).rows[0];
+
+	async function reserve(label: string) {
+		const tenant = await seedTenant(owner, label);
+		const input = clientInput();
+		const row = await withUserTransaction(tenant.client, (c) => reserveClientPixCharge(c, tenant.client, input));
+		if (!row.ok) throw new Error("charge not reserved");
+		return { tenant, client: tenant.client, id: row.id, externalReference: input.externalReference };
+	}
+
+	it("binds the Asaas payment id and the PIX code once, and accepts the same id again", async () => {
+		const { client, id } = await reserve("B4 Bind A");
+		const bind = boundInput();
+
+		expect(await withUserTransaction(client, (c) => bindPixCharge(c, id, bind))).toBe(true);
+		expect(await withUserTransaction(client, (c) => bindPixCharge(c, id, bind))).toBe(true);
+		expect(
+			await withUserTransaction(client, (c) => bindPixCharge(c, id, { ...bind, asaasPaymentId: "pay_other" })),
+		).toBe(false);
+		expect(await chargeRow(id)).toMatchObject({
+			status: "pending",
+			asaas_payment_id: bind.asaasPaymentId,
+			pix_payload: bind.pixPayload,
+		});
+	});
+
+	it("does not bind a charge of another user or a charge that is no longer pending", async () => {
+		const { tenant, client, id } = await reserve("B4 Bind B");
+		const other = await seedClientProfile(owner, tenant.bureau.id);
+
+		expect(await withUserTransaction(other, (c) => bindPixCharge(c, id, boundInput()))).toBe(false);
+		expect(await withUserTransaction(tenant.bureauAdmin, (c) => bindPixCharge(c, id, boundInput()))).toBe(false);
+		await withUserTransaction(client, (c) => cancelUnboundPixCharge(c, id));
+		expect(await withUserTransaction(client, (c) => bindPixCharge(c, id, boundInput()))).toBe(false);
+		expect((await chargeRow(id)).asaas_payment_id).toBeNull();
+	});
+
+	it("cancels an unbound charge: it leaves the cap, and it never cancels a bound or foreign charge", async () => {
+		const { tenant, client, id } = await reserve("B4 Cancel");
+		const other = await seedClientProfile(owner, tenant.bureau.id);
+		const count = () => withUserTransaction(client, (c) => countPendingClientPixCharges(c, client.userId));
+		expect(await count()).toBe(1);
+
+		await withUserTransaction(other, (c) => cancelUnboundPixCharge(c, id));
+		expect((await chargeRow(id)).status).toBe("pending");
+		await withUserTransaction(client, (c) => cancelUnboundPixCharge(c, id));
+		expect((await chargeRow(id)).status).toBe("cancelled");
+		expect(await count()).toBe(0);
+
+		const second = await withUserTransaction(client, (c) => reserveClientPixCharge(c, client, clientInput()));
+		if (!second.ok) throw new Error("charge not reserved");
+		await withUserTransaction(client, (c) => bindPixCharge(c, second.id, boundInput()));
+		await withUserTransaction(client, (c) => cancelUnboundPixCharge(c, second.id));
+		expect((await chargeRow(second.id)).status).toBe("pending");
+	});
+
+	it("credits through payment.externalReference when the bind never happened, and binds the payment id", async () => {
+		const { tenant, client, id, externalReference } = await reserve("B4 Hook A");
+		const asaasPaymentId = `pay_${randomUUID()}`;
+		const event = buildFakePaymentEvent({ eventId: evt(), asaasPaymentId, value: 999, externalReference });
+
+		expect((await webhook(event)).status).toBe(200);
+		expect(await clientBalance(client.userId)).toBe("100.00");
+		expect(await balance(tenant.bureau.id)).toBe("0.00");
+		expect(await chargeRow(id)).toMatchObject({ status: "paid", asaas_payment_id: asaasPaymentId });
+		const again = buildFakePaymentEvent({ eventId: evt(), asaasPaymentId, value: 100, externalReference });
+		await webhook(again);
+		expect(await clientBalance(client.userId)).toBe("100.00");
+	});
+
+	it("does not credit a payment whose externalReference matches a charge bound to another payment", async () => {
+		const { client, id, externalReference } = await reserve("B4 Hook B");
+		await withUserTransaction(client, (c) => bindPixCharge(c, id, boundInput()));
+		const eventId = evt();
+
+		await webhook(buildFakePaymentEvent({ eventId, asaasPaymentId: "pay_intruder", value: 100, externalReference }));
+
+		expect(await clientBalance(client.userId)).toBe("0.00");
+		const { rows } = await owner.query("select result from asaas_webhook_events where event_id = $1", [eventId]);
+		expect(rows[0].result).toBe("unknown_charge");
+	});
+
+	it("ignores a malformed externalReference", async () => {
+		const { client } = await reserve("B4 Hook C");
+		const eventId = evt();
+
+		await webhook(
+			buildFakePaymentEvent({ eventId, asaasPaymentId: "pay_x", value: 100, externalReference: "not-a-uuid" }),
+		);
+
+		expect(await clientBalance(client.userId)).toBe("0.00");
+		const { rows } = await owner.query("select result from asaas_webhook_events where event_id = $1", [eventId]);
+		expect(rows[0].result).toBe("unknown_charge");
+	});
+
+	it("ignores a payment on a cancelled unbound charge", async () => {
+		const { client, id, externalReference } = await reserve("B4 Hook D");
+		await withUserTransaction(client, (c) => cancelUnboundPixCharge(c, id));
+
+		await webhook(buildFakePaymentEvent({ eventId: evt(), asaasPaymentId: "pay_c", value: 100, externalReference }));
+
+		expect(await clientBalance(client.userId)).toBe("0.00");
+	});
+
+	it("keeps the cap under parallel reservations: only the slot left is taken", async () => {
+		const tenant = await seedTenant(owner, "B4 Cap");
+		const client = tenant.client;
+		for (let i = 0; i < 9; i++) {
+			await seedPixCharge(owner, {
+				bureauId: tenant.bureau.id,
+				requestedBy: client.userId,
+				clientProfileId: client.userId,
+			});
+		}
+		const attempt = () =>
+			withUserTransaction(client, async (c) => {
+				await lockClientPixCharges(c, client.userId);
+				if ((await countPendingClientPixCharges(c, client.userId)) >= 10) return null;
+				return reserveClientPixCharge(c, client, clientInput());
+			});
+
+		const results = await Promise.all([attempt(), attempt()]);
+
+		expect(results.filter((r) => r !== null)).toHaveLength(1);
+		expect(await withUserTransaction(client, (c) => countPendingClientPixCharges(c, client.userId))).toBe(10);
 	});
 });

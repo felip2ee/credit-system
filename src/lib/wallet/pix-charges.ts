@@ -1,4 +1,5 @@
-// Cobranças PIX de recarga da carteira (M3a). A linha só nasce depois que o Asaas respondeu.
+// Cobranças PIX de recarga da carteira (M3a). A cobrança do Bureau nasce depois que o Asaas respondeu; a do cliente
+// nasce antes (reserveClientPixCharge) e recebe o id do pagamento depois (bindPixCharge).
 // O crédito e o estorno não passam por aqui: apply_asaas_payment (014_wallet_refund_and_webhook_role.sql) decide, sem sessão.
 import type { PoolClient } from "pg";
 
@@ -28,18 +29,17 @@ export type CreatePixChargeResult =
 	| { ok: true; id: string; expiresAt: Date }
 	| { ok: false; reason: "invalid_amount" };
 
-// clientProfileId null = cobrança do Bureau; preenchido = do cliente (RLS exige ser o próprio autor).
-async function insertPixCharge(
+// Cobrança do Bureau (client_profile_id nulo).
+export async function createPixCharge(
 	client: PoolClient,
 	identity: DbIdentity,
 	input: CreatePixChargeInput,
-	clientProfileId: string | null,
 ): Promise<CreatePixChargeResult> {
 	if (!topupAmountSchema.safeParse(input.amount).success) return { ok: false, reason: "invalid_amount" };
 
 	const { rows } = await client.query<{ id: string; expires_at: Date }>(
-		`insert into pix_charges (bureau_id, asaas_payment_id, amount, pix_payload, expires_at, requested_by, client_profile_id)
-		 values ($1, $2, $3, $4, now() + make_interval(mins => $5), $6, $7)
+		`insert into pix_charges (bureau_id, asaas_payment_id, amount, pix_payload, expires_at, requested_by)
+		 values ($1, $2, $3, $4, now() + make_interval(mins => $5), $6)
 		 returning id, expires_at`,
 		[
 			identity.bureauId,
@@ -48,7 +48,6 @@ async function insertPixCharge(
 			input.pixPayload,
 			PIX_CHARGE_TTL_MINUTES,
 			identity.userId,
-			clientProfileId,
 		],
 	);
 	const { id, expires_at: expiresAt } = rows[0];
@@ -62,21 +61,52 @@ async function insertPixCharge(
 	return { ok: true, id, expiresAt };
 }
 
-export function createPixCharge(
+export type ReserveClientPixChargeInput = { externalReference: string; amount: string };
+
+// Recarga da carteira do cliente, antes do Asaas: a linha nasce pendente, sem id de pagamento nem código PIX, só com a
+// referência externa. Assim o pagamento de uma cobrança cujo bind falhou ainda é achado pelo webhook.
+export async function reserveClientPixCharge(
 	client: PoolClient,
 	identity: DbIdentity,
-	input: CreatePixChargeInput,
+	input: ReserveClientPixChargeInput,
 ): Promise<CreatePixChargeResult> {
-	return insertPixCharge(client, identity, input, null);
+	if (!topupAmountSchema.safeParse(input.amount).success) return { ok: false, reason: "invalid_amount" };
+
+	const { rows } = await client.query<{ id: string; expires_at: Date }>(
+		`insert into pix_charges (bureau_id, external_reference, amount, expires_at, requested_by, client_profile_id)
+		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $5)
+		 returning id, expires_at`,
+		[identity.bureauId, input.externalReference, input.amount, PIX_CHARGE_TTL_MINUTES, identity.userId],
+	);
+	const { id, expires_at: expiresAt } = rows[0];
+	await writeAuditEvent(client, {
+		actorId: identity.userId,
+		action: "wallet.topup.request",
+		targetTable: "pix_charges",
+		targetId: id,
+		metadata: { amount: input.amount },
+	});
+	return { ok: true, id, expiresAt };
 }
 
-// Recarga da carteira do cliente: client_profile_id = o próprio usuário.
-export function createClientPixCharge(
+// Liga a cobrança reservada ao pagamento criado no Asaas. false = não ligou (linha de outro autor, já fechada ou
+// ligada a outro pagamento): a linha segue como está e o webhook a acha pela referência externa.
+export async function bindPixCharge(
 	client: PoolClient,
-	identity: DbIdentity,
-	input: CreatePixChargeInput,
-): Promise<CreatePixChargeResult> {
-	return insertPixCharge(client, identity, input, identity.userId);
+	chargeId: string,
+	input: { asaasPaymentId: string; pixPayload: string },
+): Promise<boolean> {
+	const { rows } = await client.query<{ bound: boolean }>("select public.bind_pix_charge($1, $2, $3) as bound", [
+		chargeId,
+		input.asaasPaymentId,
+		input.pixPayload,
+	]);
+	return rows[0].bound;
+}
+
+// O Asaas não criou a cobrança: fecha a linha reservada para ela sair do teto de pendentes.
+export async function cancelUnboundPixCharge(client: PoolClient, chargeId: string): Promise<void> {
+	await client.query("select public.cancel_unbound_pix_charge($1)", [chargeId]);
 }
 
 // Cobranças ainda válidas do Bureau (sem as dos clientes): limita o spam de PIX antes de chamar o Asaas.

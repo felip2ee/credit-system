@@ -48,11 +48,17 @@ export function buildFakePaymentEvent(input: {
 	asaasPaymentId: string;
 	value: number;
 	event?: string;
+	externalReference?: string;
 }) {
 	return {
 		id: input.eventId,
 		event: input.event ?? ASAAS_EVENT_PAYMENT_RECEIVED,
-		payment: { object: "payment", id: input.asaasPaymentId, value: input.value },
+		payment: {
+			object: "payment",
+			id: input.asaasPaymentId,
+			value: input.value,
+			...(input.externalReference ? { externalReference: input.externalReference } : {}),
+		},
 	};
 }
 
