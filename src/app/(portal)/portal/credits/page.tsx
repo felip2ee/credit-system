@@ -7,6 +7,7 @@ import { ClientTopupDialog } from "@/components/credits/ClientTopupDialog";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
+import { getClientAccountStatus } from "@/lib/account/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
@@ -30,6 +31,7 @@ export default async function ClientCreditsPage() {
   if (!hasPermission(session, "credits:read")) redirect("/portal");
 
   const data = await withUserTransaction(session, async (client) => ({
+    status: await getClientAccountStatus(client, session.userId),
     wallet: await getClientWallet(client, session.userId),
     ledger: await listClientLedger(client, session.userId),
     charges: await listClientPixCharges(client, session.userId),
@@ -50,9 +52,12 @@ export default async function ClientCreditsPage() {
       <PageHeader title="Créditos" description="Saldo, recargas por PIX e extrato" />
       {data.wallet ? (
         <ClientBalance wallet={data.wallet}>
-          {hasPermission(session, "credits:topup") && (
-            <ClientTopupDialog charges={data.charges.map(({ id, status }) => ({ id, status }))} />
-          )}
+          {hasPermission(session, "credits:topup") &&
+            (data.status.emailVerified ? (
+              <ClientTopupDialog charges={data.charges.map(({ id, status }) => ({ id, status }))} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Confirme seu e-mail para comprar créditos.</p>
+            ))}
         </ClientBalance>
       ) : (
         <p className="text-sm text-muted-foreground">Carteira não encontrada. Contate o suporte.</p>
