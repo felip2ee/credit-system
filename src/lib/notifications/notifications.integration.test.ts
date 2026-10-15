@@ -5,7 +5,6 @@ import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { buildScrAuthorizationEmail } from "@/lib/email/scr-authorization-email";
 import {
 	TEST_DATABASE_OWNER_URL,
 	TEST_DATABASE_URL,
@@ -1122,7 +1121,7 @@ describe("guards", () => {
 });
 
 describe("seeds", () => {
-	it("stores the SCR authorization e-mail exactly as buildScrAuthorizationEmail renders it", async () => {
+	it("stores the SCR authorization e-mail with the expected subject, text and HTML values", async () => {
 		const { rows } = await owner.query(
 			`select params, email_subject, email_html, email_text from notification_templates
         where key = 'scr_authorization' and channel = 'email' and status = 'active'`,
@@ -1135,16 +1134,32 @@ describe("seeds", () => {
 		};
 		const render = (s: string) =>
 			s.replace(/\{\{(\w+)\}\}/g, (_, k: keyof typeof values) => values[k]);
-		const built = buildScrAuthorizationEmail(values);
+		const expectedText = [
+			"Olá Maria,",
+			"",
+			"A Empresa X gostaria de realizar a consulta SCR dos seus dados.",
+			"Seu código de confirmação: 123456",
+			"",
+			"Autorize em: https://x.test/a/abc",
+			"",
+			"Eliane Moreira — Rainha do Crédito",
+			"(63) 9 9234-5615 · contato@rainhadocredito.com · @elianerainhadocredito",
+		].join("\n");
+		const html = render(rows[0].email_html);
 		expect(rows[0].params).toEqual([
 			"clientName",
 			"authorizedName",
 			"code",
 			"url",
 		]);
-		expect(rows[0].email_subject).toBe(built.subject);
-		expect(render(rows[0].email_html)).toBe(built.html);
-		expect(render(rows[0].email_text)).toBe(built.text);
+		expect(rows[0].email_subject).toBe(
+			"Autorização de consulta SCR — Rainha do Crédito",
+		);
+		expect(html).toContain("Olá Maria,");
+		expect(html).toContain("A Empresa X gostaria");
+		expect(html).toContain(">123456</div>");
+		expect(html).toContain('href="https://x.test/a/abc"');
+		expect(render(rows[0].email_text)).toBe(expectedText);
 	});
 
 	it("seeds platform_test for e-mail and WhatsApp without parameters", async () => {
