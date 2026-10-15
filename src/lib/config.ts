@@ -97,4 +97,84 @@ export function readConfig(env: Environment) {
   });
 }
 
+export type AsaasConfig =
+  | { driver: "fake"; webhookToken: string }
+  | { driver: "asaas"; apiKey: string; baseUrl: string; customerId: string; webhookToken: string };
+
+// Valor de exemplo do .env.example: público, nunca vale como token real.
+export const ASAAS_WEBHOOK_TOKEN_EXAMPLE = "local-webhook-token-0123456789abcdef";
+
+// DSN da role app_webhook. Fora de readConfig: só o webhook precisa dele.
+export function readWebhookDatabaseUrl(env: Environment): string {
+  return url(env, "DATABASE_WEBHOOK_URL");
+}
+
+// Lida sob demanda (não entra em readConfig): só a recarga PIX e o webhook precisam do Asaas.
+// Sem driver explícito falha; "fake" nunca roda em produção.
+export function readAsaasConfig(env: Environment): AsaasConfig {
+  const driver = required(env, "ASAAS_DRIVER");
+  if (driver !== "asaas" && driver !== "fake") {
+    throw new Error("ASAAS_DRIVER must be asaas or fake");
+  }
+  if (driver === "fake" && env.NODE_ENV === "production") {
+    throw new Error("ASAAS_DRIVER=fake is not allowed in production");
+  }
+
+  const webhookToken = required(env, "ASAAS_WEBHOOK_TOKEN");
+  if (webhookToken.length < 32) {
+    throw new Error("ASAAS_WEBHOOK_TOKEN must be at least 32 characters");
+  }
+  if ((driver === "asaas" || env.NODE_ENV === "production") && webhookToken === ASAAS_WEBHOOK_TOKEN_EXAMPLE) {
+    throw new Error("ASAAS_WEBHOOK_TOKEN must not be the .env.example placeholder");
+  }
+  if (driver === "fake") return { driver, webhookToken };
+
+  // A chave de API segue neste endereço: só https.
+  const baseUrl = url(env, "ASAAS_API_BASE_URL");
+  if (new URL(baseUrl).protocol !== "https:") throw new Error("ASAAS_API_BASE_URL must use https");
+
+  return {
+    driver,
+    apiKey: required(env, "ASAAS_API_KEY"),
+    baseUrl,
+    customerId: required(env, "ASAAS_CUSTOMER_ID"),
+    webhookToken,
+  };
+}
+
+export type NfseConfig = {
+  municipalServiceId?: string;
+  municipalServiceCode?: string;
+  municipalServiceName: string;
+  serviceDescription: string;
+  // Percentual (2.5 = 2,5%).
+  issRate: number;
+  retainIss: boolean;
+};
+
+// Lida sob demanda, como o Asaas. Sem serviço municipal (id ou código) a NFS-e fica desligada: null.
+// Com serviço informado, o resto é obrigatório (configuração pela metade falha em vez de emitir nota errada).
+export function readNfseConfig(env: Environment): NfseConfig | null {
+  const municipalServiceId = env.NFSE_MUNICIPAL_SERVICE_ID?.trim() || undefined;
+  const municipalServiceCode = env.NFSE_MUNICIPAL_SERVICE_CODE?.trim() || undefined;
+  if (!municipalServiceId && !municipalServiceCode) return null;
+
+  const rate = required(env, "NFSE_ISS_RATE");
+  const issRate = Number(rate);
+  // A LC 116/2003 limita a alíquota de ISS a 5%.
+  if (!/^\d+(\.\d+)?$/.test(rate) || issRate > 5) throw new Error("NFSE_ISS_RATE must be a number between 0 and 5");
+
+  const retain = env.NFSE_RETAIN_ISS?.trim() || "false";
+  if (retain !== "true" && retain !== "false") throw new Error("NFSE_RETAIN_ISS must be true or false");
+
+  return {
+    municipalServiceId,
+    municipalServiceCode,
+    municipalServiceName: required(env, "NFSE_MUNICIPAL_SERVICE_NAME"),
+    serviceDescription: required(env, "NFSE_SERVICE_DESCRIPTION"),
+    issRate,
+    retainIss: retain === "true",
+  };
+}
+
 export const config = readConfig(hydrateSecretEnv(process.env));

@@ -4,9 +4,10 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import type { z } from "zod";
 
 import { authClient } from "@/lib/auth/client";
+import { newPasswordSchema } from "@/lib/validators/password";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,17 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const schema = z
-  .object({
-    password: z.string().min(12, "A senha deve ter ao menos 12 caracteres."),
-    confirm: z.string(),
-  })
-  .refine((data) => data.password === data.confirm, {
-    message: "As senhas não coincidem.",
-    path: ["confirm"],
-  });
-
-type FormValues = z.infer<typeof schema>;
+type FormValues = z.infer<typeof newPasswordSchema>;
 
 function UpdatePasswordForm() {
   const token = useSearchParams().get("token");
@@ -39,7 +30,7 @@ function UpdatePasswordForm() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(newPasswordSchema),
     defaultValues: { password: "", confirm: "" },
   });
 

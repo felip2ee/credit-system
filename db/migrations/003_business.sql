@@ -31,7 +31,7 @@ create table bureaus (
   constraint bureaus_slug_not_reserved check (slug not in (
     'admin', 'api', 'app', 'auth', 'b', 'dashboard', 'login', 'logout', 'mfa',
     'portal', 'autorizacao-scr', 'superadmin', 'settings', 'reset-password',
-    'update-password', 'static', 'www'))
+    'update-password', 'change-password', 'static', 'www'))
 );
 
 create table profiles (
@@ -44,6 +44,7 @@ create table profiles (
   avatar_url text,
   is_active boolean not null default true,
   mfa_enabled boolean not null default false,
+  must_change_password boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint profiles_auth_id_matches_id check (auth_user_id = id::text),

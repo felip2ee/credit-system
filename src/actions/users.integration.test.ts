@@ -38,9 +38,10 @@ vi.mock("@/lib/auth/session", () => ({
 
 import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
+import { auth } from "@/lib/auth/server";
 import { seedTenant, type SeededTenant } from "@/test/seed";
 
-import { setUserActive, setUserRole } from "./users";
+import { inviteTeamMember, setTeamMemberCredentials, setUserActive, setUserRole } from "./users";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
 const LAST_ADMIN = "O Bureau precisa de ao menos um administrador ativo.";
@@ -144,17 +145,20 @@ describe("team actions against the database", () => {
 		expect(await profileOf(target)).toEqual({ role: "bureau_admin", is_active: false });
 	});
 
-	it("does not demote the last admin that can log in, then allows it with another one", async () => {
+	it("refuses to demote an admin, even when another admin can log in", async () => {
 		const tenant = await seedTenant(owner, "team");
 		const target = await addActiveAdmin(tenant);
+		await addAccount(tenant.bureauAdmin.userId);
+		await addSession(target);
 		actAs(tenant.bureauAdmin);
 
-		await expect(setUserRole({ userId: target, role: "operator" })).resolves.toEqual({ error: LAST_ADMIN });
-		expect(await profileOf(target)).toEqual({ role: "bureau_admin", is_active: true });
+		await expect(setUserRole({ userId: target, role: "operator" })).resolves.toEqual({
+			error: "Só é possível promover operador a administrador.",
+		});
 
-		await addAccount(tenant.bureauAdmin.userId);
-		await expect(setUserRole({ userId: target, role: "operator" })).resolves.toEqual({ error: null });
-		expect(await profileOf(target)).toEqual({ role: "operator", is_active: true });
+		expect(await profileOf(target)).toEqual({ role: "bureau_admin", is_active: true });
+		expect(await sessionCount(target)).toBe(1);
+		expect(await auditActions(target)).toEqual([]);
 	});
 
 	it("deletes the target sessions and audits a role change", async () => {
@@ -197,5 +201,95 @@ describe("team actions against the database", () => {
 			error: "Usuário não encontrado.",
 		});
 		expect(await profileOf(other.operator.userId)).toEqual({ role: "operator", is_active: true });
+	});
+});
+
+describe("team credentials against the database", () => {
+	const temporary = "temporary-password-12";
+
+	async function credentialOf(userId: string) {
+		const { rows } = await owner.query<{ password: string | null; flag: boolean }>(
+			`select (select a.password from account a where a.user_id = p.auth_user_id) as password,
+			        p.must_change_password as flag
+			   from profiles p where p.id = $1`,
+			[userId],
+		);
+		return rows[0];
+	}
+
+	it("lets a bureau_admin set the password of an operator", async () => {
+		const tenant = await seedTenant(owner, "cred");
+		await addAccount(tenant.operator.userId);
+		await addSession(tenant.operator.userId);
+		actAs(tenant.bureauAdmin);
+
+		await expect(
+			setTeamMemberCredentials({ userId: tenant.operator.userId, password: temporary }),
+		).resolves.toEqual({ error: null });
+
+		const credential = await credentialOf(tenant.operator.userId);
+		expect(credential.flag).toBe(true);
+		expect(credential.password).not.toBe("hash");
+		expect(credential.password).not.toContain(temporary);
+		expect(await sessionCount(tenant.operator.userId)).toBe(0);
+		expect(await auditActions(tenant.operator.userId)).toEqual([
+			{ action: "user.password_set", bureau_id: tenant.bureau.id },
+		]);
+	});
+
+	it("team: peer admin, self and other bureau are refused", async () => {
+		const tenant = await seedTenant(owner, "cred");
+		const other = await seedTenant(owner, "cred-other");
+		const peer = await addActiveAdmin(tenant);
+		await addAccount(tenant.bureauAdmin.userId);
+		await addAccount(other.operator.userId);
+		actAs(tenant.bureauAdmin);
+
+		for (const userId of [peer, tenant.bureauAdmin.userId, other.operator.userId]) {
+			const result = await setTeamMemberCredentials({ userId, password: temporary });
+			expect(result.error).toBeTruthy();
+			expect(await credentialOf(userId)).toEqual({ password: "hash", flag: false });
+		}
+	});
+
+	it("blocks an operator from setting a password", async () => {
+		const tenant = await seedTenant(owner, "cred");
+		await addAccount(tenant.operator.userId);
+		actAs(tenant.operator);
+
+		await expect(
+			setTeamMemberCredentials({ userId: tenant.operator.userId, password: temporary }),
+		).resolves.toEqual({ error: "Sem permissão para gerenciar a equipe." });
+		expect(await credentialOf(tenant.operator.userId)).toEqual({ password: "hash", flag: false });
+	});
+
+	it("refuses to force a change on a pending invite", async () => {
+		const tenant = await seedTenant(owner, "cred");
+		actAs(tenant.bureauAdmin);
+
+		const result = await setTeamMemberCredentials({ userId: tenant.operator.userId });
+
+		expect(result.error).toBeTruthy();
+		expect(await credentialOf(tenant.operator.userId)).toEqual({ password: null, flag: false });
+	});
+
+	it("creates a member with a password and sends no e-mail", async () => {
+		const tenant = await seedTenant(owner, "cred");
+		actAs(tenant.bureauAdmin);
+		const email = `membro-${randomUUID()}@example.test`;
+
+		const result = await inviteTeamMember({
+			fullName: "Novo Membro",
+			email,
+			role: "operator",
+			password: temporary,
+		});
+
+		expect(result).toEqual({ error: null, email, invited: false });
+		expect(auth.api.requestPasswordReset).not.toHaveBeenCalled();
+		const { rows } = await owner.query<{ id: string }>("select id from profiles where email = $1", [email]);
+		const credential = await credentialOf(rows[0].id);
+		expect(credential.flag).toBe(true);
+		expect(credential.password).toBeTruthy();
 	});
 });

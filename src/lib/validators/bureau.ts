@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { optionalPasswordSchema } from "./password";
+
 const name = z
   .string()
   .trim()
@@ -13,6 +15,7 @@ export const bureauCreateSchema = z.object({
     .regex(/^[a-z0-9-]{3,40}$/, "Use de 3 a 40 letras minúsculas, números ou hífen."),
   adminName: z.string().trim().min(3, "Informe o nome completo do administrador."),
   adminEmail: z.string().trim().toLowerCase().email("E-mail inválido."),
+  adminPassword: optionalPasswordSchema,
 });
 
 export const bureauUpdateSchema = z.object({

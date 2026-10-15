@@ -1,0 +1,68 @@
+import { CancelPayoutButton } from "@/components/payouts/CancelPayoutButton";
+import { MarkPaidForm } from "@/components/payouts/MarkPaidForm";
+import { PAYOUT_STATUS_LABEL, PAYOUT_STATUS_VARIANT } from "@/components/payouts/payout-labels";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { Payout } from "@/lib/payouts/queries";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+
+interface PayoutTableProps {
+  payouts: Payout[];
+  // Nome do Bureau por id; sem o mapa a coluna Bureau não aparece (visão do próprio Bureau).
+  bureauNames?: Record<string, string>;
+  canManage?: boolean;
+}
+
+export function PayoutTable({ payouts, bureauNames, canManage = false }: PayoutTableProps) {
+  if (payouts.length === 0) return <p className="text-sm text-muted-foreground">Nenhum repasse ainda.</p>;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {bureauNames && <TableHead>Bureau</TableHead>}
+          <TableHead>Corte</TableHead>
+          <TableHead>Valor</TableHead>
+          <TableHead>Estado</TableHead>
+          <TableHead>Pago em</TableHead>
+          <TableHead>Comprovante</TableHead>
+          {canManage && <TableHead>Ações</TableHead>}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {payouts.map((payout) => (
+          <TableRow key={payout.id}>
+            {bureauNames && <TableCell>{bureauNames[payout.bureauId] ?? "—"}</TableCell>}
+            <TableCell>{formatDate(payout.cutoffAt)}</TableCell>
+            <TableCell>{formatCurrency(Number(payout.amount))}</TableCell>
+            <TableCell>
+              <Badge variant={PAYOUT_STATUS_VARIANT[payout.status]}>{PAYOUT_STATUS_LABEL[payout.status]}</Badge>
+            </TableCell>
+            <TableCell>{formatDateTime(payout.paidAt)}</TableCell>
+            <TableCell>
+              {payout.status === "paid" && payout.hasReceipt ? (
+                <a
+                  href={`/api/payouts/${payout.id}/receipt`}
+                  className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  Baixar comprovante
+                </a>
+              ) : (
+                "—"
+              )}
+            </TableCell>
+            {canManage && (
+              <TableCell>
+                {payout.status === "open" && (
+                  <div className="space-y-2">
+                    <MarkPaidForm payoutId={payout.id} />
+                    <CancelPayoutButton payoutId={payout.id} />
+                  </div>
+                )}
+              </TableCell>
+            )}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}

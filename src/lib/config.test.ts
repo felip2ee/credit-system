@@ -19,7 +19,16 @@ const valid = vi.hoisted(() => {
   return value;
 });
 
-import { readConfig } from "./config";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import {
+  ASAAS_WEBHOOK_TOKEN_EXAMPLE,
+  readAsaasConfig,
+  readConfig,
+  readNfseConfig,
+  readWebhookDatabaseUrl,
+} from "./config";
 
 describe("readConfig", () => {
   it("rejects a missing required value", () => {
@@ -137,5 +146,171 @@ describe("readConfig", () => {
 
     expect(config.clamavHost).toBe("localhost");
     expect(Object.isFrozen(config)).toBe(true);
+  });
+});
+
+describe("readAsaasConfig", () => {
+  const webhookToken = "w".repeat(32);
+  const asaas = {
+    ASAAS_DRIVER: "asaas",
+    ASAAS_API_KEY: "test-api-key",
+    ASAAS_API_BASE_URL: "https://api-sandbox.asaas.example",
+    ASAAS_CUSTOMER_ID: "cus_test",
+    ASAAS_WEBHOOK_TOKEN: webhookToken,
+  };
+
+  it("fails without a driver, with no silent fallback", () => {
+    expect(() => readAsaasConfig({ ASAAS_WEBHOOK_TOKEN: webhookToken })).toThrow(
+      "ASAAS_DRIVER is required",
+    );
+  });
+
+  it("rejects an unknown driver", () => {
+    expect(() => readAsaasConfig({ ...asaas, ASAAS_DRIVER: "mock" })).toThrow(
+      "ASAAS_DRIVER must be asaas or fake",
+    );
+  });
+
+  it("rejects the fake driver in production", () => {
+    expect(() =>
+      readAsaasConfig({ ASAAS_DRIVER: "fake", ASAAS_WEBHOOK_TOKEN: webhookToken, NODE_ENV: "production" }),
+    ).toThrow("ASAAS_DRIVER=fake is not allowed in production");
+  });
+
+  it("accepts the fake driver outside production", () => {
+    expect(readAsaasConfig({ ASAAS_DRIVER: "fake", ASAAS_WEBHOOK_TOKEN: webhookToken, NODE_ENV: "test" })).toEqual({
+      driver: "fake",
+      webhookToken,
+    });
+  });
+
+  it.each(["ASAAS_API_KEY", "ASAAS_API_BASE_URL", "ASAAS_CUSTOMER_ID", "ASAAS_WEBHOOK_TOKEN"])(
+    "requires %s for the asaas driver",
+    (name) => {
+      expect(() => readAsaasConfig({ ...asaas, [name]: " " })).toThrow(`${name} is required`);
+    },
+  );
+
+  it("rejects a base URL that is not a URL", () => {
+    expect(() => readAsaasConfig({ ...asaas, ASAAS_API_BASE_URL: "not a URL" })).toThrow(
+      "ASAAS_API_BASE_URL must be a valid URL",
+    );
+  });
+
+  it.each(["http://api.asaas.example", "ftp://api.asaas.example", "file:///etc/passwd"])(
+    "rejects the non-https base URL %s",
+    (ASAAS_API_BASE_URL) => {
+      expect(() => readAsaasConfig({ ...asaas, ASAAS_API_BASE_URL })).toThrow(
+        "ASAAS_API_BASE_URL must use https",
+      );
+    },
+  );
+
+  it("accepts the fake driver without a base URL", () => {
+    expect(() =>
+      readAsaasConfig({ ASAAS_DRIVER: "fake", ASAAS_WEBHOOK_TOKEN: webhookToken, ASAAS_API_BASE_URL: "http://x.test" }),
+    ).not.toThrow();
+  });
+
+  it("rejects a webhook token shorter than 32 characters", () => {
+    expect(() => readAsaasConfig({ ...asaas, ASAAS_WEBHOOK_TOKEN: "short" })).toThrow(
+      "ASAAS_WEBHOOK_TOKEN must be at least 32 characters",
+    );
+  });
+
+  it("returns the asaas settings", () => {
+    expect(readAsaasConfig(asaas)).toEqual({
+      driver: "asaas",
+      apiKey: "test-api-key",
+      baseUrl: "https://api-sandbox.asaas.example",
+      customerId: "cus_test",
+      webhookToken,
+    });
+  });
+});
+
+describe("readAsaasConfig webhook token placeholder", () => {
+  const asaas = {
+    ASAAS_DRIVER: "asaas",
+    ASAAS_API_KEY: "test-api-key",
+    ASAAS_API_BASE_URL: "https://api-sandbox.asaas.example",
+    ASAAS_CUSTOMER_ID: "cus_test",
+    ASAAS_WEBHOOK_TOKEN: ASAAS_WEBHOOK_TOKEN_EXAMPLE,
+  };
+
+  it("matches the value shipped in .env.example", () => {
+    const example = readFileSync(path.resolve(process.cwd(), ".env.example"), "utf8");
+    expect(example).toContain(`ASAAS_WEBHOOK_TOKEN=${ASAAS_WEBHOOK_TOKEN_EXAMPLE}\n`);
+  });
+
+  it("rejects the example token for the asaas driver", () => {
+    expect(() => readAsaasConfig(asaas)).toThrow("ASAAS_WEBHOOK_TOKEN must not be the .env.example placeholder");
+  });
+
+  it("rejects the example token in production", () => {
+    expect(() => readAsaasConfig({ ...asaas, NODE_ENV: "production" })).toThrow(
+      "ASAAS_WEBHOOK_TOKEN must not be the .env.example placeholder",
+    );
+  });
+
+  it("accepts the example token for the fake driver outside production", () => {
+    expect(
+      readAsaasConfig({ ASAAS_DRIVER: "fake", ASAAS_WEBHOOK_TOKEN: ASAAS_WEBHOOK_TOKEN_EXAMPLE, NODE_ENV: "development" }),
+    ).toEqual({ driver: "fake", webhookToken: ASAAS_WEBHOOK_TOKEN_EXAMPLE });
+  });
+});
+
+describe("readWebhookDatabaseUrl", () => {
+  it("requires a valid URL", () => {
+    expect(() => readWebhookDatabaseUrl({})).toThrow("DATABASE_WEBHOOK_URL is required");
+    expect(() => readWebhookDatabaseUrl({ DATABASE_WEBHOOK_URL: "not a URL" })).toThrow(
+      "DATABASE_WEBHOOK_URL must be a valid URL",
+    );
+    expect(readWebhookDatabaseUrl({ DATABASE_WEBHOOK_URL: "postgres://app_webhook:x@db/app" })).toBe(
+      "postgres://app_webhook:x@db/app",
+    );
+  });
+});
+
+describe("readNfseConfig", () => {
+  const nfse = {
+    NFSE_MUNICIPAL_SERVICE_ID: "svc_1",
+    NFSE_MUNICIPAL_SERVICE_NAME: "Licenciamento de programas",
+    NFSE_SERVICE_DESCRIPTION: "Recarga de créditos",
+    NFSE_ISS_RATE: "2.5",
+  };
+
+  it("returns null when no municipal service is configured (NFS-e off)", () => {
+    expect(readNfseConfig({})).toBeNull();
+    expect(readNfseConfig({ NFSE_MUNICIPAL_SERVICE_ID: "  ", NFSE_MUNICIPAL_SERVICE_CODE: "" })).toBeNull();
+  });
+
+  it("returns the settings, with the ISS retention off by default", () => {
+    expect(readNfseConfig(nfse)).toEqual({
+      municipalServiceId: "svc_1",
+      municipalServiceName: "Licenciamento de programas",
+      serviceDescription: "Recarga de créditos",
+      issRate: 2.5,
+      retainIss: false,
+    });
+  });
+
+  it("accepts a municipal service code instead of an id and the retention flag", () => {
+    const { NFSE_MUNICIPAL_SERVICE_ID: _id, ...rest } = nfse;
+    expect(readNfseConfig({ ...rest, NFSE_MUNICIPAL_SERVICE_CODE: "1.05", NFSE_RETAIN_ISS: "true" })).toMatchObject({
+      municipalServiceCode: "1.05",
+      retainIss: true,
+    });
+  });
+
+  it.each([
+    [{ NFSE_MUNICIPAL_SERVICE_NAME: "" }, "NFSE_MUNICIPAL_SERVICE_NAME is required"],
+    [{ NFSE_SERVICE_DESCRIPTION: "" }, "NFSE_SERVICE_DESCRIPTION is required"],
+    [{ NFSE_ISS_RATE: "" }, "NFSE_ISS_RATE is required"],
+    [{ NFSE_ISS_RATE: "abc" }, "NFSE_ISS_RATE must be a number between 0 and 5"],
+    [{ NFSE_ISS_RATE: "7" }, "NFSE_ISS_RATE must be a number between 0 and 5"],
+    [{ NFSE_RETAIN_ISS: "yes" }, "NFSE_RETAIN_ISS must be true or false"],
+  ])("rejects an incomplete or invalid setup %j", (override, message) => {
+    expect(() => readNfseConfig({ ...nfse, ...override })).toThrow(message);
   });
 });

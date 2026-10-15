@@ -8,7 +8,7 @@ function run(path: string) {
 }
 
 describe("middleware public paths", () => {
-  it.each(["/b/reino", "/autorizacao-scr/abc123"])("lets %s through without cookie", (path) => {
+  it.each(["/b/reino", "/autorizacao-scr/abc123", "/api/webhooks/asaas"])("lets %s through without cookie", (path) => {
     const res = run(path);
     expect(res.headers.get("location")).toBeNull();
   });

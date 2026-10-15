@@ -6,15 +6,11 @@ import { signOut } from "@/actions/auth";
 import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { Button } from "@/components/ui/button";
 import { getCurrentProfile } from "@/lib/auth";
-import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
+import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/db/permissions";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
-  const session = await getRequiredSession().catch((err) => {
-    if (err instanceof SessionAccessError && err.code === "mfa_setup_required") {
-      redirect("/mfa/setup");
-    }
-    redirect("/login");
-  });
+  const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
   if (session.role !== "client") redirect("/");
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
@@ -29,6 +25,11 @@ export default async function PortalLayout({ children }: { children: React.React
             <span className="text-xs text-muted-foreground">Portal do Cliente</span>
           </Link>
           <div className="flex items-center gap-3">
+            {hasPermission(session, "credits:read") && (
+              <Link href="/portal/credits" className="text-sm font-medium hover:underline">
+                Créditos
+              </Link>
+            )}
             <span className="hidden text-sm text-muted-foreground sm:inline">{profile.full_name}</span>
             <form action={signOut}>
               <Button type="submit" variant="ghost" size="sm">

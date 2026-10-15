@@ -15,6 +15,18 @@ export const permissions = [
   "portal:write",
   "bureaus:manage",
   "support:enter",
+  "catalog:read",
+  "catalog:write",
+  "wallet:read",
+  "wallet:topup",
+  "wallet:adjust",
+  "credits:read",
+  "credits:topup",
+  "counter:read",
+  "counter:write",
+  "payout:read",
+  "payout:manage",
+  "nfse:manage",
 ] as const;
 
 export type Permission = (typeof permissions)[number];
@@ -29,19 +41,38 @@ const operatorPermissions = [
   "reports:read",
   "reports:write",
   "settings:read",
+  "catalog:read",
+  "wallet:read",
+  "counter:read",
+  "counter:write",
 ] as const satisfies readonly Permission[];
 
 export const rolePermissions = {
-  superadmin: ["bureaus:manage", "support:enter", "settings:read", "settings:write"],
+  superadmin: [
+    "bureaus:manage",
+    "support:enter",
+    "settings:read",
+    "settings:write",
+    "catalog:read",
+    "catalog:write",
+    "wallet:read",
+    "wallet:adjust",
+    "payout:manage",
+    "nfse:manage",
+    "payout:read",
+  ],
   bureau_admin: [
     ...operatorPermissions,
+    "catalog:write",
+    "wallet:topup",
     "users:manage",
     "audit:read",
     "portal:read",
     "portal:write",
+    "payout:read",
   ],
   operator: operatorPermissions,
-  client: ["portal:read", "portal:write"],
+  client: ["portal:read", "portal:write", "credits:read", "credits:topup"],
 } as const satisfies Record<DbIdentity["role"], readonly Permission[]>;
 
 // Superadmin sem sessão de suporte não lê dados de tenant; em suporte, ganha as permissões do operator.

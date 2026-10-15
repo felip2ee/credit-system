@@ -4,7 +4,7 @@
 # (`docker volume rm <stack>_postgres_data`) and redeploy.
 set -eu
 
-SECRET_NAMES="schema_owner_password app_runtime_password backup_reader_password"
+SECRET_NAMES="schema_owner_password app_runtime_password backup_reader_password app_webhook_password"
 
 # Validate every secret BEFORE touching the database.
 for name in $SECRET_NAMES; do
@@ -28,11 +28,13 @@ done
 export SCHEMA_OWNER_PASSWORD="$(cat /run/secrets/schema_owner_password)"
 export APP_RUNTIME_PASSWORD="$(cat /run/secrets/app_runtime_password)"
 export BACKUP_READER_PASSWORD="$(cat /run/secrets/backup_reader_password)"
+export APP_WEBHOOK_PASSWORD="$(cat /run/secrets/app_webhook_password)"
 
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
 \getenv schema_owner_password SCHEMA_OWNER_PASSWORD
 \getenv app_runtime_password APP_RUNTIME_PASSWORD
 \getenv backup_reader_password BACKUP_READER_PASSWORD
+\getenv app_webhook_password APP_WEBHOOK_PASSWORD
 
 -- Keep passwords out of the server log if an ALTER ROLE fails.
 set log_min_error_statement = panic;
@@ -49,12 +51,16 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'backup_reader') then
     create role backup_reader login;
   end if;
+  if not exists (select 1 from pg_roles where rolname = 'app_webhook') then
+    create role app_webhook login;
+  end if;
 end
 $$;
 
 alter role schema_owner password :'schema_owner_password';
 alter role app_runtime password :'app_runtime_password';
 alter role backup_reader password :'backup_reader_password';
+alter role app_webhook password :'app_webhook_password';
 SQL
 
-unset SCHEMA_OWNER_PASSWORD APP_RUNTIME_PASSWORD BACKUP_READER_PASSWORD
+unset SCHEMA_OWNER_PASSWORD APP_RUNTIME_PASSWORD BACKUP_READER_PASSWORD APP_WEBHOOK_PASSWORD

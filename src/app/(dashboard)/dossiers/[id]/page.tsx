@@ -57,6 +57,11 @@ export default async function DossierDetailPage({
         <Button asChild variant="outline">
           <Link href={`/holders/${d.holder_id}`}>Ver titular</Link>
         </Button>
+        {hasPermission(session, "counter:read") && (
+          <Button asChild variant="outline">
+            <Link href={`/settings/counter-payments?dossier=${d.id}`}>Pagamentos de balcão</Link>
+          </Button>
+        )}
         {hasCompleted && (
           <Button asChild variant="outline">
             <a href={`/dossiers/${d.id}/pdf`} target="_blank" rel="noopener noreferrer">

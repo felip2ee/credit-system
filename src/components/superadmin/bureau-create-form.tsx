@@ -5,37 +5,71 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 
 import { createBureau } from "@/actions/bureaus";
+import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { bureauCreateSchema, type BureauCreate } from "@/lib/validators/bureau";
+import { bureauCreateSchema } from "@/lib/validators/bureau";
+import { refineOptionalNewPassword } from "@/lib/validators/password";
+
+const formSchema = bureauCreateSchema
+  .omit({ adminPassword: true })
+  .extend({ adminPassword: z.string(), confirm: z.string() })
+  .superRefine((v, ctx) =>
+    refineOptionalNewPassword(ctx, {
+      password: v.adminPassword,
+      confirm: v.confirm,
+      passwordPath: "adminPassword",
+    }),
+  );
+type FormValues = z.infer<typeof formSchema>;
 
 export function BureauCreateForm() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [createdWithPassword, setCreatedWithPassword] = useState(false);
 
   const {
     register,
     handleSubmit,
+    resetField,
     formState: { errors },
-  } = useForm<BureauCreate>({
-    resolver: zodResolver(bureauCreateSchema),
-    defaultValues: { name: "", slug: "", adminName: "", adminEmail: "" },
+  } = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      slug: "",
+      adminName: "",
+      adminEmail: "",
+      adminPassword: "",
+      confirm: "",
+    },
   });
 
-  const onSubmit = (values: BureauCreate) => {
+  const onSubmit = ({ confirm: _confirm, adminPassword, ...rest }: FormValues) => {
+    const values = { ...rest, adminPassword: adminPassword || undefined };
     setServerError(null);
     setCreatedId(null);
+    setCreatedWithPassword(false);
     startTransition(async () => {
       const result = await createBureau(values);
+      resetField("adminPassword");
+      resetField("confirm");
       if (result.error) {
         setServerError(result.error);
         // Bureau criado, e-mail falhou: o usuário segue para reenviar o convite.
         if (result.id) setCreatedId(result.id);
+        return;
+      }
+      if (values.adminPassword) {
+        // Com senha, a página fica para mostrar o aviso (sem repetir a senha).
+        setCreatedId(result.id ?? null);
+        setCreatedWithPassword(true);
         return;
       }
       router.push(`/superadmin/bureaus/${result.id}`);
@@ -71,8 +105,31 @@ export function BureauCreateForm() {
           <p className="text-sm text-destructive">{errors.adminEmail.message}</p>
         )}
       </div>
+      <div className="space-y-2">
+        <Label htmlFor="adminPassword">Senha do administrador</Label>
+        <PasswordInput id="adminPassword" {...register("adminPassword")} />
+        <p className="text-xs text-muted-foreground">
+          Deixe em branco para enviar o convite por e-mail. Com senha, o administrador
+          troca a senha no primeiro acesso.
+        </p>
+        {errors.adminPassword && (
+          <p className="text-sm text-destructive">{errors.adminPassword.message}</p>
+        )}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="confirm">Confirmar senha</Label>
+        <PasswordInput id="confirm" {...register("confirm")} />
+        {errors.confirm && (
+          <p className="text-sm text-destructive">{errors.confirm.message}</p>
+        )}
+      </div>
 
       {serverError && <p className="text-sm text-destructive">{serverError}</p>}
+      {createdWithPassword && (
+        <p className="text-sm text-emerald-600">
+          Bureau criado. Informe a senha ao administrador por um canal seguro.
+        </p>
+      )}
       {createdId && (
         <Link className="text-sm underline" href={`/superadmin/bureaus/${createdId}`}>
           Abrir o Bureau criado

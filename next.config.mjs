@@ -19,7 +19,8 @@ const csp = [
 const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
-  experimental: { instrumentationHook: true },
+  // 6mb: o comprovante de repasse chega por Server Action (limite do arquivo: 5 MB, conferido em receipt.ts).
+  experimental: { instrumentationHook: true, serverActions: { bodySizeLimit: "6mb" } },
   async headers() {
     return [
       {

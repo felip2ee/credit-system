@@ -4,34 +4,43 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  PackageSearch,
   Search,
   Settings,
   ShieldCheck,
   Users,
+  Wallet,
+  Banknote,
+  HandCoins,
 } from "lucide-react";
 
+import { visibleNavItems, type NavItem } from "@/components/layout/nav-items";
+import type { Permission } from "@/lib/db/permissions";
 import { cn } from "@/lib/utils";
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
+type SidebarItem = NavItem & { icon: React.ComponentType<{ className?: string }> };
 
-const NAV_ITEMS: NavItem[] = [
+const NAV_ITEMS: SidebarItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dossiers", label: "Pesquisas", icon: Search },
   { href: "/holders", label: "Titulares", icon: Users },
   { href: "/scr", label: "Autorizações SCR", icon: ShieldCheck },
+  { href: "/settings/catalog", label: "Catálogo", icon: PackageSearch },
+  { href: "/settings/wallet", label: "Carteira", icon: Wallet },
+  { href: "/settings/counter-payments", label: "Pagamentos de balcão", icon: Banknote, permission: "counter:read" },
+  { href: "/settings/payouts", label: "Repasses", icon: HandCoins, permission: "payout:read" },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
 
+const SETTINGS_SUBPAGES = ["/settings/catalog", "/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
+
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
+  if (href === "/settings" && SETTINGS_SUBPAGES.some((sub) => pathname.startsWith(sub))) return false;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar() {
+export function Sidebar({ permissions }: { permissions: readonly Permission[] }) {
   const pathname = usePathname();
 
   return (
@@ -43,7 +52,7 @@ export function Sidebar() {
         </span>
       </div>
       <nav className="flex-1 space-y-1 p-3">
-        {NAV_ITEMS.map((item) => {
+        {visibleNavItems(NAV_ITEMS, permissions).map((item) => {
           const active = isActive(pathname, item.href);
           const Icon = item.icon;
           return (

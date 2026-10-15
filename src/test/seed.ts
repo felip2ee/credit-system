@@ -182,3 +182,239 @@ export async function withDbContext<T>(
 		}
 	}
 }
+
+export type SeededProduct = { id: string; code: string; versionId: string };
+
+// Produto novo com código único e versão 1. Evita depender do custo dos produtos do seed.
+export async function seedProduct(
+	owner: Pool,
+	input: {
+		kind?: "main" | "addon";
+		addonFor?: string[];
+		baseCost?: string;
+		depsProduct?: string | null;
+	} = {},
+): Promise<SeededProduct> {
+	const kind = input.kind ?? "main";
+	const code = `${kind}_${randomBytes(6).toString("hex")}`;
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		const product = await client.query<{ id: string }>(
+			`insert into products (code, name, kind, addon_for)
+       values ($1, $2, $3, $4) returning id`,
+			[code, `Produto ${code}`, kind, kind === "addon" ? input.addonFor : null],
+		);
+		const version = await client.query<{ id: string }>(
+			`insert into product_versions (product_id, version, deps_product, base_cost)
+       values ($1, 1, $2, $3) returning id`,
+			[product.rows[0].id, input.depsProduct ?? null, input.baseCost ?? "0.00"],
+		);
+		await client.query("commit");
+		return { id: product.rows[0].id, code, versionId: version.rows[0].id };
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
+}
+
+export async function seedProductVersion(
+	owner: Pool,
+	input: { productId: string; version: number; baseCost: string },
+): Promise<string> {
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into product_versions (product_id, version, base_cost)
+     values ($1, $2, $3) returning id`,
+		[input.productId, input.version, input.baseCost],
+	);
+	return rows[0].id;
+}
+
+export async function seedBureauCost(
+	owner: Pool,
+	input: { bureauId: string; productId: string; cost: string; setBy: string },
+): Promise<void> {
+	await owner.query(
+		`insert into bureau_product_costs (bureau_id, product_id, cost, set_by)
+     values ($1, $2, $3, $4)`,
+		[input.bureauId, input.productId, input.cost, input.setBy],
+	);
+}
+
+export async function seedCatalogItem(
+	owner: Pool,
+	input: {
+		bureauId: string;
+		productId: string;
+		salePrice: string;
+		updatedBy: string;
+		active?: boolean;
+	},
+): Promise<void> {
+	await owner.query(
+		`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, updated_by)
+     values ($1, $2, $3, $4, $5)`,
+		[
+			input.bureauId,
+			input.productId,
+			input.active ?? true,
+			input.salePrice,
+			input.updatedBy,
+		],
+	);
+}
+
+// Saldo inicial por topup real (wallet_post_entry), para a conciliação continuar válida.
+export async function seedWalletTopup(
+	owner: Pool,
+	input: { bureauId: string; amount: string; createdBy: string },
+): Promise<void> {
+	await owner.query(
+		"select * from wallet_post_entry($1, 'topup', $2, $3, 'seed', null, $4)",
+		[
+			input.bureauId,
+			input.amount,
+			`seed-${randomBytes(6).toString("hex")}`,
+			input.createdBy,
+		],
+	);
+}
+
+export type SeededPixCharge = { id: string; asaasPaymentId: string };
+
+export async function seedPixCharge(
+	owner: Pool,
+	input: {
+		bureauId: string;
+		requestedBy: string;
+		amount?: string;
+		status?: "pending" | "paid" | "expired" | "cancelled" | "refunded";
+		expiresAt?: Date;
+		clientProfileId?: string;
+	},
+): Promise<SeededPixCharge> {
+	const asaasPaymentId = `pay_${randomBytes(8).toString("hex")}`;
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into pix_charges (bureau_id, asaas_payment_id, amount, status, pix_payload, expires_at, requested_by, client_profile_id)
+     values ($1, $2, $3, $4, 'pix-copia-e-cola-teste', $5, $6, $7) returning id`,
+		[
+			input.bureauId,
+			asaasPaymentId,
+			input.amount ?? "100.00",
+			input.status ?? "pending",
+			input.expiresAt ?? new Date(Date.now() + 30 * 60 * 1000),
+			input.requestedBy,
+			input.clientProfileId ?? null,
+		],
+	);
+	return { id: rows[0].id, asaasPaymentId };
+}
+
+// Outro cliente no mesmo Bureau. O trigger de profiles cria a carteira dele.
+export async function seedClientProfile(
+	owner: Pool,
+	bureauId: string,
+): Promise<SeedIdentity> {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		const userId = await insertUserAndProfile(client, {
+			label: `cliente ${randomBytes(4).toString("hex")}`,
+			role: "client",
+			bureauId,
+		});
+		await client.query("commit");
+		return { userId, role: "client", bureauId };
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
+}
+
+// Saldo inicial do cliente por topup real (client_wallet_post_entry), para a conciliação continuar válida.
+export async function seedClientWalletTopup(
+	owner: Pool,
+	input: { clientProfileId: string; amount: string; createdBy: string },
+): Promise<void> {
+	await owner.query(
+		"select * from client_wallet_post_entry($1, 'topup', $2, $3, 'seed', null, $4)",
+		[
+			input.clientProfileId,
+			input.amount,
+			`seed-${randomBytes(6).toString("hex")}`,
+			input.createdBy,
+		],
+	);
+}
+
+export async function seedDossier(
+	owner: Pool,
+	input: { bureauId: string; holderId: string; createdBy: string },
+): Promise<string> {
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into dossiers (bureau_id, kind, holder_id, product, created_by)
+     values ($1, 'PF', $2, 'smart_pf', $3) returning id`,
+		[input.bureauId, input.holderId, input.createdBy],
+	);
+	return rows[0].id;
+}
+
+// reserve_order exige que order_ref seja um Dossiê do Bureau. Cria o Dossiê com esse id sobre o titular do cliente
+// (ou sobre qualquer titular do Bureau, no balcão). Repetir não faz nada; sem titular elegível não cria nada.
+export async function seedOrderDossier(
+	owner: Pool,
+	input: { orderRef: string; bureauId: string; clientProfileId: string | null },
+): Promise<void> {
+	await owner.query(
+		`insert into dossiers (id, bureau_id, kind, holder_id, product, created_by)
+     select $1, $2, 'PF', h.id, 'smart_pf', h.created_by from holders h
+      where h.bureau_id = $2 and ($3::uuid is null or h.client_profile_id = $3)
+      order by h.created_at limit 1
+     on conflict do nothing`,
+		[input.orderRef, input.bureauId, input.clientProfileId],
+	);
+}
+
+// Como seedOrderDossier, com o Bureau lido do contexto da transação `session` (a que vai chamar reserve_order).
+export async function seedOrderDossierForSession(
+	owner: Pool,
+	session: PoolClient,
+	input: { orderRef: string; clientProfileId: string | null },
+): Promise<void> {
+	const { rows } = await session.query<{ id: string | null }>(
+		"select nullif(current_setting('app.bureau_id', true), '') as id",
+	);
+	if (rows[0].id) await seedOrderDossier(owner, { ...input, bureauId: rows[0].id });
+}
+
+// Lançamento de valor a repassar já assinado (acréscimo +, estorno −). O acréscimo exige order_ref (FK para
+// order_settlements): cria a liquidação mínima, de balcão e já capturada, e liga o lançamento a ela.
+export async function seedPayableEntry(
+	owner: Pool,
+	input: {
+		bureauId: string;
+		kind: "accrual" | "reversal";
+		amount: string;
+		createdAt?: string;
+	},
+): Promise<string> {
+	let orderRef: string | null = null;
+	if (input.kind === "accrual") {
+		orderRef = randomUUID();
+		await owner.query(
+			`insert into order_settlements (order_ref, bureau_id, mode, price, cost, status, closed_at)
+       values ($1, $2, 'counter', 1, 0, 'captured', now())`,
+			[orderRef, input.bureauId],
+		);
+	}
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into bureau_payable_entries (bureau_id, kind, amount, order_ref, created_at)
+     values ($1, $2, $3, $4, coalesce($5::timestamptz, now())) returning id`,
+		[input.bureauId, input.kind, input.amount, orderRef, input.createdAt ?? null],
+	);
+	return rows[0].id;
+}

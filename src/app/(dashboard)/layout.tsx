@@ -4,7 +4,8 @@ import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { Sidebar } from "@/components/layout/sidebar";
 import { SupportBanner } from "@/components/layout/support-banner";
 import { Topbar } from "@/components/layout/topbar";
-import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
+import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
+import { permissionsFor } from "@/lib/db/permissions";
 import { getBureau } from "@/lib/bureaus/queries";
 import { getTopbarEmail } from "@/lib/dashboard/queries";
 
@@ -13,12 +14,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getRequiredSession().catch((err) => {
-    if (err instanceof SessionAccessError && err.code === "mfa_setup_required") {
-      redirect("/mfa/setup");
-    }
-    redirect("/login");
-  });
+  const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
 
   // Clientes não acessam o painel interno — vão para o portal externo.
   if (session.role === "client") {
@@ -38,7 +34,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-screen">
       <IdleTimeout />
-      <Sidebar />
+      <Sidebar permissions={permissionsFor(session)} />
       <div className="flex flex-1 flex-col">
         {session.support && (
           <SupportBanner
