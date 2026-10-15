@@ -65,9 +65,10 @@ export function onlyDigits(value: string): string {
 
 // Validação simples de e-mail — suficiente para barrar disparos SCR sem destinatário.
 // A deps exige o e-mail do titular em `autorizacaoConsulta` para enviar o link.
+// Rejeita `,;()<>"`: o addressparser do nodemailer trataria "x@a.com,b.com" como lista e poderia rotear o código a outro destino.
 export function isValidEmail(value: string): boolean {
   const v = value.trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  return /^[^\s@,;()<>"]+@[^\s@,;()<>"]+\.[^\s@,;()<>"]+$/.test(v);
 }
 
 export function isValidCPF(value: string): boolean {

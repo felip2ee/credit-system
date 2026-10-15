@@ -5,12 +5,27 @@ import { useRouter } from "next/navigation";
 
 import { cancelPayoutAction } from "@/actions/payouts";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 
-export function CancelPayoutButton({ payoutId }: { payoutId: string }) {
+interface CancelPayoutButtonProps {
+  payoutId: string;
+  // Identifica o repasse (Bureau e corte) no nome acessível e no diálogo.
+  summary: string;
+}
+
+export function CancelPayoutButton({
+  payoutId,
+  summary,
+}: CancelPayoutButtonProps) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const close = () => {
+    setConfirming(false);
+    setError(null);
+  };
 
   const cancel = () => {
     setError(null);
@@ -23,29 +38,51 @@ export function CancelPayoutButton({ payoutId }: { payoutId: string }) {
   };
 
   return (
-    <div className="space-y-2">
-      {confirming ? (
-        <div role="alertdialog" aria-label="Confirmar cancelamento" className="space-y-2">
-          <p className="text-sm">Cancelar este repasse? Os lançamentos voltam a ficar disponíveis para um novo repasse.</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="destructive" onClick={cancel} disabled={isPending}>
-              {isPending ? "Cancelando..." : "Confirmar cancelamento"}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={isPending}>
-              Voltar
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
-          Cancelar repasse
-        </Button>
-      )}
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => setConfirming(true)}
+        aria-label={`Cancelar repasse ${summary}`}
+      >
+        Cancelar repasse
+      </Button>
+      <Dialog
+        open={confirming}
+        onClose={close}
+        title="Cancelar repasse?"
+        role="alertdialog"
+        dismissible={!isPending}
+      >
+        <p className="text-sm">
+          Repasse: {summary}. Os lançamentos voltam a ficar disponíveis para um
+          novo repasse.
         </p>
-      )}
-    </div>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            autoFocus
+            onClick={close}
+            disabled={isPending}
+          >
+            Voltar
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={cancel}
+            disabled={isPending}
+          >
+            {isPending ? "Cancelando..." : "Confirmar cancelamento"}
+          </Button>
+        </div>
+      </Dialog>
+    </>
   );
 }

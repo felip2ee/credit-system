@@ -8,8 +8,16 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
 
-export type NfseSettableStatus = "pending" | "issued" | "failed";
-export type NfseFailure = "not_allowed" | "not_found" | "invalid_state" | "invalid_status" | "invalid_number" | "invalid_url";
+// "canceled" não é um estado: set_nfse_status o traduz em issued -> failed sem número nem endereço (nota cancelada no Asaas).
+export type NfseSettableStatus = "pending" | "issued" | "failed" | "canceled";
+export type NfseFailure =
+	| "not_allowed"
+	| "not_found"
+	| "invalid_state"
+	| "invalid_status"
+	| "invalid_number"
+	| "invalid_url"
+	| "invalid_invoice_id";
 
 export type NfseFailureRow = {
 	chargeId: string;
@@ -77,18 +85,19 @@ export type SetNfseStatusResult = { ok: true; status: string; changed: boolean }
 export async function setNfseStatus(
 	chargeId: string,
 	status: NfseSettableStatus,
-	extra: { number?: string | null; url?: string | null } = {},
+	extra: { number?: string | null; url?: string | null; invoiceId?: string | null } = {},
 ): Promise<SetNfseStatusResult> {
 	const { rows } = await getWebhookPool().query<{
 		ok: boolean;
 		reason: NfseFailure | null;
 		status: string | null;
 		changed: boolean;
-	}>("select ok, reason, status, changed from public.set_nfse_status($1, $2, $3, $4)", [
+	}>("select ok, reason, status, changed from public.set_nfse_status($1, $2, $3, $4, $5)", [
 		chargeId,
 		status,
 		extra.number ?? null,
 		extra.url ?? null,
+		extra.invoiceId ?? null,
 	]);
 	const row = rows[0];
 	return row.ok
@@ -97,13 +106,26 @@ export async function setNfseStatus(
 }
 
 export type NfseCharge = { chargeId: string; amount: string };
+// invoiceId: nota já gravada na cobrança (nulo antes do primeiro agendamento).
+export type NfseChargeByPayment = NfseCharge & { invoiceId: string | null };
 
 // O webhook (app_webhook) não lê tabela alguma: nfse_charge_by_payment (017) liga o id do pagamento do Asaas ao id
 // da cobrança paga ou estornada, ou não devolve linha.
-export async function findNfseChargeByPayment(asaasPaymentId: string): Promise<NfseCharge | null> {
-	const { rows } = await getWebhookPool().query<{ charge_id: string; amount: string }>(
-		"select charge_id, amount from public.nfse_charge_by_payment($1)",
+export async function findNfseChargeByPayment(asaasPaymentId: string): Promise<NfseChargeByPayment | null> {
+	const { rows } = await getWebhookPool().query<{ charge_id: string; amount: string; asaas_invoice_id: string | null }>(
+		"select charge_id, amount, asaas_invoice_id from public.nfse_charge_by_payment($1)",
 		[asaasPaymentId],
+	);
+	return rows[0]
+		? { chargeId: rows[0].charge_id, amount: rows[0].amount, invoiceId: rows[0].asaas_invoice_id }
+		: null;
+}
+
+// Evento da nota: o id da nota do Asaas (gravado ao agendar) é a chave mais forte. Sem filtro de status (018/017).
+export async function findNfseChargeByInvoice(asaasInvoiceId: string): Promise<NfseCharge | null> {
+	const { rows } = await getWebhookPool().query<{ charge_id: string; amount: string }>(
+		"select charge_id, amount from public.nfse_charge_by_invoice($1)",
+		[asaasInvoiceId],
 	);
 	return rows[0] ? { chargeId: rows[0].charge_id, amount: rows[0].amount } : null;
 }

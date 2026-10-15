@@ -27,6 +27,7 @@ import {
 	ASAAS_EVENT_PAYMENT_CONFIRMED,
 	ASAAS_EVENT_PAYMENT_RECEIVED,
 	ASAAS_EVENT_PAYMENT_REFUNDED,
+	AsaasOutcomeUnknownError,
 	createAsaasClient,
 } from "./client";
 import { buildFakeInvoiceEvent, buildFakePaymentEvent, createFakeAsaasClient } from "./fake";
@@ -164,6 +165,52 @@ describe("scheduleInvoice", () => {
 		await expect(createAsaasClient(settings, fetchMock).scheduleInvoice(invoiceInput)).rejects.toThrow(
 			"Resposta inválida do Asaas em POST /v3/invoices",
 		);
+	});
+});
+
+describe("findInvoicesByPayment", () => {
+	it("GETs /v3/invoices?payment= without a body and drops ERROR and CANCELED notes", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(
+			jsonResponse({
+				data: [
+					{ id: "inv_err", status: "ERROR" },
+					{ id: "inv_can", status: "CANCELED" },
+					{ id: "inv_ok", status: "AUTHORIZED", number: 12, pdfUrl: "https://nfse.example/12.pdf" },
+				],
+			}),
+		);
+
+		const result = await createAsaasClient(settings, fetchMock).findInvoicesByPayment("pay_1");
+
+		expect(result).toEqual([
+			{ asaasInvoiceId: "inv_ok", status: "AUTHORIZED", number: "12", pdfUrl: "https://nfse.example/12.pdf" },
+		]);
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("https://api.asaas.example/v3/invoices?payment=pay_1&limit=100");
+		expect(init.method).toBe("GET");
+		expect(init.body).toBeUndefined();
+	});
+});
+
+describe("unknown outcome", () => {
+	it("a timeout or network failure is an unknown outcome, not a plain failure", async () => {
+		const fetchMock = vi.fn().mockRejectedValue(Object.assign(new Error("aborted"), { name: "TimeoutError" }));
+
+		const error = await createAsaasClient(settings, fetchMock).scheduleInvoice(invoiceInput).catch((e: Error) => e);
+
+		expect(error).toBeInstanceOf(AsaasOutcomeUnknownError);
+		expect((error as Error).message).not.toContain("secret-key");
+	});
+
+	it("a 5xx, 408, 429 or an unreadable 2xx is an unknown outcome; another 4xx is not", async () => {
+		const call = (response: Response) =>
+			createAsaasClient(settings, vi.fn().mockResolvedValue(response)).scheduleInvoice(invoiceInput).catch((e: Error) => e);
+
+		expect(await call(jsonResponse({}, 502))).toBeInstanceOf(AsaasOutcomeUnknownError);
+		expect(await call(jsonResponse({}, 408))).toBeInstanceOf(AsaasOutcomeUnknownError);
+		expect(await call(jsonResponse({}, 429))).toBeInstanceOf(AsaasOutcomeUnknownError);
+		expect(await call(jsonResponse({}))).toBeInstanceOf(AsaasOutcomeUnknownError);
+		expect(await call(jsonResponse({}, 400))).not.toBeInstanceOf(AsaasOutcomeUnknownError);
 	});
 });
 

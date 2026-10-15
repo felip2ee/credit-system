@@ -30,3 +30,10 @@ export const TEST_DATABASE_WEBHOOK_URL = assertLocal(
   process.env.TEST_DATABASE_WEBHOOK_URL ??
     "postgres://app_webhook:test@localhost:54329/credit_system",
 );
+
+// Role do worker de notificações (claim_notifications, complete_notification), migração 020.
+export const TEST_DATABASE_DISPATCH_URL = assertLocal(
+  "TEST_DATABASE_DISPATCH_URL",
+  process.env.TEST_DATABASE_DISPATCH_URL ??
+    "postgres://app_dispatch:test@localhost:54329/credit_system",
+);

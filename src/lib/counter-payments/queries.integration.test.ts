@@ -34,7 +34,7 @@ import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { reserveOrder } from "@/lib/settlement/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedDossier, seedTenant, seedWalletTopup } from "@/test/seed";
+import { seedDossier, seedOrderCatalog, seedTenant, seedWalletTopup } from "@/test/seed";
 
 import { listCounterPayments, registerCounterPayment, voidCounterPayment } from "./queries";
 
@@ -108,6 +108,23 @@ describe("registerCounterPayment", () => {
 		expect(await registerCounterPayment(operator, pay(randomUUID(), "10.00"))).toEqual({ ok: false, reason: "not_found" });
 	});
 
+	it("refuses a Dossiê settled online (the client pays it from the wallet) and writes nothing", async () => {
+		const { tenant, dossierId, operator } = await setup("Counter R5");
+		const clientId = tenant.client.userId;
+		await owner.query(
+			`insert into order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost)
+			 values ($1, $2, 'online', $3, 50.00, 10.00)`,
+			[dossierId, tenant.bureau.id, clientId],
+		);
+
+		expect(await registerCounterPayment(operator, pay(dossierId, "50.00"))).toEqual({
+			ok: false,
+			reason: "online_settlement",
+		});
+		const listed = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));
+		expect(listed.payments).toEqual([]);
+	});
+
 	it("rejects a client", async () => {
 		const { dossierId, client } = await setup("Counter R3");
 		await expect(registerCounterPayment(client, pay(dossierId, "10.00"))).rejects.toThrow();
@@ -119,6 +136,18 @@ describe("registerCounterPayment", () => {
 		await registerCounterPayment(operator, pay(dossierId, "30.00"));
 		const { rows } = await owner.query("select available, reserved from wallets where bureau_id = $1", [tenant.bureau.id]);
 		expect(rows).toEqual([{ available: "100.00", reserved: "0.00" }]);
+	});
+});
+
+describe("paidTotal", () => {
+	it("sums in SQL: two payments of 60 million do not throw a RangeError", async () => {
+		const { dossierId, operator } = await setup("Counter T1");
+		await registerCounterPayment(operator, pay(dossierId, "60000000.00"));
+		await registerCounterPayment(operator, pay(dossierId, "60000000.01"));
+
+		const listed = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));
+
+		expect(listed.paidTotal).toBe("120000000.01");
 	});
 });
 
@@ -168,19 +197,21 @@ describe("listCounterPayments", () => {
 	it("compares against the settlement price when there is one", async () => {
 		const { tenant, dossierId, operator } = await setup("Counter L2");
 		await seedWalletTopup(owner, { bureauId: tenant.bureau.id, amount: "100.00", createdBy: tenant.bureauAdmin.userId });
-		await withUserTransaction(operator, (c) =>
-			reserveOrder(c, {
+		await withUserTransaction(operator, async (c) => {
+			// reserve_order confere preço e custo no catálogo do Bureau.
+			const { lines } = await seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
+			return reserveOrder(c, {
 				orderRef: dossierId,
 				mode: "counter",
 				clientProfileId: null,
 				quote: {
 					ok: true,
-					lines: [{ productVersionId: randomUUID(), code: "smart_pf", costCents: 3000, priceCents: 5000 }],
+					lines: [{ productVersionId: randomUUID(), code: lines[0].code, costCents: 3000, priceCents: 5000 }],
 					totalCostCents: 3000,
 					totalPriceCents: 5000,
 				},
-			}),
-		);
+			});
+		});
 		await registerCounterPayment(operator, pay(dossierId, "20.00"));
 
 		const listed = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));

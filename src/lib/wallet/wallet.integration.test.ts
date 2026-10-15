@@ -947,16 +947,35 @@ describe("apply_asaas_payment (estorno)", () => {
 		expect(await refund(pending.asaasPaymentId)).toBe("duplicate");
 	});
 
-	it("ignores PAYMENT_PARTIALLY_REFUNDED and PAYMENT_DELETED on a paid charge", async () => {
+	it("ignores PAYMENT_DELETED and PAYMENT_REFUND_IN_PROGRESS on a paid charge", async () => {
 		const tenant = await seedTenant(owner, "Estorno outros eventos");
 		const c = await paidCharge(tenant, "100.00");
 
-		for (const type of ["PAYMENT_PARTIALLY_REFUNDED", "PAYMENT_DELETED", "PAYMENT_REFUND_IN_PROGRESS"]) {
+		for (const type of ["PAYMENT_DELETED", "PAYMENT_REFUND_IN_PROGRESS"]) {
 			expect(await payHook(newKey(), c.asaasPaymentId, type)).toBe("ignored");
 		}
 
 		expect((await charge(c.id)).status).toBe("paid");
 		expect(await balance(tenant.bureau.id)).toEqual({ available: "100.00", reserved: "0.00" });
+	});
+
+	it("records PAYMENT_PARTIALLY_REFUNDED as partial_refund_ignored and moves no money", async () => {
+		const tenant = await seedTenant(owner, "Estorno parcial");
+		const c = await paidCharge(tenant, "100.00");
+		const key = newKey();
+
+		expect(await payHook(key, c.asaasPaymentId, "PAYMENT_PARTIALLY_REFUNDED")).toBe("partial_refund_ignored");
+
+		const { rows } = await owner.query<{ result: string; payload: unknown }>(
+			"select result, payload from asaas_webhook_events where event_id = $1",
+			[key],
+		);
+		expect(rows).toEqual([{ result: "partial_refund_ignored", payload: expect.anything() }]);
+		expect((await charge(c.id)).status).toBe("paid");
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "100.00", reserved: "0.00" });
+		expect(await reversals(tenant.bureau.id)).toEqual([]);
+		// Repetir o mesmo evento segue idempotente.
+		expect(await payHook(key, c.asaasPaymentId, "PAYMENT_PARTIALLY_REFUNDED")).toBe("duplicate");
 	});
 
 	it("keeps entries equal to available plus reserved after a reversal", async () => {

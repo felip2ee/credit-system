@@ -149,4 +149,11 @@ describe("isValidEmail", () => {
     expect(isValidEmail("")).toBe(false);
     expect(isValidEmail("a b@c.com")).toBe(false);
   });
+
+  it.each(["x@a.com,b.com", "x@a.com;y@b.com", "x@a.com (y@b.com)", "<x@a.com>", '"x y"@a.com', "x@a.com>", "a@b@c.com"])(
+    "rejects list, comment and quote characters: %s",
+    (value) => {
+      expect(isValidEmail(value)).toBe(false);
+    },
+  );
 });

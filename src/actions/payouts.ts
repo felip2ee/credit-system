@@ -54,6 +54,18 @@ function logFailure(step: string, error: unknown): void {
 	console.error(`[payouts] ${step} falhou`, meta);
 }
 
+// Falha limpa = o banco recusou com um SQLSTATE (a transação voltou). Sem SQLSTATE, ou com classe 08 (conexão) ou 57
+// (servidor), o COMMIT pode ter chegado ao banco: o repasse pode estar pago com este comprovante.
+const AMBIGUOUS_SQLSTATE_CLASSES = ["08", "57"];
+function isCleanRollback(error: unknown): boolean {
+	const code = error instanceof Error && "code" in error ? error.code : undefined;
+	return (
+		typeof code === "string" &&
+		/^[0-9A-Z]{5}$/.test(code) &&
+		!AMBIGUOUS_SQLSTATE_CLASSES.some((prefix) => code.startsWith(prefix))
+	);
+}
+
 // Repasse é só do superadmin fora de suporte (a auditoria e as funções SQL são de plataforma).
 async function payoutManager(step: string): Promise<{ session: RequiredSession } | { error: string }> {
 	let session: RequiredSession;
@@ -115,7 +127,7 @@ export async function markPayoutPaidAction(formData: FormData): Promise<PayoutAc
 		return { error: "Falha ao guardar o comprovante." };
 	}
 
-	// O objeto só fica se o banco registrar este comprovante: qualquer outra saída o remove.
+	// O objeto só fica se o banco registrar este comprovante: qualquer outra saída o remove, menos o commit ambíguo.
 	let keep = false;
 	try {
 		const result = await markPayoutPaid(auth.session, { payoutId: parsed.data.payoutId, receipt: stored });
@@ -125,6 +137,14 @@ export async function markPayoutPaidAction(formData: FormData): Promise<PayoutAc
 		return { error: null, id: parsed.data.payoutId };
 	} catch (error) {
 		logFailure("markPayoutPaidAction.persist", error);
+		if (!isCleanRollback(error)) {
+			// Apagar agora poderia deixar um repasse pago sem comprovante. Conciliar: o repasse aponta para esta chave?
+			keep = true;
+			console.error("[payouts] comprovante mantido: commit ambíguo, conciliar à mão", {
+				payoutId: parsed.data.payoutId,
+				objectKey: stored.objectKey,
+			});
+		}
 		return { error: "Falha ao registrar o pagamento do repasse." };
 	} finally {
 		if (!keep) await discardPayoutReceipt(stored.objectKey).catch((e) => logFailure("markPayoutPaidAction.discard", e));

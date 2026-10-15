@@ -8,12 +8,18 @@ function run(path: string) {
 }
 
 describe("middleware public paths", () => {
-  it.each(["/b/reino", "/autorizacao-scr/abc123", "/api/webhooks/asaas"])("lets %s through without cookie", (path) => {
+  it.each([
+    "/b/reino",
+    "/autorizacao-scr/abc123",
+    "/api/webhooks/asaas",
+    "/api/webhooks/whatsapp",
+    "/api/internal/notifications/dispatch",
+  ])("lets %s through without cookie", (path) => {
     const res = run(path);
     expect(res.headers.get("location")).toBeNull();
   });
 
-  it.each(["/holders", "/bx", "/autorizacao-scrx"])("redirects %s to /login without cookie", (path) => {
+  it.each(["/holders", "/bx", "/autorizacao-scrx", "/api/internal/outra"])("redirects %s to /login without cookie", (path) => {
     const res = run(path);
     expect(new URL(res.headers.get("location") ?? "").pathname).toBe("/login");
   });

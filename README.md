@@ -3,6 +3,16 @@
 Plataforma multi-tenant de diagnósticos de crédito PF/PJ (Next.js 14, Better Auth, PostgreSQL 18 com RLS, Docker Swarm).
 Roadmap e decisões: [docs/superpowers/specs/2026-10-13-plataforma-bureau-produto-design.md](docs/superpowers/specs/2026-10-13-plataforma-bureau-produto-design.md).
 
+## Documentação
+
+- [Produto e escopo](PRODUCT.md).
+- [Preparação local](docs/onboarding.md).
+- [Estrutura e decisões técnicas](docs/architecture.md).
+- [Design e acessibilidade](docs/design.md).
+- [Checks de qualidade](docs/quality.md).
+- [Instruções para agentes](AGENTS.md).
+- [Setup e evidências](docs/setup.md).
+
 ## Desenvolvimento
 
 Requisitos: Node 22, Docker, Python 3.10+.

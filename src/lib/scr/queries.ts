@@ -1,6 +1,7 @@
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { pool } from "@/lib/db/pool";
 import { recordHolderEvent } from "@/lib/holders/queries";
+import { enqueueNotification, type EnqueueFailure } from "@/lib/notifications/queries";
 import type { EntityKind, ScrAuthorization, ScrStatus } from "@/types/app";
 
 export interface ScrAuthUpsert {
@@ -107,9 +108,11 @@ export async function authorizeScr(identity: DbIdentity, input: { id: string; va
 export async function listScrAuthorizations(identity: DbIdentity, status?: ScrStatus): Promise<ScrAuthorization[]> {
   return withUserTransaction(identity, async (client) => {
     const { rows } = await client.query<ScrAuthorization>(
-      `select id,document,type,name,email,holder_id,consultation_id,status::text,requested_at::text,authorized_at::text,
-       expires_at::text,last_checked_at::text from scr_authorizations
-       where ($1::text is null or status::text=$1) order by requested_at desc limit 200`, [status ?? null]);
+      `select s.id,s.document,s.type,s.name,s.email,s.holder_id,s.consultation_id,s.status::text,s.requested_at::text,s.authorized_at::text,
+       s.expires_at::text,s.last_checked_at::text,n.status as "lastNotificationStatus" from scr_authorizations s
+       left join lateral (select status from notifications
+         where reference = 'scr_authorization:' || s.id::text order by created_at desc, id desc limit 1) n on true
+       where ($1::text is null or s.status::text=$1) order by s.requested_at desc limit 200`, [status ?? null]);
     return rows;
   });
 }
@@ -140,16 +143,49 @@ export async function resolveScrContact(identity: DbIdentity, id: string) {
   });
 }
 
-export async function issueSelfScrAuthorization(identity: DbIdentity, id: string, input: { code: string; email: string; consentText: string; consentName: string; consentDocument: string }) {
-  return withUserTransaction(identity, async (client) => {
-    const { rows } = await client.query<{ public_token: string; holder_id: string }>(
-      `update scr_authorizations set channel='internal', auth_code=$2, email=$3,
-       consent_text=$4,consent_name=$5,consent_document=$6,status='pending',requested_at=now(),
-       last_checked_at=now(),authorized_at=null,consented_at=null,refused_at=null
-       where id=$1 returning public_token::text,holder_id`,
-      [id, input.code, input.email, input.consentText, input.consentName, input.consentDocument]);
-    return rows[0] ?? null;
-  });
+export type IssueSelfScrResult = { ok: true } | { ok: false; reason: "not_found" | EnqueueFailure };
+
+// ScrIssueIsAtomic: o erro derruba a transação, então o auth_code antigo continua valendo.
+class ScrEnqueueError extends Error {
+  constructor(readonly reason: EnqueueFailure) { super(`scr_authorization enqueue failed: ${reason}`); }
+}
+
+export async function issueSelfScrAuthorization(
+  identity: DbIdentity,
+  id: string,
+  input: {
+    code: string; email: string; consentText: string; consentName: string; consentDocument: string;
+    notification: { recipient: string; clientName: string; authorizedName: string; siteUrl: string };
+  },
+): Promise<IssueSelfScrResult> {
+  try {
+    return await withUserTransaction(identity, async (client): Promise<IssueSelfScrResult> => {
+      const { rows } = await client.query<{ public_token: string; requested_at: string }>(
+        `update scr_authorizations set channel='internal', auth_code=$2, email=$3,
+         consent_text=$4,consent_name=$5,consent_document=$6,status='pending',requested_at=now(),
+         last_checked_at=now(),authorized_at=null,consented_at=null,refused_at=null
+         where id=$1 returning public_token::text,requested_at::text`,
+        [id, input.code, input.email, input.consentText, input.consentName, input.consentDocument]);
+      const row = rows[0];
+      if (!row) return { ok: false, reason: "not_found" };
+      // Reemissão: o e-mail antigo ainda na fila traria um código que já não vale.
+      await client.query("select supersede_notifications($1, $2)", ["scr_authorization", `scr_authorization:${id}`]);
+      const { recipient, clientName, authorizedName, siteUrl } = input.notification;
+      const queued = await enqueueNotification(client, identity, {
+        templateKey: "scr_authorization",
+        channel: "email",
+        recipient,
+        params: { clientName, authorizedName, code: input.code, url: `${siteUrl}/autorizacao-scr/${row.public_token}` },
+        idempotencyKey: `scr_authorization:${id}:${row.requested_at}`,
+        reference: `scr_authorization:${id}`,
+      });
+      if (!queued.ok) throw new ScrEnqueueError(queued.reason);
+      return { ok: true };
+    });
+  } catch (error) {
+    if (error instanceof ScrEnqueueError) return { ok: false, reason: error.reason };
+    throw error;
+  }
 }
 
 export async function confirmPublicScrAuthorization(token: string, code: string, decision: "authorize" | "refuse", ip: string | null) {

@@ -139,6 +139,14 @@ export async function getBureau(
 	});
 }
 
+// Só id e nome (RLS: o superadmin vê todos); para rotular listas sem pagar o custo das métricas.
+export async function listBureauNames(identity: DbIdentity): Promise<Map<string, string>> {
+	return withUserTransaction(identity, async (client) => {
+		const { rows } = await client.query<{ id: string; name: string }>("select id, name from bureaus");
+		return new Map(rows.map((r) => [r.id, r.name]));
+	});
+}
+
 type MetricsRow = {
 	bureau_id: string;
 	name: string;

@@ -39,6 +39,15 @@ describe("hydrateSecretEnv", () => {
     expect(env.DATABASE_WEBHOOK_URL).toBe("postgres://app_webhook:pw@db/app");
   });
 
+  // Catches: the dispatch route reading a file path instead of the app_dispatch DSN.
+  it("reads DISPATCH_DATABASE_URL from its secret file", () => {
+    const env = { DISPATCH_DATABASE_URL_FILE: secretFile("postgres://app_dispatch:pw@db/app") } as unknown as NodeJS.ProcessEnv;
+
+    hydrateSecretEnv(env);
+
+    expect(env.DISPATCH_DATABASE_URL).toBe("postgres://app_dispatch:pw@db/app");
+  });
+
   // Catches: the superadmin bootstrap password never being read from its Docker secret.
   it("reads SUPERADMIN_PASSWORD from its secret file", () => {
     const env = { SUPERADMIN_PASSWORD_FILE: secretFile("pw-from-file-123") } as unknown as NodeJS.ProcessEnv;
@@ -46,6 +55,23 @@ describe("hydrateSecretEnv", () => {
     hydrateSecretEnv(env);
 
     expect(env.SUPERADMIN_PASSWORD).toBe("pw-from-file-123");
+  });
+
+  // Catches: the WhatsApp and dispatch secrets reaching config as file paths.
+  it("reads the WhatsApp and dispatch secrets from their secret files", () => {
+    const env = {
+      WHATSAPP_ACCESS_TOKEN_FILE: secretFile("wa-token"),
+      WHATSAPP_APP_SECRET_FILE: secretFile("wa-app-secret"),
+      WHATSAPP_VERIFY_TOKEN_FILE: secretFile("wa-verify"),
+      NOTIFICATIONS_DISPATCH_SECRET_FILE: secretFile("dispatch-secret"),
+    } as unknown as NodeJS.ProcessEnv;
+
+    hydrateSecretEnv(env);
+
+    expect(env.WHATSAPP_ACCESS_TOKEN).toBe("wa-token");
+    expect(env.WHATSAPP_APP_SECRET).toBe("wa-app-secret");
+    expect(env.WHATSAPP_VERIFY_TOKEN).toBe("wa-verify");
+    expect(env.NOTIFICATIONS_DISPATCH_SECRET).toBe("dispatch-secret");
   });
 
   // Catches: a missing Docker Secret allowing the service to start with an empty credential.

@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { ScrStatusBadge } from "@/components/scr/scr-status-badge";
+import { NotificationStatusBadge } from "@/components/notifications/NotificationStatusBadge";
 import { ScrRowActions } from "@/components/scr/scr-row-actions";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -83,6 +84,7 @@ export default async function ScrPage({
                   <>
                     <TableHead>Enviado em</TableHead>
                     <TableHead>Aguardando</TableHead>
+                    <TableHead>Último envio</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </>
                 )}
@@ -121,6 +123,11 @@ export default async function ScrPage({
                           {waiting} {waiting === 1 ? "dia" : "dias"}
                         </TableCell>
                         <TableCell>
+                          {r.lastNotificationStatus && (
+                            <NotificationStatusBadge status={r.lastNotificationStatus} />
+                          )}
+                        </TableCell>
+                        <TableCell>
                           <ScrRowActions id={r.id} />
                         </TableCell>
                       </>
@@ -148,7 +155,7 @@ export default async function ScrPage({
               {rows.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={7}
                     className="text-center text-muted-foreground"
                   >
                     Nenhum registro.

@@ -12,6 +12,7 @@ import {
 } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
+	seedOrderCatalog,
 	seedOrderDossier,
 	seedPayableEntry,
 	seedPixCharge,
@@ -734,9 +735,10 @@ describe("reconciliation", () => {
 		const orderRef = randomUUID();
 		await seedOrderDossier(owner, { orderRef, bureauId: t.bureau.id, clientProfileId: t.client.userId });
 		await committed(ctxOf(t.client), async (c) => {
+			const quote = await seedOrderCatalog(owner, c, { price: "80.00", cost: "50.00" });
 			await c.query(
-				"select * from reserve_order($1, 'online', $2, '80.00', '50.00', '{}'::jsonb)",
-				[orderRef, t.client.userId],
+				"select * from reserve_order($1, 'online', $2, '80.00', '50.00', $3::jsonb)",
+				[orderRef, t.client.userId, JSON.stringify(quote)],
 			);
 			await c.query("select * from capture_order($1)", [orderRef]);
 		});

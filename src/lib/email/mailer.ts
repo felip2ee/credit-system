@@ -9,7 +9,12 @@ export interface SendMailInput {
   subject: string;
   html: string;
   text?: string;
+  // Message-ID próprio (ex.: <id@dominio>), para o log do provedor casar com a notificação.
+  messageId?: string;
 }
+
+// Limite por etapa da conexão SMTP: um servidor mudo não pode prender o worker.
+const SMTP_TIMEOUT_MS = 10_000;
 
 function readConfig() {
   const host = process.env.SMTP_HOST;
@@ -29,7 +34,16 @@ export function isMailConfigured(): boolean {
   return readConfig() !== null;
 }
 
-export async function sendMail(input: SendMailInput): Promise<void> {
+// Domínio do remetente (para o Message-ID). Sem domínio no SMTP_FROM, cai no host SMTP.
+export function senderDomain(): string | null {
+  const cfg = readConfig();
+  if (!cfg) return null;
+  const address = /<([^>]+)>/.exec(cfg.from)?.[1] ?? cfg.from;
+  const domain = address.split("@")[1]?.trim();
+  return domain || cfg.host;
+}
+
+export async function sendMail(input: SendMailInput): Promise<{ messageId: string }> {
   const cfg = readConfig();
   if (!cfg) {
     throw new Error(
@@ -41,12 +55,17 @@ export async function sendMail(input: SendMailInput): Promise<void> {
     port: cfg.port,
     secure: cfg.secure,
     auth: { user: cfg.user, pass: cfg.pass },
+    connectionTimeout: SMTP_TIMEOUT_MS,
+    greetingTimeout: SMTP_TIMEOUT_MS,
+    socketTimeout: SMTP_TIMEOUT_MS,
   });
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from: cfg.from,
     to: input.to,
     subject: input.subject,
     html: input.html,
     text: input.text,
+    messageId: input.messageId,
   });
+  return { messageId: info.messageId };
 }

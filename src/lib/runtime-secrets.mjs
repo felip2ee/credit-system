@@ -4,6 +4,7 @@ const secretNames = [
   "DATABASE_URL",
   "DATABASE_OWNER_URL",
   "DATABASE_WEBHOOK_URL",
+  "DISPATCH_DATABASE_URL",
   "BETTER_AUTH_SECRET",
   "SMTP_PASS",
   "DEPS_API_PASSWORDL",
@@ -12,6 +13,10 @@ const secretNames = [
   "ASAAS_API_KEY",
   "ASAAS_WEBHOOK_TOKEN",
   "SUPERADMIN_PASSWORD",
+  "WHATSAPP_ACCESS_TOKEN",
+  "WHATSAPP_APP_SECRET",
+  "WHATSAPP_VERIFY_TOKEN",
+  "NOTIFICATIONS_DISPATCH_SECRET",
 ];
 
 export function hydrateSecretEnv(env = process.env) {

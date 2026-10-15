@@ -9,6 +9,8 @@
 -- 5) client_wallet_apply (sem chamador) sai. Correção do comentário da 017 sobre o id do pagamento do Asaas.
 -- 6) reserve_order exige que order_ref seja um Dossiê do Bureau (e, online, de um titular do cliente).
 -- 7) reserve_order aceita balcão com custo 0: a carteira do Bureau não é tocada.
+-- 8) reserve_order confere preço e custo no catálogo do Bureau (preço de venda, custo efetivo, adicional compatível)
+--    em vez de confiar nos valores do chamador, e grava a cotação montada no banco.
 
 -- 1) Custo fora do alcance do cliente. A política order_settlements_select_own mantém a linha do cliente; a coluna
 --    só sai pela grant (a grant é por role do banco, não por papel do app).
@@ -358,8 +360,14 @@ begin
 end
 $$;
 
--- 6 e 7) Reserva do pedido (015). O pedido é um Dossiê do Bureau da identidade; online, de um titular do cliente.
+-- 6, 7 e 8) Reserva do pedido (015). O pedido é um Dossiê do Bureau da identidade; online, de um titular do cliente.
 -- Balcão com custo 0 grava a liquidação sem reservar na carteira do Bureau (o lançamento exige valor > 0).
+-- Preço e custo vêm do catálogo do Bureau, não do chamador. A cotação (p_quote) só diz quais produtos: de 1 a 2 linhas
+-- com o campo code, um produto principal e, se houver, o adicional compatível. O banco soma o preço de venda e o custo
+-- efetivo vigentes e grava a cotação montada por ele. Divergência devolve 'quote_mismatch', sempre o mesmo motivo.
+-- O custo é dado oculto do cliente (item 1): no modo online o p_cost do chamador não é lido, então nenhuma resposta
+-- muda com ele e não há como sondar o custo real por tentativa. Só o balcão (equipe, que já lê o custo) confere p_cost.
+-- A repetição de um pedido já gravado compara só o que o chamador conhece (modo, cliente, preço e, no balcão, custo).
 create or replace function reserve_order(
   p_order_ref uuid,
   p_mode text,
@@ -381,6 +389,10 @@ declare
   v_existing public.order_settlements;
   v_post record;
   v_fail text;
+  v_lines jsonb;
+  v_price numeric;
+  v_cost numeric;
+  v_valid boolean;
 begin
   if not public.app_context_present() or v_bureau is null or p_order_ref is null
      or p_mode is null or p_mode not in ('online', 'counter') then
@@ -417,10 +429,45 @@ begin
     return;
   end if;
 
+  -- Catálogo do Bureau: as linhas pedidas, resolvidas no preço e no custo vigentes. Linha repetida, sem código, de
+  -- produto fora de venda (item inativo, produto inativo, preço abaixo do custo) ou adicional sem o principal
+  -- compatível deixa v_valid falso.
+  with req as (
+    select l ->> 'code' as code
+      from jsonb_array_elements(
+        case when jsonb_typeof(p_quote -> 'lines') = 'array' then p_quote -> 'lines' else '[]'::jsonb end) l
+  ),
+  cat as (
+    select p.code, p.kind, p.addon_for, i.sale_price, t.product_version_id, t.effective_cost
+      from (select distinct code from req where code is not null) r
+      join public.products p on p.code = r.code and p.active
+      join public.bureau_catalog_items i on i.bureau_id = v_bureau and i.product_id = p.id and i.active
+      cross join lateral public.resolve_product_terms(v_bureau, p.id) t
+     where t.effective_cost is not null and i.sale_price >= t.effective_cost
+  )
+  select
+    (select count(*) from req) between 1 and 2
+      and (select count(*) from req) = (select count(*) from cat)
+      and (select count(*) from cat where kind = 'main') = 1
+      and (select count(*) from cat) = 1 + (select count(*) from cat where kind = 'addon'
+          and addon_for @> array[(select min(code) from cat where kind = 'main')]),
+    coalesce(sum(sale_price), 0),
+    coalesce(sum(effective_cost), 0),
+    coalesce(jsonb_agg(jsonb_build_object(
+      'productVersionId', product_version_id, 'code', code,
+      'costCents', (effective_cost * 100)::bigint, 'priceCents', (sale_price * 100)::bigint
+    ) order by (kind = 'addon'), code), '[]'::jsonb)
+    into v_valid, v_price, v_cost, v_lines
+    from cat;
+  v_valid := coalesce(v_valid, false) and v_price = p_price and (p_mode = 'online' or v_cost = p_cost);
+
   begin
-    -- 1º: linha da liquidação. A unicidade de order_ref serializa duas reservas do mesmo pedido.
+    -- 1º: linha da liquidação. A unicidade de order_ref serializa duas reservas do mesmo pedido. Com a cotação
+    -- inválida a linha é gravada com os valores do chamador e desfeita logo abaixo (RS001).
     insert into public.order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost, quote)
-    values (p_order_ref, v_bureau, p_mode, p_client_profile_id, p_price, p_cost, coalesce(p_quote, '{}'::jsonb))
+    values (p_order_ref, v_bureau, p_mode, p_client_profile_id, p_price,
+      case when v_valid then v_cost else p_cost end,
+      jsonb_build_object('lines', v_lines))
     on conflict (order_ref) do nothing
     returning id into v_id;
 
@@ -430,7 +477,7 @@ begin
         return query select false, 'not_allowed'::text, null::text;
       elsif v_existing.mode = p_mode
          and v_existing.client_profile_id is not distinct from p_client_profile_id
-         and v_existing.price = p_price and v_existing.cost = p_cost then
+         and v_existing.price = p_price and (p_mode = 'online' or v_existing.cost = p_cost) then
         return query select true, null::text, v_existing.status;
       else
         return query select false, 'already_exists'::text, null::text;
@@ -438,15 +485,20 @@ begin
       return;
     end if;
 
+    if not v_valid then
+      v_fail := 'quote_mismatch';
+      raise exception 'reserve_order rolled back' using errcode = 'RS001';
+    end if;
+
     -- 2º: carteira do cliente (online) ou 3º: carteira do Bureau (balcão, só com custo > 0).
     select true as ok, null::text as reason into v_post;
     if p_mode = 'online' then
       select * into v_post from public.client_wallet_post_entry(
-        p_client_profile_id, 'reserve', p_price, 'order:reserve:' || p_order_ref::text,
+        p_client_profile_id, 'reserve', v_price, 'order:reserve:' || p_order_ref::text,
         'order:' || p_order_ref::text, null, v_user);
-    elsif p_cost > 0 then
+    elsif v_cost > 0 then
       select * into v_post from public.wallet_post_entry(
-        v_bureau, 'reserve', p_cost, 'order:reserve:' || p_order_ref::text,
+        v_bureau, 'reserve', v_cost, 'order:reserve:' || p_order_ref::text,
         'order:' || p_order_ref::text, null, v_user);
     end if;
     if not v_post.ok then
