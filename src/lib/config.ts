@@ -177,4 +177,71 @@ export function readNfseConfig(env: Environment): NfseConfig | null {
   };
 }
 
+export type WhatsappConfig =
+  | { driver: "fake"; phoneNumberId: string; appSecret: string; verifyToken: string }
+  | {
+      driver: "meta";
+      accessToken: string;
+      phoneNumberId: string;
+      appSecret: string;
+      verifyToken: string;
+      graphBaseUrl: string;
+      graphVersion: string;
+    };
+
+const WHATSAPP_DEFAULT_GRAPH_BASE_URL = "https://graph.facebook.com";
+
+function secretOfMinLength(env: Environment, name: string, min: number): string {
+  const value = required(env, name);
+  if (value.length < min) throw new Error(`${name} must be at least ${min} characters`);
+  return value;
+}
+
+// Lida sob demanda (fora de readConfig). Driver vazio = WhatsApp desligado: null.
+// O webhook compara phoneNumberId nos dois drivers; "fake" nunca roda em produção.
+export function readWhatsappConfig(env: Environment): WhatsappConfig | null {
+  const driver = env.WHATSAPP_DRIVER?.trim();
+  if (!driver) return null;
+  if (driver !== "meta" && driver !== "fake") throw new Error("WHATSAPP_DRIVER must be meta or fake");
+  if (driver === "fake" && env.NODE_ENV === "production") {
+    throw new Error("WHATSAPP_DRIVER=fake is not allowed in production");
+  }
+
+  const phoneNumberId = required(env, "WHATSAPP_PHONE_NUMBER_ID");
+  if (!/^\d+$/.test(phoneNumberId)) throw new Error("WHATSAPP_PHONE_NUMBER_ID must contain only digits");
+  const appSecret = secretOfMinLength(env, "WHATSAPP_APP_SECRET", 32);
+  const verifyToken = secretOfMinLength(env, "WHATSAPP_VERIFY_TOKEN", 32);
+  if (driver === "fake") return { driver, phoneNumberId, appSecret, verifyToken };
+
+  const graphVersion = required(env, "WHATSAPP_GRAPH_VERSION");
+  if (!/^v\d+\.\d+$/.test(graphVersion)) throw new Error("WHATSAPP_GRAPH_VERSION must look like v21.0");
+  // O token de acesso segue neste endereço: só https.
+  const graphBaseUrl = env.WHATSAPP_GRAPH_BASE_URL?.trim()
+    ? url(env, "WHATSAPP_GRAPH_BASE_URL")
+    : WHATSAPP_DEFAULT_GRAPH_BASE_URL;
+  if (new URL(graphBaseUrl).protocol !== "https:") throw new Error("WHATSAPP_GRAPH_BASE_URL must use https");
+
+  return {
+    driver,
+    accessToken: required(env, "WHATSAPP_ACCESS_TOKEN"),
+    phoneNumberId,
+    appSecret,
+    verifyToken,
+    graphBaseUrl,
+    graphVersion,
+  };
+}
+
+// Valor de exemplo do .env.example: público, nunca vale como segredo em produção.
+export const NOTIFICATIONS_DISPATCH_SECRET_EXAMPLE = "local-dispatch-secret-0123456789abcdef";
+
+// Lida sob demanda. Protege a rota que roda o worker de notificações.
+export function readNotificationsDispatchSecret(env: Environment): string {
+  const secret = secretOfMinLength(env, "NOTIFICATIONS_DISPATCH_SECRET", 32);
+  if (env.NODE_ENV === "production" && secret === NOTIFICATIONS_DISPATCH_SECRET_EXAMPLE) {
+    throw new Error("NOTIFICATIONS_DISPATCH_SECRET must not be the .env.example placeholder");
+  }
+  return secret;
+}
+
 export const config = readConfig(hydrateSecretEnv(process.env));

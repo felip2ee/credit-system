@@ -26,8 +26,11 @@ import {
   ASAAS_WEBHOOK_TOKEN_EXAMPLE,
   readAsaasConfig,
   readConfig,
+  NOTIFICATIONS_DISPATCH_SECRET_EXAMPLE,
   readNfseConfig,
+  readNotificationsDispatchSecret,
   readWebhookDatabaseUrl,
+  readWhatsappConfig,
 } from "./config";
 
 describe("readConfig", () => {
@@ -312,5 +315,94 @@ describe("readNfseConfig", () => {
     [{ NFSE_RETAIN_ISS: "yes" }, "NFSE_RETAIN_ISS must be true or false"],
   ])("rejects an incomplete or invalid setup %j", (override, message) => {
     expect(() => readNfseConfig({ ...nfse, ...override })).toThrow(message);
+  });
+});
+
+describe("readWhatsappConfig", () => {
+  const shared = {
+    WHATSAPP_PHONE_NUMBER_ID: "123456789012345",
+    WHATSAPP_APP_SECRET: "a".repeat(32),
+    WHATSAPP_VERIFY_TOKEN: "v".repeat(32),
+  };
+  const meta = { ...shared, WHATSAPP_DRIVER: "meta", WHATSAPP_ACCESS_TOKEN: "token-123" };
+
+  it("returns null when the driver is empty or missing", () => {
+    expect(readWhatsappConfig({})).toBeNull();
+    expect(readWhatsappConfig({ WHATSAPP_DRIVER: "  " })).toBeNull();
+  });
+
+  it("reads the fake driver with the webhook values and no access token", () => {
+    expect(readWhatsappConfig({ ...shared, WHATSAPP_DRIVER: "fake" })).toEqual({
+      driver: "fake",
+      phoneNumberId: "123456789012345",
+      appSecret: "a".repeat(32),
+      verifyToken: "v".repeat(32),
+    });
+  });
+
+  it("refuses the fake driver in production", () => {
+    expect(() => readWhatsappConfig({ ...shared, WHATSAPP_DRIVER: "fake", NODE_ENV: "production" })).toThrow(
+      "WHATSAPP_DRIVER=fake is not allowed in production",
+    );
+  });
+
+  it("reads the meta driver with the default Graph URL and the version", () => {
+    expect(readWhatsappConfig({ ...meta, WHATSAPP_GRAPH_VERSION: "v21.0" })).toEqual({
+      driver: "meta",
+      accessToken: "token-123",
+      phoneNumberId: "123456789012345",
+      appSecret: "a".repeat(32),
+      verifyToken: "v".repeat(32),
+      graphBaseUrl: "https://graph.facebook.com",
+      graphVersion: "v21.0",
+    });
+  });
+
+  it("accepts a custom https Graph URL", () => {
+    expect(
+      readWhatsappConfig({ ...meta, WHATSAPP_GRAPH_VERSION: "v21.0", WHATSAPP_GRAPH_BASE_URL: "https://graph.example.test" }),
+    ).toMatchObject({ graphBaseUrl: "https://graph.example.test" });
+  });
+
+  it.each([
+    [{ WHATSAPP_DRIVER: "other" }, "WHATSAPP_DRIVER must be meta or fake"],
+    [{ WHATSAPP_ACCESS_TOKEN: "" }, "WHATSAPP_ACCESS_TOKEN is required"],
+    [{ WHATSAPP_PHONE_NUMBER_ID: "" }, "WHATSAPP_PHONE_NUMBER_ID is required"],
+    [{ WHATSAPP_PHONE_NUMBER_ID: "12ab" }, "WHATSAPP_PHONE_NUMBER_ID must contain only digits"],
+    [{ WHATSAPP_APP_SECRET: "short" }, "WHATSAPP_APP_SECRET must be at least 32 characters"],
+    [{ WHATSAPP_VERIFY_TOKEN: "short" }, "WHATSAPP_VERIFY_TOKEN must be at least 32 characters"],
+    [{ WHATSAPP_GRAPH_VERSION: "" }, "WHATSAPP_GRAPH_VERSION is required"],
+    [{ WHATSAPP_GRAPH_VERSION: "21.0" }, "WHATSAPP_GRAPH_VERSION must look like v21.0"],
+    [{ WHATSAPP_GRAPH_BASE_URL: "http://graph.example.test" }, "WHATSAPP_GRAPH_BASE_URL must use https"],
+    [{ WHATSAPP_GRAPH_BASE_URL: "not a url" }, "WHATSAPP_GRAPH_BASE_URL must be a valid URL"],
+  ])("rejects an invalid meta setup %j", (override, message) => {
+    expect(() => readWhatsappConfig({ ...meta, WHATSAPP_GRAPH_VERSION: "v21.0", ...override })).toThrow(message);
+  });
+});
+
+describe("readNotificationsDispatchSecret", () => {
+  const secret = "d".repeat(32);
+
+  it("returns the secret", () => {
+    expect(readNotificationsDispatchSecret({ NOTIFICATIONS_DISPATCH_SECRET: ` ${secret} ` })).toBe(secret);
+  });
+
+  it("requires the secret", () => {
+    expect(() => readNotificationsDispatchSecret({})).toThrow("NOTIFICATIONS_DISPATCH_SECRET is required");
+  });
+
+  it("rejects a secret shorter than 32 characters", () => {
+    expect(() => readNotificationsDispatchSecret({ NOTIFICATIONS_DISPATCH_SECRET: "short" })).toThrow(
+      "NOTIFICATIONS_DISPATCH_SECRET must be at least 32 characters",
+    );
+  });
+
+  it("accepts the example value outside production and rejects it in production", () => {
+    const env = { NOTIFICATIONS_DISPATCH_SECRET: NOTIFICATIONS_DISPATCH_SECRET_EXAMPLE };
+    expect(NOTIFICATIONS_DISPATCH_SECRET_EXAMPLE).toBe("local-dispatch-secret-0123456789abcdef");
+    expect(readNotificationsDispatchSecret(env)).toBe(NOTIFICATIONS_DISPATCH_SECRET_EXAMPLE);
+    expect(() => readNotificationsDispatchSecret({ ...env, NODE_ENV: "production" })).toThrow(
+      "NOTIFICATIONS_DISPATCH_SECRET must not be the .env.example placeholder",
+    );
   });
 });
