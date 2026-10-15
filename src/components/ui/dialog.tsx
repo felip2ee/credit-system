@@ -33,8 +33,14 @@ export function Dialog({
   React.useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (open && !el.open) el.showModal();
+    if (open && !el.open) {
+      // Navegador sem <dialog>.showModal (Safari antigo): não quebra, devolve o controle ao pai.
+      if (typeof el.showModal !== "function") onClose();
+      else el.showModal();
+    }
     if (!open && el.open) el.close();
+    // onClose fora das deps: só `open` deve ressincronizar o DOM.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   return (
@@ -45,6 +51,13 @@ export function Dialog({
       onCancel={(e) => {
         e.preventDefault();
         if (dismissible) onClose();
+      }}
+      // O Chrome ignora preventDefault num segundo Escape seguido e fecha o <dialog> sem o React saber.
+      // Fechamento legítimo (open=false) já chega aqui com `open` falso; só o inesperado cai neste ramo.
+      onClose={() => {
+        if (!open) return;
+        if (dismissible) onClose();
+        else ref.current?.showModal();
       }}
       className={cn(
         "m-auto w-full max-w-md rounded-lg bg-background p-6 text-foreground shadow-lg backdrop:bg-black/50",
