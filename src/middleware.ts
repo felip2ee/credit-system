@@ -7,6 +7,7 @@ const publicPaths = [
   "/mfa",
   "/mfa/setup",
   "/mfa/verify",
+  "/api/webhooks/asaas",
 ];
 
 const publicPrefixes = ["/b/", "/autorizacao-scr/"];

@@ -3,11 +3,14 @@ import { readFileSync } from "node:fs";
 const secretNames = [
   "DATABASE_URL",
   "DATABASE_OWNER_URL",
+  "DATABASE_WEBHOOK_URL",
   "BETTER_AUTH_SECRET",
   "SMTP_PASS",
   "DEPS_API_PASSWORDL",
   "DEPS_API_PASSWORD",
   "OPENAI_API_KEY",
+  "ASAAS_API_KEY",
+  "ASAAS_WEBHOOK_TOKEN",
   "SUPERADMIN_PASSWORD",
 ];
 

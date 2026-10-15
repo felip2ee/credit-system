@@ -30,6 +30,15 @@ describe("hydrateSecretEnv", () => {
     expect(env.DATABASE_URL).toBe("postgres://runtime:pw@db/app");
   });
 
+  // Catches: the webhook route reading a file path instead of the app_webhook DSN.
+  it("reads DATABASE_WEBHOOK_URL from its secret file", () => {
+    const env = { DATABASE_WEBHOOK_URL_FILE: secretFile("postgres://app_webhook:pw@db/app") } as unknown as NodeJS.ProcessEnv;
+
+    hydrateSecretEnv(env);
+
+    expect(env.DATABASE_WEBHOOK_URL).toBe("postgres://app_webhook:pw@db/app");
+  });
+
   // Catches: the superadmin bootstrap password never being read from its Docker secret.
   it("reads SUPERADMIN_PASSWORD from its secret file", () => {
     const env = { SUPERADMIN_PASSWORD_FILE: secretFile("pw-from-file-123") } as unknown as NodeJS.ProcessEnv;

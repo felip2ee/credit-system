@@ -5,11 +5,11 @@ Every box must be checked with evidence (command output saved outside the repo).
 
 ## 1. Secrets — generation & rotation
 
-- [ ] All 12 stack secrets are Docker **external** secrets (never in the compose
+- [ ] All 14 stack secrets are Docker **external** secrets (never in the compose
   file, never in env files committed to git):
-  `database_url`, `database_owner_url`, `better_auth_secret`, `smtp_pass`,
+  `database_url`, `database_webhook_url`, `database_owner_url`, `better_auth_secret`, `smtp_pass`,
   `deps_api_password`, `openai_api_key`, `superadmin_password`, `postgres_password`,
-  `schema_owner_password`, `app_runtime_password`, `backup_reader_password`,
+  `schema_owner_password`, `app_runtime_password`, `backup_reader_password`, `app_webhook_password`,
   `restic_password`.
 - [ ] `scripts/setup/setup_production.py` generates the secrets and creates them in Docker.
 - [ ] Generate each high-entropy secret with:
