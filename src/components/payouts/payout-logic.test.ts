@@ -32,7 +32,18 @@ describe("canManagePayouts", () => {
 });
 
 describe("cutoffFromDate", () => {
-  it("converte data válida em ISO", () => expect(cutoffFromDate("2026-10-14")).toMatch(/^2026-10-1[45]T/));
+  it("usa 23:59:59 de São Paulo (UTC-3) em qualquer fuso do navegador", () => {
+    const original = process.env.TZ;
+    try {
+      for (const tz of ["UTC", "Asia/Tokyo", "Pacific/Kiritimati", "America/Los_Angeles"]) {
+        process.env.TZ = tz;
+        expect(cutoffFromDate("2026-10-14")).toBe("2026-10-15T02:59:59.000Z");
+      }
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
   it("recusa formato inválido", () => {
     expect(cutoffFromDate("")).toBeNull();
     expect(cutoffFromDate("14/10/2026")).toBeNull();

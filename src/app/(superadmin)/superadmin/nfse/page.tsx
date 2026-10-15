@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+
 import { PageHeader } from "@/components/layout/page-header";
 import { canManagePayouts } from "@/components/payouts/payout-logic";
 import { NfseFailuresTable } from "@/components/superadmin/NfseFailuresTable";
@@ -10,7 +12,7 @@ import { listNfseFailures } from "@/lib/nfse/queries";
 export const metadata = { title: "NFS-e" };
 
 export default async function SuperadminNfsePage() {
-  const session = await getRequiredSession();
+  const session = await getRequiredSession().catch(() => redirect("/login"));
   if (!hasPermission(session, "nfse:manage") || session.supportSessionId || session.support) {
     return (
       <div className="space-y-6">

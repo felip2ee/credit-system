@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { requestClientTopupAction } from "@/actions/credits-topup";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CLIENT_TOPUP_SUGGESTIONS } from "@/lib/validators/wallet";
@@ -13,6 +14,8 @@ import { formatCurrency } from "@/lib/utils";
 import type { PixChargeStatus } from "@/lib/wallet/pix-charges";
 
 const POLL_MS = 5000;
+// Depois disto o polling para e o operador usa "Atualizar".
+const POLL_MAX_MS = 10 * 60 * 1000;
 
 const STATUS_LABEL: Record<Exclude<PixChargeStatus, "pending">, string> = {
   paid: "Pago",
@@ -39,28 +42,32 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [charge, setCharge] = useState<Charge | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pollExpired, setPollExpired] = useState(false);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
-  const openerRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
 
-  const status: PixChargeStatus = charge ? (charges.find((c) => c.id === charge.id)?.status ?? "pending") : "pending";
-  const polling = open && charge !== null && status === "pending";
+  const status: PixChargeStatus = charge
+    ? (charges.find((c) => c.id === charge.id)?.status ?? "pending")
+    : "pending";
+  const polling =
+    open && charge !== null && status === "pending" && !pollExpired;
 
   useEffect(() => {
     if (!polling) return;
-    const timer = setInterval(() => router.refresh(), POLL_MS);
-    return () => clearInterval(timer);
+    // Aba oculta não consulta: o servidor não é chamado à toa.
+    const timer = setInterval(() => {
+      if (!document.hidden) router.refresh();
+    }, POLL_MS);
+    const stop = setTimeout(() => setPollExpired(true), POLL_MAX_MS);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(stop);
+    };
   }, [polling, router]);
 
   useEffect(() => {
     if (open && !charge) inputRef.current?.focus();
   }, [open, charge]);
-
-  // O formulário sai da árvore ao mostrar a cobrança: sem isto o foco cai no body e o Escape para de funcionar.
-  useEffect(() => {
-    if (charge) closeRef.current?.focus();
-  }, [charge]);
 
   const close = () => {
     setOpen(false);
@@ -68,7 +75,7 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
     setValue("");
     setError(null);
     setCopied(false);
-    openerRef.current?.focus();
+    setPollExpired(false);
   };
 
   const submit = (event: React.FormEvent) => {
@@ -85,7 +92,11 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
         setError(res.error ?? "Não foi possível gerar o PIX. Tente novamente.");
         return;
       }
-      setCharge({ id: res.id, pixPayload: res.pixPayload, qrImageBase64: res.qrImageBase64 ?? "" });
+      setCharge({
+        id: res.id,
+        pixPayload: res.pixPayload,
+        qrImageBase64: res.qrImageBase64 ?? "",
+      });
     });
   };
 
@@ -94,122 +105,154 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
     try {
       await navigator.clipboard.writeText(charge.pixPayload);
       setCopied(true);
+      setError(null);
     } catch {
-      setError("Não foi possível copiar. Selecione o código e copie manualmente.");
+      setCopied(false);
+      setError(
+        "Não foi possível copiar. Selecione o código e copie manualmente.",
+      );
     }
   };
 
   return (
     <>
-      <Button ref={openerRef} onClick={() => setOpen(true)}>
-        Recarregar
-      </Button>
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onKeyDown={(e) => e.key === "Escape" && !isPending && close()}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="topup-title"
-            className="w-full max-w-md space-y-4 rounded-lg bg-background p-6 shadow-lg"
-          >
-            <h2 id="topup-title" className="text-lg font-semibold">
-              Recarregar créditos
-            </h2>
-            {!charge ? (
-              <form onSubmit={submit} className="space-y-4" noValidate>
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-2" role="group" aria-label="Valores sugeridos">
-                    {CLIENT_TOPUP_SUGGESTIONS.map((s) => (
-                      <Button
-                        key={s}
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={isPending}
-                        onClick={() => setValue(s.replace(".", ","))}
-                      >
-                        {formatCurrency(Number(s))}
-                      </Button>
-                    ))}
-                  </div>
-                  <Label htmlFor="topup-amount">Valor (R$ 10,00 a R$ 5.000,00)</Label>
-                  <Input
-                    id="topup-amount"
-                    ref={inputRef}
-                    inputMode="decimal"
-                    placeholder="0,00"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
+      <Button onClick={() => setOpen(true)}>Recarregar</Button>
+      <Dialog
+        open={open}
+        onClose={close}
+        title="Recarregar créditos"
+        dismissible={!isPending}
+      >
+        {!charge ? (
+          <form onSubmit={submit} className="space-y-4" noValidate>
+            <div className="space-y-2">
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label="Valores sugeridos"
+              >
+                {CLIENT_TOPUP_SUGGESTIONS.map((s) => (
+                  <Button
+                    key={s}
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     disabled={isPending}
-                    aria-invalid={error !== null}
-                    aria-describedby={error ? "topup-error" : undefined}
+                    onClick={() => setValue(s.replace(".", ","))}
+                  >
+                    {formatCurrency(Number(s))}
+                  </Button>
+                ))}
+              </div>
+              <Label htmlFor="topup-amount">
+                Valor (R$ 10,00 a R$ 5.000,00)
+              </Label>
+              <Input
+                id="topup-amount"
+                ref={inputRef}
+                inputMode="decimal"
+                placeholder="0,00"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                disabled={isPending}
+                aria-invalid={error !== null}
+                aria-describedby={error ? "topup-error" : undefined}
+              />
+              {error && (
+                <p
+                  id="topup-error"
+                  role="alert"
+                  className="text-sm text-destructive"
+                >
+                  {error}
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={close}
+                disabled={isPending}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isPending || value === ""}>
+                {isPending ? "Gerando PIX..." : "Gerar PIX"}
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            {status === "pending" ? (
+              <>
+                {charge.qrImageBase64 && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`data:image/png;base64,${charge.qrImageBase64}`}
+                    alt="QR Code do PIX"
+                    className="mx-auto h-48 w-48"
                   />
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="topup-code">PIX copia e cola</Label>
+                  <Input
+                    id="topup-code"
+                    readOnly
+                    value={charge.pixPayload}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={copy}
+                  >
+                    {copied ? "Copiado" : "Copiar código"}
+                  </Button>
                   {error && (
-                    <p id="topup-error" role="alert" className="text-sm text-destructive">
+                    <p role="alert" className="text-sm text-destructive">
                       {error}
                     </p>
                   )}
                 </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={close} disabled={isPending}>
-                    Cancelar
+                <p role="status" className="text-sm text-muted-foreground">
+                  {pollExpired
+                    ? "Atualização automática pausada."
+                    : "Aguardando pagamento..."}
+                </p>
+                {pollExpired && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setPollExpired(false);
+                      router.refresh();
+                    }}
+                  >
+                    Atualizar
                   </Button>
-                  <Button type="submit" disabled={isPending || value === ""}>
-                    {isPending ? "Gerando PIX..." : "Gerar PIX"}
-                  </Button>
-                </div>
-              </form>
-            ) : (
-              <div className="space-y-4">
-                {status === "pending" ? (
-                  <>
-                    {charge.qrImageBase64 && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={`data:image/png;base64,${charge.qrImageBase64}`}
-                        alt="QR Code do PIX"
-                        className="mx-auto h-48 w-48"
-                      />
-                    )}
-                    <div className="space-y-2">
-                      <Label htmlFor="topup-code">PIX copia e cola</Label>
-                      <Input id="topup-code" readOnly value={charge.pixPayload} onFocus={(e) => e.target.select()} />
-                      <Button type="button" variant="outline" size="sm" onClick={copy}>
-                        {copied ? "Copiado" : "Copiar código"}
-                      </Button>
-                      {error && (
-                        <p role="alert" className="text-sm text-destructive">
-                          {error}
-                        </p>
-                      )}
-                    </div>
-                    <p role="status" className="text-sm text-muted-foreground">
-                      Aguardando pagamento...
-                    </p>
-                  </>
-                ) : (
-                  <div role="status" className="space-y-1 text-center">
-                    <p className="text-lg font-semibold">{STATUS_LABEL[status]}</p>
-                    {status === "expired" && (
-                      <p className="text-sm text-muted-foreground">
-                        Se o PIX for pago depois, o valor ainda será creditado.
-                      </p>
-                    )}
-                  </div>
                 )}
-                <div className="flex justify-end">
-                  <Button ref={closeRef} type="button" variant="outline" onClick={close}>
-                    Fechar
-                  </Button>
-                </div>
+              </>
+            ) : (
+              <div role="status" className="space-y-1 text-center">
+                <p className="text-lg font-semibold">{STATUS_LABEL[status]}</p>
+                {status === "expired" && (
+                  <p className="text-sm text-muted-foreground">
+                    Se o PIX for pago depois, o valor ainda será creditado.
+                  </p>
+                )}
               </div>
             )}
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" onClick={close}>
+                Fechar
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Dialog>
     </>
   );
 }

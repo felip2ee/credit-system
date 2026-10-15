@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+
 import { PageHeader } from "@/components/layout/page-header";
 import { CreatePayoutForm } from "@/components/payouts/CreatePayoutForm";
 import { canManagePayouts } from "@/components/payouts/payout-logic";
@@ -12,7 +14,7 @@ import { listPayouts } from "@/lib/payouts/queries";
 export const metadata = { title: "Repasses" };
 
 export default async function SuperadminPayoutsPage() {
-  const session = await getRequiredSession();
+  const session = await getRequiredSession().catch(() => redirect("/login"));
   const inSupport = Boolean(session.supportSessionId || session.support);
   if (!hasPermission(session, "payout:read") || inSupport) {
     return (

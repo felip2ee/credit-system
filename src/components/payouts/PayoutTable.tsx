@@ -54,8 +54,16 @@ export function PayoutTable({ payouts, bureauNames, canManage = false }: PayoutT
               <TableCell>
                 {payout.status === "open" && (
                   <div className="space-y-2">
-                    <MarkPaidForm payoutId={payout.id} />
-                    <CancelPayoutButton payoutId={payout.id} />
+                    <MarkPaidForm
+                      payoutId={payout.id}
+                      bureauName={bureauNames?.[payout.bureauId] ?? "Bureau"}
+                      cutoff={formatDateSP(payout.cutoffAt)}
+                      amount={formatCurrency(Number(payout.amount))}
+                    />
+                    <CancelPayoutButton
+                      payoutId={payout.id}
+                      summary={`${bureauNames?.[payout.bureauId] ?? "Bureau"}, corte ${formatDateSP(payout.cutoffAt)}`}
+                    />
                   </div>
                 )}
               </TableCell>
