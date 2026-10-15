@@ -76,6 +76,39 @@ describe("requestInvoiceForPayment", () => {
 		expect(s.setStatus).toHaveBeenCalledWith(charge.chargeId, "failed");
 	});
 
+	it("claims not_requested -> pending before it calls Asaas", async () => {
+		const order: string[] = [];
+		s.setStatus.mockImplementation(async () => (order.push("claim"), { ok: true, status: "pending", changed: true }));
+		s.schedule.mockImplementation(async () => (order.push("schedule"), { asaasInvoiceId: "inv_1" }));
+
+		await requestInvoiceForPayment("pay_1");
+
+		expect(order).toEqual(["claim", "schedule", "claim"]);
+	});
+
+	it("does not schedule when the claim is not won (already pending, issued or failed)", async () => {
+		s.setStatus.mockResolvedValue({ ok: true, status: "pending", changed: false });
+
+		expect(await requestInvoiceForPayment("pay_1")).toBe("not_requested");
+		expect(s.schedule).not.toHaveBeenCalled();
+		expect(s.setStatus).toHaveBeenCalledTimes(1);
+	});
+
+	it("two concurrent calls on one charge call Asaas exactly once", async () => {
+		let claimed = false;
+		s.setStatus.mockImplementation(async (_id: string, status: string) => {
+			if (status !== "pending") return { ok: true, status, changed: true };
+			await Promise.resolve();
+			const changed = !claimed;
+			claimed = true;
+			return { ok: true, status: "pending", changed };
+		});
+
+		await Promise.all([requestInvoiceForPayment("pay_1"), repairInvoiceForPayment("pay_1")]);
+
+		expect(s.schedule).toHaveBeenCalledTimes(1);
+	});
+
 	it("does not schedule for an unknown charge", async () => {
 		s.findCharge.mockResolvedValue(null);
 
@@ -90,6 +123,7 @@ describe("requestInvoiceForPayment", () => {
 	});
 
 	it("does not mark failed after Asaas accepted the invoice and only the pending record failed", async () => {
+		s.setStatus.mockResolvedValueOnce({ ok: true, status: "pending", changed: true });
 		s.setStatus.mockRejectedValue(new Error("connection lost"));
 
 		expect(await requestInvoiceForPayment("pay_1")).toBe("pending");
@@ -98,6 +132,7 @@ describe("requestInvoiceForPayment", () => {
 
 	it("still returns failed and logs when recording failed throws too", async () => {
 		s.schedule.mockRejectedValue(new Error("Asaas respondeu 500"));
+		s.setStatus.mockResolvedValueOnce({ ok: true, status: "pending", changed: true });
 		s.setStatus.mockRejectedValue(Object.assign(new Error("connection lost"), { code: "57P01" }));
 
 		expect(await requestInvoiceForPayment("pay_1")).toBe("failed");

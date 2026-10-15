@@ -75,25 +75,10 @@ async function scheduleAndRecord(
 	return "pending";
 }
 
-// Depois do crédito, fora da transação. Nunca lança: a falha da nota não pode virar 500 nem desfazer o crédito.
-export async function requestInvoiceForPayment(asaasPaymentId: string): Promise<ScheduleOutcome> {
-	const state = nfseConfigState();
-	if (state.kind === "off") return "not_requested";
-	try {
-		const charge: NfseCharge | null = await findNfseChargeByPayment(asaasPaymentId);
-		if (!charge) return "unknown_charge";
-		return await scheduleAndRecord(state, charge.chargeId, asaasPaymentId, charge.amount);
-	} catch (error) {
-		logFailure("pedido da nota", error);
-		return "failed";
-	}
-}
-
-// Reenvio do webhook de um pagamento já creditado: repara a nota que ficou em not_requested (processo caiu depois do
-// crédito, ou o registro de "failed" falhou). set_nfse_status(pending) só muda not_requested, então só quem a "reivindica"
-// agenda; nota pending, issued ou failed nunca é agendada de novo. Nunca lança.
+// set_nfse_status(pending) só muda not_requested, então só quem "reivindica" a nota agenda; nota pending, issued ou failed
+// nunca é agendada de novo (duas entregas do webhook ou um reenvio durante um Asaas lento não geram duas notas). Nunca lança.
 // shortcut: reivindicar antes de agendar deixa a nota pending se o processo cair entre os dois passos; migrar para uma varredura de pending antigas se isso ocorrer.
-export async function repairInvoiceForPayment(asaasPaymentId: string): Promise<ScheduleOutcome> {
+async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<ScheduleOutcome> {
 	const state = nfseConfigState();
 	if (state.kind === "off") return "not_requested";
 	try {
@@ -103,10 +88,19 @@ export async function repairInvoiceForPayment(asaasPaymentId: string): Promise<S
 		if (!claim.ok || !claim.changed) return "not_requested";
 		return await scheduleAndRecord(state, charge.chargeId, asaasPaymentId, charge.amount);
 	} catch (error) {
-		logFailure("reparo da nota", error);
+		logFailure(step, error);
 		return "failed";
 	}
 }
+
+// Depois do crédito, fora da transação. Nunca lança: a falha da nota não pode virar 500 nem desfazer o crédito.
+export const requestInvoiceForPayment = (asaasPaymentId: string): Promise<ScheduleOutcome> =>
+	claimAndSchedule(asaasPaymentId, "pedido da nota");
+
+// Reenvio do webhook de um pagamento já creditado: repara a nota que ficou em not_requested (processo caiu depois do
+// crédito, ou o registro de "failed" falhou).
+export const repairInvoiceForPayment = (asaasPaymentId: string): Promise<ScheduleOutcome> =>
+	claimAndSchedule(asaasPaymentId, "reparo da nota");
 
 // Nova tentativa depois de request_nfse_retry (a cobrança já está pending). Nunca lança.
 export async function rescheduleInvoice(identity: DbIdentity, chargeId: string): Promise<ScheduleOutcome> {
