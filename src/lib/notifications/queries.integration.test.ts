@@ -27,6 +27,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { pool } from "@/lib/db/pool";
+import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedSuperadmin, seedSupportSession, seedTenant, type SeededTenant, type SeedSuperadmin } from "@/test/seed";
@@ -44,6 +45,8 @@ let emailTemplateId: string;
 const rand = () => randomBytes(6).toString("hex");
 const email = () => `${rand()}@example.test`;
 const adminA = (): DbIdentity => tenantA.bureauAdmin;
+
+beforeAll(acquireClaimLock, 120_000);
 
 beforeAll(async () => {
 	[tenantA, tenantB, superadmin] = await Promise.all([
@@ -68,6 +71,7 @@ afterAll(async () => {
 		[[tenantA.bureauAdmin.userId, tenantB.bureauAdmin.userId, superadmin.userId]],
 	);
 	await Promise.all([owner.end(), pool.end()]);
+	await releaseClaimLock();
 });
 
 const enqueue = (identity: DbIdentity, overrides: Partial<Parameters<typeof enqueueNotification>[2]> = {}) =>

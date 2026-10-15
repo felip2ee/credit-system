@@ -33,6 +33,7 @@ vi.mock("@/lib/notifications/queries", async (importOriginal) => {
 });
 
 import { pool } from "@/lib/db/pool";
+import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
 import { enqueueNotification } from "@/lib/notifications/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedTenant, type SeededTenant } from "@/test/seed";
@@ -45,6 +46,8 @@ const SITE_URL = "https://canonical.example.test";
 
 let tenantA: SeededTenant;
 let tenantB: SeededTenant;
+
+beforeAll(acquireClaimLock, 120_000);
 
 beforeAll(async () => {
 	[tenantA, tenantB] = await Promise.all([seedTenant(owner, "Scr Q A"), seedTenant(owner, "Scr Q B")]);
@@ -59,6 +62,7 @@ afterAll(async () => {
 		[[tenantA.bureau.id, tenantB.bureau.id]],
 	);
 	await Promise.all([owner.end(), pool.end()]);
+	await releaseClaimLock();
 });
 
 async function seedScr(tenant: SeededTenant): Promise<string> {
