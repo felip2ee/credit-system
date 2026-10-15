@@ -370,4 +370,24 @@ describe("settlement audit", () => {
 		const id = (await withUserTransaction(client, (c) => getSettlement(c, orderRef)))?.id as string;
 		expect(await auditRows(id, "settlement.release")).toHaveLength(1);
 	});
+
+	it("closes the order and audits settlement.release when a refund took the reservation back", async () => {
+		const { client } = await setup("Settle A3", { client: "100.00" });
+		const orderRef = randomUUID();
+		await withUserTransaction(client, (c) =>
+			reserveOrder(c, { orderRef, mode: "online", clientProfileId: client.userId, quote: quoteOf(5000, 3000) }),
+		);
+		await owner.query("select * from client_wallet_post_entry($1, 'reversal', 100, $2, null, null, $1)", [
+			client.userId,
+			randomUUID(),
+		]);
+
+		const result = await withUserTransaction(client, (c) => captureOrder(c, orderRef));
+
+		expect(result).toEqual({ ok: false, reason: "reservation_clawed_back" });
+		const settlement = await withUserTransaction(client, (c) => getSettlement(c, orderRef));
+		expect(settlement?.status).toBe("released");
+		expect(await auditRows(settlement?.id as string, "settlement.release")).toHaveLength(1);
+		expect(await auditRows(settlement?.id as string, "settlement.capture")).toHaveLength(0);
+	});
 });

@@ -83,6 +83,8 @@ export async function captureOrder(client: PoolClient, orderRef: string): Promis
 	const { rows } = await client.query<ResultRow>("select ok, reason, status from capture_order($1)", [orderRef]);
 	const result = toResult(rows[0]);
 	if (result.ok) await auditTransition(client, orderRef, "settlement.capture");
+	// O pedido foi fechado como liberado: audita o fechamento. O chamador mantém a transação.
+	else if (result.reason === "reservation_clawed_back") await auditTransition(client, orderRef, "settlement.release");
 	return result;
 }
 

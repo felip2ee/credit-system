@@ -4,7 +4,7 @@ import { PAYOUT_STATUS_LABEL, PAYOUT_STATUS_VARIANT } from "@/components/payouts
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Payout } from "@/lib/payouts/queries";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDateSP, formatDateTime } from "@/lib/utils";
 
 interface PayoutTableProps {
   payouts: Payout[];
@@ -32,7 +32,7 @@ export function PayoutTable({ payouts, bureauNames, canManage = false }: PayoutT
         {payouts.map((payout) => (
           <TableRow key={payout.id}>
             {bureauNames && <TableCell>{bureauNames[payout.bureauId] ?? "—"}</TableCell>}
-            <TableCell>{formatDate(payout.cutoffAt)}</TableCell>
+            <TableCell>{formatDateSP(payout.cutoffAt)}</TableCell>
             <TableCell>{formatCurrency(Number(payout.amount))}</TableCell>
             <TableCell>
               <Badge variant={PAYOUT_STATUS_VARIANT[payout.status]}>{PAYOUT_STATUS_LABEL[payout.status]}</Badge>

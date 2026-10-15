@@ -9,18 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, todayInSaoPaulo } from "@/lib/utils";
 
 interface CreatePayoutFormProps {
   bureaus: { id: string; name: string; payable: string }[];
 }
 
-const today = () => new Date().toLocaleDateString("sv-SE");
-
 export function CreatePayoutForm({ bureaus }: CreatePayoutFormProps) {
   const router = useRouter();
   const [bureauId, setBureauId] = useState(bureaus[0]?.id ?? "");
-  const [cutoff, setCutoff] = useState(today);
+  const [cutoff, setCutoff] = useState(todayInSaoPaulo);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [isPending, startTransition] = useTransition();

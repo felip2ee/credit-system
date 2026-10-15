@@ -160,6 +160,10 @@ Mudanças feitas depois do review do painel. Elas valem mais que o texto acima o
 - **Estorno de recarga.** O estorno também retira do saldo reservado, não só do disponível.
 - **NFS-e: reparo no reenvio.** O reenvio do webhook de um crédito já aplicado repara a nota que ficou em `not_requested`. A função SQL `set_nfse_status` evita uma segunda emissão: só quem muda `not_requested` para `pending` agenda a nota.
 - **Tipo `reversal`.** O tipo de lançamento `reversal` em `bureau_payable_entries` fica reservado para o M6.
+- **Reserva retomada por estorno (019).** `release_order` devolve ao disponível `least(reservado, valor)` e fecha o pedido como `released`. `capture_order` não captura nesse caso: devolve o que sobrou, fecha como `released`, não cria valor a repassar e responde `ok = false`, `reason = reservation_clawed_back`, `status = released`. A função não levanta erro, então o fechamento é gravado; o chamador deve manter a transação. `captureOrder` audita `settlement.release` nesse caso. Vale para a carteira do cliente (online) e do Bureau (balcão com custo maior que 0).
+- **NFS-e só de cobrança paga (019).** `nfse_charge_by_payment` devolve só cobrança `paid`. Cobrança estornada não abre nota nova. `set_nfse_status` e `nfse_charge_payment` (nova tentativa do superadmin) não mudam.
+- **Estorno antes do pagamento (019).** `PAYMENT_REFUNDED` numa cobrança `pending` marca a cobrança como `refunded` e responde `ignored`, sem mover dinheiro. Um `PAYMENT_RECEIVED` tardio responde `duplicate` e não credita.
+- **Índice (019).** `pix_charges_bureau_created_idx` sai: `pix_charges_bureau_own_created_idx` (018) atende a lista do Bureau.
 
 ### Limites conhecidos
 

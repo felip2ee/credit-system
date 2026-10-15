@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
+import { todayInSaoPaulo } from "@/lib/utils";
 import { COUNTER_METHODS } from "@/lib/validators/counter-payments";
 
 export const METHOD_LABEL: Record<(typeof COUNTER_METHODS)[number], string> = {
@@ -19,8 +20,6 @@ export const METHOD_LABEL: Record<(typeof COUNTER_METHODS)[number], string> = {
   other: "Outro",
 };
 
-// Data local de hoje no formato do input type="date".
-const today = () => new Date().toLocaleDateString("sv-SE");
 
 interface CounterPaymentFormProps {
   dossierId: string;
@@ -30,7 +29,7 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
   const router = useRouter();
   const [method, setMethod] = useState<(typeof COUNTER_METHODS)[number]>("cash");
   const [amount, setAmount] = useState("");
-  const [receivedAt, setReceivedAt] = useState(today);
+  const [receivedAt, setReceivedAt] = useState(todayInSaoPaulo);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();

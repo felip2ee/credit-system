@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   formatCNPJ,
@@ -6,6 +6,8 @@ import {
   formatCurrency,
   formatDate,
   formatDateTime,
+  formatDateSP,
+  todayInSaoPaulo,
   isValidCNPJ,
   isValidCPF,
   isValidEmail,
@@ -106,12 +108,32 @@ describe("formatDate / formatDateTime", () => {
   });
 
   it("usa o fuso de São Paulo, não o do servidor", () => {
-    expect(formatDate("2026-06-24T02:30:00Z")).toBe("23/06/2026");
+    expect(formatDateSP("2026-06-24T02:30:00Z")).toBe("23/06/2026");
     expect(formatDateTime("2026-06-24T02:30:00Z")).toMatch(/23\/06\/2026.*23:30/);
+  });
+
+  it("formatDate não desloca datas puras (meia-noite UTC)", () => {
+    expect(formatDate("1979-03-01T00:00:00.000Z")).toBe("01/03/1979");
   });
 
   it("formatDateTime inclui hora", () => {
     expect(formatDateTime("2026-06-24T12:00:00Z")).toMatch(/\d{2}:\d{2}/);
+  });
+});
+
+describe("todayInSaoPaulo", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("23:30 BRT (02:30Z do dia seguinte) ainda é o dia anterior", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-24T02:30:00Z"));
+    expect(todayInSaoPaulo()).toBe("2026-06-23");
+  });
+
+  it("00:30 BRT já é o dia novo", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-24T03:30:00Z"));
+    expect(todayInSaoPaulo()).toBe("2026-06-24");
   });
 });
 

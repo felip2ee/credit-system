@@ -200,6 +200,15 @@ describe("pix_charges_pending_idx", () => {
 	});
 });
 
+describe("pix_charges_bureau_created_idx", () => {
+	it("was dropped: pix_charges_bureau_own_created_idx serves the Bureau charge list", async () => {
+		const { rows } = await owner.query<{ indexname: string }>(
+			"select indexname from pg_indexes where tablename = 'pix_charges' and indexname in ('pix_charges_bureau_created_idx', 'pix_charges_bureau_own_created_idx')",
+		);
+		expect(rows.map((r) => r.indexname)).toEqual(["pix_charges_bureau_own_created_idx"]);
+	});
+});
+
 describe("listRefundShortfalls", () => {
 	async function shortfallCharge(
 		tenant: Awaited<ReturnType<typeof seedTenant>>,
