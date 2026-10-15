@@ -40,6 +40,7 @@ import { getWebhookPool } from "@/lib/db/webhook-pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedTenant, type SeededTenant } from "@/test/seed";
 
+import { acquireClaimLock, releaseClaimLock } from "./claim-lock.test-util";
 import { runDispatch } from "./dispatch";
 import { enqueueNotification } from "./queries";
 import type { NotificationChannel } from "./types";
@@ -52,6 +53,8 @@ const created: string[] = [];
 const rand = () => randomBytes(6).toString("hex");
 const email = () => `${rand()}@example.test`;
 const phone = () => `+55119${Math.floor(10000000 + Math.random() * 89999999)}`;
+
+beforeAll(acquireClaimLock, 120_000);
 
 beforeAll(async () => {
 	tenant = await seedTenant(owner, "Notif Dispatch");
@@ -66,6 +69,7 @@ afterAll(async () => {
 		[created],
 	);
 	await Promise.all([owner.end(), pool.end(), getWebhookPool().end()]);
+	await releaseClaimLock();
 });
 
 // Comportamento do e-mail por destinatário; o padrão é enviar.

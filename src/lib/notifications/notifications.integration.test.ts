@@ -20,6 +20,8 @@ import {
 	type SeedSuperadmin,
 } from "@/test/seed";
 
+import { acquireClaimLock, releaseClaimLock } from "./claim-lock.test-util";
+
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const app = new Pool({ connectionString: TEST_DATABASE_URL, max: 4 });
 const hook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 4 });
@@ -64,6 +66,8 @@ async function newTemplate(
 	return rows[0].id;
 }
 
+beforeAll(acquireClaimLock, 120_000);
+
 beforeAll(async () => {
 	[tenantA, tenantB, superadmin] = await Promise.all([
 		seedTenant(owner, "Notif A"),
@@ -106,6 +110,7 @@ afterAll(async () => {
 		],
 	);
 	await Promise.all([owner.end(), app.end(), hook.end()]);
+	await releaseClaimLock();
 });
 
 async function setCtx(client: PoolClient, ctx: Ctx) {
