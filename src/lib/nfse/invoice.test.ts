@@ -3,18 +3,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const s = vi.hoisted(() => ({
 	readNfseConfig: vi.fn(),
 	schedule: vi.fn(),
+	findInvoices: vi.fn(),
 	findCharge: vi.fn(),
+	findChargeByInvoice: vi.fn(),
 	findRetryTarget: vi.fn(),
 	setStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/config", () => ({ readNfseConfig: s.readNfseConfig }));
-vi.mock("@/lib/asaas", () => ({ getAsaasClient: () => ({ scheduleInvoice: s.schedule }) }));
+vi.mock("@/lib/asaas", () => ({
+	getAsaasClient: () => ({ scheduleInvoice: s.schedule, findInvoicesByPayment: s.findInvoices }),
+}));
 vi.mock("./queries", () => ({
+	findNfseChargeByInvoice: s.findChargeByInvoice,
 	findNfseChargeByPayment: s.findCharge,
 	findNfseRetryTarget: s.findRetryTarget,
 	setNfseStatus: s.setStatus,
 }));
+
+import { AsaasOutcomeUnknownError } from "@/lib/asaas/client";
 
 import {
 	applyInvoiceEvent,
@@ -32,6 +39,8 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	s.readNfseConfig.mockReturnValue(service);
 	s.findCharge.mockResolvedValue(charge);
+	s.findChargeByInvoice.mockResolvedValue(null);
+	s.findInvoices.mockResolvedValue([]);
 	s.schedule.mockResolvedValue({ asaasInvoiceId: "inv_1" });
 	s.setStatus.mockResolvedValue({ ok: true, status: "pending", changed: true });
 	vi.spyOn(console, "error").mockImplementation(() => {});
@@ -57,6 +66,65 @@ describe("requestInvoiceForPayment", () => {
 			service,
 		});
 		expect(s.setStatus).toHaveBeenCalledWith(charge.chargeId, "pending");
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "pending", { invoiceId: "inv_1" });
+	});
+
+	it("looks up the invoices of the payment before it schedules", async () => {
+		const order: string[] = [];
+		s.findInvoices.mockImplementation(async () => (order.push("lookup"), []));
+		s.schedule.mockImplementation(async () => (order.push("schedule"), { asaasInvoiceId: "inv_1" }));
+
+		await requestInvoiceForPayment("pay_1");
+
+		expect(order).toEqual(["lookup", "schedule"]);
+		expect(s.findInvoices).toHaveBeenCalledWith("pay_1");
+	});
+
+	it("adopts an invoice Asaas already has: records its id and never calls POST", async () => {
+		s.findInvoices.mockResolvedValue([{ asaasInvoiceId: "inv_old", status: "SCHEDULED", number: null, pdfUrl: null }]);
+
+		expect(await requestInvoiceForPayment("pay_1")).toBe("pending");
+		expect(s.schedule).not.toHaveBeenCalled();
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "pending", { invoiceId: "inv_old" });
+	});
+
+	it("adopts an already authorized invoice as issued, with its number and url", async () => {
+		s.findInvoices.mockResolvedValue([
+			{ asaasInvoiceId: "inv_old", status: "AUTHORIZED", number: "77", pdfUrl: "https://nfse.example/77.pdf" },
+		]);
+
+		await requestInvoiceForPayment("pay_1");
+
+		expect(s.schedule).not.toHaveBeenCalled();
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "issued", {
+			number: "77",
+			url: "https://nfse.example/77.pdf",
+			invoiceId: "inv_old",
+		});
+	});
+
+	it("treats a timeout on POST as unknown: leaves the note pending, never records failed", async () => {
+		s.schedule.mockRejectedValue(new AsaasOutcomeUnknownError("Sem resposta do Asaas em POST /v3/invoices (TimeoutError)"));
+
+		expect(await requestInvoiceForPayment("pay_1")).toBe("pending");
+		expect(s.setStatus).not.toHaveBeenCalledWith(charge.chargeId, "failed");
+		expect(console.error).toHaveBeenCalledWith("[nfse] agendamento falhou", { name: "AsaasOutcomeUnknownError", code: undefined });
+	});
+
+	it("does not call POST when the lookup is unknown (timeout): the note stays pending for the reclaim", async () => {
+		s.findInvoices.mockRejectedValue(new AsaasOutcomeUnknownError("Sem resposta do Asaas em GET /v3/invoices (TimeoutError)"));
+
+		expect(await requestInvoiceForPayment("pay_1")).toBe("pending");
+		expect(s.schedule).not.toHaveBeenCalled();
+		expect(s.setStatus).not.toHaveBeenCalledWith(charge.chargeId, "failed");
+	});
+
+	it("records failed, without POST, when the lookup is refused outright (4xx)", async () => {
+		s.findInvoices.mockRejectedValue(new Error("Asaas respondeu 401 em GET /v3/invoices"));
+
+		expect(await requestInvoiceForPayment("pay_1")).toBe("failed");
+		expect(s.schedule).not.toHaveBeenCalled();
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "failed");
 	});
 
 	it("records failed and never throws when Asaas refuses", async () => {
@@ -146,6 +214,17 @@ describe("repairInvoiceForPayment", () => {
 
 		expect(s.setStatus).toHaveBeenNthCalledWith(1, charge.chargeId, "pending");
 		expect(s.schedule).toHaveBeenCalledTimes(1);
+	});
+
+	it("re-processes a pending note the database lets it re-claim (stale for more than 10 minutes): lookup first, adopt", async () => {
+		// set_nfse_status devolve changed = true para pending com mais de 10 min; o lado do TS só confia nesse bit.
+		s.setStatus.mockResolvedValue({ ok: true, status: "pending", changed: true });
+		s.findInvoices.mockResolvedValue([{ asaasInvoiceId: "inv_timeout", status: "SCHEDULED", number: null, pdfUrl: null }]);
+
+		expect(await repairInvoiceForPayment("pay_1")).toBe("pending");
+		expect(s.findInvoices).toHaveBeenCalledWith("pay_1");
+		expect(s.schedule).not.toHaveBeenCalled();
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "pending", { invoiceId: "inv_timeout" });
 	});
 
 	it("never schedules a charge that is already pending, issued or failed", async () => {
@@ -252,10 +331,34 @@ describe("applyInvoiceEvent", () => {
 		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "issued", { number: null, url: null });
 
 		s.setStatus.mockClear();
-		for (const name of ["INVOICE_CREATED", "INVOICE_CANCELED", "INVOICE_UPDATED"]) {
+		for (const name of ["INVOICE_CREATED", "INVOICE_CANCELLATION_DENIED", "INVOICE_PROCESSING_CANCELLATION", "INVOICE_UPDATED"]) {
 			expect(await applyInvoiceEvent(event(name, { status: "SCHEDULED" }))).toBe("ignored");
 		}
 		expect(s.setStatus).not.toHaveBeenCalled();
+	});
+
+	it("INVOICE_CANCELED (also via UPDATED/CANCELED) stops the receipt: records canceled", async () => {
+		s.setStatus.mockResolvedValue({ ok: true, status: "failed", changed: true });
+
+		expect(await applyInvoiceEvent(event("INVOICE_CANCELED"))).toBe("canceled");
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "canceled", {});
+		await applyInvoiceEvent(event("INVOICE_UPDATED", { status: "CANCELED" }));
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "canceled", {});
+	});
+
+	it("matches the event by invoice id first and only falls back to the payment", async () => {
+		const byInvoice = { chargeId: "22222222-2222-4222-8222-222222222222", amount: "5.00" };
+		s.findChargeByInvoice.mockResolvedValue(byInvoice);
+
+		await applyInvoiceEvent(event("INVOICE_ERROR", { id: "inv_9" }));
+		expect(s.findChargeByInvoice).toHaveBeenCalledWith("inv_9");
+		expect(s.findCharge).not.toHaveBeenCalled();
+		expect(s.setStatus).toHaveBeenLastCalledWith(byInvoice.chargeId, "failed", {});
+
+		s.findChargeByInvoice.mockResolvedValue(null);
+		await applyInvoiceEvent(event("INVOICE_ERROR", { id: "inv_unknown" }));
+		expect(s.findCharge).toHaveBeenCalledWith("pay_1");
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "failed", {});
 	});
 
 	it("a duplicate issued event is reported unchanged (the database does not regress or rewrite it)", async () => {

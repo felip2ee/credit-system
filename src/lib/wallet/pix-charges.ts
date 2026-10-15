@@ -100,6 +100,12 @@ export async function countPendingClientPixCharges(client: PoolClient, clientPro
 	return rows[0].total;
 }
 
+// Serializa as cobranças do mesmo cliente até o fim da transação: contagem e insert deixam de correr em paralelo
+// e o teto de pendentes vale de fato. Chame antes de countPendingClientPixCharges, na mesma transação do insert.
+export async function lockClientPixCharges(client: PoolClient, clientProfileId: string): Promise<void> {
+	await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`client-pix-charges:${clientProfileId}`]);
+}
+
 type ChargeRow = {
 	id: string;
 	amount: string;
@@ -164,7 +170,13 @@ export async function listClientPixCharges(client: PoolClient, clientProfileId: 
 	}));
 }
 
-export type AsaasPaymentResult = "credited" | "refunded" | "duplicate" | "ignored" | "unknown_charge";
+export type AsaasPaymentResult =
+	| "credited"
+	| "refunded"
+	| "duplicate"
+	| "ignored"
+	| "unknown_charge"
+	| "partial_refund_ignored";
 
 // Estorno de PIX que o saldo disponível não cobriu (pix_charges.refund_shortfall > 0), para o superadmin.
 export type RefundShortfall = { chargeId: string; amount: string; shortfall: string; createdAt: Date };

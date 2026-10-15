@@ -2,10 +2,17 @@
 // e nada aqui toca carteira: a única escrita é set_nfse_status.
 import { z } from "zod";
 
-import { ASAAS_EVENT_INVOICE_AUTHORIZED, ASAAS_EVENT_INVOICE_ERROR } from "@/lib/asaas/client";
+import {
+	ASAAS_EVENT_INVOICE_AUTHORIZED,
+	ASAAS_EVENT_INVOICE_CANCELED,
+	ASAAS_EVENT_INVOICE_ERROR,
+	AsaasOutcomeUnknownError,
+} from "@/lib/asaas/client";
 import { getAsaasClient } from "@/lib/asaas";
+import type { AsaasClient, ExistingInvoice } from "@/lib/asaas/types";
 import { readNfseConfig, type NfseConfig } from "@/lib/config";
 import {
+	findNfseChargeByInvoice,
 	findNfseChargeByPayment,
 	findNfseRetryTarget,
 	setNfseStatus,
@@ -46,38 +53,78 @@ export const isNfseConfigured = (): boolean => nfseConfigState().kind !== "off";
 
 export type ScheduleOutcome = "not_requested" | "unknown_charge" | "pending" | "failed";
 
-// Agenda no Asaas e registra o resultado. Agendado = pending; erro = failed (a nova tentativa fica com o superadmin).
+// Só o que a função SQL aceita: número e URL fora do formato viram nulos em vez de recusar a emissão.
+const NUMBER_MAX = 50;
+const URL_MAX = 2000;
+const cleanNumber = (value: string | number | null | undefined): string | null => {
+	const text = value === null || value === undefined ? "" : String(value).trim();
+	return text !== "" && text.length <= NUMBER_MAX ? text : null;
+};
+const cleanUrl = (value: string | null | undefined): string | null =>
+	value && value.length <= URL_MAX && /^https:\/\/\S+$/.test(value) ? value : null;
+
+// Grava o id da nota no Asaas (e, se ela já saiu, a emissão). Falhar aqui não perde a nota: o evento a casa pelo pagamento.
+async function recordInvoice(chargeId: string, invoice: ExistingInvoice): Promise<void> {
+	try {
+		if (invoice.status === "AUTHORIZED") {
+			await setNfseStatus(chargeId, "issued", {
+				number: cleanNumber(invoice.number),
+				url: cleanUrl(invoice.pdfUrl),
+				invoiceId: invoice.asaasInvoiceId,
+			});
+		} else {
+			await setNfseStatus(chargeId, "pending", { invoiceId: invoice.asaasInvoiceId });
+		}
+	} catch (error) {
+		logFailure("registro da nota", error);
+	}
+}
+
+// POST /v3/invoices não tem idempotência. Por isso: (1) consulta as notas do pagamento e adota a que existir;
+// (2) só então agenda; (3) timeout, rede e 5xx são resultado DESCONHECIDO: a nota fica pending e a próxima
+// reivindicação (pending com mais de 10 min) consulta o Asaas de novo. Só erro conhecido registra failed.
 async function scheduleAndRecord(
 	state: ConfigState,
 	chargeId: string,
 	paymentId: string,
 	amount: string,
 ): Promise<ScheduleOutcome> {
+	let client: AsaasClient;
+	let existing: ExistingInvoice | undefined;
 	try {
 		if (state.kind !== "ready") throw new Error("NFS-e config invalid");
-		await getAsaasClient().scheduleInvoice({
+		client = getAsaasClient();
+		[existing] = await client.findInvoicesByPayment(paymentId);
+	} catch (error) {
+		logFailure("consulta das notas", error);
+		if (error instanceof AsaasOutcomeUnknownError) return "pending";
+		await tryRecordFailed(chargeId);
+		return "failed";
+	}
+	if (existing) {
+		await recordInvoice(chargeId, existing);
+		return "pending";
+	}
+	try {
+		const scheduled = await client.scheduleInvoice({
 			paymentId,
 			amount,
 			externalReference: chargeId,
 			service: state.service,
 		});
+		await recordInvoice(chargeId, { asaasInvoiceId: scheduled.asaasInvoiceId, status: "SCHEDULED", number: null, pdfUrl: null });
+		return "pending";
 	} catch (error) {
 		logFailure("agendamento", error);
+		if (error instanceof AsaasOutcomeUnknownError) return "pending";
 		await tryRecordFailed(chargeId);
 		return "failed";
 	}
-	// A nota já existe no Asaas: se só o registro falhar, o status fica e o evento INVOICE_AUTHORIZED o corrige.
-	try {
-		await setNfseStatus(chargeId, "pending");
-	} catch (error) {
-		logFailure("registro do agendamento", error);
-	}
-	return "pending";
 }
 
-// set_nfse_status(pending) só muda not_requested, então só quem "reivindica" a nota agenda; nota pending, issued ou failed
-// nunca é agendada de novo (duas entregas do webhook ou um reenvio durante um Asaas lento não geram duas notas). Nunca lança.
-// shortcut: reivindicar antes de agendar deixa a nota pending se o processo cair entre os dois passos; migrar para uma varredura de pending antigas se isso ocorrer.
+// set_nfse_status(pending) muda not_requested e também reivindica pending com mais de 10 min (quem a perdeu: o processo
+// caiu, ou o resultado do Asaas era desconhecido). Só quem reivindica agenda; nota pending recente, issued ou failed
+// nunca é agendada de novo. Nunca lança.
 async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<ScheduleOutcome> {
 	const state = nfseConfigState();
 	if (state.kind === "off") return "not_requested";
@@ -88,6 +135,7 @@ async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<S
 		if (!claim.ok || !claim.changed) return "not_requested";
 		return await scheduleAndRecord(state, charge.chargeId, asaasPaymentId, charge.amount);
 	} catch (error) {
+		// Estado desconhecido (a reivindicação pode ter gravado): não registra failed. A nota pending é reivindicada de novo.
 		logFailure(step, error);
 		return "failed";
 	}
@@ -97,8 +145,8 @@ async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<S
 export const requestInvoiceForPayment = (asaasPaymentId: string): Promise<ScheduleOutcome> =>
 	claimAndSchedule(asaasPaymentId, "pedido da nota");
 
-// Reenvio do webhook de um pagamento já creditado: repara a nota que ficou em not_requested (processo caiu depois do
-// crédito, ou o registro de "failed" falhou).
+// Reenvio do webhook de um pagamento já creditado: repara a nota que ficou em not_requested ou presa em pending há mais
+// de 10 min (reivindicação do SQL); nota recente, issued ou failed fica como está.
 export const repairInvoiceForPayment = (asaasPaymentId: string): Promise<ScheduleOutcome> =>
 	claimAndSchedule(asaasPaymentId, "reparo da nota");
 
@@ -120,9 +168,6 @@ export async function rescheduleInvoice(identity: DbIdentity, chargeId: string):
 	}
 }
 
-const NUMBER_MAX = 50;
-const URL_MAX = 2000;
-
 const invoiceEventSchema = z.object({
 	event: z.string().min(1),
 	invoice: z.object({
@@ -130,6 +175,8 @@ const invoiceEventSchema = z.object({
 		number: z.union([z.string(), z.number()]).nullish(),
 		pdfUrl: z.string().nullish(),
 		payment: z.string().trim().min(1).max(200),
+		// Id da nota no Asaas: casa o evento com a cobrança antes de recorrer ao pagamento.
+		id: z.string().trim().min(1).max(100).nullish(),
 	}),
 });
 
@@ -138,30 +185,26 @@ export const parseInvoiceEvent = (raw: unknown) => invoiceEventSchema.safeParse(
 
 const EVENTS_BY_STATUS = new Set(["INVOICE_UPDATED", "INVOICE_SYNCHRONIZED"]);
 
-// AUTHORIZED/ERROR pelo nome do evento; UPDATED/SYNCHRONIZED pelo status que carregam. O resto não muda a nota.
-function targetStatus(event: InvoiceEvent): "issued" | "failed" | null {
+// AUTHORIZED/ERROR/CANCELED pelo nome do evento; UPDATED/SYNCHRONIZED pelo status que carregam. O resto não muda a nota.
+// CANCELLATION_DENIED e PROCESSING_CANCELLATION ficam de fora de propósito: a nota segue válida.
+function targetStatus(event: InvoiceEvent): "issued" | "failed" | "canceled" | null {
 	const name = EVENTS_BY_STATUS.has(event.event) ? `INVOICE_${event.invoice.status ?? ""}` : event.event;
 	if (name === ASAAS_EVENT_INVOICE_AUTHORIZED) return "issued";
 	if (name === ASAAS_EVENT_INVOICE_ERROR) return "failed";
+	if (name === ASAAS_EVENT_INVOICE_CANCELED) return "canceled";
 	return null;
 }
 
-// Só valores que a função SQL aceita: número e URL fora do formato viram nulos em vez de recusar a emissão.
-const cleanNumber = (value: string | number | null | undefined): string | null => {
-	const text = value === null || value === undefined ? "" : String(value).trim();
-	return text !== "" && text.length <= NUMBER_MAX ? text : null;
-};
-const cleanUrl = (value: string | null | undefined): string | null =>
-	value && value.length <= URL_MAX && /^https:\/\/\S+$/.test(value) ? value : null;
-
-export type InvoiceEventResult = "issued" | "failed" | "ignored" | "unknown_charge" | "unchanged";
+export type InvoiceEventResult = "issued" | "failed" | "canceled" | "ignored" | "unknown_charge" | "unchanged";
 
 // Evento de nota do Asaas. Idempotente (at-least-once): set_nfse_status não regride issued e repetir não muda nada.
 // Erro de banco sobe: a rota responde 500 e o Asaas reenvia.
 export async function applyInvoiceEvent(event: InvoiceEvent): Promise<InvoiceEventResult> {
 	const status = targetStatus(event);
 	if (!status) return "ignored";
-	const charge = await findNfseChargeByPayment(event.invoice.payment);
+	const charge =
+		(event.invoice.id ? await findNfseChargeByInvoice(event.invoice.id) : null) ??
+		(await findNfseChargeByPayment(event.invoice.payment));
 	if (!charge) return "unknown_charge";
 	const result = await setNfseStatus(
 		charge.chargeId,

@@ -16,7 +16,7 @@
 // vem nos eventos (por isso o webhook casa a nota pela cobrança, `invoice.payment`). Prova real: item (post-deploy).
 import { z } from "zod";
 
-import type { AsaasClient, InvoiceInput, InvoiceResult, PixChargeInput, PixChargeResult } from "./types";
+import type { AsaasClient, ExistingInvoice, InvoiceInput, InvoiceResult, PixChargeInput, PixChargeResult } from "./types";
 
 export const ASAAS_API_KEY_HEADER = "access_token";
 export const ASAAS_WEBHOOK_TOKEN_HEADER = "asaas-access-token";
@@ -26,13 +26,36 @@ export const ASAAS_EVENT_PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
 export const ASAAS_INVOICE_EVENT_PREFIX = "INVOICE_";
 export const ASAAS_EVENT_INVOICE_AUTHORIZED = "INVOICE_AUTHORIZED";
 export const ASAAS_EVENT_INVOICE_ERROR = "INVOICE_ERROR";
+export const ASAAS_EVENT_INVOICE_CANCELED = "INVOICE_CANCELED";
 
 const REQUEST_TIMEOUT_MS = 15_000;
+
+// O pedido pode ter chegado ao Asaas: timeout, falha de rede, 5xx ou resposta 2xx ilegível. Quem escreve (POST) não
+// pode tratar isto como falha: repetir cria outra nota. Primeiro consulte o Asaas.
+export class AsaasOutcomeUnknownError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "AsaasOutcomeUnknownError";
+	}
+}
 
 export type AsaasClientSettings = { apiKey: string; baseUrl: string; customerId: string };
 
 const paymentSchema = z.object({ id: z.string().min(1) });
 const invoiceSchema = z.object({ id: z.string().min(1) });
+// Lista de notas (GET /v3/invoices?payment=): só o que a adoção da nota precisa.
+const invoiceListSchema = z.object({
+	data: z.array(
+		z.object({
+			id: z.string().min(1),
+			status: z.string().nullish(),
+			number: z.union([z.string(), z.number()]).nullish(),
+			pdfUrl: z.string().nullish(),
+		}),
+	),
+});
+// ERROR e CANCELED foram descartadas: uma nova tentativa legítima pode criar outra nota.
+const DISCARDED_INVOICE_STATUSES = new Set(["ERROR", "CANCELED"]);
 const qrSchema = z.object({ encodedImage: z.string().min(1), payload: z.string().min(1) });
 
 // Vencimento no fuso de Brasília (a data é local ao negócio, não UTC).
@@ -51,15 +74,21 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 		schema: z.ZodType<T>,
 		body?: unknown,
 	): Promise<T> {
-		const response = await fetchImpl(`${base}${path}`, {
-			method,
-			headers: { [ASAAS_API_KEY_HEADER]: settings.apiKey, "content-type": "application/json" },
-			body: body === undefined ? undefined : JSON.stringify(body),
-			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-		});
+		let response: Response;
+		try {
+			response = await fetchImpl(`${base}${path}`, {
+				method,
+				headers: { [ASAAS_API_KEY_HEADER]: settings.apiKey, "content-type": "application/json" },
+				body: body === undefined ? undefined : JSON.stringify(body),
+				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+			});
+		} catch (error) {
+			throw new AsaasOutcomeUnknownError(`Sem resposta do Asaas em ${label} (${error instanceof Error ? error.name : typeof error})`);
+		}
+		if (response.status >= 500) throw new AsaasOutcomeUnknownError(`Asaas respondeu ${response.status} em ${label}`);
 		if (!response.ok) throw new Error(`Asaas respondeu ${response.status} em ${label}`);
 		const parsed = schema.safeParse(await response.json().catch(() => null));
-		if (!parsed.success) throw new Error(`Resposta inválida do Asaas em ${label}`);
+		if (!parsed.success) throw new AsaasOutcomeUnknownError(`Resposta inválida do Asaas em ${label}`);
 		return parsed.data;
 	}
 
@@ -101,6 +130,24 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 				taxes: { retainIss: service.retainIss, iss: service.issRate },
 			});
 			return { asaasInvoiceId: invoice.id };
+		},
+
+		// GET /v3/invoices?payment={id} (docs.asaas.com, listar notas fiscais; o corpo da requisição deve ficar vazio).
+		async findInvoicesByPayment(paymentId: string): Promise<ExistingInvoice[]> {
+			const list = await call(
+				"GET",
+				`/v3/invoices?payment=${encodeURIComponent(paymentId)}&limit=100`,
+				"GET /v3/invoices",
+				invoiceListSchema,
+			);
+			return list.data
+				.filter((invoice) => !DISCARDED_INVOICE_STATUSES.has(invoice.status ?? ""))
+				.map((invoice) => ({
+					asaasInvoiceId: invoice.id,
+					status: invoice.status ?? null,
+					number: invoice.number === null || invoice.number === undefined ? null : String(invoice.number),
+					pdfUrl: invoice.pdfUrl ?? null,
+				}));
 		},
 	};
 }

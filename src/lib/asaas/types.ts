@@ -27,8 +27,18 @@ export type InvoiceInput = {
 
 export type InvoiceResult = { asaasInvoiceId: string };
 
+// Nota que o Asaas já tem para um pagamento (sem as descartadas: ERROR e CANCELED).
+export type ExistingInvoice = {
+	asaasInvoiceId: string;
+	status: string | null;
+	number: string | null;
+	pdfUrl: string | null;
+};
+
 export type AsaasClient = {
 	createPixCharge(input: PixChargeInput): Promise<PixChargeResult>;
 	// Agenda a NFS-e. Agendar não é emitir: a emissão chega depois pelo evento INVOICE_AUTHORIZED.
 	scheduleInvoice(input: InvoiceInput): Promise<InvoiceResult>;
+	// POST /v3/invoices não é idempotente: antes de agendar, consulte as notas que o pagamento já tem.
+	findInvoicesByPayment(paymentId: string): Promise<ExistingInvoice[]>;
 };

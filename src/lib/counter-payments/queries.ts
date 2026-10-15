@@ -3,7 +3,6 @@
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
-import { fromCents, toCents } from "@/lib/catalog/money";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
 export type CounterMethod = "cash" | "pix" | "card_machine" | "transfer" | "other";
@@ -18,9 +17,15 @@ export type RegisterInput = {
 
 export type VoidInput = { id: string; reason: string };
 
-export type CounterFailure = "not_found" | "not_allowed" | "reason_required" | "already_voided" | "invalid_state";
+export type CounterFailure =
+	| "not_found"
+	| "not_allowed"
+	| "reason_required"
+	| "already_voided"
+	| "invalid_state"
+	| "online_settlement";
 
-export type RegisterResult = { ok: true; id: string } | { ok: false; reason: "not_found" };
+export type RegisterResult = { ok: true; id: string } | { ok: false; reason: "not_found" | "online_settlement" };
 export type VoidResult = { ok: true } | { ok: false; reason: CounterFailure };
 
 export type CounterPayment = {
@@ -49,6 +54,11 @@ const FOREIGN_KEY_VIOLATION = "23503";
 export async function registerCounterPayment(identity: DbIdentity, input: RegisterInput): Promise<RegisterResult> {
 	try {
 		const id = await withUserTransaction(identity, async (client) => {
+			// Dossiê liquidado online é pago pela carteira do cliente: pagamento de balcão em cima dele duplicaria a cobrança.
+			const settlement = await client.query<{ mode: string }>("select mode from order_settlements where order_ref = $1", [
+				input.dossierId,
+			]);
+			if (settlement.rows[0]?.mode === "online") return null;
 			const { rows } = await client.query<{ id: string }>(
 				`insert into counter_payments (bureau_id, dossier_id, method, amount, received_at, registered_by, note)
 				 values (app_bureau_id(), $1, $2, $3, $4, app_user_id(), $5)
@@ -64,7 +74,7 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 			});
 			return rows[0].id;
 		});
-		return { ok: true, id };
+		return id === null ? { ok: false, reason: "online_settlement" } : { ok: true, id };
 	} catch (error) {
 		// A FK (bureau_id, dossier_id) recusa Dossiê inexistente ou de outro Bureau; a transação já voltou.
 		if (error instanceof Error && "code" in error && error.code === FOREIGN_KEY_VIOLATION) {
@@ -134,6 +144,10 @@ export async function listCounterPayments(client: PoolClient, dossierId: string)
 		voidedBy: r.voided_by,
 		voidReason: r.void_reason,
 	}));
-	const paidCents = list.filter((p) => !p.voidedAt).reduce((sum, p) => sum + toCents(p.amount), 0);
-	return { payments: list, paidTotal: fromCents(paidCents), price: settlement.rows[0]?.price ?? null };
+	// Soma no banco (numeric): somar em centavos no JS estoura o limite de toCents com poucos pagamentos grandes.
+	const total = await client.query<{ paid_total: string }>(
+		"select coalesce(sum(amount), 0.00)::text as paid_total from counter_payments where dossier_id = $1 and voided_at is null",
+		[dossierId],
+	);
+	return { payments: list, paidTotal: total.rows[0].paid_total, price: settlement.rows[0]?.price ?? null };
 }

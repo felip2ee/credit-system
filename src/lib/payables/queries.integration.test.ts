@@ -215,5 +215,9 @@ describe("listPayableEntries", () => {
 		await expect(
 			withUserTransaction(admin, (c) => listPayableEntries(c, tenant.bureau.id, { cursor: "x; drop" })),
 		).rejects.toThrow(RangeError);
+		for (const limit of [Number.NaN, Number.POSITIVE_INFINITY]) {
+			const fallback = await withUserTransaction(admin, (c) => listPayableEntries(c, tenant.bureau.id, { limit }));
+			expect(fallback.rows).toHaveLength(1);
+		}
 	});
 });

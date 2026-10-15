@@ -320,7 +320,7 @@ declare
   v_charge public.pix_charges;
   v_change boolean;
 begin
-  if p_status is null or p_status not in ('pending', 'issued', 'failed') then
+  if p_status is null or p_status not in ('pending', 'issued', 'failed', 'canceled') then
     return query select false, 'invalid_status'::text, null::text, false;
     return;
   end if;
@@ -344,6 +344,20 @@ begin
   end if;
   if v_charge.status not in ('paid', 'refunded') then
     return query select false, 'invalid_state'::text, v_charge.nfse_status, false;
+    return;
+  end if;
+
+  -- 'canceled' (nota cancelada no Asaas) só age sobre nota issued: ela passa a failed sem número nem endereço,
+  -- então o comprovante some e o superadmin pode pedir nova nota. Em outro estado não muda nada.
+  if p_status = 'canceled' then
+    if v_charge.nfse_status <> 'issued' then
+      return query select true, null::text, v_charge.nfse_status, false;
+      return;
+    end if;
+    update public.pix_charges
+       set nfse_status = 'failed', nfse_number = null, nfse_url = null, nfse_updated_at = now()
+     where id = v_charge.id;
+    return query select true, null::text, 'failed'::text, true;
     return;
   end if;
 

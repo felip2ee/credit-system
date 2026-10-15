@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
 	adapterCreate: vi.fn(),
 	insertCharge: vi.fn(),
 	countPending: vi.fn(),
+	lock: vi.fn(),
 	getClientWallet: vi.fn(),
 }));
 
@@ -41,6 +42,7 @@ vi.mock("@/lib/asaas", () => ({
 vi.mock("@/lib/wallet/pix-charges", () => ({
 	createClientPixCharge: state.insertCharge,
 	countPendingClientPixCharges: state.countPending,
+	lockClientPixCharges: state.lock,
 	MAX_PENDING_PIX_CHARGES: 10,
 }));
 vi.mock("@/lib/wallet/client-queries", () => ({
@@ -197,12 +199,44 @@ describe("requestClientTopupAction", () => {
 		expect(state.adapterCreate).not.toHaveBeenCalled();
 	});
 
-	it("reports an error when the charge cannot be saved", async () => {
+	it("reports an error when the charge cannot be saved, and logs the orphan with payment id and reference", async () => {
 		state.insertCharge.mockRejectedValue(new Error("db down"));
-		vi.spyOn(console, "error").mockImplementation(() => {});
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(
 			FAILED,
+		);
+		const reference = state.adapterCreate.mock.calls[0][0].externalReference;
+		expect(log).toHaveBeenCalledWith(
+			expect.stringContaining("COBRANÇA ÓRFÃ"),
+			{ reason: "save", asaasPaymentId: "pay_secret_id", externalReference: reference },
+		);
+	});
+
+	it("locks the client, then re-checks the cap in the transaction that inserts", async () => {
+		const order: string[] = [];
+		state.lock.mockImplementation(async () => void order.push("lock"));
+		state.countPending.mockImplementation(async () => (order.push("count"), 0));
+		state.insertCharge.mockImplementation(async () => (order.push("insert"), { ok: true, id: "c", expiresAt: new Date() }));
+
+		await requestClientTopupAction({ amount: "100.00" });
+
+		// precheck: count; save: lock, count, insert.
+		expect(order).toEqual(["count", "lock", "count", "insert"]);
+		expect(state.lock).toHaveBeenCalledWith(expect.anything(), USER_ID);
+	});
+
+	it("when concurrent clicks fill the cap after Asaas answered: no insert, loud orphan log, cap error", async () => {
+		state.countPending.mockResolvedValueOnce(9).mockResolvedValueOnce(10);
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const result = await requestClientTopupAction({ amount: "100.00" });
+
+		expect(result.error).toBe("Há PIX pendentes demais. Pague ou aguarde expirar antes de gerar outro.");
+		expect(state.insertCharge).not.toHaveBeenCalled();
+		expect(log).toHaveBeenCalledWith(
+			expect.stringContaining("COBRANÇA ÓRFÃ"),
+			expect.objectContaining({ reason: "limite", asaasPaymentId: "pay_secret_id" }),
 		);
 	});
 });

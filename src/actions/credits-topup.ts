@@ -13,6 +13,7 @@ import { getClientWallet } from "@/lib/wallet/client-queries";
 import {
 	countPendingClientPixCharges,
 	createClientPixCharge,
+	lockClientPixCharges,
 	MAX_PENDING_PIX_CHARGES,
 } from "@/lib/wallet/pix-charges";
 
@@ -40,6 +41,15 @@ function logFailure(step: string, error: unknown): void {
 	console.error(`[credits] requestClientTopupAction falhou em ${step}`, meta);
 }
 
+// Cobrança criada no Asaas sem linha no banco: um pagamento nela não credita nada. Alto e claro para a conciliação.
+function logOrphan(reason: string, asaasPaymentId: string, externalReference: string): void {
+	console.error("[credits] COBRANÇA ÓRFÃ no Asaas: sem linha no banco, o webhook não a credita", {
+		reason,
+		asaasPaymentId,
+		externalReference,
+	});
+}
+
 export async function requestClientTopupAction(values: unknown): Promise<ClientTopupActionResult> {
 	const parsed = walletTopupSchema.safeParse(values);
 	if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
@@ -56,12 +66,12 @@ export async function requestClientTopupAction(values: unknown): Promise<ClientT
 
 	const { amount } = parsed.data;
 
-	// Antes do Asaas: cobrança externa sem carteira ou acima do limite ficaria sem destino.
+	// Antes do Asaas: cobrança externa sem carteira ou acima do limite ficaria sem destino. É só uma triagem barata;
+	// o teto de verdade é conferido de novo, sob lock, na mesma transação do insert.
 	let blocked: string | null;
 	try {
 		blocked = await withUserTransaction(session, async (client) => {
 			if (!(await getClientWallet(client, session.userId))) return NO_WALLET;
-			// Limite brando: contagem e insert rodam em transações diferentes, com o Asaas no meio; pedidos concorrentes podem passar de 10.
 			if ((await countPendingClientPixCharges(client, session.userId)) >= MAX_PENDING_PIX_CHARGES)
 				return TOO_MANY_PENDING;
 			return null;
@@ -72,28 +82,35 @@ export async function requestClientTopupAction(values: unknown): Promise<ClientT
 	}
 	if (blocked) return { error: blocked };
 
+	const externalReference = randomUUID();
 	let charge;
 	try {
-		charge = await getAsaasClient().createPixCharge({
-			amount,
-			externalReference: randomUUID(),
-			description: DESCRIPTION,
-		});
+		charge = await getAsaasClient().createPixCharge({ amount, externalReference, description: DESCRIPTION });
 	} catch (error) {
 		logFailure("asaas", error);
 		return { error: FAILED };
 	}
 
-	// A linha só nasce depois que o Asaas respondeu: uma falha acima não deixa cobrança pendente órfã.
+	// pix_charges não tem coluna para a referência e a linha precisa do id do pagamento: a linha só nasce depois do Asaas.
+	// Se ela não for salva, o webhook não acha a cobrança: o log abaixo (id do pagamento e referência) permite conciliar.
 	try {
-		const saved = await withUserTransaction(session, (client) =>
-			createClientPixCharge(client, session, {
+		const saved = await withUserTransaction(session, async (client) => {
+			await lockClientPixCharges(client, session.userId);
+			if ((await countPendingClientPixCharges(client, session.userId)) >= MAX_PENDING_PIX_CHARGES) return null;
+			return createClientPixCharge(client, session, {
 				asaasPaymentId: charge.asaasPaymentId,
 				pixPayload: charge.pixPayload,
 				amount,
-			}),
-		);
-		if (!saved.ok) return { error: "Valor inválido." };
+			});
+		});
+		if (saved === null) {
+			logOrphan("limite", charge.asaasPaymentId, externalReference);
+			return { error: TOO_MANY_PENDING };
+		}
+		if (!saved.ok) {
+			logOrphan("valor", charge.asaasPaymentId, externalReference);
+			return { error: "Valor inválido." };
+		}
 		revalidatePath("/portal/credits");
 		return {
 			error: null,
@@ -104,6 +121,7 @@ export async function requestClientTopupAction(values: unknown): Promise<ClientT
 		};
 	} catch (error) {
 		logFailure("save", error);
+		logOrphan("save", charge.asaasPaymentId, externalReference);
 		return { error: FAILED };
 	}
 }

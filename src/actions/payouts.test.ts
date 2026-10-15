@@ -76,6 +76,10 @@ describe("createPayoutAction", () => {
 		["a Bureau id that is not a uuid", { bureauId: "x", cutoffAt: new Date().toISOString() }],
 		["a cutoff far in the future", { bureauId, cutoffAt: "2100-01-01T00:00:00Z" }],
 		["an invalid cutoff", { bureauId, cutoffAt: "not-a-date" }],
+		["a null cutoff (would become 1970)", { bureauId, cutoffAt: null }],
+		["a missing cutoff", { bureauId }],
+		["an empty cutoff", { bureauId, cutoffAt: "  " }],
+		["a numeric cutoff", { bureauId, cutoffAt: 0 }],
 	])("rejects %s before any session or write", async (_n, values) => {
 		const result = await createPayoutAction(values);
 
@@ -175,13 +179,29 @@ describe("markPayoutPaidAction", () => {
 		expect(s.discard).toHaveBeenCalledWith(stored.objectKey);
 	});
 
-	it("removes the stored object when the database call throws", async () => {
-		s.markPayoutPaid.mockRejectedValue(new Error("connection lost"));
+	it("removes the stored object when the database refuses with an SQLSTATE (clean rollback)", async () => {
+		s.markPayoutPaid.mockRejectedValue(Object.assign(new Error("deadlock"), { code: "40P01" }));
 
 		const result = await markPayoutPaidAction(form({ payoutId, receipt: pdf() }));
 
 		expect(result.error).toBe("Falha ao registrar o pagamento do repasse.");
 		expect(s.discard).toHaveBeenCalledWith(stored.objectKey);
+	});
+
+	it.each([
+		["connection lost without a code", new Error("Connection terminated unexpectedly")],
+		["ECONNRESET", Object.assign(new Error("reset"), { code: "ECONNRESET" })],
+		["SQLSTATE 08006", Object.assign(new Error("connection failure"), { code: "08006" })],
+		["SQLSTATE 57P01", Object.assign(new Error("admin shutdown"), { code: "57P01" })],
+	])("keeps the stored object and logs it for reconciliation on an ambiguous commit failure (%s)", async (_name, error) => {
+		s.markPayoutPaid.mockRejectedValue(error);
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const result = await markPayoutPaidAction(form({ payoutId, receipt: pdf() }));
+
+		expect(result.error).toBe("Falha ao registrar o pagamento do repasse.");
+		expect(s.discard).not.toHaveBeenCalled();
+		expect(log).toHaveBeenCalledWith(expect.stringContaining("comprovante mantido"), { payoutId, objectKey: stored.objectKey });
 	});
 
 	it("removes the redundant object on a same-receipt replay but still succeeds", async () => {

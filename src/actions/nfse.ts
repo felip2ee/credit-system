@@ -23,6 +23,7 @@ const FAILURE_MESSAGES: Record<NfseFailure, string> = {
 	invalid_status: "Status de nota inválido.",
 	invalid_number: "Número de nota inválido.",
 	invalid_url: "Endereço da nota inválido.",
+	invalid_invoice_id: "Identificador da nota inválido.",
 };
 
 // Só nome e código do erro: sem dados da cobrança nem do Asaas.
