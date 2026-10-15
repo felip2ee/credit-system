@@ -27,6 +27,7 @@ export const permissions = [
   "payout:read",
   "payout:manage",
   "nfse:manage",
+  "notifications:manage",
 ] as const;
 
 export type Permission = (typeof permissions)[number];
@@ -59,6 +60,7 @@ export const rolePermissions = {
     "wallet:adjust",
     "payout:manage",
     "nfse:manage",
+    "notifications:manage",
     "payout:read",
   ],
   bureau_admin: [

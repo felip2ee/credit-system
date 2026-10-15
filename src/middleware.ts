@@ -8,6 +8,8 @@ const publicPaths = [
   "/mfa/setup",
   "/mfa/verify",
   "/api/webhooks/asaas",
+  "/api/webhooks/whatsapp",
+  "/api/internal/notifications/dispatch",
 ];
 
 const publicPrefixes = ["/b/", "/autorizacao-scr/"];
