@@ -49,6 +49,8 @@ O M4 envia e-mail e WhatsApp por uma fila no Postgres (outbox). O serviço `noti
 4. Nunca edite uma migration aplicada. Para mudar o template, crie uma nova versão.
 5. Nunca use CPF/CNPJ como parâmetro.
 
+**Template de autenticação (M5):** `verification_code`, categoria **Authentication**, idioma `pt_BR`, com botão **copiar código**. A migration 021 registra o template como `phone_verification`, com o parâmetro `code`. (post-deploy) A Meta aprova o template e um código real chega ao WhatsApp.
+
 **Fora do escopo:** template de **marketing**. O M4 envia só mensagens transacionais pedidas pelo próprio fluxo.
 
 ## 5. Rodar o worker em dev

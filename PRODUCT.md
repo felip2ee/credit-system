@@ -38,7 +38,7 @@ Roadmap do spec. O estado reflete o repositório em 2026-10-15. A produção nã
 | M2 | Catálogo e preços | Produtos base, custo por Bureau, preço de venda. |
 | M3 | Financeiro | Carteiras e livro-razão, Asaas, webhooks, NFS-e, repasse. |
 | M4 | Notificações | Fila de envio, templates de e-mail, WhatsApp Cloud API. Em desenvolvimento na branch `feature/m4-notificacoes`. |
-| M5 | Contas de cliente | Auto-cadastro com verificações, portal. |
+| M5 | Contas de cliente | Auto-cadastro com verificações, portal. Em execução na branch `feature/m5-contas-de-cliente`. Spec: [docs/superpowers/specs/2026-10-15-m5-contas-de-cliente-design.md](docs/superpowers/specs/2026-10-15-m5-contas-de-cliente-design.md). |
 | M6 | Pesquisa e entrega | Autoatendimento, terceiros, fluxo assistido, entrega. |
 | M7 | Produção | Backup fora do servidor, monitoramento, retenção LGPD, e2e Playwright. |
 
@@ -82,7 +82,6 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - (hipótese) O repositório será tornado privado. O spec registra isso como risco conhecido.
 - Risco: o backup (Restic) fica no mesmo servidor até o M7.
 - Risco: a plataforma recebe o dinheiro das vendas online e repassa à mão. Isso implica obrigações fiscais e de conciliação do superadmin.
-- Pendência: as specs do M5 e do M6 ainda não existem no repositório.
 
 ## Critérios de aceitação
 
@@ -99,7 +98,7 @@ Os checks técnicos ficam em [docs/quality.md](docs/quality.md).
 
 ## Próxima entrega
 
-Fechar o M4 (notificações) e abrir o PR da branch `feature/m4-notificacoes`. Depois, escrever a spec do M5 (contas de cliente).
+Fechar o M4 (notificações) e abrir o PR da branch `feature/m4-notificacoes`. Depois, concluir o M5 (contas de cliente) conforme a spec.
 
 ## Manutenção
 
