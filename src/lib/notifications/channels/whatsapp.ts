@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readWhatsappConfig } from "@/lib/config";
 
 import { classifyGraphError, TemplateRenderError } from "../errors";
+import { maskRecipient } from "../recipient";
 import { buildWhatsappPayload, validateWhatsappParams } from "../render";
 import type { ClaimedNotification, SendResult } from "../types";
 
@@ -29,7 +30,18 @@ export async function sendWhatsappNotification(notification: ClaimedNotification
 		throw error;
 	}
 
-	if (config.driver === "fake") return { ok: true, providerMessageId: `fake-wamid-${randomUUID()}` };
+	if (config.driver === "fake") {
+		// O driver fake é recusado em produção; o log existe para o desenvolvedor ler o código de verificação.
+		if (process.env.NODE_ENV !== "production") {
+			// eslint-disable-next-line no-console
+			console.info("[whatsapp:fake]", {
+				template: notification.template_key,
+				to: maskRecipient("whatsapp", notification.recipient),
+				params: notification.params,
+			});
+		}
+		return { ok: true, providerMessageId: `fake-wamid-${randomUUID()}` };
+	}
 
 	const endpoint = `${config.graphBaseUrl.replace(/\/+$/, "")}/${config.graphVersion}/${config.phoneNumberId}/messages`;
 	let response: Response;

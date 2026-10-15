@@ -70,7 +70,7 @@ describe("validateWhatsappParams", () => {
 });
 
 describe("buildWhatsappPayload", () => {
-	const template = { wa_template_name: "scr_code", wa_language: "pt_BR", template_params: ["code", "name"] };
+	const template = { template_key: "scr_code", wa_template_name: "scr_code", wa_language: "pt_BR", template_params: ["code", "name"] };
 
 	it("puts the parameters in the order of template_params and drops the + from `to`", () => {
 		expect(buildWhatsappPayload(template, { name: "Maria", code: "123456" }, "+5563992345615")).toEqual({
@@ -95,7 +95,7 @@ describe("buildWhatsappPayload", () => {
 
 	it("omits components when the template has no parameters", () => {
 		const payload = buildWhatsappPayload(
-			{ wa_template_name: "hello_world", wa_language: "en_US", template_params: [] },
+			{ template_key: "hello_world", wa_template_name: "hello_world", wa_language: "en_US", template_params: [] },
 			{},
 			"+14155550123",
 		);
@@ -105,5 +105,37 @@ describe("buildWhatsappPayload", () => {
 
 	it("throws when a parameter has no value", () => {
 		expect(() => buildWhatsappPayload(template, { code: "1" }, "+5563992345615")).toThrow(TemplateRenderError);
+	});
+});
+
+describe("buildWhatsappPayload authentication template", () => {
+	const authTemplate = {
+		template_key: "phone_verification",
+		wa_template_name: "phone_verification",
+		wa_language: "pt_BR",
+		template_params: ["code"],
+	};
+
+	it("puts the code in the body and in the copy-code button", () => {
+		const payload = buildWhatsappPayload(authTemplate, { code: "123456" }, "+5563992345615");
+		expect(payload.template.components).toEqual([
+			{ type: "body", parameters: [{ type: "text", text: "123456" }] },
+			{ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: "123456" }] },
+		]);
+	});
+
+	it("adds no button to other templates", () => {
+		const payload = buildWhatsappPayload(
+			{ ...authTemplate, template_key: "scr_code", wa_template_name: "scr_code" },
+			{ code: "123456" },
+			"+5563992345615",
+		);
+		expect(payload.template.components).toEqual([{ type: "body", parameters: [{ type: "text", text: "123456" }] }]);
+	});
+
+	it("throws without a code", () => {
+		expect(() =>
+			buildWhatsappPayload({ ...authTemplate, template_params: [] }, {}, "+5563992345615"),
+		).toThrow(TemplateRenderError);
 	});
 });
