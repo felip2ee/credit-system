@@ -30,6 +30,7 @@ jobs:
       - run: npx vitest run --exclude '**/*.integration.test.ts'
       - run: npm run db:migrate:test
       - run: npm run setup:test
+      - run: npm run ops:test
       - name: Migrate (twice - second run must be a no-op)
         run: npm run db:migrate && npm run db:migrate | tee /tmp/m2 && grep -q "database schema is current" /tmp/m2
       - run: npx vitest run integration.test

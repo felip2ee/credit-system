@@ -45,6 +45,9 @@ def answers(**overrides):
         "DEPS_PRODUTO_PJ": "Smart PJ 010",
         "OPENAI_MODEL": "gpt-4o",
         "BACKUP_ALERT_TO": "ops@exemplo.com.br",
+        "WHATSAPP_DRIVER": "fake",
+        "WHATSAPP_PHONE_NUMBER_ID": "",
+        "WHATSAPP_GRAPH_VERSION": "v21.0",
         "REINO_IMAGE_OWNER": "felip2ee",
         "REINO_IMAGE_DIGEST": "",
         "REINO_BACKUP_DIGEST": "",
@@ -58,6 +61,8 @@ PROVIDED = {
     "deps_api_password": "deps-pw",
     "openai_api_key": "sk-test",
     "superadmin_password": "superadmin-password-1",
+    "whatsapp_access_token": "wa-token-test",
+    "whatsapp_app_secret": "wa-app-secret-test",
 }
 
 
@@ -100,6 +105,22 @@ class Building(unittest.TestCase):
         self.assertIn(f"app_runtime:{values['app_runtime_password']}@postgres:5432/credit_system", values["database_url"])
         self.assertIn(f"postgres:{values['postgres_password']}@postgres:5432/credit_system", values["database_owner_url"])
         self.assertNotEqual(values["postgres_password"], values["app_runtime_password"])
+
+    def test_generates_notification_secrets(self):
+        values = sp.build_secrets(PROVIDED)
+        for name in ("notifications_dispatch_secret", "whatsapp_verify_token"):
+            self.assertEqual(len(values[name]), 64, name)
+        self.assertEqual(values["whatsapp_access_token"], "wa-token-test")
+        self.assertNotEqual(values["notifications_dispatch_secret"], values["whatsapp_verify_token"])
+
+    def test_empty_whatsapp_tokens_are_accepted(self):
+        values = sp.build_secrets({**PROVIDED, "whatsapp_access_token": "", "whatsapp_app_secret": ""})
+        self.assertEqual(values["whatsapp_access_token"], sp.WHATSAPP_OFF_PLACEHOLDER)
+        self.assertEqual(values["whatsapp_app_secret"], sp.WHATSAPP_OFF_PLACEHOLDER)
+
+    def test_env_keys_have_whatsapp_settings(self):
+        for key in ("WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION"):
+            self.assertIn(key, sp.ENV_KEYS)
 
     def test_generates_superadmin_password_when_blank(self):
         values = sp.build_secrets({**PROVIDED, "superadmin_password": ""})

@@ -12,6 +12,10 @@ const secretNames = [
   "ASAAS_API_KEY",
   "ASAAS_WEBHOOK_TOKEN",
   "SUPERADMIN_PASSWORD",
+  "WHATSAPP_ACCESS_TOKEN",
+  "WHATSAPP_APP_SECRET",
+  "WHATSAPP_VERIFY_TOKEN",
+  "NOTIFICATIONS_DISPATCH_SECRET",
 ];
 
 export function hydrateSecretEnv(env = process.env) {

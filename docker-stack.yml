@@ -30,6 +30,9 @@ services:
       DEPS_PRODUTO_PF: ${DEPS_PRODUTO_PF:-Smart PF 002}
       DEPS_PRODUTO_PJ: ${DEPS_PRODUTO_PJ:-Smart PJ 010}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      WHATSAPP_DRIVER: ${WHATSAPP_DRIVER:-fake}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_GRAPH_VERSION: ${WHATSAPP_GRAPH_VERSION:-v21.0}
       DATABASE_URL_FILE: /run/secrets/database_url
       # Role app_webhook: only the Asaas webhook route uses it (EXECUTE on apply_asaas_payment, nothing else).
       DATABASE_WEBHOOK_URL_FILE: /run/secrets/database_webhook_url
@@ -42,7 +45,11 @@ services:
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-}
       SUPERADMIN_PASSWORD_FILE: /run/secrets/superadmin_password
-    secrets: [database_url, database_webhook_url, database_owner_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password]
+      WHATSAPP_ACCESS_TOKEN_FILE: /run/secrets/whatsapp_access_token
+      WHATSAPP_APP_SECRET_FILE: /run/secrets/whatsapp_app_secret
+      WHATSAPP_VERIFY_TOKEN_FILE: /run/secrets/whatsapp_verify_token
+      NOTIFICATIONS_DISPATCH_SECRET_FILE: /run/secrets/notifications_dispatch_secret
+    secrets: [database_url, database_webhook_url, database_owner_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret]
     volumes:
       - documents:/var/lib/reino/documents
     healthcheck:
@@ -78,6 +85,31 @@ services:
     logging: &json-logs
       driver: json-file
       options: { max-size: 10m, max-file: "3" }
+
+  # Calls the dispatch route of reino_app every 60 s (outbox worker). Own entrypoint:
+  # it must NOT run the migrations that the app entrypoint runs.
+  notifications_cron:
+    image: *app_image
+    entrypoint: ["node", "scripts/notifications-cron.mjs"]
+    user: "1001:1001"
+    read_only: true
+    stop_grace_period: 10s
+    networks: [private]
+    environment:
+      NODE_ENV: production
+      TZ: America/Sao_Paulo
+      NOTIFICATIONS_DISPATCH_URL: http://reino_app:3000/api/internal/notifications/dispatch
+      NOTIFICATIONS_DISPATCH_SECRET_FILE: /run/secrets/notifications_dispatch_secret
+    secrets: [notifications_dispatch_secret]
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits: { cpus: "0.1", memory: 64M }
+    logging: *json-logs
 
   postgres:
     image: postgres:18.6-alpine3.23
@@ -230,6 +262,10 @@ secrets:
   deps_api_password: { external: true }
   openai_api_key: { external: true }
   superadmin_password: { external: true }
+  whatsapp_access_token: { external: true }
+  whatsapp_app_secret: { external: true }
+  whatsapp_verify_token: { external: true }
+  notifications_dispatch_secret: { external: true }
   postgres_password: { external: true }
   schema_owner_password: { external: true }
   app_runtime_password: { external: true }

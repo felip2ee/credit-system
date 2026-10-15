@@ -48,6 +48,23 @@ describe("hydrateSecretEnv", () => {
     expect(env.SUPERADMIN_PASSWORD).toBe("pw-from-file-123");
   });
 
+  // Catches: the WhatsApp and dispatch secrets reaching config as file paths.
+  it("reads the WhatsApp and dispatch secrets from their secret files", () => {
+    const env = {
+      WHATSAPP_ACCESS_TOKEN_FILE: secretFile("wa-token"),
+      WHATSAPP_APP_SECRET_FILE: secretFile("wa-app-secret"),
+      WHATSAPP_VERIFY_TOKEN_FILE: secretFile("wa-verify"),
+      NOTIFICATIONS_DISPATCH_SECRET_FILE: secretFile("dispatch-secret"),
+    } as unknown as NodeJS.ProcessEnv;
+
+    hydrateSecretEnv(env);
+
+    expect(env.WHATSAPP_ACCESS_TOKEN).toBe("wa-token");
+    expect(env.WHATSAPP_APP_SECRET).toBe("wa-app-secret");
+    expect(env.WHATSAPP_VERIFY_TOKEN).toBe("wa-verify");
+    expect(env.NOTIFICATIONS_DISPATCH_SECRET).toBe("dispatch-secret");
+  });
+
   // Catches: a missing Docker Secret allowing the service to start with an empty credential.
   it("fails closed when a configured secret file is empty", () => {
     expect(() => hydrateSecretEnv({ BETTER_AUTH_SECRET_FILE: secretFile("") } as unknown as NodeJS.ProcessEnv)).toThrow(
