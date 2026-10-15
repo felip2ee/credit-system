@@ -912,24 +912,39 @@ describe("apply_asaas_payment (estorno)", () => {
 		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
 	});
 
-	it("ignores a refund for a charge that was not paid, and unknown charges", async () => {
+	it("ignores a refund for an expired or cancelled charge, and unknown charges", async () => {
 		const tenant = await seedTenant(owner, "Estorno sem pagamento");
 		const base = { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId };
-		const pending = await seedPixCharge(owner, base);
 		const expired = await seedPixCharge(owner, { ...base, status: "expired" });
 		const cancelled = await seedPixCharge(owner, { ...base, status: "cancelled" });
 
-		for (const c of [pending, expired, cancelled]) {
+		for (const c of [expired, cancelled]) {
 			expect(await refund(c.asaasPaymentId)).toBe("ignored");
 		}
 		expect(await refund("pay_desconhecido_estorno")).toBe("unknown_charge");
 
-		expect((await charge(pending.id)).status).toBe("pending");
 		expect((await charge(expired.id)).status).toBe("expired");
 		expect((await charge(cancelled.id)).status).toBe("cancelled");
 		expect(await reversals(tenant.bureau.id)).toEqual([]);
-		// Depois do estorno ignorado, o pagamento da pendente ainda credita.
-		expect(await payHook(newKey(), pending.asaasPaymentId, "PAYMENT_RECEIVED")).toBe("credited");
+	});
+
+	it("marks a pending charge refunded without moving money, so a late payment event does not credit it", async () => {
+		const tenant = await seedTenant(owner, "Estorno antes do pagamento");
+		const pending = await seedPixCharge(owner, {
+			bureauId: tenant.bureau.id,
+			requestedBy: tenant.bureauAdmin.userId,
+		});
+
+		expect(await refund(pending.asaasPaymentId)).toBe("ignored");
+		expect(await charge(pending.id)).toEqual({ status: "refunded", refund_shortfall: "0.00" });
+
+		// O pagamento chega depois do estorno (eventos fora de ordem): não credita o PIX estornado.
+		expect(await payHook(newKey(), pending.asaasPaymentId, "PAYMENT_RECEIVED")).toBe("duplicate");
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
+		expect(await reversals(tenant.bureau.id)).toEqual([]);
+		expect((await charge(pending.id)).status).toBe("refunded");
+		// Repetição do estorno com outro id de evento.
+		expect(await refund(pending.asaasPaymentId)).toBe("duplicate");
 	});
 
 	it("ignores PAYMENT_PARTIALLY_REFUNDED and PAYMENT_DELETED on a paid charge", async () => {

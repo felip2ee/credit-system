@@ -14,6 +14,8 @@ export type SettlementFailure =
 	| "price_below_cost"
 	| "invalid_amount"
 	| "reservation_exceeded"
+	// capture_order: um estorno de PIX retomou a reserva; o pedido foi fechado como "released" (a transação segue).
+	| "reservation_clawed_back"
 	| "already_exists";
 
 export type SettlementResult =

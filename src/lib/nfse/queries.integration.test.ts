@@ -160,12 +160,12 @@ describe("setNfseStatus (app_webhook)", () => {
 });
 
 describe("nfse_charge_by_payment (app_webhook)", () => {
-	it("maps a paid or refunded payment to the charge id and amount, and nothing else", async () => {
+	it("maps a paid payment to the charge id and amount, and nothing else; a refunded one finds nothing", async () => {
 		const { tenant, charge } = await setup();
 		const refunded = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId, status: "refunded", amount: "50.00" });
 
 		expect(await findNfseChargeByPayment(charge.asaasPaymentId)).toEqual({ chargeId: charge.id, amount: "100.00" });
-		expect(await findNfseChargeByPayment(refunded.asaasPaymentId)).toEqual({ chargeId: refunded.id, amount: "50.00" });
+		expect(await findNfseChargeByPayment(refunded.asaasPaymentId)).toBeNull();
 		const raw = await getWebhookPool().query("select * from nfse_charge_by_payment($1)", [charge.asaasPaymentId]);
 		expect(raw.fields.map((f) => f.name)).toEqual(["charge_id", "amount"]);
 	});

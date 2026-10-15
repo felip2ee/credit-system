@@ -1661,7 +1661,7 @@ describe("018: estorno de PIX cobre a reserva", () => {
 			)
 		).rows[0];
 
-	it("takes the reservation back when the refund finds funds only in reserved, and then refuses release and capture", async () => {
+	it("takes the reservation back when the refund finds funds only in reserved, and then closes the order on capture", async () => {
 		const t = await setup("1000.00", "0");
 		const charge = await seedPixCharge(owner, {
 			bureauId: t.bureau.id,
@@ -1695,19 +1695,57 @@ describe("018: estorno de PIX cobre a reserva", () => {
 			reserved_after: "0.00",
 		});
 
-		expect(
-			await committed(clientCtx(t), (c) => release(c, toRelease.orderRef)),
-		).toEqual({ ok: false, reason: "reservation_exceeded", status: "reserved" });
+		// A captura não captura: fecha o pedido como liberado, sem valor a repassar.
 		expect(
 			await committed(adminCtx(t), (c) => capture(c, order.orderRef)),
-		).toEqual({ ok: false, reason: "reservation_exceeded", status: "reserved" });
+		).toEqual({ ok: false, reason: "reservation_clawed_back", status: "released" });
 		expect(await clientBalance(t.client.userId)).toEqual({
 			available: "0.00",
 			reserved: "0.00",
 		});
 		expect(await accruals(order.orderRef)).toEqual([]);
-		expect((await settlement(order.orderRef)).status).toBe("reserved");
+		const closed = await settlement(order.orderRef);
+		expect(closed.status).toBe("released");
+		expect(closed.closed_at).not.toBeNull();
 		expect(await clientNet(t.client.userId)).toEqual({ net: "0.00", total: "0.00" });
+		// Sem reserva sobrando não há lançamento de liberação: só o da reserva.
+		expect(await orderEntryCount(order.orderRef)).toBe(1);
+
+		// Repetição: o pedido já está fechado.
+		expect(
+			await committed(adminCtx(t), (c) => capture(c, order.orderRef)),
+		).toEqual({ ok: false, reason: "invalid_state", status: "released" });
+		expect(
+			await committed(clientCtx(t), (c) => release(c, toRelease.orderRef)),
+		).toEqual({ ok: true, reason: null, status: "released" });
+		expect(await orderEntryCount(order.orderRef)).toBe(1);
+	});
+
+	it("closes the order as released on release when the refund took the whole reservation", async () => {
+		const t = await setup("1000.00", "0");
+		const charge = await seedPixCharge(owner, {
+			bureauId: t.bureau.id,
+			requestedBy: t.client.userId,
+			clientProfileId: t.client.userId,
+			amount: "1000.00",
+			status: "paid",
+		});
+		const order = online(t, "1000.00", "600.00");
+		await committed(clientCtx(t), (c) => reserve(c, order));
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		expect(
+			await committed(clientCtx(t), (c) => release(c, order.orderRef)),
+		).toEqual({ ok: true, reason: null, status: "released" });
+		expect((await settlement(order.orderRef)).status).toBe("released");
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "0.00",
+			reserved: "0.00",
+		});
+		expect(await orderEntryCount(order.orderRef)).toBe(1);
+		expect(
+			await committed(clientCtx(t), (c) => release(c, order.orderRef)),
+		).toEqual({ ok: true, reason: null, status: "released" });
 	});
 
 	it("takes the available balance first and the reservation for the rest", async () => {
@@ -1739,15 +1777,61 @@ describe("018: estorno de PIX cobre a reserva", () => {
 			available_after: "0.00",
 			reserved_after: "400.00",
 		});
-		// A reserva restante (400) não cobre o pedido de 700: nenhum crédito sai dela.
+		// A reserva restante (400) não cobre o pedido de 700: a liberação devolve os 400 e fecha o pedido.
 		expect(
 			await committed(clientCtx(t), (c) => release(c, order.orderRef)),
-		).toMatchObject({ ok: false, reason: "reservation_exceeded" });
+		).toEqual({ ok: true, reason: null, status: "released" });
 		expect(await clientBalance(t.client.userId)).toEqual({
-			available: "0.00",
-			reserved: "400.00",
+			available: "400.00",
+			reserved: "0.00",
+		});
+		expect(await lastClientEntry(t.client.userId)).toMatchObject({
+			kind: "release",
+			amount: "400.00",
+			available_after: "400.00",
+			reserved_after: "0.00",
 		});
 		expect(await clientNet(t.client.userId)).toEqual({ net: "400.00", total: "400.00" });
+		// Repetição: nenhum lançamento novo.
+		expect(
+			await committed(clientCtx(t), (c) => release(c, order.orderRef)),
+		).toEqual({ ok: true, reason: null, status: "released" });
+		expect(await orderEntryCount(order.orderRef)).toBe(2);
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "400.00",
+			reserved: "0.00",
+		});
+	});
+
+	it("releases what is left of the reservation on capture, closes the order and accrues nothing", async () => {
+		const t = await setup("1000.00", "0");
+		const charge = await seedPixCharge(owner, {
+			bureauId: t.bureau.id,
+			requestedBy: t.client.userId,
+			clientProfileId: t.client.userId,
+			amount: "600.00",
+			status: "paid",
+		});
+		const order = online(t, "700.00", "400.00");
+		await committed(clientCtx(t), (c) => reserve(c, order));
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		expect(
+			await committed(adminCtx(t), (c) => capture(c, order.orderRef)),
+		).toEqual({ ok: false, reason: "reservation_clawed_back", status: "released" });
+		expect(await clientBalance(t.client.userId)).toEqual({
+			available: "400.00",
+			reserved: "0.00",
+		});
+		expect(await lastClientEntry(t.client.userId)).toMatchObject({ kind: "release", amount: "400.00" });
+		expect(await accruals(order.orderRef)).toEqual([]);
+		expect((await settlement(order.orderRef)).status).toBe("released");
+		expect(await clientNet(t.client.userId)).toEqual({ net: "400.00", total: "400.00" });
+
+		expect(
+			await committed(adminCtx(t), (c) => capture(c, order.orderRef)),
+		).toEqual({ ok: false, reason: "invalid_state", status: "released" });
+		expect(await orderEntryCount(order.orderRef)).toBe(2);
 	});
 
 	it("records as shortfall only what neither the available balance nor the reservation covers", async () => {
@@ -1801,10 +1885,11 @@ describe("018: estorno de PIX cobre a reserva", () => {
 		expect(await shortfallOf(charge.id)).toMatchObject({ refund_shortfall: "0.00" });
 		expect(
 			await committed(operatorCtx(t), (c) => capture(c, order.orderRef)),
-		).toEqual({ ok: false, reason: "reservation_exceeded", status: "reserved" });
+		).toEqual({ ok: false, reason: "reservation_clawed_back", status: "released" });
+		expect((await settlement(order.orderRef)).status).toBe("released");
 		expect(
 			await committed(operatorCtx(t), (c) => release(c, order.orderRef)),
-		).toEqual({ ok: false, reason: "reservation_exceeded", status: "reserved" });
+		).toEqual({ ok: true, reason: null, status: "released" });
 		const { rows } = await owner.query<{ net: string; total: string }>(
 			`select
          (select sum(case kind when 'topup' then amount when 'capture' then -amount
@@ -1815,5 +1900,30 @@ describe("018: estorno de PIX cobre a reserva", () => {
 			[t.bureau.id],
 		);
 		expect(rows[0]).toEqual({ net: "0.00", total: "0.00" });
+	});
+
+	it("releases the rest of the Bureau reservation when the refund took only part of it", async () => {
+		const t = await setup("0", "1000.00");
+		const charge = await seedPixCharge(owner, {
+			bureauId: t.bureau.id,
+			requestedBy: t.bureauAdmin.userId,
+			amount: "600.00",
+			status: "paid",
+		});
+		const order = counter("1500.00", "1000.00");
+		await committed(operatorCtx(t), (c) => reserve(c, order));
+
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+		expect(await bureauBalance(t.bureau.id)).toEqual({ available: "0.00", reserved: "400.00" });
+
+		expect(
+			await committed(operatorCtx(t), (c) => release(c, order.orderRef)),
+		).toEqual({ ok: true, reason: null, status: "released" });
+		expect(await bureauBalance(t.bureau.id)).toEqual({ available: "400.00", reserved: "0.00" });
+		expect((await settlement(order.orderRef)).status).toBe("released");
+		expect(
+			await committed(operatorCtx(t), (c) => release(c, order.orderRef)),
+		).toEqual({ ok: true, reason: null, status: "released" });
+		expect(await bureauBalance(t.bureau.id)).toEqual({ available: "400.00", reserved: "0.00" });
 	});
 });

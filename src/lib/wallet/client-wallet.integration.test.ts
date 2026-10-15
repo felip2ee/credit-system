@@ -900,11 +900,16 @@ describe("apply_asaas_payment (cliente)", () => {
 			).toBe("duplicate");
 			expect(await clientBalance(t.client.userId)).toEqual(ZERO);
 
+			// Estorno antes do pagamento: a cobrança vira refunded e o pagamento tardio não credita.
 			const pending = await clientCharge(t, "20.00");
 			expect(
 				await callPayment(newKey(), pending.asaasPaymentId, "PAYMENT_REFUNDED"),
 			).toBe("ignored");
-			expect((await chargeRow(pending.id)).status).toBe("pending");
+			expect((await chargeRow(pending.id)).status).toBe("refunded");
+			expect(
+				await callPayment(newKey(), pending.asaasPaymentId),
+			).toBe("duplicate");
+			expect(await clientBalance(t.client.userId)).toEqual(ZERO);
 		});
 
 		it("lets the superadmin see a client charge with an unrecovered refund, and nothing else", async () => {
