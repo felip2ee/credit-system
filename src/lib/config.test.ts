@@ -27,6 +27,7 @@ import {
   readAsaasConfig,
   readConfig,
   NOTIFICATIONS_DISPATCH_SECRET_EXAMPLE,
+  readDispatchDatabaseUrl,
   readNfseConfig,
   readNotificationsDispatchSecret,
   readWebhookDatabaseUrl,
@@ -271,6 +272,15 @@ describe("readWebhookDatabaseUrl", () => {
     );
     expect(readWebhookDatabaseUrl({ DATABASE_WEBHOOK_URL: "postgres://app_webhook:x@db/app" })).toBe(
       "postgres://app_webhook:x@db/app",
+    );
+  });
+});
+
+describe("readDispatchDatabaseUrl", () => {
+  it("requires a valid URL", () => {
+    expect(() => readDispatchDatabaseUrl({})).toThrow("DISPATCH_DATABASE_URL is required");
+    expect(readDispatchDatabaseUrl({ DISPATCH_DATABASE_URL: "postgres://app_dispatch:x@db/app" })).toBe(
+      "postgres://app_dispatch:x@db/app",
     );
   });
 });

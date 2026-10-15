@@ -34,8 +34,10 @@ services:
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       WHATSAPP_GRAPH_VERSION: ${WHATSAPP_GRAPH_VERSION:-v21.0}
       DATABASE_URL_FILE: /run/secrets/database_url
-      # Role app_webhook: only the Asaas webhook route uses it (EXECUTE on apply_asaas_payment, nothing else).
+      # Role app_webhook: Asaas webhook, WhatsApp webhook (apply_asaas_payment, apply_whatsapp_status, record_notification_opt_out).
       DATABASE_WEBHOOK_URL_FILE: /run/secrets/database_webhook_url
+      # Role app_dispatch: only the notifications dispatch route (EXECUTE on claim_notifications, complete_notification).
+      DISPATCH_DATABASE_URL_FILE: /run/secrets/dispatch_database_url
       # The app entrypoint applies schema migrations on start, which need the
       # owner/superuser DSN. RUN_MIGRATIONS=0 to disable that per-container.
       DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
@@ -49,7 +51,7 @@ services:
       WHATSAPP_APP_SECRET_FILE: /run/secrets/whatsapp_app_secret
       WHATSAPP_VERIFY_TOKEN_FILE: /run/secrets/whatsapp_verify_token
       NOTIFICATIONS_DISPATCH_SECRET_FILE: /run/secrets/notifications_dispatch_secret
-    secrets: [database_url, database_webhook_url, database_owner_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret]
+    secrets: [database_url, database_webhook_url, dispatch_database_url, database_owner_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret]
     volumes:
       - documents:/var/lib/reino/documents
     healthcheck:
@@ -120,7 +122,7 @@ services:
       POSTGRES_DB: credit_system
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-    secrets: [postgres_password, schema_owner_password, app_runtime_password, backup_reader_password, app_webhook_password]
+    secrets: [postgres_password, schema_owner_password, app_runtime_password, backup_reader_password, app_webhook_password, app_dispatch_password]
     configs:
       - source: postgres-init-users
         target: /docker-entrypoint-initdb.d/001-users.sh
@@ -257,6 +259,7 @@ configs:
 secrets:
   database_url: { external: true }
   database_webhook_url: { external: true }
+  dispatch_database_url: { external: true }
   database_owner_url: { external: true }
   better_auth_secret: { external: true }
   smtp_pass: { external: true }
@@ -272,4 +275,5 @@ secrets:
   app_runtime_password: { external: true }
   backup_reader_password: { external: true }
   app_webhook_password: { external: true }
+  app_dispatch_password: { external: true }
   restic_password: { external: true }

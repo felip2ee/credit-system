@@ -22,9 +22,21 @@ O M4 envia e-mail e WhatsApp por uma fila no Postgres (outbox). O serviço `noti
 ## 3. Configurar o deploy
 
 - Variáveis de deploy (não secretas): `WHATSAPP_DRIVER=meta`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_GRAPH_VERSION`. Em produção, `WHATSAPP_DRIVER` vazio (o padrão), `WHATSAPP_DRIVER=fake` ou `WHATSAPP_PHONE_NUMBER_ID` vazio deixam o WhatsApp desligado: o envio falha como `channel_not_configured` (permanente) e o webhook responde 404. Um valor inválido com o driver ligado responde 500. O driver `fake` só vale fora de produção.
-- Docker secrets: `whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token`, `notifications_dispatch_secret`.
-- O `setup_production.py` gera os dois últimos. Se você deixar vazios o token e o app secret, ele grava o marcador `whatsapp-disabled` (o Swarm não aceita secret vazio).
+- Docker secrets: `whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token`, `notifications_dispatch_secret`, `app_dispatch_password`, `dispatch_database_url`.
+- O `setup_production.py` gera `whatsapp_verify_token`, `notifications_dispatch_secret`, `app_dispatch_password` e `dispatch_database_url`. Se você deixar vazios o token e o app secret, ele grava o marcador `whatsapp-disabled` (o Swarm não aceita secret vazio).
 - Um secret do Swarm é imutável. Para trocar o valor: remova o serviço que o usa, `docker secret rm`, recrie o secret e faça o deploy de novo.
+
+### Roles do banco
+
+| Role | Variável | Permissão (migration 020) |
+|---|---|---|
+| `app_webhook` | `DATABASE_WEBHOOK_URL` | Webhook do Asaas e do WhatsApp: `apply_asaas_payment`, `apply_whatsapp_status`, `record_notification_opt_out`. |
+| `app_dispatch` | `DISPATCH_DATABASE_URL` (secret `dispatch_database_url`, arquivo em `DISPATCH_DATABASE_URL_FILE`) | Só a rota de despacho: `claim_notifications`, `complete_notification`. |
+
+- A migration 020 cria `app_dispatch` sem senha. O script `docker/postgres/init/001-users.sh` define a senha só em volume novo.
+- Em produção com volume existente, defina a senha uma vez, com o `app_dispatch_password` já criado como secret. Conecte com `DATABASE_OWNER_URL` e rode `ALTER ROLE app_dispatch PASSWORD '<valor>'`.
+- Em dev, o volume novo do `docker-compose.dev.yml` já usa a senha `test`. Em volume antigo, rode `ALTER ROLE app_dispatch PASSWORD 'test'`.
+- Os testes de integração leem `TEST_DATABASE_DISPATCH_URL` (o CI já define).
 
 ## 4. Aprovar e registrar um template
 
