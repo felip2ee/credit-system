@@ -1,0 +1,50 @@
+name: Issue → Project (Triage)
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  add-to-project:
+    runs-on: ubuntu-latest
+    env:
+      PROJECTS_PAT: ${{ secrets.PROJECTS_PAT }}
+    steps:
+      - name: Check PROJECTS_PAT
+        if: env.PROJECTS_PAT == ''
+        run: echo "PROJECTS_PAT not set — skipping project automation"
+
+      - name: Add issue to project
+        if: env.PROJECTS_PAT != ''
+        uses: actions/add-to-project@5afcf98fcd03f1c2f92c3c83f58ae24323cc57fd # v2.0.0
+        with:
+          project-url: https://github.com/users/${{ github.repository_owner }}/projects/3
+          github-token: ${{ env.PROJECTS_PAT }}
+
+      - name: Checkout
+        if: env.PROJECTS_PAT != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set status to Triage
+        if: env.PROJECTS_PAT != ''
+        uses: ./.github/actions/pm-status-update
+        with:
+          github-token: ${{ env.PROJECTS_PAT }}
+          issue-numbers: ${{ github.event.issue.number }}
+          target-status: Triage
+          guard-mode: force
+
+      - name: Add needs-triage label
+        if: env.PROJECTS_PAT != ''
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          github-token: ${{ env.PROJECTS_PAT }}
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels: ['needs-triage']
+            });

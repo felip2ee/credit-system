@@ -1,0 +1,60 @@
+name: Auto-close issue on PR merge
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  close-linked-issues:
+    runs-on: ubuntu-latest
+    # Só fecha issues quando o PR entra na branch padrão; PRs empilhados não fecham nada.
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == github.event.repository.default_branch
+    env:
+      PROJECTS_PAT: ${{ secrets.PROJECTS_PAT }}
+    steps:
+      - name: Check PROJECTS_PAT
+        if: env.PROJECTS_PAT == ''
+        run: echo "PROJECTS_PAT not set — skipping"
+
+      - name: Checkout
+        if: env.PROJECTS_PAT != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Extract linked issues
+        id: issues
+        if: env.PROJECTS_PAT != ''
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if ! ISSUES=$(printf '%s' "$PR_BODY" | \
+            grep -ioE '(closes|fixes|resolves)\s+#[0-9]+' | \
+            grep -oE '#[0-9]+' | tr -d '#' | tr '\n' ',' | sed 's/,$//'); then
+            ISSUES=""
+          fi
+          echo "issue_numbers=$ISSUES" >> "$GITHUB_OUTPUT"
+
+      - name: Close issues
+        if: env.PROJECTS_PAT != '' && steps.issues.outputs.issue_numbers != ''
+        env:
+          GH_TOKEN: ${{ env.PROJECTS_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ISSUE_NUMBERS: ${{ steps.issues.outputs.issue_numbers }}
+        run: |
+          IFS=',' read -ra NUMS <<< "$ISSUE_NUMBERS"
+          for N in "${NUMS[@]}"; do
+            gh issue close "$N" \
+              --comment "Automatically closed by merge of PR #$PR_NUMBER. ✅" \
+              --repo "$REPO" || echo "::warning::Could not close #$N — see log above"
+          done
+
+      - name: Move to Done
+        if: env.PROJECTS_PAT != '' && steps.issues.outputs.issue_numbers != ''
+        uses: ./.github/actions/pm-status-update
+        with:
+          github-token: ${{ env.PROJECTS_PAT }}
+          issue-numbers: ${{ steps.issues.outputs.issue_numbers }}
+          target-status: Done
+          guard-mode: force

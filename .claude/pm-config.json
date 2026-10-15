@@ -1,0 +1,17 @@
+{
+	"owner": "felip2ee",
+	"repo": "credit-system",
+	"project_number": 3,
+	"project_id": "PVT_kwHOB04bqc4Bm6gx",
+	"status_field_id": "PVTSSF_lAHOB04bqc4Bm6gxzhlhhi0",
+	"status_options": {
+		"Triage": "d19f4268",
+		"Backlog": "a3f74e2e",
+		"Todo": "f75ad846",
+		"Ready": "4a531b1d",
+		"In Progress": "47fc9ee4",
+		"In Review": "e29f8114",
+		"Blocked": "ef061ad0",
+		"Done": "98236657"
+	}
+}

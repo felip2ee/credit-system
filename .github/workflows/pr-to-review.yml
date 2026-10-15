@@ -1,0 +1,45 @@
+name: PR → In Review
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  set-in-review:
+    runs-on: ubuntu-latest
+    if: "!github.event.pull_request.draft && !contains(github.event.pull_request.body, '[skip-pm]')"
+    env:
+      PROJECTS_PAT: ${{ secrets.PROJECTS_PAT }}
+    steps:
+      - name: Check PROJECTS_PAT
+        if: env.PROJECTS_PAT == ''
+        run: echo "PROJECTS_PAT not set — skipping"
+
+      - name: Checkout
+        if: env.PROJECTS_PAT != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Extract linked issues from PR body
+        id: issues
+        if: env.PROJECTS_PAT != ''
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if ! ISSUES=$(printf '%s' "$PR_BODY" | \
+            grep -ioE '(closes|fixes|resolves)\s+#[0-9]+' | \
+            grep -oE '#[0-9]+' | tr -d '#' | tr '\n' ',' | sed 's/,$//'); then
+            ISSUES=""
+          fi
+          echo "issue_numbers=$ISSUES" >> "$GITHUB_OUTPUT"
+
+      - name: Move to In Review
+        if: env.PROJECTS_PAT != '' && steps.issues.outputs.issue_numbers != ''
+        uses: ./.github/actions/pm-status-update
+        with:
+          github-token: ${{ env.PROJECTS_PAT }}
+          issue-numbers: ${{ steps.issues.outputs.issue_numbers }}
+          target-status: In Review
+          guard-mode: block-from
+          guard-statuses: Blocked,Done
