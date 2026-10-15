@@ -2,6 +2,9 @@
   "name": "credit-system",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,7 +18,8 @@
     "db:migrate:test": "node --test scripts/db/migrate.test.mjs scripts/db/reset.test.mjs",
     "setup:test": "python3 -m unittest discover -s scripts/setup -p 'test_*.py'",
     "ops:test": "node --test scripts/notifications-cron.test.mjs",
-    "verify:release": "node scripts/verify-release.mjs"
+    "verify:release": "node scripts/verify-release.mjs",
+    "check": "npm run lint && npm run type-check && npm run test"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -23,7 +27,6 @@
     "@radix-ui/react-slot": "^1.1.1",
     "@react-pdf/renderer": "^4.5.1",
     "@tanstack/react-query": "^5.62.7",
-    "@types/nodemailer": "^8.0.1",
     "better-auth": "1.7.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -45,7 +48,8 @@
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
-    "@types/node": "^20",
+    "@types/node": "^22",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "8.15.5",
     "@types/qrcode": "1.5.5",
     "@types/react": "^18",

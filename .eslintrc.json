@@ -9,6 +9,29 @@
         "varsIgnorePattern": "^_",
         "caughtErrorsIgnorePattern": "^_"
       }
-    ]
-  }
+    ],
+    "max-lines": ["warn", { "max": 350, "skipBlankLines": true, "skipComments": true }]
+  },
+  "overrides": [
+    {
+      "files": ["src/**/*.ts", "src/**/*.tsx"],
+      "rules": {
+        "no-console": ["warn", { "allow": ["warn", "error"] }]
+      }
+    },
+    {
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.integration.test.ts",
+        "**/__fixtures__/**",
+        "**/__tests__/**",
+        "e2e/**"
+      ],
+      "rules": {
+        "max-lines": "off",
+        "no-console": "off"
+      }
+    }
+  ]
 }
