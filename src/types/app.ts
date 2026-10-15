@@ -1,6 +1,8 @@
 // Tipos de domínio do Reino do Crédito.
 // Refletem os enums e tabelas do esquema legado.
 
+import type { NotificationStatus } from "@/lib/notifications/queries";
+
 export type UserRole = "superadmin" | "bureau_admin" | "operator" | "client";
 
 export type EntityKind = "PF" | "PJ";
@@ -92,6 +94,7 @@ export interface ScrAuthorization {
   authorized_at: string | null;
   expires_at: string | null;
   last_checked_at: string | null;
+  lastNotificationStatus: NotificationStatus | null;
 }
 
 export const QUERY_STATUS_LABEL: Record<QueryStatus, string> = {

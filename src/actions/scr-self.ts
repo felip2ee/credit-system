@@ -6,8 +6,6 @@ import { revalidatePath } from "next/cache";
 import { getScrTermSettings } from "@/actions/settings";
 import { getRequiredSession } from "@/lib/auth/session";
 import { config } from "@/lib/config";
-import { sendMail } from "@/lib/email/mailer";
-import { buildScrAuthorizationEmail } from "@/lib/email/scr-authorization-email";
 import { buildScrConsentTerm } from "@/lib/scr/consent-term";
 import { confirmPublicScrAuthorization, getPublicScrAuthorization, issueSelfScrAuthorization, resolveScrContact, type PublicScrAuthorization } from "@/lib/scr/queries";
 import { formatCNPJ, formatCPF, formatDate, isValidEmail } from "@/lib/utils";
@@ -20,6 +18,10 @@ function generateCode() {
 }
 const siteUrl = () => config.betterAuthUrl.replace(/\/$/, "");
 
+const EMAIL_ERROR = "Titular sem e-mail v\u00e1lido \u2014 cadastre o e-mail antes de enviar.";
+const ENQUEUE_ERROR = "N\u00e3o foi poss\u00edvel enfileirar o e-mail.";
+const ISSUE_ERRORS: Record<string, string> = { not_found: "Registro SCR n\u00e3o encontrado.", invalid_recipient: EMAIL_ERROR };
+
 export interface SendSelfResult { error: string | null; }
 
 export async function sendScrSelfAuthorization(scrId: string): Promise<SendSelfResult> {
@@ -28,17 +30,17 @@ export async function sendScrSelfAuthorization(scrId: string): Promise<SendSelfR
   const scr = await resolveScrContact(session, scrId);
   if (!scr) return { error: "Registro SCR n\u00e3o encontrado." };
   const email = scr.email?.trim() || scr.holder_email?.trim() || null;
-  if (!email || !isValidEmail(email)) return { error: "Titular sem e-mail v\u00e1lido \u2014 cadastre o e-mail antes de enviar." };
+  if (!email || !isValidEmail(email)) return { error: EMAIL_ERROR };
   const clientName = scr.name?.trim() || scr.holder_name?.trim() || scr.document;
   const document = scr.type === "PJ" ? formatCNPJ(scr.document) : formatCPF(scr.document);
   const term = await getScrTermSettings();
   const consent = buildScrConsentTerm({ authorizedName: term.authorizedName, authorizedDocument: term.authorizedDocument || undefined, institutionName: term.institutionName, clientName, document, city: term.city, date: formatDate(new Date()) });
   const code = generateCode();
-  const issued = await issueSelfScrAuthorization(session, scrId, { code, email, consentText: consent.fullText, consentName: clientName, consentDocument: document });
-  if (!issued) return { error: "Registro SCR n\u00e3o encontrado." };
-  const mail = buildScrAuthorizationEmail({ clientName, authorizedName: term.authorizedName, code, url: `${siteUrl()}/autorizacao-scr/${issued.public_token}` });
-  try { await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text }); }
-  catch (error) { return { error: error instanceof Error ? `Falha ao enviar o e-mail: ${error.message}` : "Falha ao enviar o e-mail." }; }
+  const issued = await issueSelfScrAuthorization(session, scrId, {
+    code, email, consentText: consent.fullText, consentName: clientName, consentDocument: document,
+    notification: { recipient: email, clientName, authorizedName: term.authorizedName, siteUrl: siteUrl() },
+  });
+  if (!issued.ok) return { error: ISSUE_ERRORS[issued.reason] ?? ENQUEUE_ERROR };
   revalidatePath("/scr");
   return { error: null };
 }
