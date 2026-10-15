@@ -34,3 +34,6 @@ export const topupAmountSchema = z.string().refine((value) => {
 }, "Informe um valor entre R$ 10,00 e R$ 5.000,00, com até 2 casas decimais.");
 
 export const walletTopupSchema = z.object({ amount: topupAmountSchema });
+
+// Valores sugeridos na recarga do cliente. O servidor valida só a faixa (topupAmountSchema).
+export const CLIENT_TOPUP_SUGGESTIONS = ["20.00", "50.00", "100.00", "200.00"] as const;

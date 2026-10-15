@@ -205,7 +205,7 @@ describe.sequential("Better Auth PostgreSQL integration", () => {
       role: "client",
       supportSessionId: null,
       support: null,
-      permissions: ["portal:read", "portal:write"],
+      permissions: ["portal:read", "portal:write", "credits:read", "credits:topup"],
       mfaComplete: false,
       email: user.email,
     });

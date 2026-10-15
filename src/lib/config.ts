@@ -142,4 +142,39 @@ export function readAsaasConfig(env: Environment): AsaasConfig {
   };
 }
 
+export type NfseConfig = {
+  municipalServiceId?: string;
+  municipalServiceCode?: string;
+  municipalServiceName: string;
+  serviceDescription: string;
+  // Percentual (2.5 = 2,5%).
+  issRate: number;
+  retainIss: boolean;
+};
+
+// Lida sob demanda, como o Asaas. Sem serviço municipal (id ou código) a NFS-e fica desligada: null.
+// Com serviço informado, o resto é obrigatório (configuração pela metade falha em vez de emitir nota errada).
+export function readNfseConfig(env: Environment): NfseConfig | null {
+  const municipalServiceId = env.NFSE_MUNICIPAL_SERVICE_ID?.trim() || undefined;
+  const municipalServiceCode = env.NFSE_MUNICIPAL_SERVICE_CODE?.trim() || undefined;
+  if (!municipalServiceId && !municipalServiceCode) return null;
+
+  const rate = required(env, "NFSE_ISS_RATE");
+  const issRate = Number(rate);
+  // A LC 116/2003 limita a alíquota de ISS a 5%.
+  if (!/^\d+(\.\d+)?$/.test(rate) || issRate > 5) throw new Error("NFSE_ISS_RATE must be a number between 0 and 5");
+
+  const retain = env.NFSE_RETAIN_ISS?.trim() || "false";
+  if (retain !== "true" && retain !== "false") throw new Error("NFSE_RETAIN_ISS must be true or false");
+
+  return {
+    municipalServiceId,
+    municipalServiceCode,
+    municipalServiceName: required(env, "NFSE_MUNICIPAL_SERVICE_NAME"),
+    serviceDescription: required(env, "NFSE_SERVICE_DESCRIPTION"),
+    issRate,
+    retainIss: retain === "true",
+  };
+}
+
 export const config = readConfig(hydrateSecretEnv(process.env));

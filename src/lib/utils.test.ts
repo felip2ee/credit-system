@@ -105,6 +105,11 @@ describe("formatDate / formatDateTime", () => {
     expect(formatDate("2026-06-24T12:00:00Z")).toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 
+  it("usa o fuso de São Paulo, não o do servidor", () => {
+    expect(formatDate("2026-06-24T02:30:00Z")).toBe("23/06/2026");
+    expect(formatDateTime("2026-06-24T02:30:00Z")).toMatch(/23\/06\/2026.*23:30/);
+  });
+
   it("formatDateTime inclui hora", () => {
     expect(formatDateTime("2026-06-24T12:00:00Z")).toMatch(/\d{2}:\d{2}/);
   });

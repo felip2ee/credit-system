@@ -22,7 +22,13 @@ const valid = vi.hoisted(() => {
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { ASAAS_WEBHOOK_TOKEN_EXAMPLE, readAsaasConfig, readConfig, readWebhookDatabaseUrl } from "./config";
+import {
+  ASAAS_WEBHOOK_TOKEN_EXAMPLE,
+  readAsaasConfig,
+  readConfig,
+  readNfseConfig,
+  readWebhookDatabaseUrl,
+} from "./config";
 
 describe("readConfig", () => {
   it("rejects a missing required value", () => {
@@ -263,5 +269,48 @@ describe("readWebhookDatabaseUrl", () => {
     expect(readWebhookDatabaseUrl({ DATABASE_WEBHOOK_URL: "postgres://app_webhook:x@db/app" })).toBe(
       "postgres://app_webhook:x@db/app",
     );
+  });
+});
+
+describe("readNfseConfig", () => {
+  const nfse = {
+    NFSE_MUNICIPAL_SERVICE_ID: "svc_1",
+    NFSE_MUNICIPAL_SERVICE_NAME: "Licenciamento de programas",
+    NFSE_SERVICE_DESCRIPTION: "Recarga de créditos",
+    NFSE_ISS_RATE: "2.5",
+  };
+
+  it("returns null when no municipal service is configured (NFS-e off)", () => {
+    expect(readNfseConfig({})).toBeNull();
+    expect(readNfseConfig({ NFSE_MUNICIPAL_SERVICE_ID: "  ", NFSE_MUNICIPAL_SERVICE_CODE: "" })).toBeNull();
+  });
+
+  it("returns the settings, with the ISS retention off by default", () => {
+    expect(readNfseConfig(nfse)).toEqual({
+      municipalServiceId: "svc_1",
+      municipalServiceName: "Licenciamento de programas",
+      serviceDescription: "Recarga de créditos",
+      issRate: 2.5,
+      retainIss: false,
+    });
+  });
+
+  it("accepts a municipal service code instead of an id and the retention flag", () => {
+    const { NFSE_MUNICIPAL_SERVICE_ID: _id, ...rest } = nfse;
+    expect(readNfseConfig({ ...rest, NFSE_MUNICIPAL_SERVICE_CODE: "1.05", NFSE_RETAIN_ISS: "true" })).toMatchObject({
+      municipalServiceCode: "1.05",
+      retainIss: true,
+    });
+  });
+
+  it.each([
+    [{ NFSE_MUNICIPAL_SERVICE_NAME: "" }, "NFSE_MUNICIPAL_SERVICE_NAME is required"],
+    [{ NFSE_SERVICE_DESCRIPTION: "" }, "NFSE_SERVICE_DESCRIPTION is required"],
+    [{ NFSE_ISS_RATE: "" }, "NFSE_ISS_RATE is required"],
+    [{ NFSE_ISS_RATE: "abc" }, "NFSE_ISS_RATE must be a number between 0 and 5"],
+    [{ NFSE_ISS_RATE: "7" }, "NFSE_ISS_RATE must be a number between 0 and 5"],
+    [{ NFSE_RETAIN_ISS: "yes" }, "NFSE_RETAIN_ISS must be true or false"],
+  ])("rejects an incomplete or invalid setup %j", (override, message) => {
+    expect(() => readNfseConfig({ ...nfse, ...override })).toThrow(message);
   });
 });

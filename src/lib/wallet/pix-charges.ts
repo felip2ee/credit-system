@@ -28,18 +28,28 @@ export type CreatePixChargeResult =
 	| { ok: true; id: string; expiresAt: Date }
 	| { ok: false; reason: "invalid_amount" };
 
-export async function createPixCharge(
+// clientProfileId null = cobrança do Bureau; preenchido = do cliente (RLS exige ser o próprio autor).
+async function insertPixCharge(
 	client: PoolClient,
 	identity: DbIdentity,
 	input: CreatePixChargeInput,
+	clientProfileId: string | null,
 ): Promise<CreatePixChargeResult> {
 	if (!topupAmountSchema.safeParse(input.amount).success) return { ok: false, reason: "invalid_amount" };
 
 	const { rows } = await client.query<{ id: string; expires_at: Date }>(
-		`insert into pix_charges (bureau_id, asaas_payment_id, amount, pix_payload, expires_at, requested_by)
-		 values ($1, $2, $3, $4, now() + make_interval(mins => $5), $6)
+		`insert into pix_charges (bureau_id, asaas_payment_id, amount, pix_payload, expires_at, requested_by, client_profile_id)
+		 values ($1, $2, $3, $4, now() + make_interval(mins => $5), $6, $7)
 		 returning id, expires_at`,
-		[identity.bureauId, input.asaasPaymentId, input.amount, input.pixPayload, PIX_CHARGE_TTL_MINUTES, identity.userId],
+		[
+			identity.bureauId,
+			input.asaasPaymentId,
+			input.amount,
+			input.pixPayload,
+			PIX_CHARGE_TTL_MINUTES,
+			identity.userId,
+			clientProfileId,
+		],
 	);
 	const { id, expires_at: expiresAt } = rows[0];
 	await writeAuditEvent(client, {
@@ -52,11 +62,40 @@ export async function createPixCharge(
 	return { ok: true, id, expiresAt };
 }
 
-// Cobranças ainda válidas do Bureau: limita o spam de PIX antes de chamar o Asaas.
+export function createPixCharge(
+	client: PoolClient,
+	identity: DbIdentity,
+	input: CreatePixChargeInput,
+): Promise<CreatePixChargeResult> {
+	return insertPixCharge(client, identity, input, null);
+}
+
+// Recarga da carteira do cliente: client_profile_id = o próprio usuário.
+export function createClientPixCharge(
+	client: PoolClient,
+	identity: DbIdentity,
+	input: CreatePixChargeInput,
+): Promise<CreatePixChargeResult> {
+	return insertPixCharge(client, identity, input, identity.userId);
+}
+
+// Cobranças ainda válidas do Bureau (sem as dos clientes): limita o spam de PIX antes de chamar o Asaas.
 export async function countPendingPixCharges(client: PoolClient, bureauId: string): Promise<number> {
 	const { rows } = await client.query<{ total: number }>(
-		"select count(*)::int as total from pix_charges where bureau_id = $1 and status = 'pending' and expires_at > now()",
+		`select count(*)::int as total from pix_charges
+		  where bureau_id = $1 and client_profile_id is null and status = 'pending' and expires_at > now()`,
 		[bureauId],
+	);
+	return rows[0].total;
+}
+
+// Teto próprio de cada cliente. Usa pix_charges_client_created_idx (client_profile_id, ...): não é o índice
+// parcial de pendentes, mas um cliente tem poucas linhas e o plano filtra status/expiração sobre elas.
+export async function countPendingClientPixCharges(client: PoolClient, clientProfileId: string): Promise<number> {
+	const { rows } = await client.query<{ total: number }>(
+		`select count(*)::int as total from pix_charges
+		  where client_profile_id = $1 and status = 'pending' and expires_at > now()`,
+		[clientProfileId],
 	);
 	return rows[0].total;
 }
@@ -76,6 +115,9 @@ const SELECT_CHARGE = `select id, amount,
 	pix_payload, expires_at, created_at
 	from pix_charges`;
 
+// Telas do Bureau nunca leem cobrança de cliente (nem o pix_payload dela).
+const BUREAU_ONLY = "client_profile_id is null";
+
 const toCharge = (r: ChargeRow): PixCharge => ({
 	id: r.id,
 	amount: r.amount,
@@ -86,7 +128,7 @@ const toCharge = (r: ChargeRow): PixCharge => ({
 });
 
 export async function getPixCharge(client: PoolClient, id: string): Promise<PixCharge | null> {
-	const { rows } = await client.query<ChargeRow>(`${SELECT_CHARGE} where id = $1`, [id]);
+	const { rows } = await client.query<ChargeRow>(`${SELECT_CHARGE} where id = $1 and ${BUREAU_ONLY}`, [id]);
 	return rows[0] ? toCharge(rows[0]) : null;
 }
 
@@ -94,10 +136,32 @@ const LIST_LIMIT = 50;
 
 export async function listPixCharges(client: PoolClient, bureauId: string): Promise<PixCharge[]> {
 	const { rows } = await client.query<ChargeRow>(
-		`${SELECT_CHARGE} where bureau_id = $1 order by created_at desc limit $2`,
+		`${SELECT_CHARGE} where bureau_id = $1 and ${BUREAU_ONLY} order by created_at desc limit $2`,
 		[bureauId, LIST_LIMIT],
 	);
 	return rows.map(toCharge);
+}
+
+// Cobrança do cliente na tela dele: o código PIX só vem enquanto a cobrança está pendente.
+export type ClientPixCharge = Omit<PixCharge, "pixPayload"> & { pixPayload: string | null };
+
+export async function listClientPixCharges(client: PoolClient, clientProfileId: string): Promise<ClientPixCharge[]> {
+	const { rows } = await client.query<Omit<ChargeRow, "pix_payload"> & { pix_payload: string | null }>(
+		`select id, amount,
+		   case when status = 'pending' and expires_at < now() then 'expired' else status end as status,
+		   case when status = 'pending' and expires_at >= now() then pix_payload end as pix_payload,
+		   expires_at, created_at
+		 from pix_charges where client_profile_id = $1 order by created_at desc limit $2`,
+		[clientProfileId, LIST_LIMIT],
+	);
+	return rows.map((r) => ({
+		id: r.id,
+		amount: r.amount,
+		status: r.status,
+		pixPayload: r.pix_payload,
+		expiresAt: r.expires_at,
+		createdAt: r.created_at,
+	}));
 }
 
 export type AsaasPaymentResult = "credited" | "refunded" | "duplicate" | "ignored" | "unknown_charge";

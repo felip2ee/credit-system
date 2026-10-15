@@ -22,12 +22,14 @@ const env = vi.hoisted(() => {
 
 import {
 	ASAAS_API_KEY_HEADER,
+	ASAAS_EVENT_INVOICE_AUTHORIZED,
+	ASAAS_EVENT_INVOICE_ERROR,
 	ASAAS_EVENT_PAYMENT_CONFIRMED,
 	ASAAS_EVENT_PAYMENT_RECEIVED,
 	ASAAS_EVENT_PAYMENT_REFUNDED,
 	createAsaasClient,
 } from "./client";
-import { buildFakePaymentEvent, createFakeAsaasClient } from "./fake";
+import { buildFakeInvoiceEvent, buildFakePaymentEvent, createFakeAsaasClient } from "./fake";
 import { getAsaasClient } from "./index";
 
 const input = { amount: "25.50", externalReference: "ref-1", description: "Recarga de carteira" };
@@ -94,6 +96,77 @@ describe("createAsaasClient", () => {
 	});
 });
 
+const invoiceInput = {
+	paymentId: "pay_123",
+	amount: "25.50",
+	externalReference: "chg-1",
+	service: {
+		municipalServiceId: "svc_1",
+		municipalServiceName: "Licenciamento de programas",
+		serviceDescription: "Recarga de créditos",
+		issRate: 2.5,
+		retainIss: false,
+	},
+};
+
+describe("scheduleInvoice", () => {
+	it("posts the invoice for the payment and returns the invoice id", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: "inv_1", status: "SCHEDULED", number: null }));
+
+		const result = await createAsaasClient(settings, fetchMock).scheduleInvoice(invoiceInput);
+
+		expect(result).toEqual({ asaasInvoiceId: "inv_1" });
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("https://api.asaas.example/v3/invoices");
+		expect(init.method).toBe("POST");
+		expect(init.headers[ASAAS_API_KEY_HEADER]).toBe("secret-key");
+		const body = JSON.parse(init.body);
+		expect(body).toMatchObject({
+			payment: "pay_123",
+			municipalServiceId: "svc_1",
+			municipalServiceName: "Licenciamento de programas",
+			serviceDescription: "Recarga de créditos",
+			value: 25.5,
+			externalReference: "chg-1",
+			taxes: { retainIss: false, iss: 2.5 },
+		});
+		expect(body.effectiveDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		expect(body).not.toHaveProperty("municipalServiceCode");
+	});
+
+	it("sends the municipal service code when there is no id", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: "inv_1" }));
+		const { municipalServiceId: _id, ...rest } = invoiceInput.service;
+
+		await createAsaasClient(settings, fetchMock).scheduleInvoice({
+			...invoiceInput,
+			service: { ...rest, municipalServiceCode: "1.05" },
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body.municipalServiceCode).toBe("1.05");
+		expect(body).not.toHaveProperty("municipalServiceId");
+	});
+
+	it("throws without the key or the response body when Asaas refuses", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ errors: [{ description: "secret-key" }] }, 400));
+
+		const error = await createAsaasClient(settings, fetchMock)
+			.scheduleInvoice(invoiceInput)
+			.catch((e: Error) => e);
+
+		expect((error as Error).message).toBe("Asaas respondeu 400 em POST /v3/invoices");
+	});
+
+	it("throws on an unexpected reply shape", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+
+		await expect(createAsaasClient(settings, fetchMock).scheduleInvoice(invoiceInput)).rejects.toThrow(
+			"Resposta inválida do Asaas em POST /v3/invoices",
+		);
+	});
+});
+
 describe("fake client", () => {
 	it("returns deterministic ids from the external reference", async () => {
 		const fake = createFakeAsaasClient();
@@ -103,6 +176,38 @@ describe("fake client", () => {
 		expect(first).toEqual(second);
 		expect(first.asaasPaymentId).toBe("pay_fake_ref-1");
 		expect(first.pixPayload).toContain("ref-1");
+	});
+
+	it("schedules a deterministic invoice", async () => {
+		const result = await createFakeAsaasClient().scheduleInvoice(invoiceInput);
+
+		expect(result).toEqual({ asaasInvoiceId: "inv_fake_chg-1" });
+	});
+
+	it("builds an invoice webhook body", () => {
+		expect(
+			buildFakeInvoiceEvent({
+				eventId: "evt_9",
+				event: ASAAS_EVENT_INVOICE_AUTHORIZED,
+				asaasPaymentId: "pay_1",
+				number: "123",
+				pdfUrl: "https://nfse.example/123.pdf",
+			}),
+		).toEqual({
+			id: "evt_9",
+			event: "INVOICE_AUTHORIZED",
+			invoice: {
+				object: "invoice",
+				id: "inv_fake_pay_1",
+				status: "AUTHORIZED",
+				payment: "pay_1",
+				number: "123",
+				pdfUrl: "https://nfse.example/123.pdf",
+			},
+		});
+		expect(buildFakeInvoiceEvent({ eventId: "e", event: ASAAS_EVENT_INVOICE_ERROR, asaasPaymentId: "pay_1" }).invoice.status).toBe(
+			"ERROR",
+		);
 	});
 
 	it("builds a payment webhook body for a charge", () => {

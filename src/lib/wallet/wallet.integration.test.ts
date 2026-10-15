@@ -850,26 +850,31 @@ describe("apply_asaas_payment (estorno)", () => {
 		expect((await reversals(tenant.bureau.id)).map((r) => r.amount)).toEqual(["70.00"]);
 	});
 
-	it("never touches reserved funds", async () => {
+	it("takes the reservation for what the available balance does not cover", async () => {
 		const tenant = await seedTenant(owner, "Estorno reservado");
 		const c = await paidCharge(tenant, "100.00");
 		await committed(adminOf(tenant), (cl) => apply(cl, tenant.bureau.id, "reserve", "60.00", newKey()));
 
 		expect(await refund(c.asaasPaymentId)).toBe("refunded");
 
-		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "60.00" });
-		expect(await charge(c.id)).toEqual({ status: "refunded", refund_shortfall: "60.00" });
-		expect((await reversals(tenant.bureau.id)).map((r) => r.amount)).toEqual(["40.00"]);
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
+		expect(await charge(c.id)).toEqual({ status: "refunded", refund_shortfall: "0.00" });
+		expect(await reversals(tenant.bureau.id)).toEqual([
+			expect.objectContaining({ amount: "100.00", available_after: "0.00", reserved_after: "0.00" }),
+		]);
 	});
 
-	it("writes no ledger row when nothing is available, only the shortfall and an audit on the charge", async () => {
+	it("writes no ledger row when nothing is held, only the shortfall and an audit on the charge", async () => {
 		const tenant = await seedTenant(owner, "Estorno zero");
 		const c = await paidCharge(tenant, "100.00");
-		await committed(adminOf(tenant), (cl) => apply(cl, tenant.bureau.id, "reserve", "100.00", newKey()));
+		await committed(adminOf(tenant), async (cl) => {
+			await apply(cl, tenant.bureau.id, "reserve", "100.00", newKey());
+			await apply(cl, tenant.bureau.id, "capture", "100.00", newKey());
+		});
 
 		expect(await refund(c.asaasPaymentId)).toBe("refunded");
 
-		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "100.00" });
+		expect(await balance(tenant.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
 		expect(await charge(c.id)).toEqual({ status: "refunded", refund_shortfall: "100.00" });
 		expect(await reversals(tenant.bureau.id)).toEqual([]);
 		const audit = await owner.query(

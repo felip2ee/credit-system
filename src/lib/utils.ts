@@ -33,7 +33,7 @@ export function formatCurrency(value: number | null | undefined): string {
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(date);
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Sao_Paulo" }).format(date);
 }
 
 export function formatDateTime(value: string | Date | null | undefined): string {
@@ -42,6 +42,7 @@ export function formatDateTime(value: string | Date | null | undefined): string 
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
   }).format(date);
 }
 
