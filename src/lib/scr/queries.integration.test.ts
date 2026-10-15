@@ -116,14 +116,39 @@ describe("issueSelfScrAuthorization", () => {
 		expect(audit.rows).toEqual([{ metadata: { templateKey: "scr_authorization", channel: "email" } }]);
 	});
 
-	it("queues a new notification when the code is issued again", async () => {
+	it("queues a new notification and suppresses the previous pending one when the code is issued again", async () => {
 		const id = await seedScr(tenantA);
 
 		await issueSelfScrAuthorization(tenantA.operator, id, input());
 		await issueSelfScrAuthorization(tenantA.operator, id, input({ code: "NEW567" }));
 
-		expect(await notificationsOf(id)).toHaveLength(2);
+		const queued = await notificationsOf(id);
+		expect(queued.map((row) => row.status)).toEqual(["suppressed", "pending"]);
 		expect(await authCode(id)).toBe("NEW567");
+	});
+
+	it("leaves a notification that is already sending or sent when the code is issued again", async () => {
+		const id = await seedScr(tenantA);
+		await issueSelfScrAuthorization(tenantA.operator, id, input());
+		const [first] = await notificationsOf(id);
+		await owner.query(
+			"update notifications set status = 'sent', recipient = null, params = null where id = $1",
+			[first.id],
+		);
+
+		await issueSelfScrAuthorization(tenantA.operator, id, input({ code: "NEW567" }));
+
+		expect((await notificationsOf(id)).map((row) => row.status)).toEqual(["sent", "pending"]);
+	});
+
+	it("keeps the previous pending notification when the new one cannot be queued", async () => {
+		const id = await seedScr(tenantA);
+		await issueSelfScrAuthorization(tenantA.operator, id, input());
+
+		const result = await issueSelfScrAuthorization(tenantA.operator, id, input({ recipient: "sem-arroba" }));
+
+		expect(result).toEqual({ ok: false, reason: "invalid_recipient" });
+		expect((await notificationsOf(id)).map((row) => row.status)).toEqual(["pending"]);
 	});
 
 	it("keeps the old code and queues nothing when the template is not found", async () => {

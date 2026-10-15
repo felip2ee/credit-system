@@ -168,6 +168,8 @@ export async function issueSelfScrAuthorization(
         [id, input.code, input.email, input.consentText, input.consentName, input.consentDocument]);
       const row = rows[0];
       if (!row) return { ok: false, reason: "not_found" };
+      // Reemissão: o e-mail antigo ainda na fila traria um código que já não vale.
+      await client.query("select supersede_notifications($1, $2)", ["scr_authorization", `scr_authorization:${id}`]);
       const { recipient, clientName, authorizedName, siteUrl } = input.notification;
       const queued = await enqueueNotification(client, identity, {
         templateKey: "scr_authorization",

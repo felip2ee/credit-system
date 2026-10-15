@@ -307,6 +307,56 @@ begin
 end
 $$;
 
+-- Reemissão: move as notificações pending/failed mais antigas, do mesmo Bureau, template e reference, para
+-- suppressed (apaga recipient e params). Quem já está sending/sent/delivered/read não muda. Devolve quantas moveu.
+-- Mesma regra de Bureau do enqueue_notification.
+create function supersede_notifications(p_template_key text, p_reference text)
+returns integer
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_role text := public.app_user_role();
+  v_bureau uuid;
+  v_count integer;
+begin
+  if not public.app_context_present() or p_template_key is null or p_reference is null then
+    return 0;
+  end if;
+  if v_role in ('bureau_admin', 'operator') then
+    v_bureau := public.app_bureau_id();
+    if v_bureau is null then
+      return 0;
+    end if;
+  elsif v_role = 'superadmin' then
+    if public.app_support_active() then
+      v_bureau := public.app_bureau_id();
+    elsif public.app_support_session_id() is not null then
+      return 0;
+    end if;
+  else
+    return 0;
+  end if;
+
+  with moved as (
+    update public.notifications n
+       set status = 'suppressed', recipient = null, params = null, last_error_code = 'superseded', updated_at = now()
+      from public.notification_templates t
+     where t.id = n.template_id and t.key = p_template_key
+       and n.reference = p_reference and n.bureau_id is not distinct from v_bureau
+       and n.status in ('pending', 'failed')
+    returning n.id, n.bureau_id
+  ), logged as (
+    insert into public.notification_events (notification_id, bureau_id, kind, error_code)
+    select m.id, m.bureau_id, 'suppressed', 'superseded' from moved m
+    returning 1
+  )
+  select count(*) into v_count from logged;
+  return v_count;
+end
+$$;
+
 -- Pega o lote do worker (app_webhook). Cada linha volta com o template já resolvido.
 create function claim_notifications(p_limit integer)
 returns table (
@@ -318,9 +368,14 @@ language plpgsql security definer set search_path = pg_catalog, public as $$
 #variable_conflict use_column
 begin
   -- Lease vencida sem tentativa sobrando: falha final (o processo caiu na última tentativa).
-  update public.notifications n
-     set status = 'failed', last_error_code = 'lease_expired', lease_id = null, locked_until = null, updated_at = now()
-   where n.status = 'sending' and n.locked_until < now() and n.attempts >= n.max_attempts;
+  with expired as (
+    update public.notifications n
+       set status = 'failed', last_error_code = 'lease_expired', lease_id = null, locked_until = null, updated_at = now()
+     where n.status = 'sending' and n.locked_until < now() and n.attempts >= n.max_attempts
+    returning n.id, n.bureau_id
+  )
+  insert into public.notification_events (notification_id, bureau_id, kind, error_code)
+  select e.id, e.bureau_id, 'failed', 'lease_expired' from expired e;
 
   -- Retenção: failed guarda destinatário e parâmetros por 7 dias para a nova tentativa manual.
   update public.notifications n
@@ -417,7 +472,7 @@ begin
     update public.notifications n
        set status = 'sent', sent_at = now(), provider_message_id = p_provider_message_id,
            recipient = null, params = null, lease_id = null, locked_until = null,
-           last_error_code = coalesce(v_error, n.last_error_code), updated_at = now()
+           last_error_code = null, updated_at = now()
      where n.id = v_n.id;
     insert into public.notification_events (notification_id, bureau_id, kind, provider_message_id)
     values (v_n.id, v_n.bureau_id, 'sent', p_provider_message_id);
@@ -586,6 +641,7 @@ alter function notifications_no_delete() owner to schema_owner;
 alter function notification_templates_guard() owner to schema_owner;
 alter function notification_events_guard() owner to schema_owner;
 alter function enqueue_notification(text, text, text, text, jsonb, text, text) owner to auth_profile_lookup;
+alter function supersede_notifications(text, text) owner to auth_profile_lookup;
 alter function claim_notifications(integer) owner to auth_profile_lookup;
 alter function notification_advance_status(uuid, text, text) owner to auth_profile_lookup;
 alter function complete_notification(uuid, uuid, text, text, text) owner to auth_profile_lookup;
@@ -598,6 +654,7 @@ revoke all on function notifications_no_delete() from public;
 revoke all on function notification_templates_guard() from public;
 revoke all on function notification_events_guard() from public;
 revoke all on function enqueue_notification(text, text, text, text, jsonb, text, text) from public;
+revoke all on function supersede_notifications(text, text) from public;
 revoke all on function claim_notifications(integer) from public;
 revoke all on function notification_advance_status(uuid, text, text) from public;
 revoke all on function complete_notification(uuid, uuid, text, text, text) from public;
@@ -607,6 +664,7 @@ revoke all on function retry_notification(uuid) from public;
 grant execute on function notification_recipient_hash(text) to auth_profile_lookup;
 grant execute on function enqueue_notification(text, text, text, text, jsonb, text, text) to app_runtime;
 grant execute on function retry_notification(uuid) to app_runtime;
+grant execute on function supersede_notifications(text, text) to app_runtime;
 grant execute on function claim_notifications(integer) to app_webhook;
 grant execute on function complete_notification(uuid, uuid, text, text, text) to app_webhook;
 grant execute on function apply_whatsapp_status(text, text, text, timestamptz) to app_webhook;

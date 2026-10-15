@@ -169,6 +169,7 @@ type Row = {
 	lockedUntil?: string | null;
 	providerMessageId?: string | null;
 	updatedAt?: string;
+	reference?: string;
 };
 async function insertRow(o: Row = {}): Promise<string> {
 	const channel = o.channel ?? "email";
@@ -183,9 +184,10 @@ async function insertRow(o: Row = {}): Promise<string> {
 	const { rows } = await owner.query<{ id: string }>(
 		`insert into notifications
        (bureau_id, template_id, channel, recipient, recipient_masked, recipient_hash, params, idempotency_key,
-        status, attempts, max_attempts, next_attempt_at, lease_id, locked_until, provider_message_id, created_by, updated_at)
+        status, attempts, max_attempts, next_attempt_at, lease_id, locked_until, provider_message_id, created_by, updated_at,
+        reference)
      values ($1, $2, $3, $4, 'masked', notification_recipient_hash(coalesce($4, $5)), $6::jsonb, $7,
-        $8, $9, $10, coalesce($11::timestamptz, now()), $12, $13, $14, $15, coalesce($16::timestamptz, now()))
+        $8, $9, $10, coalesce($11::timestamptz, now()), $12, $13, $14, $15, coalesce($16::timestamptz, now()), $17)
      returning id`,
 		[
 			o.bureauId ?? tenantA.bureau.id,
@@ -214,6 +216,7 @@ async function insertRow(o: Row = {}): Promise<string> {
 			o.providerMessageId ?? null,
 			tenantA.bureauAdmin.userId,
 			o.updatedAt ?? null,
+			o.reference ?? null,
 		],
 	);
 	return rows[0].id;
@@ -570,6 +573,7 @@ describe("claim_notifications", () => {
 			last_error_code: "lease_expired",
 			lease_id: null,
 		});
+		expect(await eventKinds(id)).toEqual(["failed"]);
 	});
 
 	it("flags an opted-out recipient", async () => {
@@ -670,6 +674,21 @@ describe("complete_notification", () => {
 			last_error_code: "timeout",
 		});
 		expect(await eventKinds(last.id)).toEqual(["attempt_failed", "failed"]);
+	});
+
+	it("clears an old error code when the row finally becomes sent", async () => {
+		const { id, leaseId } = await sendingRow(2);
+		await owner.query(
+			"update notifications set last_error_code = 'timeout' where id = $1",
+			[id],
+		);
+		expect(await complete(id, leaseId, "sent", `wamid.${rand()}`)).toBe(
+			"applied",
+		);
+		expect(await rowOf(id)).toMatchObject({
+			status: "sent",
+			last_error_code: null,
+		});
 	});
 
 	it("payload is purged on terminal state: sent, suppressed and Meta status; failed keeps it", async () => {
@@ -885,6 +904,88 @@ describe("retry_notification", () => {
 	});
 });
 
+describe("supersede_notifications", () => {
+	// withDbContext sempre desfaz a transação; aqui o efeito precisa ficar para a leitura pelo dono.
+	const committed = async <T>(ctx: Ctx, work: (c: PoolClient) => Promise<T>) => {
+		const c = await app.connect();
+		try {
+			await c.query("begin");
+			await setCtx(c, ctx);
+			const result = await work(c);
+			await c.query("commit");
+			return result;
+		} catch (error) {
+			await c.query("rollback");
+			throw error;
+		} finally {
+			c.release();
+		}
+	};
+	const supersede = (ctx: Ctx, reference: string) =>
+		committed(ctx, async (c) => {
+			const { rows } = await c.query<{ n: number }>(
+				"select supersede_notifications('platform_test', $1) as n",
+				[reference],
+			);
+			return rows[0].n;
+		});
+
+	it("suppresses older pending and failed rows of the same reference, purges them and logs the event", async () => {
+		const reference = `scr_authorization:${rand()}`;
+		const first = await committed(adminA(), (c) => enqueue(c, { reference }));
+		const failed = await insertRow({ status: "failed", reference });
+		expect(await supersede(adminA(), reference)).toBe(2);
+		const second = await committed(adminA(), (c) => enqueue(c, { reference }));
+
+		for (const id of [first.notification_id!, failed]) {
+			expect(await rowOf(id)).toMatchObject({
+				status: "suppressed",
+				recipient: null,
+				params: null,
+				last_error_code: "superseded",
+			});
+		}
+		expect(await eventKinds(first.notification_id!)).toEqual([
+			"queued",
+			"suppressed",
+		]);
+		expect(await rowOf(second.notification_id!)).toMatchObject({
+			status: "pending",
+		});
+		expect(await claim(hook, 50)).not.toContainEqual(
+			expect.objectContaining({ id: first.notification_id }),
+		);
+	});
+
+	it("leaves sending, sent, delivered, read and suppressed rows and other references untouched", async () => {
+		const reference = `scr_authorization:${rand()}`;
+		const ids: Record<string, string> = {};
+		for (const status of ["sending", "sent", "delivered", "read", "suppressed"]) {
+			ids[status] = await insertRow({ status, reference });
+		}
+		const other = await insertRow({ reference: `scr_authorization:${rand()}` });
+		expect(await supersede(adminA(), reference)).toBe(0);
+		for (const [status, id] of Object.entries(ids)) {
+			expect((await rowOf(id)).status).toBe(status);
+			expect((await rowOf(id)).last_error_code).toBeNull();
+		}
+		expect((await rowOf(ids.sending)).lease_id).not.toBeNull();
+		expect((await rowOf(other)).status).toBe("pending");
+	});
+
+	it("never touches another bureau and does nothing for a client", async () => {
+		const reference = `scr_authorization:${rand()}`;
+		const ofB = await insertRow({ bureauId: tenantB.bureau.id, reference });
+		const ofA = await insertRow({ reference });
+		expect(await supersede(adminA(), reference)).toBe(1);
+		expect((await rowOf(ofB)).status).toBe("pending");
+		expect(await supersede(tenantA.client, reference)).toBe(0);
+		expect(await supersede(tenantB.bureauAdmin, reference)).toBe(1);
+		expect((await rowOf(ofB)).status).toBe("suppressed");
+		expect((await rowOf(ofA)).status).toBe("suppressed");
+	});
+});
+
 describe("RLS and grants", () => {
 	let idA: string;
 	let idB: string;
@@ -1026,6 +1127,9 @@ describe("RLS and grants", () => {
 		).rejects.toThrow(/permission denied/);
 		await expect(
 			hook.query("select retry_notification(gen_random_uuid())"),
+		).rejects.toThrow(/permission denied/);
+		await expect(
+			hook.query("select supersede_notifications('platform_test', 'r')"),
 		).rejects.toThrow(/permission denied/);
 	});
 });
