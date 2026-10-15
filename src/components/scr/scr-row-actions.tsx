@@ -21,7 +21,7 @@ export function ScrRowActions({ id }: ScrRowActionsProps) {
     setMsg(null);
     startTransition(async () => {
       const res = await sendScrSelfAuthorization(id);
-      setMsg(res.error ?? "Autorização enviada por e-mail");
+      setMsg(res.error ?? "Autorização na fila de envio");
       router.refresh();
     });
   };
