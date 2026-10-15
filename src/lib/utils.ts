@@ -30,10 +30,23 @@ export function formatCurrency(value: number | null | undefined): string {
   }).format(value);
 }
 
+// UTC fixo: datas puras viram meia-noite UTC (ver deps/adapter iso()); igual ao servidor UTC de produção.
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "UTC" }).format(date);
+}
+
+// Data de um timestamp real, no fuso de São Paulo. Para datas puras (ex.: nascimento) use formatDate.
+export function formatDateSP(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  const date = typeof value === "string" ? new Date(value) : value;
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Sao_Paulo" }).format(date);
+}
+
+// "Hoje" em São Paulo (yyyy-mm-dd), igual no servidor e no cliente.
+export function todayInSaoPaulo(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
 
 export function formatDateTime(value: string | Date | null | undefined): string {

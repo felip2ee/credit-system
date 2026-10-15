@@ -13,7 +13,7 @@ import { listCounterPayments } from "@/lib/counter-payments/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getDossierDetail, listDossiers } from "@/lib/dossiers/queries";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDateSP } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
 
 export const metadata = { title: "Pagamentos de balcão" };
@@ -67,7 +67,7 @@ export default async function CounterPaymentsPage({
                       className="flex items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-muted/50"
                     >
                       <span className="truncate font-medium">{d.holder_name}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">{formatDate(d.created_at)}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{formatDateSP(d.created_at)}</span>
                     </Link>
                   </li>
                 ))}
