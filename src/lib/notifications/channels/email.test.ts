@@ -43,12 +43,12 @@ describe("sendEmailNotification", () => {
 		});
 	});
 
-	it("is permanent channel_not_configured when SMTP is missing", async () => {
+	it("is a transient config_error when SMTP is missing", async () => {
 		mailer.senderDomain.mockReturnValue(null);
 		expect(await sendEmailNotification(notification)).toEqual({
 			ok: false,
-			permanent: true,
-			code: "channel_not_configured",
+			permanent: false,
+			code: "config_error",
 		});
 		expect(mailer.sendMail).not.toHaveBeenCalled();
 	});

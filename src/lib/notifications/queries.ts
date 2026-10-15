@@ -112,6 +112,8 @@ export type NotificationRow = {
 	createdAt: Date;
 	sentAt: Date | null;
 	updatedAt: Date;
+	// Falhou e ainda guarda o destinatário: nova tentativa possível. Falso quando a Meta ou a retenção já apagou o payload.
+	retryable: boolean;
 };
 
 export type ListNotificationsInput = {
@@ -128,16 +130,30 @@ export type NotificationPage = {
 };
 
 const MAX_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 50;
 // created_at em UTC com microssegundos: o Date do JS perderia a precisão e repetiria linhas entre páginas.
-const CURSOR_PATTERN =
-	/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z)_([0-9a-f-]{36})$/;
+export const NOTIFICATION_CURSOR_PATTERN =
+	/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z)_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+// Formato certo e data real: "9999-99-99..." passaria no regex e quebraria o cast ::timestamptz.
+function parseNotificationCursor(value: string): { createdAt: string; id: string } | null {
+	const match = NOTIFICATION_CURSOR_PATTERN.exec(value);
+	if (!match) return null;
+	const millis = Date.parse(match[1]);
+	// Ida e volta pelos milissegundos: rejeita dias que o Date "corrige" (31 de fevereiro).
+	if (Number.isNaN(millis) || new Date(millis).toISOString().slice(0, 23) !== match[1].slice(0, 23)) return null;
+	return { createdAt: match[1], id: match[2] };
+}
+
+export const isValidNotificationCursor = (value: string): boolean => parseNotificationCursor(value) !== null;
 
 export async function listNotifications(
 	identity: DbIdentity,
 	input: ListNotificationsInput,
 ): Promise<NotificationPage> {
-	const limit = Math.min(Math.max(Math.trunc(input.limit), 1), MAX_PAGE_SIZE);
-	const cursor = input.cursor ? CURSOR_PATTERN.exec(input.cursor) : null;
+	const requested = Number.isFinite(input.limit) ? Math.trunc(input.limit) : DEFAULT_PAGE_SIZE;
+	const limit = Math.min(Math.max(requested, 1), MAX_PAGE_SIZE);
+	const cursor = input.cursor ? parseNotificationCursor(input.cursor) : null;
 	if (input.cursor && !cursor) throw new Error("Invalid notification cursor");
 
 	return withUserTransaction(identity, async (client) => {
@@ -158,11 +174,12 @@ export async function listNotifications(
 			created_at: Date;
 			sent_at: Date | null;
 			updated_at: Date;
+			retryable: boolean;
 			created_at_utc: string;
 		}>(
 			`select n.id, n.bureau_id, n.template_id, t.key as template_key, n.channel, n.recipient_masked, n.reference,
 			        n.status, n.attempts, n.max_attempts, n.next_attempt_at, n.last_error_code, n.created_by,
-			        n.created_at, n.sent_at, n.updated_at,
+			        n.created_at, n.sent_at, n.updated_at, n.retryable,
 			        to_char(n.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as created_at_utc
 			   from notifications n
 			   left join notification_templates t on t.id = n.template_id
@@ -174,8 +191,8 @@ export async function listNotifications(
 			[
 				input.status ?? null,
 				input.channel ?? null,
-				cursor?.[1] ?? null,
-				cursor?.[2] ?? null,
+				cursor?.createdAt ?? null,
+				cursor?.id ?? null,
 				limit + 1,
 			],
 		);
@@ -199,6 +216,7 @@ export async function listNotifications(
 				createdAt: r.created_at,
 				sentAt: r.sent_at,
 				updatedAt: r.updated_at,
+				retryable: r.retryable,
 			})),
 			nextCursor:
 				rows.length > limit ? `${last.created_at_utc}_${last.id}` : null,

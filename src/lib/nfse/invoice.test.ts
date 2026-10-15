@@ -361,6 +361,26 @@ describe("applyInvoiceEvent", () => {
 		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "failed", {});
 	});
 
+	it("ignores an event of an old invoice when the charge already holds another one", async () => {
+		s.findChargeByInvoice.mockResolvedValue(null);
+		s.findCharge.mockResolvedValue({ ...charge, invoiceId: "inv_B" });
+
+		expect(await applyInvoiceEvent(event("INVOICE_CANCELED", { id: "inv_A" }))).toBe("ignored");
+		expect(s.setStatus).not.toHaveBeenCalled();
+	});
+
+	it("still falls back to the payment when the charge holds no invoice yet, or the event has no id", async () => {
+		s.findChargeByInvoice.mockResolvedValue(null);
+		s.findCharge.mockResolvedValue({ ...charge, invoiceId: null });
+		await applyInvoiceEvent(event("INVOICE_ERROR", { id: "inv_A" }));
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "failed", {});
+
+		s.findCharge.mockResolvedValue({ ...charge, invoiceId: "inv_B" });
+		await applyInvoiceEvent(event("INVOICE_ERROR"));
+		expect(s.setStatus).toHaveBeenCalledTimes(2);
+		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "failed", {});
+	});
+
 	it("a duplicate issued event is reported unchanged (the database does not regress or rewrite it)", async () => {
 		s.setStatus.mockResolvedValue({ ok: true, status: "issued", changed: false });
 

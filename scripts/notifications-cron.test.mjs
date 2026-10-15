@@ -51,7 +51,7 @@ test("sends a POST with the Bearer header and never logs the secret", async () =
   assert.ok(!cron.output().includes(SECRET));
 });
 
-test("does not start a new call while the previous one is still running", async () => {
+test("clamps the interval to 5 s and never overlaps calls", async () => {
   let inFlight = 0;
   let maxInFlight = 0;
   let calls = 0;
@@ -75,5 +75,24 @@ test("does not start a new call while the previous one is still running", async 
   server.close();
 
   assert.equal(maxInFlight, 1);
-  assert.ok(calls >= 2);
+  // 50 ms pedidos: com o mínimo de 5 s só a primeira chamada cabe em 1 s.
+  assert.equal(calls, 1);
+});
+
+test("warns about http:// to an external host and refuses it in production", () => {
+  const env = { PATH: process.env.PATH, NOTIFICATIONS_DISPATCH_URL: "http://dispatch.example.com/x", NOTIFICATIONS_DISPATCH_SECRET: SECRET };
+  const refused = spawnSync(process.execPath, [SCRIPT], { env: { ...env, NODE_ENV: "production" }, encoding: "utf8" });
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /refusing http/);
+});
+
+test("accepts http:// to a service name or loopback in production", async () => {
+  const { server, url } = await startServer((_req, res) => res.end("{}"));
+  const cron = runCron({ NOTIFICATIONS_DISPATCH_URL: url, NOTIFICATIONS_DISPATCH_SECRET: SECRET, NODE_ENV: "production" });
+  await sleep(500);
+  cron.child.kill("SIGTERM");
+  await new Promise((resolve) => cron.child.on("exit", resolve));
+  server.close();
+
+  assert.match(cron.output(), /status=200/);
 });

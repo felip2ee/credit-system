@@ -29,7 +29,8 @@ function escapeHtml(value: string): string {
 function fill(source: string | null, params: Record<string, string>, escape?: (value: string) => string): string {
 	if (source === null) throw new TemplateRenderError("E-mail template body is missing");
 	return source.replace(MARKER, (_marker, name: string) => {
-		const value = params[name];
+		// hasOwn: {{constructor}} não pode ler a cadeia de protótipos.
+		const value = Object.hasOwn(params, name) ? params[name] : undefined;
 		if (value === undefined) throw new TemplateRenderError(`Template placeholder "${name}" has no parameter`);
 		return escape ? escape(value) : value;
 	});
@@ -58,7 +59,7 @@ export function buildWhatsappPayload(template: WhatsappTemplate, params: Record<
 		throw new TemplateRenderError("WhatsApp template name or language is missing");
 	}
 	const parameters = template.template_params.map((name) => {
-		const text = params[name];
+		const text = Object.hasOwn(params, name) ? params[name] : undefined;
 		if (text === undefined) throw new TemplateRenderError(`Template parameter "${name}" has no value`);
 		return { type: "text" as const, text };
 	});

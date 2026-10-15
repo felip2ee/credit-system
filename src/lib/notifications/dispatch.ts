@@ -1,6 +1,6 @@
-// Worker da fila (M4). Roda na role app_webhook: claim_notifications / complete_notification (020_notifications.sql).
+// Worker da fila (M4). Roda na role app_dispatch: claim_notifications / complete_notification (020_notifications.sql).
 // Nenhum destinatário, parâmetro ou mensagem de erro do provedor chega ao log: só id, canal e código.
-import { getWebhookPool } from "@/lib/db/webhook-pool";
+import { getDispatchPool } from "@/lib/db/dispatch-pool";
 
 import { sendEmailNotification } from "./channels/email";
 import { sendWhatsappNotification } from "./channels/whatsapp";
@@ -22,6 +22,8 @@ export interface DispatchResult {
 	suppressed: number;
 	// complete_notification devolveu 'stale': outra execução assumiu a linha. Não é erro.
 	stale: number;
+	// Resultado não gravado nem na segunda tentativa: a lease vence e a linha pode ser reenviada.
+	errors: number;
 }
 
 type Outcome = "sent" | "retry" | "failed" | "suppressed";
@@ -42,13 +44,13 @@ async function send(notification: ClaimedNotification): Promise<SendResult> {
 	}
 }
 
-async function complete(
+async function completeOnce(
 	notification: ClaimedNotification,
 	outcome: Outcome,
 	providerMessageId: string | null,
 	errorCode: string | null,
 ): Promise<"applied" | "stale"> {
-	const { rows } = await getWebhookPool().query<{
+	const { rows } = await getDispatchPool().query<{
 		result: "applied" | "stale";
 	}>("select complete_notification($1, $2, $3, $4, $5) as result", [
 		notification.id,
@@ -58,6 +60,21 @@ async function complete(
 		errorCode,
 	]);
 	return rows[0].result;
+}
+
+// Uma nova tentativa com a mesma lease: se a gravação do envio falhar, a lease vence e a linha é reenviada.
+// Se a primeira tentativa chegou a gravar e só a resposta se perdeu, a segunda devolve 'stale'.
+async function complete(
+	notification: ClaimedNotification,
+	outcome: Outcome,
+	providerMessageId: string | null,
+	errorCode: string | null,
+): Promise<"applied" | "stale"> {
+	try {
+		return await completeOnce(notification, outcome, providerMessageId, errorCode);
+	} catch {
+		return completeOnce(notification, outcome, providerMessageId, errorCode);
+	}
 }
 
 function logFailure(notification: ClaimedNotification, code: string): void {
@@ -108,11 +125,12 @@ export async function runDispatch(
 		failed: 0,
 		suppressed: 0,
 		stale: 0,
+		errors: 0,
 	};
 	const startedAt = Date.now();
 
 	while (Date.now() - startedAt < budgetMs) {
-		const { rows } = await getWebhookPool().query<ClaimedNotification>(
+		const { rows } = await getDispatchPool().query<ClaimedNotification>(
 			"select * from claim_notifications($1)",
 			[batchSize],
 		);
@@ -122,12 +140,17 @@ export async function runDispatch(
 		counts.claimed += rows.length;
 		settled.forEach((entry, index) => {
 			if (entry.status === "rejected") {
-				// Falha ao gravar o resultado: a lease vence e o claim seguinte retoma a linha.
+				// Resultado não gravado: a lease vence e o claim seguinte retoma a linha (pode reenviar).
 				const code =
 					entry.reason instanceof Error && "code" in entry.reason
 						? String(entry.reason.code)
 						: "complete_error";
-				logFailure(rows[index], code);
+				console.warn("[notifications] resultado não gravado", {
+					id: rows[index].id,
+					channel: rows[index].channel,
+					code,
+				});
+				counts.errors += 1;
 				return;
 			}
 			if (entry.value === "sent") counts.sent += 1;
@@ -136,7 +159,7 @@ export async function runDispatch(
 			else if (entry.value === "suppressed") counts.suppressed += 1;
 			else counts.stale += 1;
 		});
-		console.info("[notifications] lote", { ...counts });
+		console.warn("[notifications] lote", { ...counts });
 	}
 	return counts;
 }

@@ -152,6 +152,21 @@ describe("parseWhatsappWebhook", () => {
 		expect(malformed.optOutSenders).toEqual([]);
 	});
 
+	it("drops a status whose timestamp would make an invalid Date", () => {
+		const parsed = parseWhatsappWebhook(
+			envelope({
+				statuses: [
+					{ id: "huge", status: "sent", timestamp: "99999999999999" },
+					{ id: "ok", status: "sent", timestamp: "1700000000" },
+				],
+			}),
+			PHONE_ID,
+		);
+
+		expect(parsed.statuses.map((s) => s.providerMessageId)).toEqual(["ok"]);
+		expect(Number.isNaN(parsed.statuses[0].occurredAt.getTime())).toBe(false);
+	});
+
 	it("returns nothing for a foreign object", () => {
 		expect(
 			parseWhatsappWebhook({ object: "page", entry: [] }, PHONE_ID),

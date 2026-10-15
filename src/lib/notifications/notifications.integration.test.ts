@@ -6,6 +6,7 @@ import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+	TEST_DATABASE_DISPATCH_URL,
 	TEST_DATABASE_OWNER_URL,
 	TEST_DATABASE_URL,
 	TEST_DATABASE_WEBHOOK_URL,
@@ -24,6 +25,7 @@ import { acquireClaimLock, releaseClaimLock } from "./claim-lock.test-util";
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const app = new Pool({ connectionString: TEST_DATABASE_URL, max: 4 });
 const hook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 4 });
+const dispatch = new Pool({ connectionString: TEST_DATABASE_DISPATCH_URL, max: 4 });
 
 type Ctx = {
 	userId: string;
@@ -108,7 +110,7 @@ afterAll(async () => {
 			],
 		],
 	);
-	await Promise.all([owner.end(), app.end(), hook.end()]);
+	await Promise.all([owner.end(), app.end(), hook.end(), dispatch.end()]);
 	await releaseClaimLock();
 });
 
@@ -264,7 +266,7 @@ const complete = async (
 	errorCode: string | null = null,
 ) =>
 	(
-		await hook.query<{ r: string }>(
+		await dispatch.query<{ r: string }>(
 			"select complete_notification($1, $2, $3, $4, $5) as r",
 			[id, lease, outcome, providerId, errorCode],
 		)
@@ -510,11 +512,11 @@ describe("claim_notifications", () => {
 		const ids = new Set<string>();
 		for (let i = 0; i < 30; i++) ids.add(await insertRow());
 		const second = new Pool({
-			connectionString: TEST_DATABASE_WEBHOOK_URL,
+			connectionString: TEST_DATABASE_DISPATCH_URL,
 			max: 1,
 		});
 		try {
-			const [a, b] = await Promise.all([claim(hook, 20), claim(second, 20)]);
+			const [a, b] = await Promise.all([claim(dispatch, 20), claim(second, 20)]);
 			const all = [...a, ...b].map((r) => r.id);
 			expect(new Set(all).size).toBe(all.length);
 			const mine = all.filter((id) => ids.has(id));
@@ -526,7 +528,7 @@ describe("claim_notifications", () => {
 
 	it("increments attempts, creates a lease and returns the resolved template", async () => {
 		const id = await insertRow();
-		const claimed = (await claim(hook, 50)).find((r) => r.id === id)!;
+		const claimed = (await claim(dispatch, 50)).find((r) => r.id === id)!;
 		expect(claimed).toMatchObject({
 			attempts: 1,
 			channel: "email",
@@ -545,7 +547,7 @@ describe("claim_notifications", () => {
 
 	it("respects a future next_attempt_at", async () => {
 		const id = await insertRow({ nextAttemptAt: "2100-01-01T00:00:00Z" });
-		expect((await claim(hook, 50)).map((r) => r.id)).not.toContain(id);
+		expect((await claim(dispatch, 50)).map((r) => r.id)).not.toContain(id);
 		expect((await rowOf(id)).status).toBe("pending");
 	});
 
@@ -555,7 +557,7 @@ describe("claim_notifications", () => {
 			"update notifications set locked_until = now() - interval '1 minute' where id = $1",
 			[id],
 		);
-		const claimed = (await claim(hook, 50)).find((r) => r.id === id)!;
+		const claimed = (await claim(dispatch, 50)).find((r) => r.id === id)!;
 		expect(claimed.attempts).toBe(2);
 		expect(claimed.lease_id).not.toBe(leaseId);
 	});
@@ -567,7 +569,7 @@ describe("claim_notifications", () => {
 			maxAttempts: 8,
 			lockedUntil: "2000-01-01T00:00:00Z",
 		});
-		expect((await claim(hook, 50)).map((r) => r.id)).not.toContain(id);
+		expect((await claim(dispatch, 50)).map((r) => r.id)).not.toContain(id);
 		expect(await rowOf(id)).toMatchObject({
 			status: "failed",
 			last_error_code: "lease_expired",
@@ -589,7 +591,7 @@ describe("claim_notifications", () => {
 			recipient: optedOut,
 		});
 		const other = await insertRow({ channel: "whatsapp" });
-		const rows = await claim(hook, 50);
+		const rows = await claim(dispatch, 50);
 		expect(rows.find((r) => r.id === blocked)!.opted_out).toBe(true);
 		expect(rows.find((r) => r.id === other)!.opted_out).toBe(false);
 	});
@@ -600,7 +602,7 @@ describe("claim_notifications", () => {
 			updatedAt: new Date(Date.now() - 8 * 86400_000).toISOString(),
 		});
 		const fresh = await insertRow({ status: "failed" });
-		await claim(hook, 1);
+		await claim(dispatch, 1);
 		expect(await rowOf(old)).toMatchObject({ recipient: null, params: null });
 		const kept = await rowOf(fresh);
 		expect(kept.recipient).not.toBeNull();
@@ -615,7 +617,7 @@ describe("complete_notification", () => {
 			"update notifications set locked_until = now() - interval '1 minute' where id = $1",
 			[id],
 		);
-		const fresh = (await claim(hook, 50)).find((r) => r.id === id)!;
+		const fresh = (await claim(dispatch, 50)).find((r) => r.id === id)!;
 		expect(await complete(id, oldLease, "sent", `wamid.${rand()}`)).toBe(
 			"stale",
 		);
@@ -721,6 +723,8 @@ describe("complete_notification", () => {
 			lease_id: null,
 		});
 		expect(failedRow.recipient).not.toBeNull();
+		// Falha do worker guarda o payload: nova tentativa manual possível.
+		expect(failedRow.retryable).toBe(true);
 		expect(await eventKinds(failed.id)).toEqual(["failed"]);
 
 		const providerId = `wamid.${rand()}`;
@@ -780,6 +784,8 @@ describe("apply_whatsapp_status", () => {
 			last_error_code: "131026",
 			recipient: null,
 		});
+		// A Meta apagou o payload: sem nova tentativa possível.
+		expect((await rowOf(id)).retryable).toBe(false);
 	});
 
 	it("ignores an unknown status without logging it", async () => {
@@ -952,7 +958,7 @@ describe("supersede_notifications", () => {
 		expect(await rowOf(second.notification_id!)).toMatchObject({
 			status: "pending",
 		});
-		expect(await claim(hook, 50)).not.toContainEqual(
+		expect(await claim(dispatch, 50)).not.toContainEqual(
 			expect.objectContaining({ id: first.notification_id }),
 		);
 	});
@@ -1131,6 +1137,53 @@ describe("RLS and grants", () => {
 		await expect(
 			hook.query("select supersede_notifications('platform_test', 'r')"),
 		).rejects.toThrow(/permission denied/);
+	});
+
+	it("denies app_webhook the dispatch-only functions that return the cleartext recipient", async () => {
+		await expect(hook.query("select * from claim_notifications(1)")).rejects.toThrow(
+			/permission denied/,
+		);
+		await expect(
+			hook.query(
+				"select complete_notification(gen_random_uuid(), gen_random_uuid(), 'sent', null, null)",
+			),
+		).rejects.toThrow(/permission denied/);
+	});
+
+	it("denies app_dispatch everything but claim and complete", async () => {
+		for (const table of [
+			"notifications",
+			"notification_events",
+			"notification_templates",
+			"notification_opt_outs",
+		]) {
+			await expect(
+				dispatch.query(`select count(*) from ${table}`),
+				table,
+			).rejects.toThrow(/permission denied/);
+		}
+		for (const sql of [
+			"select apply_whatsapp_status('wamid.x', 'delivered', null, now())",
+			"select record_notification_opt_out('whatsapp', 'x')",
+			"select apply_asaas_payment('e', 'PAYMENT_RECEIVED', 'p', '{}'::jsonb)",
+			"select nfse_charge_by_payment('p')",
+			"select retry_notification(gen_random_uuid())",
+			"select enqueue_notification('platform_test', 'email', 'a@b.c', 'm', '{}'::jsonb, 'k', null)",
+			"select supersede_notifications('platform_test', 'r')",
+		]) {
+			await expect(dispatch.query(sql), sql).rejects.toThrow(
+				/permission denied/,
+			);
+		}
+	});
+
+	it("lets app_dispatch claim and complete", async () => {
+		const id = await insertRow();
+		const claimed = (await claim(dispatch, 50)).find((r) => r.id === id)!;
+		expect(claimed.recipient).toBeTruthy();
+		expect(await complete(id, claimed.lease_id, "sent", `wamid.${rand()}`)).toBe(
+			"applied",
+		);
 	});
 });
 

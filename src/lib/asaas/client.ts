@@ -85,7 +85,9 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 		} catch (error) {
 			throw new AsaasOutcomeUnknownError(`Sem resposta do Asaas em ${label} (${error instanceof Error ? error.name : typeof error})`);
 		}
-		if (response.status >= 500) throw new AsaasOutcomeUnknownError(`Asaas respondeu ${response.status} em ${label}`);
+		// 408 e 429 são transitórios: tratados como 5xx (resultado desconhecido, tentável de novo), não como erro definitivo.
+		if (response.status >= 500 || response.status === 408 || response.status === 429)
+			throw new AsaasOutcomeUnknownError(`Asaas respondeu ${response.status} em ${label}`);
 		if (!response.ok) throw new Error(`Asaas respondeu ${response.status} em ${label}`);
 		const parsed = schema.safeParse(await response.json().catch(() => null));
 		if (!parsed.success) throw new AsaasOutcomeUnknownError(`Resposta inválida do Asaas em ${label}`);

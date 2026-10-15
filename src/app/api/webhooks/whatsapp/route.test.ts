@@ -258,11 +258,22 @@ describe("POST /api/webhooks/whatsapp signature", () => {
 
 		expect((await post(statusBody)).status).toBe(500);
 	});
+
+	it("answers 401 to a bad signature and 500 only to a good one when the database is not configured", async () => {
+		state.readWebhookDatabaseUrl.mockImplementation(() => {
+			throw new Error("DATABASE_WEBHOOK_URL is required");
+		});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		expect((await post(statusBody, "sha256=abcd")).status).toBe(401);
+		expect((await post(statusBody)).status).toBe(500);
+		expect(state.query).not.toHaveBeenCalled();
+	});
 });
 
 describe("POST /api/webhooks/whatsapp events", () => {
 	it("duplicate status delivery changes nothing", async () => {
-		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		const info = vi.spyOn(console, "warn").mockImplementation(() => {});
 		state.query
 			.mockResolvedValueOnce({ rows: [{ result: "applied" }] })
 			.mockResolvedValueOnce({ rows: [{ result: "duplicate" }] });

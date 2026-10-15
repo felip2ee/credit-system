@@ -32,7 +32,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
     "next": "14.2.35",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.1.1",
     "openai": "^6.40.0",
     "pg": "8.21.0",
     "pg-connection-string": "^2.13.0",

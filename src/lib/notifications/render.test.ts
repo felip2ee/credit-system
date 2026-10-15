@@ -27,6 +27,11 @@ describe("renderEmail", () => {
 		expect(() => renderEmail(emailTemplate, {})).toThrow(TemplateRenderError);
 	});
 
+	it("does not read the prototype chain for a placeholder named constructor", () => {
+		const template = { ...emailTemplate, email_html: "<p>{{constructor}}</p>" };
+		expect(() => renderEmail(template, { name: "a" })).toThrow(TemplateRenderError);
+	});
+
 	it("throws when the template has no e-mail body", () => {
 		expect(() => renderEmail({ ...emailTemplate, email_html: null }, { name: "a" })).toThrow(TemplateRenderError);
 	});

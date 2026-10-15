@@ -202,11 +202,13 @@ describe("unknown outcome", () => {
 		expect((error as Error).message).not.toContain("secret-key");
 	});
 
-	it("a 5xx or an unreadable 2xx is an unknown outcome; a 4xx is not", async () => {
+	it("a 5xx, 408, 429 or an unreadable 2xx is an unknown outcome; another 4xx is not", async () => {
 		const call = (response: Response) =>
 			createAsaasClient(settings, vi.fn().mockResolvedValue(response)).scheduleInvoice(invoiceInput).catch((e: Error) => e);
 
 		expect(await call(jsonResponse({}, 502))).toBeInstanceOf(AsaasOutcomeUnknownError);
+		expect(await call(jsonResponse({}, 408))).toBeInstanceOf(AsaasOutcomeUnknownError);
+		expect(await call(jsonResponse({}, 429))).toBeInstanceOf(AsaasOutcomeUnknownError);
 		expect(await call(jsonResponse({}))).toBeInstanceOf(AsaasOutcomeUnknownError);
 		expect(await call(jsonResponse({}, 400))).not.toBeInstanceOf(AsaasOutcomeUnknownError);
 	});

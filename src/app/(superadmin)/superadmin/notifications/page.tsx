@@ -7,15 +7,14 @@ import { TemplateList } from "@/components/notifications/TemplateList";
 import { TestNotificationForm } from "@/components/notifications/TestNotificationForm";
 import { Button } from "@/components/ui/button";
 import { getRequiredSession } from "@/lib/auth/session";
-import { listBureauMetrics } from "@/lib/bureaus/queries";
+import { listBureauNames } from "@/lib/bureaus/queries";
 import { hasPermission } from "@/lib/db/permissions";
-import { listNotifications, listTemplates } from "@/lib/notifications/queries";
+import { isValidNotificationCursor, listNotifications, listTemplates } from "@/lib/notifications/queries";
 import type { NotificationChannel, NotificationStatus } from "@/lib/notifications/types";
 
 export const metadata = { title: "Notificações" };
 
 const PAGE_SIZE = 50;
-const CURSOR_FORMAT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z_[0-9a-f-]{36}$/;
 
 function pick<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
   return allowed.find((a) => a === value);
@@ -40,14 +39,13 @@ export default async function SuperadminNotificationsPage({
 
   const status = pick(searchParams.status, Object.keys(NOTIFICATION_BADGE) as NotificationStatus[]);
   const channel = pick<NotificationChannel>(searchParams.channel, ["email", "whatsapp"]);
-  const cursor = searchParams.cursor && CURSOR_FORMAT.test(searchParams.cursor) ? searchParams.cursor : null;
+  const cursor = searchParams.cursor && isValidNotificationCursor(searchParams.cursor) ? searchParams.cursor : null;
 
-  const [page, templates, bureaus] = await Promise.all([
+  const [page, templates, names] = await Promise.all([
     listNotifications(session, { status, channel, limit: PAGE_SIZE, cursor }),
     canWrite ? listTemplates(session) : Promise.resolve([]),
-    listBureauMetrics(session),
+    listBureauNames(session),
   ]);
-  const names = new Map(bureaus.map((b) => [b.bureauId, b.name]));
 
   const filterParams = new URLSearchParams();
   if (status) filterParams.set("status", status);

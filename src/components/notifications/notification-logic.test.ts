@@ -13,9 +13,11 @@ describe("NOTIFICATION_BADGE", () => {
 });
 
 describe("canRetryNotification", () => {
-  it("só falha, e só com permissão de gravação", () => {
-    expect(canRetryNotification("failed", true)).toBe(true);
-    expect(canRetryNotification("failed", false)).toBe(false);
-    expect(canRetryNotification("sent", true)).toBe(false);
+  it("só falha, só com permissão de gravação e só com payload guardado", () => {
+    expect(canRetryNotification("failed", true, true)).toBe(true);
+    expect(canRetryNotification("failed", false, true)).toBe(false);
+    expect(canRetryNotification("failed", true, false)).toBe(false);
+    expect(canRetryNotification("sent", true, true)).toBe(false);
+    expect(canRetryNotification("pending", true, true)).toBe(false);
   });
 });

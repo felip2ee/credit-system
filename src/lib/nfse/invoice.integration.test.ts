@@ -190,7 +190,7 @@ describe("NFS-e sem duplicidade", () => {
 			buildFakeInvoiceEvent({
 				eventId: `evt_${randomUUID()}`,
 				event: ASAAS_EVENT_INVOICE_AUTHORIZED,
-				asaasPaymentId: charge.asaasPaymentId,
+				asaasPaymentId: charge.asaasPaymentId, invoiceId: `inv_fake_${charge.id}`,
 				number: "5",
 				pdfUrl: "https://nfse.example/5.pdf",
 			}),
@@ -201,7 +201,7 @@ describe("NFS-e sem duplicidade", () => {
 			buildFakeInvoiceEvent({
 				eventId: `evt_${randomUUID()}`,
 				event: ASAAS_EVENT_INVOICE_CANCELED,
-				asaasPaymentId: charge.asaasPaymentId,
+				asaasPaymentId: charge.asaasPaymentId, invoiceId: `inv_fake_${charge.id}`,
 			}),
 		);
 
@@ -224,7 +224,7 @@ describe("NFS-e sem duplicidade", () => {
 			buildFakeInvoiceEvent({
 				eventId: `evt_${randomUUID()}`,
 				event: ASAAS_EVENT_INVOICE_CANCELED,
-				asaasPaymentId: charge.asaasPaymentId,
+				asaasPaymentId: charge.asaasPaymentId, invoiceId: `inv_fake_${charge.id}`,
 			}),
 		);
 

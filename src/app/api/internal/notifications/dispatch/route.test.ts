@@ -9,16 +9,16 @@ vi.mock("@/lib/config", () => ({
 		if (!env.NOTIFICATIONS_DISPATCH_SECRET) throw new Error("NOTIFICATIONS_DISPATCH_SECRET is required");
 		return env.NOTIFICATIONS_DISPATCH_SECRET;
 	},
-	readWebhookDatabaseUrl: (env: NodeJS.ProcessEnv) => {
-		if (!env.DATABASE_WEBHOOK_URL) throw new Error("DATABASE_WEBHOOK_URL is required");
-		return env.DATABASE_WEBHOOK_URL;
+	readDispatchDatabaseUrl: (env: NodeJS.ProcessEnv) => {
+		if (!env.DISPATCH_DATABASE_URL) throw new Error("DISPATCH_DATABASE_URL is required");
+		return env.DISPATCH_DATABASE_URL;
 	},
 }));
 
 import { DELETE, GET, PATCH, POST, PUT } from "./route";
 
 const SECRET = "d".repeat(32);
-const counts = { claimed: 3, sent: 2, retried: 1, failed: 0, suppressed: 0, stale: 0 };
+const counts = { claimed: 3, sent: 2, retried: 1, failed: 0, suppressed: 0, stale: 0, errors: 0 };
 
 const call = (headers: Record<string, string> = {}) =>
 	POST(new Request("http://localhost/api/internal/notifications/dispatch", { method: "POST", headers }));
@@ -26,7 +26,7 @@ const call = (headers: Record<string, string> = {}) =>
 beforeEach(() => {
 	vi.clearAllMocks();
 	vi.stubEnv("NOTIFICATIONS_DISPATCH_SECRET", SECRET);
-	vi.stubEnv("DATABASE_WEBHOOK_URL", "postgres://app_webhook:test@localhost:54329/credit_system");
+	vi.stubEnv("DISPATCH_DATABASE_URL", "postgres://app_dispatch:test@localhost:54329/credit_system");
 	s.run.mockResolvedValue(counts);
 	vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -63,11 +63,26 @@ describe("POST /api/internal/notifications/dispatch", () => {
 		expect(s.run).not.toHaveBeenCalled();
 	});
 
-	it("answers 500 when the webhook database is not configured", async () => {
-		vi.stubEnv("DATABASE_WEBHOOK_URL", "");
+	it("answers 500 when the dispatch database is not configured", async () => {
+		vi.stubEnv("DISPATCH_DATABASE_URL", "");
 
 		expect((await call({ authorization: `Bearer ${SECRET}` })).status).toBe(500);
 		expect(s.run).not.toHaveBeenCalled();
+	});
+
+	it("answers 401, not 500, to an unauthenticated call when the dispatch database is not configured", async () => {
+		vi.stubEnv("DISPATCH_DATABASE_URL", "");
+
+		expect((await call()).status).toBe(401);
+	});
+
+	it("answers 500 with the counts when a result could not be stored", async () => {
+		s.run.mockResolvedValue({ ...counts, errors: 1 });
+
+		const res = await call({ authorization: `Bearer ${SECRET}` });
+
+		expect(res.status).toBe(500);
+		expect((await res.json()).errors).toBe(1);
 	});
 
 	it("answers 500 without a body when the dispatch throws", async () => {

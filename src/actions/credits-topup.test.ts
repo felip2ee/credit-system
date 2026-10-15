@@ -55,6 +55,7 @@ vi.mock("@/lib/wallet/client-queries", () => ({
 
 import { revalidatePath } from "next/cache";
 
+import { AsaasOutcomeUnknownError } from "@/lib/asaas/client";
 import { SessionAccessError } from "@/lib/auth/session";
 
 import { requestClientTopupAction } from "./credits-topup";
@@ -194,6 +195,17 @@ describe("requestClientTopupAction", () => {
 
 		expect(result.error).toBe(FAILED);
 		expect(state.cancelCharge).toHaveBeenCalledWith(expect.anything(), "charge-1");
+		expect(state.bindCharge).not.toHaveBeenCalled();
+	});
+
+	it("keeps the reserved row pending when the Asaas outcome is unknown, so a later payment still credits", async () => {
+		state.adapterCreate.mockRejectedValue(new AsaasOutcomeUnknownError("Asaas respondeu 502"));
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const result = await requestClientTopupAction({ amount: "100.00" });
+
+		expect(result.error).toBe(FAILED);
+		expect(state.cancelCharge).not.toHaveBeenCalled();
 		expect(state.bindCharge).not.toHaveBeenCalled();
 	});
 

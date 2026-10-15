@@ -3,6 +3,8 @@
 // developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes (14/10/2026):
 // 130429/131056 limite de taxa; 131026 sem WhatsApp; 132000/132001/132005/132007/132012 parâmetro ou
 // template inválido, 132015 pausado, 132016 desativado; 190 token inválido ou expirado.
+// Limite de taxa do app ou da conta (conferidos em 15/10/2026): 4 e 17 no guia de erros da Graph API, 80007 na página de
+// códigos do WhatsApp. 32 (Pages) e 613 (limite personalizado) vêm do guia de rate limiting da Graph API, que não foi relido.
 
 export interface ErrorClassification {
 	permanent: boolean;
@@ -51,7 +53,7 @@ export function classifySmtpError(error: unknown): ErrorClassification {
 }
 
 const GRAPH_TEMPLATE_CODES = new Set([132000, 132001, 132005, 132007, 132012, 132015, 132016]);
-const GRAPH_RATE_LIMIT_CODES = new Set([130429, 131056]);
+const GRAPH_RATE_LIMIT_CODES = new Set([130429, 131056, 4, 17, 32, 613, 80007]);
 const GRAPH_NO_WHATSAPP_CODE = 131026;
 const GRAPH_INVALID_TOKEN_CODE = 190;
 

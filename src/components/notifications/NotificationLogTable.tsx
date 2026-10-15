@@ -45,7 +45,14 @@ export function NotificationLogTable({ rows, bureauNames, canWrite }: Notificati
             </TableCell>
             <TableCell className="font-mono text-xs">{row.lastErrorCode ?? "—"}</TableCell>
             {canWrite && (
-              <TableCell>{canRetryNotification(row.status, canWrite) && <RetryNotificationButton id={row.id} />}</TableCell>
+              <TableCell>
+                {canRetryNotification(row.status, canWrite, row.retryable) && (
+                  <RetryNotificationButton
+                    id={row.id}
+                    label={`Tentar de novo o envio ${row.templateKey ?? "sem template"} para ${row.recipientMasked}`}
+                  />
+                )}
+              </TableCell>
             )}
           </TableRow>
         ))}

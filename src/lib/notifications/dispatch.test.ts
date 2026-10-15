@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ query: vi.fn(), sendEmail: vi.fn() }));
-vi.mock("@/lib/db/webhook-pool", () => ({ getWebhookPool: () => ({ query: state.query }) }));
+vi.mock("@/lib/db/dispatch-pool", () => ({ getDispatchPool: () => ({ query: state.query }) }));
 vi.mock("./channels/email", () => ({ sendEmailNotification: state.sendEmail }));
 vi.mock("./channels/whatsapp", () => ({ sendWhatsappNotification: vi.fn() }));
 
@@ -38,5 +38,39 @@ describe("runDispatch unexpected errors", () => {
 		expect(logged).toContain("TypeError");
 		expect(logged).not.toContain("titular@example.test");
 		expect(logged).not.toContain("123456");
+	});
+
+	it("retries complete_notification once with the same lease after a send that worked", async () => {
+		state.query.mockReset();
+		state.query
+			.mockResolvedValueOnce({ rows: [claimed] })
+			.mockRejectedValueOnce(new Error("connection reset"))
+			.mockResolvedValueOnce({ rows: [{ result: "applied" }] })
+			.mockResolvedValueOnce({ rows: [] });
+		state.sendEmail.mockResolvedValue({ ok: true, providerMessageId: "<m@x>" });
+
+		const result = await runDispatch({ budgetMs: 1_000 });
+
+		expect(result).toMatchObject({ sent: 1, errors: 0 });
+		expect(state.query.mock.calls[1][1]).toEqual(state.query.mock.calls[2][1]);
+		expect(state.query.mock.calls[1][1]).toEqual(["n-1", "l-1", "sent", "<m@x>", null]);
+	});
+
+	it("counts an error and logs a truthful message when complete fails twice", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		state.query.mockReset();
+		state.query
+			.mockResolvedValueOnce({ rows: [claimed] })
+			.mockRejectedValueOnce(new Error("down"))
+			.mockRejectedValueOnce(new Error("down"))
+			.mockResolvedValueOnce({ rows: [] });
+		state.sendEmail.mockResolvedValue({ ok: true, providerMessageId: "<m@x>" });
+
+		const result = await runDispatch({ budgetMs: 1_000 });
+
+		expect(result).toMatchObject({ sent: 0, errors: 1 });
+		const logged = JSON.stringify(warn.mock.calls);
+		expect(logged).toContain("resultado não gravado");
+		expect(logged).not.toContain("envio falhou");
 	});
 });

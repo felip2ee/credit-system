@@ -109,6 +109,11 @@ export function readWebhookDatabaseUrl(env: Environment): string {
   return url(env, "DATABASE_WEBHOOK_URL");
 }
 
+// DSN da role app_dispatch (worker de notificações: claim_notifications, complete_notification).
+export function readDispatchDatabaseUrl(env: Environment): string {
+  return url(env, "DISPATCH_DATABASE_URL");
+}
+
 // Lida sob demanda (não entra em readConfig): só a recarga PIX e o webhook precisam do Asaas.
 // Sem driver explícito falha; "fake" nunca roda em produção.
 export function readAsaasConfig(env: Environment): AsaasConfig {

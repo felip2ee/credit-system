@@ -13,9 +13,9 @@ export const NOTIFICATION_BADGE: Record<NotificationStatus, { label: string; var
   suppressed: { label: "Bloqueado (opt-out)", variant: "muted" },
 };
 
-// "Tentar de novo" só para falha, e só para superadmin fora de suporte.
-export function canRetryNotification(status: NotificationStatus, canWrite: boolean): boolean {
-  return canWrite && status === "failed";
+// "Tentar de novo" só para falha com payload ainda guardado (retryable), e só para superadmin fora de suporte.
+export function canRetryNotification(status: NotificationStatus, canWrite: boolean, retryable: boolean): boolean {
+  return canWrite && status === "failed" && retryable;
 }
 
 export const CHANNEL_LABEL = { email: "E-mail", whatsapp: "WhatsApp" } as const;

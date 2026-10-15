@@ -294,7 +294,8 @@ describe("listNotifications", () => {
 		expect(Object.keys(row).sort()).toEqual(
 			[
 				"attempts", "bureauId", "channel", "createdAt", "createdBy", "id", "lastErrorCode", "maxAttempts",
-				"nextAttemptAt", "recipientMasked", "reference", "sentAt", "status", "templateId", "templateKey", "updatedAt",
+				"nextAttemptAt", "recipientMasked", "reference", "retryable", "sentAt", "status", "templateId", "templateKey",
+				"updatedAt",
 			].sort(),
 		);
 	});
@@ -310,6 +311,25 @@ describe("listNotifications", () => {
 		expect(failed.rows.length).toBeLessThanOrEqual(100);
 		expect(failed.rows.every((r) => r.status === "failed" && r.channel === "email")).toBe(true);
 		expect(whatsapp.rows.every((r) => r.channel === "whatsapp")).toBe(true);
+	});
+
+	it("flags retryable only for a failed row that still holds its payload", async () => {
+		const live = await failedNotification();
+		const purged = await failedNotification({ recipient: null, params: null });
+		const pending = await failedNotification({ status: "pending" });
+
+		const rows = (await listNotifications(superadmin, { limit: 100 })).rows;
+		const retryable = (id: string) => rows.find((r) => r.id === id)?.retryable;
+
+		expect(retryable(live)).toBe(true);
+		expect(retryable(purged)).toBe(false);
+		expect(retryable(pending)).toBe(false);
+		// O sinal é o mesmo critério de retry_notification.
+		expect(await retryNotification(superadmin, purged)).toEqual({ ok: false, reason: "payload_purged" });
+		expect(await retryNotification(superadmin, live)).toEqual({ ok: true });
+		await owner.query("update notifications set status = 'suppressed', recipient = null, params = null where id = any($1)", [
+			[live, pending],
+		]);
 	});
 
 	it("shows the template key to the superadmin and every Bureau to nobody else", async () => {

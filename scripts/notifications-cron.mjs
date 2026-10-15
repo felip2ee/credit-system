@@ -2,7 +2,9 @@
 // Config: NOTIFICATIONS_DISPATCH_URL + NOTIFICATIONS_DISPATCH_SECRET (or *_FILE).
 import { readFileSync } from "node:fs";
 
-const INTERVAL_MS = Number(process.env.NOTIFICATIONS_CRON_INTERVAL_MS) || 60_000;
+const MIN_INTERVAL_MS = 5_000;
+// Abaixo do mínimo (ou valor inválido) o worker bateria na rota sem folga: sobe para o mínimo.
+const INTERVAL_MS = Math.max(Number(process.env.NOTIFICATIONS_CRON_INTERVAL_MS) || 60_000, MIN_INTERVAL_MS);
 const TIMEOUT_MS = 55_000;
 const MAX_LOGGED_BODY = 200;
 
@@ -28,6 +30,28 @@ try {
 if (!url || !secret) {
   console.error("notifications-cron: NOTIFICATIONS_DISPATCH_URL and the dispatch secret are required");
   process.exit(1);
+}
+
+// O Bearer viaja no pedido: http só vale em loopback ou em nome de serviço da rede interna (sem ponto, como http://app:3000).
+function isCleartextExternal(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    console.error("notifications-cron: NOTIFICATIONS_DISPATCH_URL is not a valid URL");
+    process.exit(1);
+  }
+  if (parsed.protocol !== "http:") return false;
+  const host = parsed.hostname;
+  return !(host === "localhost" || host === "127.0.0.1" || host === "[::1]" || !host.includes("."));
+}
+
+if (isCleartextExternal(url)) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("notifications-cron: refusing http:// to a non-internal host in production (the Bearer would travel in clear)");
+    process.exit(1);
+  }
+  console.warn("notifications-cron: NOTIFICATIONS_DISPATCH_URL uses http:// to a non-internal host; the Bearer travels in clear");
 }
 
 let stopped = false;

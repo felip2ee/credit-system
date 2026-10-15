@@ -45,7 +45,7 @@ export function isOptOutKeyword(text: string): boolean {
 		.trim()
 		.toUpperCase()
 		.normalize("NFD")
-		.replace(/[̀-ͯ]/g, "");
+		.replace(/[\u0300-\u036f]/g, "");
 	return OPT_OUT_KEYWORDS.has(normalized);
 }
 
@@ -75,10 +75,13 @@ const changeSchema = z.object({
 	}),
 });
 
+const MAX_TIMESTAMP_SECONDS = 253_402_300_799;
+
 const statusSchema = z.object({
 	id: z.string().trim().min(1).max(200),
 	status: z.enum(["sent", "delivered", "read", "failed"]),
-	timestamp: z.coerce.number().int().positive(),
+	// Até 9999-12-31: acima disso new Date() fica inválido (ou o Postgres recusa) e o 500 faria a Meta reenviar para sempre.
+	timestamp: z.coerce.number().int().positive().max(MAX_TIMESTAMP_SECONDS),
 	errors: z
 		.array(z.object({ code: z.union([z.number(), z.string()]) }))
 		.optional(),

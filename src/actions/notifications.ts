@@ -28,7 +28,7 @@ const RETRY_MESSAGES: Record<RetryFailure, string> = {
 	not_allowed: NOT_ALLOWED,
 	not_found: "Notificação não encontrada.",
 	invalid_state: "Só uma notificação com falha pode ser reenviada.",
-	payload_purged: "Dados do envio já apagados (mais de 7 dias).",
+	payload_purged: "Dados do envio já apagados.",
 };
 
 const ENQUEUE_MESSAGES: Record<EnqueueFailure, string> = {

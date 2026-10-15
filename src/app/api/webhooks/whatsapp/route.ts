@@ -1,4 +1,5 @@
-import { readWebhookDatabaseUrl, readWhatsappConfig } from "@/lib/config";
+import { readWhatsappConfig } from "@/lib/config";
+import { webhookDatabaseConfigured } from "@/lib/db/database-config-check";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
 import {
 	WHATSAPP_MAX_BODY_BYTES,
@@ -10,6 +11,9 @@ import {
 } from "@/lib/notifications/whatsapp-webhook";
 
 // Rota pública (sem sessão): GET se autentica pelo verify token; POST, pela assinatura HMAC do corpo bruto.
+// force-dynamic: sem isso o Next 14 resolve o GET no build (WHATSAPP_DRIVER vazio = 404) e a verificação da Meta nunca passa.
+export const dynamic = "force-dynamic";
+
 const MAX_CHALLENGE_DIGITS = 64;
 
 const respond = (status: number) => new Response(null, { status });
@@ -80,14 +84,6 @@ export async function POST(request: Request): Promise<Response> {
 	const { config, invalid } = readConfig();
 	if (invalid) return respond(500);
 	if (!config) return respond(404);
-	try {
-		readWebhookDatabaseUrl(process.env);
-	} catch (error) {
-		console.error("[whatsapp-webhook] configuração inválida", {
-			name: error instanceof Error ? error.name : typeof error,
-		});
-		return respond(500);
-	}
 
 	const rawBody = await readBodyWithin(request, WHATSAPP_MAX_BODY_BYTES);
 	if (!rawBody) return respond(413);
@@ -108,12 +104,15 @@ export async function POST(request: Request): Promise<Response> {
 		return respond(400);
 	}
 
+	// Só depois da assinatura: quem não assina não aprende o estado do deploy.
+	if (!webhookDatabaseConfigured("whatsapp-webhook")) return respond(500);
+
 	try {
 		const counts = await applyWhatsappWebhook(
 			parseWhatsappWebhook(raw, config.phoneNumberId),
 			getWebhookPool(),
 		);
-		console.info("[whatsapp-webhook] evento aplicado", counts);
+		console.warn("[whatsapp-webhook] evento aplicado", counts);
 		return respond(200);
 	} catch (error) {
 		logFailure(error);

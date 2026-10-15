@@ -106,15 +106,19 @@ export async function setNfseStatus(
 }
 
 export type NfseCharge = { chargeId: string; amount: string };
+// invoiceId: nota já gravada na cobrança (nulo antes do primeiro agendamento).
+export type NfseChargeByPayment = NfseCharge & { invoiceId: string | null };
 
 // O webhook (app_webhook) não lê tabela alguma: nfse_charge_by_payment (017) liga o id do pagamento do Asaas ao id
 // da cobrança paga ou estornada, ou não devolve linha.
-export async function findNfseChargeByPayment(asaasPaymentId: string): Promise<NfseCharge | null> {
-	const { rows } = await getWebhookPool().query<{ charge_id: string; amount: string }>(
-		"select charge_id, amount from public.nfse_charge_by_payment($1)",
+export async function findNfseChargeByPayment(asaasPaymentId: string): Promise<NfseChargeByPayment | null> {
+	const { rows } = await getWebhookPool().query<{ charge_id: string; amount: string; asaas_invoice_id: string | null }>(
+		"select charge_id, amount, asaas_invoice_id from public.nfse_charge_by_payment($1)",
 		[asaasPaymentId],
 	);
-	return rows[0] ? { chargeId: rows[0].charge_id, amount: rows[0].amount } : null;
+	return rows[0]
+		? { chargeId: rows[0].charge_id, amount: rows[0].amount, invoiceId: rows[0].asaas_invoice_id }
+		: null;
 }
 
 // Evento da nota: o id da nota do Asaas (gravado ao agendar) é a chave mais forte. Sem filtro de status (018/017).

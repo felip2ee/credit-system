@@ -69,7 +69,7 @@ describe("classifyGraphError", () => {
 		expect(classifyGraphError(400, graphBody(131026), null)).toEqual({ permanent: true, code: "recipient_unavailable" });
 	});
 
-	it.each([130429, 131056])("treats Meta rate limit %i as transient", (code) => {
+	it.each([130429, 131056, 4, 17, 32, 613, 80007])("treats Meta rate limit %i as transient", (code) => {
 		expect(classifyGraphError(400, graphBody(code), null)).toEqual({ permanent: false, code: "rate_limited" });
 	});
 

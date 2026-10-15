@@ -195,6 +195,17 @@ function targetStatus(event: InvoiceEvent): "issued" | "failed" | "canceled" | n
 	return null;
 }
 
+// Casa o evento pelo id da nota; sem ele, pelo pagamento. Cobrança com OUTRA nota gravada: o evento é de uma nota
+// antiga (A) e não pode matar a nota válida (B), então "ignored".
+async function findEventCharge(event: InvoiceEvent): Promise<NfseCharge | "ignored" | null> {
+	const eventInvoiceId = event.invoice.id;
+	const byInvoice = eventInvoiceId ? await findNfseChargeByInvoice(eventInvoiceId) : null;
+	if (byInvoice) return byInvoice;
+	const byPayment = await findNfseChargeByPayment(event.invoice.payment);
+	if (byPayment && eventInvoiceId && byPayment.invoiceId && byPayment.invoiceId !== eventInvoiceId) return "ignored";
+	return byPayment;
+}
+
 export type InvoiceEventResult = "issued" | "failed" | "canceled" | "ignored" | "unknown_charge" | "unchanged";
 
 // Evento de nota do Asaas. Idempotente (at-least-once): set_nfse_status não regride issued e repetir não muda nada.
@@ -202,9 +213,8 @@ export type InvoiceEventResult = "issued" | "failed" | "canceled" | "ignored" | 
 export async function applyInvoiceEvent(event: InvoiceEvent): Promise<InvoiceEventResult> {
 	const status = targetStatus(event);
 	if (!status) return "ignored";
-	const charge =
-		(event.invoice.id ? await findNfseChargeByInvoice(event.invoice.id) : null) ??
-		(await findNfseChargeByPayment(event.invoice.payment));
+	const charge = await findEventCharge(event);
+	if (charge === "ignored") return "ignored";
 	if (!charge) return "unknown_charge";
 	const result = await setNfseStatus(
 		charge.chargeId,

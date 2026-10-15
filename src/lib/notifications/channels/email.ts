@@ -6,7 +6,8 @@ import type { ClaimedNotification, SendResult } from "../types";
 
 export async function sendEmailNotification(notification: ClaimedNotification): Promise<SendResult> {
 	const domain = senderDomain();
-	if (!domain) return { ok: false, permanent: true, code: "channel_not_configured" };
+	// SMTP sem configuração é erro nosso (como no WhatsApp): tenta de novo depois do ajuste, sem queimar a notificação.
+	if (!domain) return { ok: false, permanent: false, code: "config_error" };
 
 	let rendered;
 	try {

@@ -1,4 +1,4 @@
-// runDispatch de ponta a ponta: fila real (app_runtime enfileira, app_webhook pega e conclui), WhatsApp pelo
+// runDispatch de ponta a ponta: fila real (app_runtime enfileira, app_dispatch pega e conclui), WhatsApp pelo
 // driver fake e e-mail com sendMail simulado. claim_notifications é global: cada teste afirma só sobre os próprios ids.
 import { randomBytes, randomUUID } from "node:crypto";
 
@@ -9,6 +9,7 @@ vi.hoisted(() => {
 	Object.assign(process.env, {
 		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://app_runtime:test@localhost:54329/credit_system",
 		DATABASE_WEBHOOK_URL: process.env.TEST_DATABASE_WEBHOOK_URL ?? "postgres://app_webhook:test@localhost:54329/credit_system",
+		DISPATCH_DATABASE_URL: process.env.TEST_DATABASE_DISPATCH_URL ?? "postgres://app_dispatch:test@localhost:54329/credit_system",
 		BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
 		BETTER_AUTH_URL: "http://localhost:3000",
 		DOCUMENT_ROOT: "/tmp/reino-test-documents",
@@ -36,6 +37,7 @@ vi.mock("next/headers", () => ({
 
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { getDispatchPool } from "@/lib/db/dispatch-pool";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedTenant, type SeededTenant } from "@/test/seed";
@@ -68,7 +70,7 @@ afterAll(async () => {
       where id = any($1::uuid[]) and status in ('pending', 'sending')`,
 		[created],
 	);
-	await Promise.all([owner.end(), pool.end(), getWebhookPool().end()]);
+	await Promise.all([owner.end(), pool.end(), getWebhookPool().end(), getDispatchPool().end()]);
 	await releaseClaimLock();
 });
 
@@ -209,7 +211,7 @@ describe("runDispatch", () => {
 
 		const result = await runDispatch({ budgetMs: 0 });
 
-		expect(result).toEqual({ claimed: 0, sent: 0, retried: 0, failed: 0, suppressed: 0, stale: 0 });
+		expect(result).toEqual({ claimed: 0, sent: 0, retried: 0, failed: 0, suppressed: 0, stale: 0, errors: 0 });
 		expect((await rowOf(id)).status).toBe("pending");
 	});
 
