@@ -26,7 +26,7 @@ language plpgsql
 set search_path = pg_catalog, public
 as $$
 begin
-  if current_user <> 'app_runtime' then
+  if current_user in ('auth_profile_lookup', 'schema_owner') then
     return new;
   end if;
   if tg_op = 'INSERT' then
@@ -89,6 +89,7 @@ create unique index verification_challenges_email_hash_uidx
 
 create table client_register_attempts (
   id bigint generated always as identity primary key,
+  -- Balde do limite: IPv4 inteiro; IPv6 agrupado por /64.
   ip inet,
   created_at timestamptz not null default now()
 );
@@ -227,6 +228,20 @@ begin
 end
 $$;
 
+-- Leitura do mesmo limite de register_client, para a ação recusar antes de gastar scrypt. Não grava nada.
+create function client_register_ip_allowed(p_ip inet)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select count(*) < 10
+    from public.client_register_attempts a
+   where a.ip is not distinct from (case when family(p_ip) = 6 then network(set_masklen(p_ip, 64)) else p_ip end)
+     and a.created_at > now() - interval '1 hour'
+$$;
+
 create function register_client(
   p_slug text,
   p_type text,
@@ -254,16 +269,18 @@ declare
   v_name text := btrim(p_name);
   v_id uuid := gen_random_uuid();
   v_reason text;
+  -- IPv6 é agrupado por /64: um cliente tem o prefixo inteiro, não um endereço.
+  v_bucket inet := case when family(p_ip) = 6 then network(set_masklen(p_ip, 64)) else p_ip end;
 begin
   -- LimitByIp: toda chamada conta, com sucesso ou não. A linha fica mesmo com ok = false.
-  perform pg_advisory_xact_lock(hashtextextended('client_register:' || coalesce(host(p_ip), '-'), 0));
+  perform pg_advisory_xact_lock(hashtextextended('client_register:' || coalesce(host(v_bucket), '-'), 0));
   delete from public.client_register_attempts where created_at < now() - interval '1 day';
   if (select count(*) from public.client_register_attempts a
-       where a.ip is not distinct from p_ip and a.created_at > now() - interval '1 hour') >= 10 then
+       where a.ip is not distinct from v_bucket and a.created_at > now() - interval '1 hour') >= 10 then
     return query select false, 'rate_limited'::text, null::uuid;
     return;
   end if;
-  insert into public.client_register_attempts (ip) values (p_ip);
+  insert into public.client_register_attempts (ip) values (v_bucket);
 
   if p_type is null or p_type not in ('PF', 'PJ')
      or p_document_digits is null
@@ -420,18 +437,24 @@ begin
     return query select false, 'not_allowed'::text;
     return;
   end if;
-  if p_phone_e164 is null or p_phone_e164 !~ '^\+[1-9][0-9]{7,14}$'
+  -- Só celular brasileiro: o código sai por WhatsApp pago e o destino é livre.
+  if p_phone_e164 is null or p_phone_e164 !~ '^\+55[1-9][0-9]9[0-9]{8}$'
      or p_code is null or p_code !~ '^[0-9]{6}$' then
     return query select false, 'invalid_input'::text;
     return;
   end if;
-  select p.bureau_id, p.phone_e164, p.phone_verified_at
+  select p.bureau_id, p.phone_e164, p.phone_verified_at, u.email_verified
     into v_p
     from public.profiles p
+    join public."user" u on u.id = p.auth_user_id
    where p.id = p_user_id and p.role = 'client' and p.bureau_id = public.app_bureau_id()
    for update of p;
   if not found then
     return query select false, 'not_allowed'::text;
+    return;
+  end if;
+  if not v_p.email_verified then
+    return query select false, 'email_not_verified'::text;
     return;
   end if;
   v_changed := v_p.phone_e164 is distinct from p_phone_e164;
@@ -449,6 +472,13 @@ begin
   end if;
   if (select count(*) from public.verification_challenges c
        where c.profile_id = p_user_id and c.kind = 'phone'
+         and c.created_at > now() - interval '1 hour') >= 5 then
+    return query select false, 'too_many'::text;
+    return;
+  end if;
+  -- Teto por número, em todos os perfis: ninguém usa o WhatsApp para spam de um destino.
+  if (select count(*) from public.verification_challenges c
+       where c.kind = 'phone' and c.target = p_phone_e164
          and c.created_at > now() - interval '1 hour') >= 5 then
     return query select false, 'too_many'::text;
     return;
@@ -637,6 +667,7 @@ alter function legal_current_version(text) owner to auth_profile_lookup;
 alter function enqueue_system_notification(uuid, uuid, text, text, text, jsonb, text, text) owner to auth_profile_lookup;
 alter function account_issue_email_challenge(uuid, text, text) owner to auth_profile_lookup;
 alter function register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text) owner to auth_profile_lookup;
+alter function client_register_ip_allowed(inet) owner to auth_profile_lookup;
 alter function confirm_email_verification(text) owner to auth_profile_lookup;
 alter function request_email_verification(uuid, text, text) owner to auth_profile_lookup;
 alter function request_phone_verification(uuid, text, text) owner to auth_profile_lookup;
@@ -651,6 +682,7 @@ revoke all on function legal_current_version(text) from public;
 revoke all on function enqueue_system_notification(uuid, uuid, text, text, text, jsonb, text, text) from public;
 revoke all on function account_issue_email_challenge(uuid, text, text) from public;
 revoke all on function register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text) from public;
+revoke all on function client_register_ip_allowed(inet) from public;
 revoke all on function confirm_email_verification(text) from public;
 revoke all on function request_email_verification(uuid, text, text) from public;
 revoke all on function request_phone_verification(uuid, text, text) from public;
@@ -660,6 +692,7 @@ revoke all on function set_notification_channel(uuid, text) from public;
 grant execute on function account_secret_hash(text) to auth_profile_lookup;
 grant execute on function account_mask_recipient(text, text) to auth_profile_lookup;
 grant execute on function register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text) to app_runtime;
+grant execute on function client_register_ip_allowed(inet) to app_runtime;
 grant execute on function confirm_email_verification(text) to app_runtime;
 grant execute on function request_email_verification(uuid, text, text) to app_runtime;
 grant execute on function request_phone_verification(uuid, text, text) to app_runtime;

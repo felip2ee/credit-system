@@ -52,7 +52,13 @@ export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion }:
 
   const onSubmit = async (values: RegisterFormValues) => {
     setServerError(null);
-    const result = await registerClientAction(values);
+    let result: Awaited<ReturnType<typeof registerClientAction>>;
+    try {
+      result = await registerClientAction(values);
+    } catch {
+      setServerError("Não foi possível concluir o cadastro. Tente novamente.");
+      return;
+    }
     if (result.error) {
       setServerError(result.error);
       return;
@@ -62,7 +68,10 @@ export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion }:
       password: values.password,
       callbackURL: "/portal",
     });
-    if (login.error) router.push("/login");
+    if (login.error) {
+      setServerError("Conta criada. Entre com seu e-mail e senha.");
+      router.push("/login");
+    }
   };
 
   const fieldError = (name: keyof RegisterFormValues) => {

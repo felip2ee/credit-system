@@ -1,6 +1,6 @@
 # actions — Server Actions (`"use server"`) for CRM and platform mutations
 
-Server Actions called from client forms, one file per domain (`holders.ts`, `dossiers.ts`, `consultations.ts`, `users.ts`, `portal.ts`, `scr.ts`, `scr-self.ts`, `settings.ts`, `ai.ts`, `auth.ts`, `bureaus.ts`, `support.ts`). Security-sensitive: each is a public POST endpoint.
+Server Actions called from client forms, one file per domain (`holders.ts`, `dossiers.ts`, `consultations.ts`, `users.ts`, `portal.ts`, `scr.ts`, `scr-self.ts`, `settings.ts`, `ai.ts`, `auth.ts`, `bureaus.ts`, `support.ts`, `register.ts`, `account.ts`). Security-sensitive: each is a public POST endpoint.
 
 ## Responsibility
 
@@ -18,6 +18,7 @@ Belongs here: exported async functions that validate input, check session and pe
 - Password actions write through `setTemporaryCredentials` (`src/lib/auth/credentials.ts`). A missing password only sets the flag. Blank means no password.
 - `createBureau` and `inviteBureauAdmin` (`bureaus.ts`), and `inviteTeamMember` (`users.ts`), take an optional `password`. With a password, the user enters at once and no invite e-mail is sent.
 - `setBureauAdminCredentials` (`bureaus.ts`) sets an admin password. `setTeamMemberCredentials` (`users.ts`) sets an operator password. The gateway refuses any other target. `setTeamMemberCredentials` also blocks the caller's own account.
+- `register.ts` actions are public (no session): `registerClientAction` and `confirmEmailAction`; `account.ts` actions require role `client` and `portal:write` (`requireClient()`).
 - `setUserRole` (`users.ts`) only promotes an `operator` to `bureau_admin`. The `protect_profile_identity` trigger refuses other role changes.
 
 ## Applied rules

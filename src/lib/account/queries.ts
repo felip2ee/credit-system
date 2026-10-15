@@ -77,6 +77,12 @@ export async function registerClient(
 	return { ok: false, reason };
 }
 
+// Leitura do limite por IP (sem gravar): a ação recusa antes de gastar CPU no hash da senha.
+export async function isRegisterIpAllowed(ip: string | null): Promise<boolean> {
+	const { rows } = await pool.query<{ allowed: boolean }>("select client_register_ip_allowed($1::inet) as allowed", [ip]);
+	return rows[0]?.allowed === true;
+}
+
 export async function confirmEmailVerification(token: string): Promise<AccountResult<"invalid" | "expired">> {
 	const { rows } = await pool.query<OutcomeRow>("select ok, reason from confirm_email_verification($1)", [token]);
 	return accountResult("confirmEmailVerification", rows[0], ["invalid", "expired"]);
@@ -193,7 +199,7 @@ export function requestPhoneVerification(client: PoolClient, userId: string, pho
 		"requestPhoneVerification",
 		"select ok, reason from request_phone_verification($1, $2, $3)",
 		[userId, phoneE164, code],
-		["not_allowed", "invalid_input", "already_verified", "cooldown", "too_many"] as const,
+		["not_allowed", "email_not_verified", "invalid_input", "already_verified", "cooldown", "too_many"] as const,
 	);
 }
 

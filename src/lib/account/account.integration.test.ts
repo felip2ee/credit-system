@@ -109,6 +109,13 @@ async function registerOk(tenant: SeededTenant, overrides: Partial<RegisterArgs>
 	return entry;
 }
 
+// Pedido de código por WhatsApp exige o e-mail confirmado.
+async function registerVerified(tenant: SeededTenant): Promise<Registered> {
+	const r = await registerOk(tenant);
+	await owner.query('update "user" set email_verified = true where id = $1', [r.userId]);
+	return r;
+}
+
 const clientOf = (r: Registered): Identity => ({ userId: r.userId, role: "client", bureauId: r.bureauId });
 
 // Confirma a transação (withDbContext faz rollback): as funções gravam tentativas e desafios.
@@ -252,6 +259,7 @@ describe("register_client", () => {
 		expect(rows[0].as_text).not.toContain(r.token);
 
 		const code = newCode();
+		await owner.query('update "user" set email_verified = true where id = $1', [r.userId]);
 		await requestPhone(r, newPhone(), code);
 		const phone = await owner.query<{ code_hash: string; as_text: string }>(
 			"select code_hash, c::text as as_text from verification_challenges c where profile_id = $1 and kind = 'phone'",
@@ -320,6 +328,33 @@ describe("register_client", () => {
 		const other = baseArgs(A.bureau.slug, { ip: newIp() });
 		expect(await callRegister(other)).toMatchObject({ ok: true });
 	});
+
+	it("ip allowed goes false after 10 attempts", async () => {
+		const ip = newIp();
+		const allowed = async () =>
+			(await app.query<{ ok: boolean }>("select client_register_ip_allowed($1::inet) as ok", [ip])).rows[0].ok;
+		expect(await allowed()).toBe(true);
+		for (let i = 0; i < 10; i += 1) {
+			expect(await callRegister(baseArgs(A.bureau.slug, { ip, type: "XX" }))).toMatchObject({ reason: "invalid_input" });
+		}
+		expect(await allowed()).toBe(false);
+		// A consulta não grava tentativa.
+		expect(await count("select count(*) as n from client_register_attempts where ip = $1::inet", [ip])).toBe(10);
+	});
+
+	it("two addresses in the same ipv6 /64 share the limit", async () => {
+		const prefix = `2001:db8:${randomInt(1, 65_535).toString(16)}:${randomInt(1, 65_535).toString(16)}`;
+		for (let i = 0; i < 10; i += 1) {
+			const result = await callRegister(baseArgs(A.bureau.slug, { ip: `${prefix}::${i + 1}`, type: "XX" }));
+			expect(result).toMatchObject({ ok: false, reason: "invalid_input" });
+		}
+		expect(await callRegister(baseArgs(A.bureau.slug, { ip: `${prefix}:0:0:0:ffff` }))).toMatchObject({
+			ok: false,
+			reason: "rate_limited",
+		});
+		const elsewhere = `2001:db8:${randomInt(1, 65_535).toString(16)}:${randomInt(1, 65_535).toString(16)}::1`;
+		expect(await callRegister(baseArgs(A.bureau.slug, { ip: elsewhere }))).toMatchObject({ ok: true });
+	});
 });
 
 describe("email verification", () => {
@@ -384,7 +419,7 @@ describe("email verification", () => {
 
 describe("phone verification", () => {
 	it("request_phone_verification creates the challenge and the whatsapp notification", async () => {
-		const r = await registerOk(A);
+		const r = await registerVerified(A);
 		const code = newCode();
 		expect(await requestPhone(r, r.phone, code)).toEqual({ ok: true, reason: null });
 		const challenge = await owner.query(
@@ -402,8 +437,8 @@ describe("phone verification", () => {
 	});
 
 	it("request_phone_verification refuses other users, other roles and no context", async () => {
-		const r = await registerOk(A);
-		const other = await registerOk(A);
+		const r = await registerVerified(A);
+		const other = await registerVerified(A);
 		expect(await requestPhone(r, r.phone, newCode(), clientOf(other))).toEqual({ ok: false, reason: "not_allowed" });
 		const operator: Identity = { userId: A.operator.userId, role: "operator", bureauId: A.bureau.id };
 		const asOperator = await callAs(operator, "select ok, reason from request_phone_verification($1, $2, $3)", [
@@ -417,8 +452,38 @@ describe("phone verification", () => {
 		expect(await count("select count(*) as n from verification_challenges where profile_id = $1 and kind = 'phone'", [r.userId])).toBe(0);
 	});
 
-	it("resend respects 60 s cooldown and 5 per hour, and refuses a verified phone", async () => {
+	it("phone request is refused until the email is verified", async () => {
 		const r = await registerOk(A);
+		expect(await requestPhone(r, r.phone, newCode())).toEqual({ ok: false, reason: "email_not_verified" });
+		expect(await count("select count(*) as n from verification_challenges where profile_id = $1 and kind = 'phone'", [r.userId])).toBe(0);
+		await confirmEmail(r.token);
+		expect(await requestPhone(r, r.phone, newCode())).toEqual({ ok: true, reason: null });
+	});
+
+	it("phone request refuses a non-Brazilian or landline number", async () => {
+		const r = await registerVerified(A);
+		for (const phone of ["+14155552671", "+556332221234", "+5563899991234", "+55639999912345"]) {
+			expect(await requestPhone(r, phone, newCode())).toEqual({ ok: false, reason: "invalid_input" });
+		}
+		expect(await count("select count(*) as n from verification_challenges where profile_id = $1 and kind = 'phone'", [r.userId])).toBe(0);
+	});
+
+	it("sixth code to the same target number in one hour is too_many", async () => {
+		const target = newPhone();
+		const first = await registerVerified(A);
+		expect(await requestPhone(first, target, newCode())).toEqual({ ok: true, reason: null });
+		for (let i = 0; i < 4; i += 1) {
+			await ageChallenges(first.userId, "phone");
+			expect(await requestPhone(first, target, newCode())).toEqual({ ok: true, reason: null });
+		}
+		const second = await registerVerified(A);
+		expect(await requestPhone(second, target, newCode())).toEqual({ ok: false, reason: "too_many" });
+		const profile = await owner.query("select phone_e164 from profiles where id = $1", [second.userId]);
+		expect(profile.rows[0].phone_e164).toBe(second.phone);
+	});
+
+	it("resend respects 60 s cooldown and 5 per hour, and refuses a verified phone", async () => {
+		const r = await registerVerified(A);
 		expect(await requestPhone(r, r.phone, newCode())).toEqual({ ok: true, reason: null });
 		expect(await requestPhone(r, r.phone, newCode())).toEqual({ ok: false, reason: "cooldown" });
 		for (let i = 0; i < 4; i += 1) {
@@ -432,7 +497,7 @@ describe("phone verification", () => {
 		const profile = await owner.query("select phone_e164 from profiles where id = $1", [r.userId]);
 		expect(profile.rows[0].phone_e164).toBe(r.phone);
 
-		const done = await registerOk(A);
+		const done = await registerVerified(A);
 		const code = newCode();
 		await requestPhone(done, done.phone, code);
 		await confirmPhone(done, code);
@@ -440,7 +505,7 @@ describe("phone verification", () => {
 	});
 
 	it("new phone clears verification and resets channel to email", async () => {
-		const r = await registerOk(A);
+		const r = await registerVerified(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		expect(await confirmPhone(r, code)).toEqual({ ok: true, reason: null });
@@ -459,7 +524,7 @@ describe("phone verification", () => {
 	});
 
 	it("confirm_phone_verification confirms with the right code and audits", async () => {
-		const r = await registerOk(A);
+		const r = await registerVerified(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		expect(await confirmPhone(r, code)).toEqual({ ok: true, reason: null });
@@ -471,7 +536,7 @@ describe("phone verification", () => {
 	});
 
 	it("fifth wrong code consumes the challenge", async () => {
-		const r = await registerOk(A);
+		const r = await registerVerified(A);
 		const code = "111111";
 		await requestPhone(r, r.phone, code);
 		for (let i = 0; i < 4; i += 1) {
@@ -484,7 +549,7 @@ describe("phone verification", () => {
 	});
 
 	it("expired code is refused", async () => {
-		const r = await registerOk(A);
+		const r = await registerVerified(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		await owner.query("update verification_challenges set expires_at = now() - interval '1 minute' where profile_id = $1 and kind = 'phone'", [r.userId]);
@@ -492,16 +557,25 @@ describe("phone verification", () => {
 	});
 
 	it("a right code for a challenge whose phone changed is invalid", async () => {
-		const r = await registerOk(A);
+		const r = await registerVerified(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
-		await owner.query("update profiles set phone_e164 = $2 where id = $1", [r.userId, newPhone()]);
+		// O dono do teste não está na lista do trigger protect_profile_contact: replica desliga o trigger só nesta transação.
+		const tx = await owner.connect();
+		try {
+			await tx.query("begin");
+			await tx.query("set local session_replication_role = replica");
+			await tx.query("update profiles set phone_e164 = $2 where id = $1", [r.userId, newPhone()]);
+			await tx.query("commit");
+		} finally {
+			tx.release();
+		}
 		expect(await confirmPhone(r, code)).toEqual({ ok: false, reason: "invalid" });
 	});
 
 	it("confirm_phone_verification refuses other users and malformed codes", async () => {
-		const r = await registerOk(A);
-		const other = await registerOk(A);
+		const r = await registerVerified(A);
+		const other = await registerVerified(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		const asOther = await callAs(clientOf(other), "select ok, reason from confirm_phone_verification($1, $2)", [r.userId, code]);
@@ -512,7 +586,7 @@ describe("phone verification", () => {
 
 describe("notification channel", () => {
 	it("set_notification_channel needs a verified phone, audits once and ignores a repeat", async () => {
-		const r = await registerOk(A);
+		const r = await registerVerified(A);
 		expect(await setChannel(r, "whatsapp")).toEqual({ ok: false, reason: "phone_not_verified" });
 		expect(await setChannel(r, "sms")).toEqual({ ok: false, reason: "invalid_input" });
 

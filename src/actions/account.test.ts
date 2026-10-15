@@ -106,6 +106,16 @@ describe("input validation", () => {
 		},
 	);
 
+	it.each(["+14155552671", "(63) 3222-1234", "(11) 2345-6789"])(
+		"refuses the non-mobile number %s without calling the query",
+		async (phone) => {
+			expect(await requestPhoneVerificationAction({ phone })).toEqual({
+				error: "Informe um celular brasileiro com DDD.",
+			});
+			expect(state.requestPhone).not.toHaveBeenCalled();
+		},
+	);
+
 	it("refuses an invalid mobile number without calling the query", async () => {
 		expect(await requestPhoneVerificationAction({ phone: "6399999123" })).toEqual({
 			error: "Celular inválido. Use DDD e número.",
@@ -184,6 +194,7 @@ describe("reason messages", () => {
 		["cooldown", "Aguarde 1 minuto antes de pedir outro envio."],
 		["too_many", "Limite de envios atingido. Tente de novo em uma hora."],
 		["already_verified", "Este telefone já está confirmado."],
+		["email_not_verified", "Confirme seu e-mail antes de confirmar o telefone."],
 		["not_allowed", NOT_ALLOWED],
 		["invalid_input", NOT_ALLOWED],
 	])("phone request: %s", async (reason, message) => {
@@ -192,7 +203,7 @@ describe("reason messages", () => {
 	});
 
 	it.each([
-		["invalid", "Código incorreto."],
+		["invalid", "Código incorreto ou sem pedido ativo. Peça um novo código."],
 		["expired", "Código expirado. Peça um novo."],
 		["too_many_attempts", "Muitas tentativas. Peça um novo código."],
 		["not_allowed", NOT_ALLOWED],

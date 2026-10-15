@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
 	registerClient: vi.fn(),
 	confirmEmailVerification: vi.fn(),
 	hashPassword: vi.fn(),
+	isRegisterIpAllowed: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -13,6 +14,7 @@ vi.mock("better-auth/crypto", () => ({ hashPassword: state.hashPassword }));
 vi.mock("@/lib/config", () => ({ config: { betterAuthUrl: "https://app.example.test" } }));
 vi.mock("@/lib/account/queries", () => ({
 	registerClient: state.registerClient,
+	isRegisterIpAllowed: state.isRegisterIpAllowed,
 	confirmEmailVerification: state.confirmEmailVerification,
 }));
 
@@ -42,6 +44,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	state.hashPassword.mockResolvedValue("hashed-password-value-000000");
 	state.registerClient.mockResolvedValue({ ok: true, userId: "user-1" });
+	state.isRegisterIpAllowed.mockResolvedValue(true);
 	state.confirmEmailVerification.mockResolvedValue({ ok: true });
 });
 
@@ -91,6 +94,17 @@ describe("registerClientAction", () => {
 		const result = await registerClientAction({ ...form, phone: "6399999123" });
 
 		expect(result).toEqual({ error: "Celular inválido. Use DDD e número." });
+		expect(state.registerClient).not.toHaveBeenCalled();
+	});
+
+	it("rate-limited ip never hashes the password", async () => {
+		state.isRegisterIpAllowed.mockResolvedValue(false);
+
+		await expect(registerClientAction(form)).resolves.toEqual({
+			error: "Muitas tentativas de cadastro. Tente de novo em uma hora.",
+		});
+		expect(state.isRegisterIpAllowed).toHaveBeenCalledWith("203.0.113.9");
+		expect(state.hashPassword).not.toHaveBeenCalled();
 		expect(state.registerClient).not.toHaveBeenCalled();
 	});
 

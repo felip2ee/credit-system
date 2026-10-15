@@ -137,6 +137,7 @@ Cada critério aponta para o teste que o prova.
 - **Rota `/portal/termos` em outro grupo:** dois grupos de rota com `portal/` dentro. `npm run build` confirma que o Next aceita.
 - **Slugs reservados:** a 021 falha se um Bureau já usa `cadastro`, `termos` ou `privacidade`. Consulte antes do deploy.
 - **Clientes antigos:** todo cliente existente vê `/portal/termos` no próximo acesso. Clientes convidados já têm e-mail confirmado.
+- **Posse do documento:** o cadastro prova só o dígito do CPF/CNPJ, não a posse. Quem cadastra o CPF de outra pessoa vira o Titular dela no Bureau (com e-mail e telefone próprios) e bloqueia o cadastro legítimo (`document_in_use`). O envio de autorização SCR pelo operador usa `holder_email` como padrão. Decisão para o M6: prova de posse ou sem `holder_email` padrão quando `holders.created_by = client_profile_id`.
 - **Role do worker:** o worker usa `app_dispatch` (`DISPATCH_DATABASE_URL`); `app_webhook` só atende webhooks. A 021 não dá privilégio de tabela a nenhuma das duas; `claim_notifications` já lê as notificações novas.
 
 ## Plano de tarefas (resumo para o plano de execução)

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { LogOut } from "lucide-react";
 
 import { signOut } from "@/actions/auth";
+import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { Button } from "@/components/ui/button";
 import { getClientAccountStatus } from "@/lib/account/queries";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
@@ -15,6 +16,7 @@ export default async function PortalOnboardingLayout({ children }: { children: R
 
   return (
     <div className="flex min-h-screen flex-col bg-muted/30">
+      <IdleTimeout />
       <header className="border-b bg-background">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <span className="text-base font-semibold">Rainha do Crédito</span>

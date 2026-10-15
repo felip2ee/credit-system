@@ -3,7 +3,7 @@
 import { hashPassword } from "better-auth/crypto";
 import { headers } from "next/headers";
 
-import { confirmEmailVerification, registerClient, type RegisterFailure } from "@/lib/account/queries";
+import { confirmEmailVerification, isRegisterIpAllowed, registerClient, type RegisterFailure } from "@/lib/account/queries";
 import { requestMeta } from "@/lib/account/request-meta";
 import { generateEmailToken } from "@/lib/account/secrets";
 import { config } from "@/lib/config";
@@ -53,6 +53,9 @@ export async function registerClientAction(values: unknown): Promise<RegisterAct
 	if (!phoneE164) return { error: INVALID_PHONE };
 
 	try {
+		// Antes do scrypt: IP no limite não gasta CPU.
+		const meta = requestMeta(await headers());
+		if (!(await isRegisterIpAllowed(meta.ip))) return { error: REGISTER_MESSAGES.rate_limited };
 		const result = await registerClient({
 			slug: input.slug,
 			type: input.type,
@@ -63,7 +66,7 @@ export async function registerClientAction(values: unknown): Promise<RegisterAct
 			passwordHash: await hashPassword(input.password),
 			termsVersion: input.termsVersion,
 			privacyVersion: input.privacyVersion,
-			...requestMeta(await headers()),
+			...meta,
 			emailToken: generateEmailToken(),
 			siteUrl: config.betterAuthUrl,
 		});

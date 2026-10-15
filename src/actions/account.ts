@@ -33,9 +33,12 @@ export interface ActionResult {
 const NOT_ALLOWED = "Ação não permitida.";
 const FAILED = "Não foi possível concluir. Tente novamente.";
 const INVALID_PHONE = "Celular inválido. Use DDD e número.";
+const NOT_BR_MOBILE = "Informe um celular brasileiro com DDD.";
+const BR_MOBILE = /^\+55\d{2}9\d{8}$/;
 
 type AccountReason =
 	| "not_allowed"
+	| "email_not_verified"
 	| "invalid_input"
 	| "already_verified"
 	| "cooldown"
@@ -49,10 +52,11 @@ type AccountReason =
 // already_verified muda com o canal (e-mail ou telefone): cada ação passa o texto dela.
 const MESSAGES: Record<Exclude<AccountReason, "already_verified">, string> = {
 	not_allowed: NOT_ALLOWED,
+	email_not_verified: "Confirme seu e-mail antes de confirmar o telefone.",
 	invalid_input: NOT_ALLOWED,
 	cooldown: "Aguarde 1 minuto antes de pedir outro envio.",
 	too_many: "Limite de envios atingido. Tente de novo em uma hora.",
-	invalid: "Código incorreto.",
+	invalid: "Código incorreto ou sem pedido ativo. Peça um novo código.",
 	expired: "Código expirado. Peça um novo.",
 	too_many_attempts: "Muitas tentativas. Peça um novo código.",
 	phone_not_verified: "Confirme o telefone antes de escolher o WhatsApp.",
@@ -112,6 +116,7 @@ export async function requestPhoneVerificationAction(values: unknown): Promise<A
 	if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? NOT_ALLOWED };
 	const phoneE164 = toE164(parsed.data.phone);
 	if (!phoneE164) return { error: INVALID_PHONE };
+	if (!BR_MOBILE.test(phoneE164)) return { error: NOT_BR_MOBILE };
 
 	return runAsClient("requestPhoneVerificationAction", async (session) => {
 		const result = toActionResult(
