@@ -34,7 +34,7 @@ import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { reserveOrder } from "@/lib/settlement/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedDossier, seedTenant, seedWalletTopup } from "@/test/seed";
+import { seedDossier, seedOrderCatalog, seedTenant, seedWalletTopup } from "@/test/seed";
 
 import { listCounterPayments, registerCounterPayment, voidCounterPayment } from "./queries";
 
@@ -168,19 +168,21 @@ describe("listCounterPayments", () => {
 	it("compares against the settlement price when there is one", async () => {
 		const { tenant, dossierId, operator } = await setup("Counter L2");
 		await seedWalletTopup(owner, { bureauId: tenant.bureau.id, amount: "100.00", createdBy: tenant.bureauAdmin.userId });
-		await withUserTransaction(operator, (c) =>
-			reserveOrder(c, {
+		await withUserTransaction(operator, async (c) => {
+			// reserve_order confere preço e custo no catálogo do Bureau.
+			const { lines } = await seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
+			return reserveOrder(c, {
 				orderRef: dossierId,
 				mode: "counter",
 				clientProfileId: null,
 				quote: {
 					ok: true,
-					lines: [{ productVersionId: randomUUID(), code: "smart_pf", costCents: 3000, priceCents: 5000 }],
+					lines: [{ productVersionId: randomUUID(), code: lines[0].code, costCents: 3000, priceCents: 5000 }],
 					totalCostCents: 3000,
 					totalPriceCents: 5000,
 				},
-			}),
-		);
+			});
+		});
 		await registerCounterPayment(operator, pay(dossierId, "20.00"));
 
 		const listed = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));

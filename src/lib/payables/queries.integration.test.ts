@@ -32,6 +32,7 @@ vi.mock("next/headers", () => ({
 
 
 
+import { fromCents } from "@/lib/catalog/money";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { captureOrder, reserveOrder as reserveOrderRaw } from "@/lib/settlement/queries";
@@ -39,6 +40,7 @@ import type { OrderQuote, ReserveOrderInput } from "@/lib/settlement/types";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
+	seedOrderCatalog,
 	seedOrderDossierForSession,
 	seedSuperadmin,
 	seedTenant,
@@ -54,9 +56,15 @@ afterAll(async () => {
 });
 
 // reserve_order exige um Dossiê do Bureau com o id do pedido.
+// reserve_order confere preço e custo no catálogo do Bureau: o produto criado aqui casa com a cotação.
 const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
 	await seedOrderDossierForSession(owner, c, { orderRef: input.orderRef, clientProfileId: input.clientProfileId });
-	return reserveOrderRaw(c, input);
+	const { lines } = await seedOrderCatalog(owner, c, {
+		price: fromCents(input.quote.totalPriceCents),
+		cost: fromCents(input.quote.totalCostCents),
+	});
+	const quoted = lines.length ? [{ ...input.quote.lines[0], code: lines[0].code }] : input.quote.lines;
+	return reserveOrderRaw(c, { ...input, quote: { ...input.quote, lines: quoted } });
 };
 
 const quoteOf = (priceCents: number, costCents: number): OrderQuote => ({

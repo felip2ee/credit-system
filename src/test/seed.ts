@@ -391,6 +391,37 @@ export async function seedOrderDossierForSession(
 	if (rows[0].id) await seedOrderDossier(owner, { ...input, bureauId: rows[0].id });
 }
 
+// reserve_order confere preço e custo no catálogo do Bureau da sessão (a que vai chamar reserve_order): cria um
+// produto principal à venda por `price`, com custo efetivo `cost`, e devolve a cotação que o aponta. Valores que
+// reserve_order recusa antes do catálogo (preço <= 0, custo negativo, preço abaixo do custo, mais de duas casas)
+// não criam produto: a cotação volta vazia.
+export async function seedOrderCatalog(
+	owner: Pool,
+	session: PoolClient,
+	input: { price: string; cost: string },
+): Promise<{ lines: { code: string }[] }> {
+	const price = Number(input.price);
+	const cost = Number(input.cost);
+	const twoDecimals = (v: string) => /^\d+(\.\d{1,2})?$/.test(v);
+	if (!twoDecimals(input.price) || !twoDecimals(input.cost) || price <= 0 || price < cost || price > 99999999.99) {
+		return { lines: [] };
+	}
+	const { rows } = await session.query<{ bureau_id: string; user_id: string }>(
+		"select nullif(current_setting('app.bureau_id', true), '') as bureau_id, current_setting('app.user_id', true) as user_id",
+	);
+	if (!rows[0].bureau_id) return { lines: [] };
+	// O catálogo só ativa item com custo > 0: o custo zero entra como segunda versão do produto.
+	const product = await seedProduct(owner, { baseCost: cost > 0 ? input.cost : "0.01" });
+	await seedCatalogItem(owner, {
+		bureauId: rows[0].bureau_id,
+		productId: product.id,
+		salePrice: input.price,
+		updatedBy: rows[0].user_id,
+	});
+	if (cost === 0) await seedProductVersion(owner, { productId: product.id, version: 2, baseCost: "0.00" });
+	return { lines: [{ code: product.code }] };
+}
+
 // Lançamento de valor a repassar já assinado (acréscimo +, estorno −). O acréscimo exige order_ref (FK para
 // order_settlements): cria a liquidação mínima, de balcão e já capturada, e liga o lançamento a ela.
 export async function seedPayableEntry(

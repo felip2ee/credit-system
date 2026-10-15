@@ -6,9 +6,57 @@
 --    erro: o fechamento é gravado (o chamador não deve desfazer a transação por causa dessa resposta).
 -- 2) nfse_charge_by_payment só devolve cobrança paga: nenhuma nota fiscal nasce de uma cobrança estornada.
 -- 3) PAYMENT_REFUNDED numa cobrança 'pending' marca a cobrança como 'refunded' (sem mexer em dinheiro).
+-- 5) A reserva restante é por pedido, não do saldo reservado da carteira: um estorno de PIX consome os pedidos abertos
+--    do mais antigo ao mais novo (order_settlements.seq) e capture_order/release_order usam só o que sobra ao próprio
+--    pedido (order_reservation_left). Um pedido não perde nem devolve a reserva de outro.
+-- 6) Estorno de PIX do cliente: o que a carteira não cobre (refund_shortfall) estorna, até o saldo a repassar ainda
+--    não pago do Bureau, o valor a repassar (lançamento reversal em bureau_payable_entries, ligado à cobrança por
+--    pix_charge_id). refund_shortfall guarda só o que restou depois disso.
+-- 7) PAYMENT_PARTIALLY_REFUNDED não mexe em saldo: o evento fica registrado com o resultado 'partial_refund_ignored'.
 -- 4) Sai o índice pix_charges_bureau_created_idx (012): a 018 criou pix_charges_bureau_own_created_idx, que atende
 --    a lista de cobranças do Bureau (client_profile_id is null); as consultas de cobrança do cliente usam
 --    pix_charges_client_created_idx.
+
+-- 5) Ordem dos pedidos de uma carteira: seq cresce a cada reserva (created_at empata na mesma transação).
+alter table order_settlements add column seq bigint generated always as identity;
+
+-- 6) Lançamento reversal do valor a repassar aponta para a cobrança estornada (uma vez por cobrança).
+alter table bureau_payable_entries add column pix_charge_id uuid references pix_charges(id);
+alter table bureau_payable_entries add constraint bureau_payable_entries_charge_link
+  check (kind = 'reversal' or pix_charge_id is null);
+create unique index bureau_payable_entries_reversal_charge_idx on bureau_payable_entries(pix_charge_id)
+  where kind = 'reversal';
+
+-- 7) Resultado novo do evento de webhook.
+alter table asaas_webhook_events drop constraint asaas_webhook_events_result_check;
+alter table asaas_webhook_events add constraint asaas_webhook_events_result_check
+  check (result in ('received', 'credited', 'refunded', 'duplicate', 'ignored', 'unknown_charge',
+    'partial_refund_ignored'));
+
+-- 5) Reserva que ainda resta a um pedido aberto. A carteira guarda o reservado num só saldo (a soma dos pedidos
+-- abertos) e o reversal do estorno tira dele sem dizer de qual pedido. Regra: o estorno consome do pedido mais
+-- antigo ao mais novo, então o saldo que sobrou pertence aos mais novos: o pedido fica com o menor valor entre o seu
+-- e o saldo menos o que os pedidos mais novos da mesma carteira (cliente online; Bureau no balcão) já reservam.
+-- Interna: só capture_order e release_order chamam, com a carteira travada.
+create function order_reservation_left(p_order_ref uuid, p_wallet_reserved numeric)
+returns numeric
+language sql
+stable
+set search_path = pg_catalog, public
+as $$
+  select greatest(0, least(
+      case when s.mode = 'online' then s.price else s.cost end,
+      p_wallet_reserved - coalesce((
+        select sum(case when o.mode = 'online' then o.price else o.cost end)
+          from public.order_settlements o
+         where o.status = 'reserved' and o.seq > s.seq and o.mode = s.mode and o.bureau_id = s.bureau_id
+           and o.client_profile_id is not distinct from s.client_profile_id), 0)))
+    from public.order_settlements s
+   where s.order_ref = p_order_ref
+$$;
+
+alter function order_reservation_left(uuid, numeric) owner to auth_profile_lookup;
+revoke all on function order_reservation_left(uuid, numeric) from public;
 
 -- 1) Captura. Ordem de travas igual à 015: liquidação -> carteira do cliente -> carteira do Bureau.
 create or replace function capture_order(p_order_ref uuid)
@@ -50,8 +98,8 @@ begin
     return;
   end if;
 
-  -- Valor que a captura tira da reserva e o que a carteira ainda tem reservado (sob trava). Balcão com custo 0 não
-  -- toca a carteira (v_reserved fica nulo).
+  -- Valor que a captura tira da reserva e o que ainda resta da reserva deste pedido (a carteira travada; ver
+  -- order_reservation_left). Balcão com custo 0 não toca a carteira (v_reserved fica nulo).
   v_amount := case when v_s.mode = 'online' then v_s.price else v_s.cost end;
   if v_s.mode = 'online' then
     select reserved into v_reserved from public.client_wallets
@@ -59,9 +107,12 @@ begin
   elsif v_s.cost > 0 then
     select reserved into v_reserved from public.wallets where bureau_id = v_s.bureau_id for update;
   end if;
+  if v_reserved is not null then
+    v_reserved := public.order_reservation_left(v_s.order_ref, v_reserved);
+  end if;
 
   if v_reserved < v_amount then
-    -- Um estorno de PIX retomou a reserva: não há o que capturar. Devolve o que sobrou e fecha o pedido.
+    -- Um estorno de PIX retomou a reserva deste pedido: não há o que capturar. Devolve o que sobrou dela e fecha o pedido.
     if v_reserved > 0 then
       if v_s.mode = 'online' then
         select * into v_post from public.client_wallet_post_entry(
@@ -108,7 +159,7 @@ begin
 end
 $$;
 
--- 1) Liberação. Devolve least(reservado, valor do pedido); sem reserva sobrando fecha o pedido sem lançamento.
+-- 1) Liberação. Devolve o que resta da reserva do pedido (no máximo o valor dele); sem reserva sobrando fecha o pedido sem lançamento.
 create or replace function release_order(p_order_ref uuid)
 returns table (ok boolean, reason text, status text)
 language plpgsql
@@ -158,7 +209,7 @@ begin
 
   select true as ok, null::text as reason into v_post;
   if v_reserved is not null then
-    v_amount := least(v_reserved, v_amount);
+    v_amount := public.order_reservation_left(v_s.order_ref, v_reserved);
   end if;
   if v_amount > 0 and (v_s.mode = 'online' or v_s.cost > 0) then
     if v_s.mode = 'online' then
@@ -202,6 +253,8 @@ declare
   v_reserved numeric;
   v_reversed numeric;
   v_shortfall numeric;
+  v_payable numeric;
+  v_clawback numeric := 0;
   v_audit_table text;
   v_audit_record uuid;
 begin
@@ -268,7 +321,22 @@ begin
       end if;
       v_reversed := least(v_available + v_reserved, v_charge.amount);
       v_shortfall := v_charge.amount - v_reversed;
-      update public.pix_charges set status = 'refunded', refund_shortfall = v_shortfall where id = v_charge.id;
+      -- Cobrança do cliente: o que a carteira não cobre pode já ter virado valor a repassar ao Bureau (pedido capturado
+      -- depois da recarga). Estorna-se esse valor, até o saldo a repassar ainda não pago. O lock é o de create_payout:
+      -- um repasse em curso e este estorno se enfileiram. O que sobra continua em refund_shortfall (o M6 cobre).
+      if v_charge.client_profile_id is not null and v_shortfall > 0 then
+        perform pg_catalog.pg_advisory_xact_lock(
+          pg_catalog.hashtextextended('payout:' || v_charge.bureau_id::text, 0));
+        select coalesce(sum(e.amount), 0) into v_payable
+          from public.bureau_payable_entries e where e.bureau_id = v_charge.bureau_id;
+        v_clawback := least(v_shortfall, greatest(v_payable, 0));
+      end if;
+      update public.pix_charges
+         set status = 'refunded', refund_shortfall = v_shortfall - v_clawback where id = v_charge.id;
+      if v_clawback > 0 then
+        insert into public.bureau_payable_entries (bureau_id, kind, amount, pix_charge_id)
+        values (v_charge.bureau_id, 'reversal', -v_clawback, v_charge.id);
+      end if;
       if v_reversed > 0 then
         if v_charge.client_profile_id is null then
           select * into v_post from public.wallet_post_entry(
@@ -293,9 +361,13 @@ begin
       insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
       values (v_charge.bureau_id, v_charge.requested_by, 'wallet.reversal', v_audit_table, v_audit_record,
         jsonb_build_object('source', 'asaas_webhook', 'pix_charge_id', v_charge.id,
-          'amount', v_reversed::text, 'shortfall', v_shortfall::text));
+          'amount', v_reversed::text, 'shortfall', v_shortfall::text, 'payable_reversal', v_clawback::text));
       v_result := 'refunded';
     end if;
+  elsif p_event_type = 'PAYMENT_PARTIALLY_REFUNDED' then
+    -- Estorno parcial: o M6 decide como tratar o dinheiro. Aqui nenhum saldo muda; o evento fica gravado (com o corpo)
+    -- sob este resultado, que a operação enxerga.
+    v_result := 'partial_refund_ignored';
   else
     v_result := 'ignored';
   end if;

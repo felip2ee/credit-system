@@ -1,8 +1,9 @@
 -- M3b: fecha duas lacunas da 016. A 003–016 já foram aplicadas e não mudam.
--- 1) Duas funções de consulta da NFS-e:
+-- 1) Três funções de consulta da NFS-e:
 --    nfse_charge_by_payment (app_webhook): liga o id do pagamento do Asaas ao id da cobrança, que set_nfse_status exige.
 --    nfse_charge_payment (superadmin sem suporte): devolve o id do pagamento do Asaas, o valor e o Bureau para a nova
 --    tentativa da nota (o Bureau alvo vai na auditoria do nfse.retry).
+--    nfse_charge_by_invoice (app_webhook): liga o id da nota do Asaas (pix_charges.asaas_invoice_id) à cobrança.
 --    O id do pagamento do Asaas não sai para nenhuma outra role.
 -- 2) Auditoria com bureau_id alvo para payout.create, payout.pay, payout.cancel e nfse.retry (superadmin sem suporte).
 
@@ -21,7 +22,21 @@ as $$
      and c.status in ('paid', 'refunded')
 $$;
 
--- Nova tentativa: só superadmin sem suporte. A nota 'failed' ainda não tentada de novo e a 'pending' que a nova
+-- Webhook da nota: liga o id da nota do Asaas (asaas_invoice_id) à cobrança. Sem filtro de status: a nota já existe e
+-- o evento dela vale mesmo se a cobrança foi estornada depois. Só id e valor: nada do Bureau.
+create function nfse_charge_by_invoice(p_asaas_invoice_id text)
+returns table (charge_id uuid, amount numeric)
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select c.id, c.amount
+    from public.pix_charges c
+   where c.asaas_invoice_id = p_asaas_invoice_id
+$$;
+
+-- Nova tentativa: só superadmin sem suporte, só de cobrança paga. A nota 'failed' ainda não tentada de novo e a 'pending' que a nova
 -- tentativa acabou de criar (nfse_attempts > 0, depois de request_nfse_retry); as demais não têm o que reenviar.
 create function nfse_charge_payment(p_charge_id uuid)
 returns table (asaas_payment_id text, amount numeric, bureau_id uuid)
@@ -41,7 +56,7 @@ begin
     select c.asaas_payment_id, c.amount, c.bureau_id
       from public.pix_charges c
      where c.id = p_charge_id
-       and c.status in ('paid', 'refunded')
+       and c.status = 'paid'
        and (c.nfse_status = 'failed' or (c.nfse_status = 'pending' and c.nfse_attempts > 0));
 end
 $$;
@@ -74,13 +89,16 @@ end
 $$;
 
 alter function nfse_charge_by_payment(text) owner to auth_profile_lookup;
+alter function nfse_charge_by_invoice(text) owner to auth_profile_lookup;
 alter function nfse_charge_payment(uuid) owner to auth_profile_lookup;
 alter function audit_nfse_retry_backed(uuid, uuid) owner to auth_profile_lookup;
 
 revoke all on function nfse_charge_by_payment(text) from public, app_runtime;
+revoke all on function nfse_charge_by_invoice(text) from public, app_runtime;
 revoke all on function nfse_charge_payment(uuid) from public;
 revoke all on function audit_nfse_retry_backed(uuid, uuid) from public;
 grant execute on function nfse_charge_by_payment(text) to app_webhook;
+grant execute on function nfse_charge_by_invoice(text) to app_webhook;
 grant execute on function nfse_charge_payment(uuid) to app_runtime;
 grant execute on function audit_nfse_retry_backed(uuid, uuid) to app_runtime;
 
