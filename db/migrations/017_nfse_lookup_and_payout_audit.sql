@@ -1,4 +1,5 @@
--- M3b: fecha duas lacunas da 016. A 003–016 já foram aplicadas e não mudam.
+-- M3b: fecha duas lacunas da 016. A 015–020 são base editável até o primeiro deploy em produção: a branch edita a
+-- 016–019 no lugar. Banco de dev que já aplicou uma versão antiga precisa de npm run db:reset após o pull.
 -- 1) Três funções de consulta da NFS-e:
 --    nfse_charge_by_payment (app_webhook): liga o id do pagamento do Asaas ao id da cobrança, que set_nfse_status exige.
 --    nfse_charge_payment (superadmin sem suporte): devolve o id do pagamento do Asaas, o valor e o Bureau para a nova
@@ -8,15 +9,15 @@
 -- 2) Auditoria com bureau_id alvo para payout.create, payout.pay, payout.cancel e nfse.retry (superadmin sem suporte).
 
 -- Webhook: cobrança paga ou estornada do pagamento. Sem linha = pagamento desconhecido ou ainda não pago.
--- Só id e valor: nada do Bureau.
+-- Só id, valor e o id da nota gravada (o webhook ignora evento de outra nota): nada do Bureau.
 create function nfse_charge_by_payment(p_asaas_payment_id text)
-returns table (charge_id uuid, amount numeric)
+returns table (charge_id uuid, amount numeric, asaas_invoice_id text)
 language sql
 stable
 security definer
 set search_path = pg_catalog, public
 as $$
-  select c.id, c.amount
+  select c.id, c.amount, c.asaas_invoice_id
     from public.pix_charges c
    where c.asaas_payment_id = p_asaas_payment_id
      and c.status in ('paid', 'refunded')

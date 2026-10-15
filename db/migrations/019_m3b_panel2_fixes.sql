@@ -1,4 +1,5 @@
--- M3b: segunda leva de correções do painel. A 003–018 já foram aplicadas e não mudam.
+-- M3b: segunda leva de correções do painel. A 015–020 são base editável até o primeiro deploy em produção: a branch
+-- edita a 016–019 no lugar. Banco de dev que já aplicou uma versão antiga precisa de npm run db:reset após o pull.
 -- 1) Reserva retomada por estorno de PIX: capture_order e release_order deixam de travar o pedido em 'reserved'.
 --    release_order devolve ao disponível o que sobrou da reserva (no máximo o valor do pedido) e fecha o pedido como
 --    'released'. capture_order não captura: devolve o que sobrou, fecha o pedido como 'released', não gera valor a
@@ -10,7 +11,7 @@
 --    do mais antigo ao mais novo (order_settlements.seq) e capture_order/release_order usam só o que sobra ao próprio
 --    pedido (order_reservation_left). Um pedido não perde nem devolve a reserva de outro.
 -- 6) Estorno de PIX do cliente: o que a carteira não cobre (refund_shortfall) estorna, até o saldo a repassar ainda
---    não pago do Bureau, o valor a repassar (lançamento reversal em bureau_payable_entries, ligado à cobrança por
+--    não pago do Bureau (fora de qualquer repasse, aberto ou pago), o valor a repassar (lançamento reversal em bureau_payable_entries, ligado à cobrança por
 --    pix_charge_id). refund_shortfall guarda só o que restou depois disso.
 -- 7) PAYMENT_PARTIALLY_REFUNDED não mexe em saldo: o evento fica registrado com o resultado 'partial_refund_ignored'.
 -- 4) Sai o índice pix_charges_bureau_created_idx (012): a 018 criou pix_charges_bureau_own_created_idx, que atende
@@ -410,8 +411,13 @@ begin
       if v_charge.client_profile_id is not null and v_shortfall > 0 then
         perform pg_catalog.pg_advisory_xact_lock(
           pg_catalog.hashtextextended('payout:' || v_charge.bureau_id::text, 0));
+        -- Só o que nenhum repasse pegou (o mesmo conjunto de create_payout): o valor de um repasse aberto não
+        -- sofre estorno, porque o lançamento "payout" (−) só nasce ao marcar como pago.
         select coalesce(sum(e.amount), 0) into v_payable
-          from public.bureau_payable_entries e where e.bureau_id = v_charge.bureau_id;
+          from public.bureau_payable_entries e
+         where e.bureau_id = v_charge.bureau_id
+           and e.kind in ('accrual', 'reversal')
+           and not exists (select 1 from public.payout_items i where i.entry_id = e.id);
         v_clawback := least(v_shortfall, greatest(v_payable, 0));
       end if;
       update public.pix_charges
@@ -463,13 +469,13 @@ $$;
 -- 2) Webhook: só cobrança paga. set_nfse_status (016) segue aceitando 'paid' e 'refunded' para a cobrança que foi
 -- paga, recebeu a nota e só depois foi estornada; o que muda é que um estorno não abre mais nota nova.
 create or replace function nfse_charge_by_payment(p_asaas_payment_id text)
-returns table (charge_id uuid, amount numeric)
+returns table (charge_id uuid, amount numeric, asaas_invoice_id text)
 language sql
 stable
 security definer
 set search_path = pg_catalog, public
 as $$
-  select c.id, c.amount
+  select c.id, c.amount, c.asaas_invoice_id
     from public.pix_charges c
    where c.asaas_payment_id = p_asaas_payment_id
      and c.status = 'paid'

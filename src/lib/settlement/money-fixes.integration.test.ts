@@ -260,6 +260,54 @@ describe("A1: estorno de PIX do cliente reverte o valor a repassar", () => {
 		expect(await chargeRow(charge.id)).toEqual({ status: "refunded", refund_shortfall: "100.00" });
 	});
 
+	it("never reverses an accrual already selected into an open payout, and keeps the whole shortfall", async () => {
+		const { t, charge } = await setup("A1 aberto", "100.00", "100.00");
+		await placeAndCapture(t, "100.00", "30.00"); // +70
+		const open = await committed(superadminCtx(), (c) =>
+			c
+				.query<{ payout_id: string; amount: string }>("select * from create_payout($1, now() + interval '1 day')", [
+					t.bureau.id,
+				])
+				.then((r) => r.rows[0]),
+		);
+		expect(open.amount).toBe("70.00");
+
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		expect((await payable(t.bureau.id)).map((r) => r.kind)).toEqual(["accrual"]);
+		expect(await chargeRow(charge.id)).toEqual({ status: "refunded", refund_shortfall: "100.00" });
+
+		// Pagar o repasse inteiro não deixa nenhum estorno solto para abater de acréscimos futuros.
+		await committed(superadminCtx(), (c) =>
+			c.query("select * from mark_payout_paid($1, $2, 'application/pdf', $3)", [
+				open.payout_id,
+				`receipts/${randomUUID()}.pdf`,
+				createHash("sha256").update(randomUUID()).digest("hex"),
+			]),
+		);
+		expect((await payable(t.bureau.id)).map((r) => r.kind)).toEqual(["accrual", "payout"]);
+		expect(await payableBalance(t.bureau.id)).toBe("0.00");
+	});
+
+	it("reverses only the part of the balance that no payout holds", async () => {
+		const { t, charge } = await setup("A1 misto", "200.00", "100.00");
+		await placeAndCapture(t, "100.00", "30.00"); // +70, vai para o repasse aberto
+		await committed(superadminCtx(), (c) =>
+			c.query("select * from create_payout($1, now() + interval '1 day')", [t.bureau.id]),
+		);
+		await placeAndCapture(t, "100.00", "50.00"); // +50, livre
+
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		const rows = await payable(t.bureau.id);
+		expect(rows.map((r) => [r.kind, r.amount])).toEqual([
+			["accrual", "70.00"],
+			["accrual", "50.00"],
+			["reversal", "-50.00"],
+		]);
+		expect(await chargeRow(charge.id)).toEqual({ status: "refunded", refund_shortfall: "50.00" });
+	});
+
 	it("pays the netted amount and never counts a reversal twice", async () => {
 		const { t, charge } = await setup("A1 repasse", "200.00", "100.00");
 		await placeAndCapture(t, "100.00", "30.00"); // +70

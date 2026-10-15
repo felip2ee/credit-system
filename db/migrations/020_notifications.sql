@@ -1,10 +1,28 @@
--- M4: notificações (e-mail e WhatsApp). A 001-019 já foram aplicadas e não mudam.
+-- M4: notificações (e-mail e WhatsApp). A 015–020 são base editável até o primeiro deploy em produção. Banco de dev
+-- que já aplicou uma versão antiga precisa de npm run db:reset após o pull.
 -- Fila (outbox) em Postgres: notification_templates (versionados, imutáveis), notifications (fila + estado),
 -- notification_events (log só de acréscimo) e notification_opt_outs (sem grant para a aplicação).
 -- Toda escrita passa por função SECURITY DEFINER com dono auth_profile_lookup (NOBYPASSRLS, sob as políticas
 -- *_gateway abaixo). app_runtime enfileira (enqueue_notification) e pede nova tentativa (retry_notification).
--- app_webhook, sem grant de tabela, pega o lote, conclui, aplica status da Meta e grava opt-out.
+-- app_dispatch (worker), sem grant de tabela, pega o lote e conclui: só ela lê recipient e params em claro.
+-- app_webhook, sem grant de tabela, aplica status da Meta e grava opt-out.
 -- recipient e params (dado pessoal) somem no estado final; só recipient_masked e recipient_hash ficam.
+
+-- Role do worker de notificações (mesmo padrão da app_webhook, 014). A senha vem do provisionamento (docker/postgres/init).
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'app_dispatch') then
+    create role app_dispatch login;
+  end if;
+end
+$$;
+alter role app_dispatch NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+grant usage on schema public to app_dispatch;
+do $$
+begin
+  execute format('grant connect on database %I to app_dispatch', current_database());
+end
+$$;
 
 create table notification_templates (
   id uuid primary key default gen_random_uuid(),
@@ -55,6 +73,9 @@ create table notifications (
   created_at timestamptz not null default now(),
   sent_at timestamptz,
   updated_at timestamptz not null default now(),
+  -- Pode ir para nova tentativa manual: falhou e a Meta/retenção ainda não apagou o destinatário. É a mesma condição de
+  -- retry_notification; existe para a aplicação, que não lê recipient, saber se mostra o botão.
+  retryable boolean generated always as (status = 'failed' and recipient is not null and params is not null) stored,
   unique nulls not distinct (bureau_id, idempotency_key),
   check (recipient is null or channel <> 'whatsapp' or recipient ~ '^\+[1-9][0-9]{7,14}$'),
   check (recipient is null or channel <> 'email' or recipient ~ '^[^@\s]+@[^@\s]+$'),
@@ -65,6 +86,9 @@ create index notifications_pending_due on notifications (next_attempt_at) where 
 create index notifications_sending_lease on notifications (locked_until) where status = 'sending';
 create index notifications_bureau_created on notifications (bureau_id, created_at desc, id desc);
 create index notifications_reference on notifications (reference, created_at desc) where reference is not null;
+-- Varredura de retenção do claim_notifications (failed com destinatário há mais de 7 dias) e lista global do superadmin.
+create index notifications_failed_sweep on notifications (updated_at) where status = 'failed' and recipient is not null;
+create index notifications_created on notifications (created_at desc, id desc);
 
 create table notification_events (
   id bigint generated always as identity primary key,
@@ -357,7 +381,7 @@ begin
 end
 $$;
 
--- Pega o lote do worker (app_webhook). Cada linha volta com o template já resolvido.
+-- Pega o lote do worker (app_dispatch). Cada linha volta com o template já resolvido.
 create function claim_notifications(p_limit integer)
 returns table (
   id uuid, lease_id uuid, channel text, recipient text, params jsonb, attempts integer, opted_out boolean,
@@ -430,7 +454,7 @@ begin
 end
 $$;
 
--- Resultado da tentativa (app_webhook). Só vale para a lease que o worker recebeu no claim.
+-- Resultado da tentativa (app_dispatch). Só vale para a lease que o worker recebeu no claim.
 -- p_outcome: sent | retry | failed | suppressed.
 create function complete_notification(
   p_notification_id uuid,
@@ -665,8 +689,10 @@ grant execute on function notification_recipient_hash(text) to auth_profile_look
 grant execute on function enqueue_notification(text, text, text, text, jsonb, text, text) to app_runtime;
 grant execute on function retry_notification(uuid) to app_runtime;
 grant execute on function supersede_notifications(text, text) to app_runtime;
-grant execute on function claim_notifications(integer) to app_webhook;
-grant execute on function complete_notification(uuid, uuid, text, text, text) to app_webhook;
+-- claim_notifications devolve destinatário e parâmetros em claro (código e link do SCR): só o worker executa. O webhook
+-- público (app_webhook) não, para que uma execução de código nele não leia os códigos de consentimento.
+grant execute on function claim_notifications(integer) to app_dispatch;
+grant execute on function complete_notification(uuid, uuid, text, text, text) to app_dispatch;
 grant execute on function apply_whatsapp_status(text, text, text, timestamptz) to app_webhook;
 grant execute on function record_notification_opt_out(text, text) to app_webhook;
 
@@ -693,11 +719,11 @@ create policy notification_templates_select on notification_templates for select
 );
 
 revoke all on notification_templates, notifications, notification_events, notification_opt_outs
-  from public, app_runtime, app_webhook, auth_profile_lookup;
+  from public, app_runtime, app_webhook, app_dispatch, auth_profile_lookup;
 grant select on notification_templates to app_runtime;
 -- recipient, params, recipient_hash, idempotency_key, lease_id e provider_message_id ficam fora do alcance da aplicação.
 grant select (id, bureau_id, template_id, channel, recipient_masked, reference, status, attempts, max_attempts,
-  next_attempt_at, last_error_code, created_by, created_at, sent_at, updated_at) on notifications to app_runtime;
+  next_attempt_at, last_error_code, created_by, created_at, sent_at, updated_at, retryable) on notifications to app_runtime;
 grant select (id, notification_id, bureau_id, kind, error_code, occurred_at, created_at)
   on notification_events to app_runtime;
 grant select on notification_templates, notifications, notification_events, notification_opt_outs to backup_reader;
