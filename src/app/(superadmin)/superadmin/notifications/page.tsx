@@ -9,12 +9,8 @@ import { Button } from "@/components/ui/button";
 import { getRequiredSession } from "@/lib/auth/session";
 import { listBureauMetrics } from "@/lib/bureaus/queries";
 import { hasPermission } from "@/lib/db/permissions";
-import {
-  listNotifications,
-  listTemplates,
-  type NotificationStatus,
-} from "@/lib/notifications/queries";
-import type { NotificationChannel } from "@/lib/notifications/types";
+import { listNotifications, listTemplates } from "@/lib/notifications/queries";
+import type { NotificationChannel, NotificationStatus } from "@/lib/notifications/types";
 
 export const metadata = { title: "Notificações" };
 

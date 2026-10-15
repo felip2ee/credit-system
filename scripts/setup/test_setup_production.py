@@ -45,7 +45,7 @@ def answers(**overrides):
         "DEPS_PRODUTO_PJ": "Smart PJ 010",
         "OPENAI_MODEL": "gpt-4o",
         "BACKUP_ALERT_TO": "ops@exemplo.com.br",
-        "WHATSAPP_DRIVER": "fake",
+        "WHATSAPP_DRIVER": "",
         "WHATSAPP_PHONE_NUMBER_ID": "",
         "WHATSAPP_GRAPH_VERSION": "v21.0",
         "REINO_IMAGE_OWNER": "felip2ee",
@@ -121,6 +121,12 @@ class Building(unittest.TestCase):
     def test_env_keys_have_whatsapp_settings(self):
         for key in ("WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION"):
             self.assertIn(key, sp.ENV_KEYS)
+
+    def test_whatsapp_driver_defaults_to_off_and_refuses_fake(self):
+        _, _, default, validator = next(q for q in sp.QUESTIONS if q[0] == "WHATSAPP_DRIVER")
+        self.assertEqual(default, "")
+        self.assertTrue(validator("") and validator("meta"))
+        self.assertFalse(validator("fake"))
 
     def test_generates_superadmin_password_when_blank(self):
         values = sp.build_secrets({**PROVIDED, "superadmin_password": ""})

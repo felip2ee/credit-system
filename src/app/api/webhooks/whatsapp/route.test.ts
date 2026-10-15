@@ -131,8 +131,24 @@ describe("GET /api/webhooks/whatsapp", () => {
 		expect((await get(params)).status).toBe(403);
 	});
 
-	it("returns 500 when WhatsApp is not configured", async () => {
+	it("returns 404 when WhatsApp is turned off", async () => {
 		state.readWhatsappConfig.mockReturnValue(null);
+
+		expect(
+			(
+				await get({
+					"hub.mode": "subscribe",
+					"hub.verify_token": VERIFY,
+					"hub.challenge": "1",
+				})
+			).status,
+		).toBe(404);
+	});
+
+	it("returns 500 when the WhatsApp configuration is invalid", async () => {
+		state.readWhatsappConfig.mockImplementation(() => {
+			throw new Error("WHATSAPP_APP_SECRET must be at least 32 characters");
+		});
 		vi.spyOn(console, "error").mockImplementation(() => {});
 
 		expect(
@@ -191,13 +207,53 @@ describe("POST /api/webhooks/whatsapp signature", () => {
 		expect(state.query).not.toHaveBeenCalled();
 	});
 
+	it("returns 413 on a content-length above the limit, without waiting for the body", async () => {
+		const body = new ReadableStream<Uint8Array>({ pull: () => {} });
+		const request = new Request("http://localhost/api/webhooks/whatsapp", {
+			method: "POST",
+			headers: { "content-length": "262145" },
+			body,
+			duplex: "half",
+		} as RequestInit);
+
+		expect((await POST(request)).status).toBe(413);
+		expect(state.query).not.toHaveBeenCalled();
+	});
+
+	it("aborts a streamed body that passes the limit without a content-length", async () => {
+		let sent = 0;
+		const body = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				sent += 65_536;
+				controller.enqueue(new Uint8Array(65_536));
+			},
+		});
+		const request = new Request("http://localhost/api/webhooks/whatsapp", {
+			method: "POST",
+			body,
+			duplex: "half",
+		} as RequestInit);
+
+		expect((await POST(request)).status).toBe(413);
+		expect(sent).toBeLessThan(262_144 + 4 * 65_536);
+		expect(state.query).not.toHaveBeenCalled();
+	});
+
 	it("returns 400 for broken JSON with a valid signature", async () => {
 		expect((await post("{broken")).status).toBe(400);
 		expect(state.query).not.toHaveBeenCalled();
 	});
 
-	it("returns 500 when the app secret is missing", async () => {
+	it("returns 404 when WhatsApp is turned off", async () => {
 		state.readWhatsappConfig.mockReturnValue(null);
+
+		expect((await post(statusBody)).status).toBe(404);
+	});
+
+	it("returns 500 when the app secret is missing", async () => {
+		state.readWhatsappConfig.mockImplementation(() => {
+			throw new Error("WHATSAPP_APP_SECRET is required");
+		});
 		vi.spyOn(console, "error").mockImplementation(() => {});
 
 		expect((await post(statusBody)).status).toBe(500);

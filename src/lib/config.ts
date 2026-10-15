@@ -198,14 +198,15 @@ function secretOfMinLength(env: Environment, name: string, min: number): string 
 }
 
 // Lida sob demanda (fora de readConfig). Driver vazio = WhatsApp desligado: null.
-// O webhook compara phoneNumberId nos dois drivers; "fake" nunca roda em produção.
+// Em produção, "fake" e WHATSAPP_PHONE_NUMBER_ID vazio também desligam o canal (o docker-stack.yml entrega esses
+// padrões quando o WhatsApp não foi configurado); fora dela, "fake" é permitido e o número vazio é erro.
+// O webhook compara phoneNumberId nos dois drivers.
 export function readWhatsappConfig(env: Environment): WhatsappConfig | null {
   const driver = env.WHATSAPP_DRIVER?.trim();
   if (!driver) return null;
   if (driver !== "meta" && driver !== "fake") throw new Error("WHATSAPP_DRIVER must be meta or fake");
-  if (driver === "fake" && env.NODE_ENV === "production") {
-    throw new Error("WHATSAPP_DRIVER=fake is not allowed in production");
-  }
+  const isProduction = env.NODE_ENV === "production";
+  if (isProduction && (driver === "fake" || !env.WHATSAPP_PHONE_NUMBER_ID?.trim())) return null;
 
   const phoneNumberId = required(env, "WHATSAPP_PHONE_NUMBER_ID");
   if (!/^\d+$/.test(phoneNumberId)) throw new Error("WHATSAPP_PHONE_NUMBER_ID must contain only digits");

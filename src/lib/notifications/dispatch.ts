@@ -31,7 +31,13 @@ async function send(notification: ClaimedNotification): Promise<SendResult> {
 		return notification.channel === "email"
 			? await sendEmailNotification(notification)
 			: await sendWhatsappNotification(notification);
-	} catch {
+	} catch (error) {
+		// Só o nome da classe: a mensagem pode trazer destinatário, parâmetro ou token.
+		console.warn("[notifications] erro inesperado no envio", {
+			id: notification.id,
+			channel: notification.channel,
+			name: error instanceof Error ? error.name : typeof error,
+		});
 		return { ok: false, permanent: false, code: "unexpected_error" };
 	}
 }

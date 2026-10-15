@@ -115,7 +115,7 @@ QUESTIONS: list[tuple[str, str, str, Callable[[str], bool]]] = [
     ("DEPS_PRODUTO_PJ", "Produto DEPS PJ", "Smart PJ 010", _nonempty),
     ("OPENAI_MODEL", "Modelo OpenAI", "gpt-4o", _nonempty),
     ("BACKUP_ALERT_TO", "E-mail para alertas de backup", "", valid_email),
-    ("WHATSAPP_DRIVER", "Driver do WhatsApp (fake = desligado; meta = Cloud API)", "fake", _nonempty),
+    ("WHATSAPP_DRIVER", "Driver do WhatsApp (vazio = desligado; meta = Cloud API)", "", lambda v: v in ("", "meta")),
     ("WHATSAPP_PHONE_NUMBER_ID", "ID do número do WhatsApp (vazio = WhatsApp desligado)", "", _any),
     ("WHATSAPP_GRAPH_VERSION", "Versão da Graph API da Meta", "v21.0", _nonempty),
     ("REINO_IMAGE_OWNER", "Dono das imagens no GHCR", "felip2ee", _nonempty),

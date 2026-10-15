@@ -1,5 +1,5 @@
 // Lógica pura das telas de notificação. Client-safe: só importa tipos.
-import type { NotificationStatus } from "@/lib/notifications/queries";
+import type { NotificationStatus } from "@/lib/notifications/types";
 
 export type NotificationBadgeVariant = "secondary" | "success" | "destructive" | "muted";
 

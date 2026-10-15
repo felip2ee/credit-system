@@ -14,19 +14,38 @@ const MAX_CHALLENGE_DIGITS = 64;
 
 const respond = (status: number) => new Response(null, { status });
 
-function readConfig() {
+// null = WhatsApp desligado (404); configuração inválida lança e a rota responde 500.
+function readConfig(): { config: ReturnType<typeof readWhatsappConfig>; invalid: boolean } {
 	try {
-		const config = readWhatsappConfig(process.env);
-		if (config) return config;
-		console.error(
-			"[whatsapp-webhook] WhatsApp desligado: WHATSAPP_DRIVER vazio",
-		);
+		return { config: readWhatsappConfig(process.env), invalid: false };
 	} catch (error) {
 		console.error("[whatsapp-webhook] configuração inválida", {
 			name: error instanceof Error ? error.name : typeof error,
 		});
+		return { config: null, invalid: true };
 	}
-	return null;
+}
+
+// Lê o corpo aos pedaços e aborta ao passar do limite: nunca guarda mais que WHATSAPP_MAX_BODY_BYTES.
+async function readBodyWithin(request: Request, maxBytes: number): Promise<Buffer | null> {
+	const declared = Number(request.headers.get("content-length"));
+	if (Number.isFinite(declared) && declared > maxBytes) return null;
+	if (!request.body) return Buffer.alloc(0);
+
+	const reader = request.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.length;
+		if (total > maxBytes) {
+			await reader.cancel();
+			return null;
+		}
+		chunks.push(value);
+	}
+	return Buffer.concat(chunks);
 }
 
 // Só nome e código: nunca o corpo, o remetente, o texto nem o header de assinatura.
@@ -38,8 +57,9 @@ function logFailure(error: unknown): void {
 }
 
 export async function GET(request: Request): Promise<Response> {
-	const config = readConfig();
-	if (!config) return respond(500);
+	const { config, invalid } = readConfig();
+	if (invalid) return respond(500);
+	if (!config) return respond(404);
 
 	const params = new URL(request.url).searchParams;
 	const challenge = params.get("hub.challenge") ?? "";
@@ -57,8 +77,9 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-	const config = readConfig();
-	if (!config) return respond(500);
+	const { config, invalid } = readConfig();
+	if (invalid) return respond(500);
+	if (!config) return respond(404);
 	try {
 		readWebhookDatabaseUrl(process.env);
 	} catch (error) {
@@ -68,8 +89,8 @@ export async function POST(request: Request): Promise<Response> {
 		return respond(500);
 	}
 
-	const rawBody = Buffer.from(await request.arrayBuffer());
-	if (rawBody.length > WHATSAPP_MAX_BODY_BYTES) return respond(413);
+	const rawBody = await readBodyWithin(request, WHATSAPP_MAX_BODY_BYTES);
+	if (!rawBody) return respond(413);
 	if (
 		!signatureMatches(
 			rawBody,

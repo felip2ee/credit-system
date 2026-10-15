@@ -340,9 +340,18 @@ describe("readWhatsappConfig", () => {
     });
   });
 
-  it("refuses the fake driver in production", () => {
-    expect(() => readWhatsappConfig({ ...shared, WHATSAPP_DRIVER: "fake", NODE_ENV: "production" })).toThrow(
-      "WHATSAPP_DRIVER=fake is not allowed in production",
+  it("turns WhatsApp off for the fake driver in production", () => {
+    expect(readWhatsappConfig({ ...shared, WHATSAPP_DRIVER: "fake", NODE_ENV: "production" })).toBeNull();
+  });
+
+  it("turns WhatsApp off for an empty driver or phone number id in production", () => {
+    expect(readWhatsappConfig({ ...shared, WHATSAPP_DRIVER: "", NODE_ENV: "production" })).toBeNull();
+    expect(readWhatsappConfig({ ...meta, WHATSAPP_PHONE_NUMBER_ID: " ", NODE_ENV: "production" })).toBeNull();
+  });
+
+  it("still refuses an empty phone number id outside production", () => {
+    expect(() => readWhatsappConfig({ ...meta, WHATSAPP_PHONE_NUMBER_ID: "" })).toThrow(
+      "WHATSAPP_PHONE_NUMBER_ID is required",
     );
   });
 

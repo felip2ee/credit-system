@@ -38,7 +38,7 @@ export async function sendScrSelfAuthorization(scrId: string): Promise<SendSelfR
   const code = generateCode();
   const issued = await issueSelfScrAuthorization(session, scrId, {
     code, email, consentText: consent.fullText, consentName: clientName, consentDocument: document,
-    notification: { recipient: email, clientName, authorizedName: term.authorizedName, siteUrl: siteUrl() },
+    notification: { recipient: email, clientName: scr.name?.trim() || scr.holder_name?.trim() || "cliente", authorizedName: term.authorizedName, siteUrl: siteUrl() },
   });
   if (!issued.ok) return { error: ISSUE_ERRORS[issued.reason] ?? ENQUEUE_ERROR };
   revalidatePath("/scr");

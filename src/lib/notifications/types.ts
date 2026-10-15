@@ -1,5 +1,14 @@
 export type NotificationChannel = "email" | "whatsapp";
 
+export type NotificationStatus =
+	| "pending"
+	| "sending"
+	| "sent"
+	| "delivered"
+	| "read"
+	| "failed"
+	| "suppressed";
+
 // Linha devolvida por claim_notifications (colunas em snake_case, como o pg entrega).
 // Campos do outro canal vêm nulos.
 export interface ClaimedNotification {

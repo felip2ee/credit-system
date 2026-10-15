@@ -29,17 +29,25 @@ const SMTP_TRANSIENT_CODES: Record<string, string> = {
 	ESOCKET: "smtp_connection",
 };
 
+// 530/534/535: o servidor recusou as credenciais (erro nosso, não do destinatário); tenta de novo depois do ajuste.
+const SMTP_AUTH_RESPONSE_CODES = new Set([530, 534, 535]);
+
 export function classifySmtpError(error: unknown): ErrorClassification {
 	const info = asRecord(error);
 	const responseCode = typeof info?.responseCode === "number" ? info.responseCode : null;
+	const errorCode = typeof info?.code === "string" ? info.code : "";
+	if (errorCode === "EAUTH" || (responseCode !== null && SMTP_AUTH_RESPONSE_CODES.has(responseCode))) {
+		return { permanent: false, code: "smtp_auth" };
+	}
+	// Remetente ou destinatário recusado antes do envio: repetir não muda nada.
+	if (errorCode === "EENVELOPE") return { permanent: true, code: "smtp_envelope" };
 	if (responseCode !== null && responseCode >= 500 && responseCode < 600) {
 		return { permanent: true, code: "smtp_rejected" };
 	}
 	if (responseCode !== null && responseCode >= 400 && responseCode < 500) {
 		return { permanent: false, code: "smtp_deferred" };
 	}
-	const code = typeof info?.code === "string" ? info.code : "";
-	return { permanent: false, code: SMTP_TRANSIENT_CODES[code] ?? "smtp_error" };
+	return { permanent: false, code: SMTP_TRANSIENT_CODES[errorCode] ?? "smtp_error" };
 }
 
 const GRAPH_TEMPLATE_CODES = new Set([132000, 132001, 132005, 132007, 132012, 132015, 132016]);

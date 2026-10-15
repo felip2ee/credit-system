@@ -94,18 +94,38 @@ describe("sendWhatsappNotification", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("is transient invalid_response when Meta returns no messages[0].id", async () => {
+	it("is permanent ambiguous_success when Meta returns 2xx without messages[0].id", async () => {
 		fetchMock.mockResolvedValue(jsonResponse({ messages: [] }));
 		expect(await sendWhatsappNotification(notification)).toEqual({
 			ok: false,
-			permanent: false,
-			code: "invalid_response",
+			permanent: true,
+			code: "ambiguous_success",
 		});
 	});
 
-	it("is transient invalid_response when the body is not JSON", async () => {
+	it("is permanent ambiguous_success when a 2xx body is not JSON", async () => {
 		fetchMock.mockResolvedValue(new Response("<html>", { status: 200 }));
-		expect(await sendWhatsappNotification(notification)).toMatchObject({ permanent: false, code: "invalid_response" });
+		expect(await sendWhatsappNotification(notification)).toMatchObject({ permanent: true, code: "ambiguous_success" });
+	});
+
+	it("is permanent ambiguous_success when reading a 2xx body times out", async () => {
+		const response = new Response("{}", { status: 200 });
+		vi.spyOn(response, "json").mockRejectedValue(new DOMException("The operation timed out", "TimeoutError"));
+		fetchMock.mockResolvedValue(response);
+		expect(await sendWhatsappNotification(notification)).toEqual({
+			ok: false,
+			permanent: true,
+			code: "ambiguous_success",
+		});
+	});
+
+	it("still classifies a non-2xx response whose body is not JSON by status", async () => {
+		fetchMock.mockResolvedValue(new Response("bad gateway", { status: 502 }));
+		expect(await sendWhatsappNotification(notification)).toEqual({
+			ok: false,
+			permanent: false,
+			code: "provider_unavailable",
+		});
 	});
 
 	it("classifies a Meta error body", async () => {

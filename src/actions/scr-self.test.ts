@@ -55,6 +55,16 @@ describe("sendScrSelfAuthorization", () => {
     );
   });
 
+  it("never puts the document in the notification params when the record has no name", async () => {
+    state.resolve.mockResolvedValueOnce({ type: "PF", document: "39053344705", email: "titular@example.test" });
+
+    await expect(sendScrSelfAuthorization("scr-1")).resolves.toEqual({ error: null });
+
+    const input = (state.issue.mock.calls[0] as unknown[])[2] as { notification: { clientName: string } };
+    expect(input.notification.clientName).toBe("cliente");
+    expect(JSON.stringify(input.notification)).not.toContain("39053344705");
+  });
+
   it("refuses an invalid recipient before issuing a code", async () => {
     state.resolve.mockResolvedValueOnce({ type: "PF", document: "39053344705", email: "sem-arroba", name: "Titular" });
 

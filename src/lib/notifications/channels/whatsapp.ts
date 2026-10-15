@@ -44,11 +44,19 @@ export async function sendWhatsappNotification(notification: ClaimedNotification
 		return { ok: false, ...classifyGraphError(null, null, error) };
 	}
 
-	const body: unknown = await response.json().catch(() => null);
+	let body: unknown = null;
+	let bodyError: unknown = null;
+	try {
+		body = await response.json();
+	} catch (error) {
+		bodyError = error;
+	}
 	if (!response.ok) return { ok: false, ...classifyGraphError(response.status, body, null) };
 
+	// 2xx: a Meta aceitou o pedido. Sem id legível não dá para saber se a mensagem saiu (inclui timeout na leitura
+	// do corpo); tentar de novo pode duplicar a mensagem, então não repete. O código vai para o log do worker.
 	const messages = (body as { messages?: Array<{ id?: unknown }> } | null)?.messages;
 	const id = messages?.[0]?.id;
-	if (typeof id !== "string" || !id) return { ok: false, permanent: false, code: "invalid_response" };
+	if (bodyError || typeof id !== "string" || !id) return { ok: false, permanent: true, code: "ambiguous_success" };
 	return { ok: true, providerMessageId: id };
 }

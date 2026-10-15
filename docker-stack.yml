@@ -30,7 +30,7 @@ services:
       DEPS_PRODUTO_PF: ${DEPS_PRODUTO_PF:-Smart PF 002}
       DEPS_PRODUTO_PJ: ${DEPS_PRODUTO_PJ:-Smart PJ 010}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
-      WHATSAPP_DRIVER: ${WHATSAPP_DRIVER:-fake}
+      WHATSAPP_DRIVER: ${WHATSAPP_DRIVER:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       WHATSAPP_GRAPH_VERSION: ${WHATSAPP_GRAPH_VERSION:-v21.0}
       DATABASE_URL_FILE: /run/secrets/database_url
@@ -78,7 +78,8 @@ services:
       labels:
         - traefik.enable=true
         - traefik.docker.network=${TRAEFIK_NETWORK:-RainhaNet}
-        - traefik.http.routers.reino_app.rule=Host(`${APP_DOMAIN:?APP_DOMAIN is required}`)
+        # /api/internal só pela rede privada do Swarm (o cron chama reino_app:3000): o roteador público não o serve.
+        - traefik.http.routers.reino_app.rule=Host(`${APP_DOMAIN:?APP_DOMAIN is required}`) && !PathPrefix(`/api/internal`)
         - traefik.http.routers.reino_app.entrypoints=websecure
         - traefik.http.routers.reino_app.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencryptresolver}
         - traefik.http.services.reino_app.loadbalancer.server.port=3000

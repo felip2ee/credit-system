@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import type { NotificationStatus } from "@/lib/notifications/queries";
+import type { NotificationStatus } from "@/lib/notifications/types";
 
 import { NOTIFICATION_BADGE } from "./notification-logic";
 

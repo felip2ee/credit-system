@@ -17,6 +17,28 @@ describe("classifySmtpError", () => {
 		expect(classifySmtpError(Object.assign(new Error("boom"), { code }))).toMatchObject({ permanent: false });
 	});
 
+	it.each([530, 534, 535])("treats an SMTP auth response %i as transient smtp_auth", (responseCode) => {
+		expect(classifySmtpError({ responseCode })).toEqual({ permanent: false, code: "smtp_auth" });
+	});
+
+	it("treats EAUTH as transient smtp_auth", () => {
+		expect(classifySmtpError(Object.assign(new Error("boom"), { code: "EAUTH" }))).toEqual({
+			permanent: false,
+			code: "smtp_auth",
+		});
+	});
+
+	it("treats EENVELOPE as permanent", () => {
+		expect(classifySmtpError(Object.assign(new Error("boom"), { code: "EENVELOPE" }))).toEqual({
+			permanent: true,
+			code: "smtp_envelope",
+		});
+	});
+
+	it("keeps other 5xx permanent", () => {
+		expect(classifySmtpError({ responseCode: 554 })).toEqual({ permanent: true, code: "smtp_rejected" });
+	});
+
 	it("treats an unknown error as transient", () => {
 		expect(classifySmtpError(new Error("boom"))).toEqual({ permanent: false, code: "smtp_error" });
 		expect(classifySmtpError(undefined)).toEqual({ permanent: false, code: "smtp_error" });

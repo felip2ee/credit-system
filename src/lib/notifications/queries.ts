@@ -7,7 +7,7 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
 import { maskRecipient, normalizeEmail, toE164 } from "./recipient";
 import { validateWhatsappParams } from "./render";
-import type { NotificationChannel } from "./types";
+import type { NotificationChannel, NotificationStatus } from "./types";
 
 export type EnqueueInput = {
 	templateKey: string;
@@ -93,15 +93,6 @@ export async function enqueueNotification(
 	}
 	return { ok: true, id: row.notification_id, duplicate: row.duplicate };
 }
-
-export type NotificationStatus =
-	| "pending"
-	| "sending"
-	| "sent"
-	| "delivered"
-	| "read"
-	| "failed"
-	| "suppressed";
 
 export type NotificationRow = {
 	id: string;

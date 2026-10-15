@@ -21,7 +21,7 @@ O M4 envia e-mail e WhatsApp por uma fila no Postgres (outbox). O serviço `noti
 
 ## 3. Configurar o deploy
 
-- Variáveis de deploy (não secretas): `WHATSAPP_DRIVER=meta`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_GRAPH_VERSION`. O padrão `WHATSAPP_DRIVER=fake` deixa o WhatsApp desligado.
+- Variáveis de deploy (não secretas): `WHATSAPP_DRIVER=meta`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_GRAPH_VERSION`. Em produção, `WHATSAPP_DRIVER` vazio (o padrão), `WHATSAPP_DRIVER=fake` ou `WHATSAPP_PHONE_NUMBER_ID` vazio deixam o WhatsApp desligado: o envio falha como `channel_not_configured` (permanente) e o webhook responde 404. Um valor inválido com o driver ligado responde 500. O driver `fake` só vale fora de produção.
 - Docker secrets: `whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token`, `notifications_dispatch_secret`.
 - O `setup_production.py` gera os dois últimos. Se você deixar vazios o token e o app secret, ele grava o marcador `whatsapp-disabled` (o Swarm não aceita secret vazio).
 - Um secret do Swarm é imutável. Para trocar o valor: remova o serviço que o usa, `docker secret rm`, recrie o secret e faça o deploy de novo.

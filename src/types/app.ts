@@ -1,7 +1,7 @@
 // Tipos de domínio do Reino do Crédito.
 // Refletem os enums e tabelas do esquema legado.
 
-import type { NotificationStatus } from "@/lib/notifications/queries";
+import type { NotificationStatus } from "@/lib/notifications/types";
 
 export type UserRole = "superadmin" | "bureau_admin" | "operator" | "client";
 
