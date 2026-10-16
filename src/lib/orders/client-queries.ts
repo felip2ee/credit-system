@@ -14,6 +14,7 @@ export type ClientOrderListItem = {
 	mode: OrderMode;
 	productCode: OrderProductCode;
 	withAi: boolean;
+	selfResearch: boolean;
 	subjectName: string;
 	subjectDocumentMasked: string;
 	state: OrderState;
@@ -29,6 +30,7 @@ type OrderRow = {
 	mode: OrderMode;
 	product_code: OrderProductCode;
 	with_ai: boolean;
+	self_research: boolean;
 	subject_name: string;
 	subject_document_masked: string;
 	state: OrderState;
@@ -38,7 +40,7 @@ type OrderRow = {
 	released_at: Date | null;
 };
 
-const ORDER_COLUMNS = `o.dossier_id, o.mode, o.product_code, o.with_ai, o.subject_name, o.subject_document_masked, o.state,
+const ORDER_COLUMNS = `o.dossier_id, o.mode, o.product_code, o.with_ai, o.self_research, o.subject_name, o.subject_document_masked, o.state,
 	o.state_reason, s.price::text as price, o.created_at, o.released_at`;
 
 const toItem = (r: OrderRow): ClientOrderListItem => ({
@@ -46,6 +48,7 @@ const toItem = (r: OrderRow): ClientOrderListItem => ({
 	mode: r.mode,
 	productCode: r.product_code,
 	withAi: r.with_ai,
+	selfResearch: r.self_research,
 	subjectName: r.subject_name,
 	subjectDocumentMasked: r.subject_document_masked,
 	state: r.state,

@@ -92,7 +92,10 @@ describe("client pdf route", () => {
 	it("returns 409 when no member has a result", async () => {
 		state.getMyDelivery.mockResolvedValue(delivery({ members: [] }));
 
-		expect((await call()).status).toBe(409);
+		const res = await call();
+		expect(res.status).toBe(409);
+		expect(res.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+		expect(await res.text()).toBe("A entrega ainda não tem resultado para gerar o PDF.");
 		expect(state.render).not.toHaveBeenCalled();
 	});
 

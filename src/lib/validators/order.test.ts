@@ -49,6 +49,24 @@ describe("clientOrderSchema", () => {
 		expect(parsed.data).toMatchObject({ self: true, withAi: true, subject: null, contactEmail: null, contactPhone: null });
 	});
 
+	it("self with empty subject strings passes and yields subject null", () => {
+		const parsed = clientOrderSchema.safeParse(
+			third({ self: true, subject: { name: "", document: "" }, contactEmail: "", contactPhone: "" }),
+		);
+		expect(parsed.success).toBe(true);
+		if (!parsed.success) return;
+		expect(parsed.data).toMatchObject({ self: true, subject: null, contactEmail: null, contactPhone: null });
+	});
+
+	it("self with an invalid document string still passes", () => {
+		const parsed = clientOrderSchema.safeParse(third({ self: true, subject: { name: "x", document: "123" } }));
+		expect(parsed.success).toBe(true);
+	});
+
+	it("third party with empty subject fails", () => {
+		expect(clientOrderSchema.safeParse(third({ subject: { name: "", document: "" } })).success).toBe(false);
+	});
+
 	it("refuses the complete dossier and a phone over 30 characters", () => {
 		expect(clientOrderSchema.safeParse(third({ productCode: "dossie_pj_completo" })).success).toBe(false);
 		expect(clientOrderSchema.safeParse(third({ contactPhone: "9".repeat(31) })).success).toBe(false);

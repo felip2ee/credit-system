@@ -52,6 +52,8 @@ export function ClientOrderForm({ products, aiPrice, selfDocumentMasked, availab
 		watch,
 		setValue,
 		getValues,
+		resetField,
+		clearErrors,
 		formState: { errors },
 	} = useForm<FormValues>({
 		// O schema transforma a saída; a validação roda no valor cru e a action recebe a entrada crua.
@@ -74,6 +76,18 @@ export function ClientOrderForm({ products, aiPrice, selfDocumentMasked, availab
 	const insufficient = toCents(available) < totalCents;
 	const documentLabel = productCode === "consulta_pf" ? "CPF" : "CNPJ";
 
+	const chooseSelf = () => {
+		setValue("self", true);
+		resetField("subject");
+		resetField("contactEmail");
+		resetField("contactPhone");
+		clearErrors();
+		setServerError(null);
+	};
+
+	// Erro em campo que não está na tela nunca pode ser silencioso: o usuário vê o aviso na região aria-live.
+	const onInvalid = () => setServerError("Revise os dados do pedido e tente novamente.");
+
 	const onSubmit = () => {
 		setServerError(null);
 		startTransition(async () => {
@@ -87,7 +101,7 @@ export function ClientOrderForm({ products, aiPrice, selfDocumentMasked, availab
 	};
 
 	return (
-		<form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
+		<form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6" noValidate>
 			<Card>
 				<CardHeader>
 					<CardTitle className="text-lg">Produto</CardTitle>
@@ -126,7 +140,7 @@ export function ClientOrderForm({ products, aiPrice, selfDocumentMasked, availab
 						<legend className="sr-only">Para quem é a pesquisa?</legend>
 						{selfDocumentMasked !== null && (
 							<label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-								<input type="radio" name="whom" checked={isSelf} onChange={() => setValue("self", true)} />
+								<input type="radio" name="whom" checked={isSelf} onChange={chooseSelf} />
 								Para mim ({selfDocumentMasked})
 							</label>
 						)}

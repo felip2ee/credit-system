@@ -45,15 +45,23 @@ const toSubject = (subject: Subject, productCode: string) => ({
 });
 
 // Pedido do cliente (portal). Própria: nome, documento e contato vêm da conta; o que o cliente digitou é descartado.
+const clearThirdParty = (v: unknown) =>
+	v && typeof v === "object" && (v as { self?: unknown }).self === true
+		? { ...v, subject: null, contactEmail: null, contactPhone: null }
+		: v;
+
 export const clientOrderSchema = z
-	.object({
+	.preprocess(
+		clearThirdParty,
+		z.object({
 		productCode: z.enum(["consulta_pf", "consulta_pj"], { errorMap: () => ({ message: "Produto inválido." }) }),
 		withAi: z.boolean(),
 		self: z.boolean(),
 		subject: subjectSchema.nullish(),
 		contactEmail: optionalEmail,
 		contactPhone: optionalPhone,
-	})
+		}),
+	)
 	.superRefine((v, ctx) => {
 		if (v.self) return;
 		if (!v.subject) {

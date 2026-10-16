@@ -65,7 +65,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 		};
 		entries.push({ view, header, role: m.type === "PJ" ? "Empresa" : kind === "PF" ? "Titular" : "Sócio" });
 	}
-	if (entries.length === 0) return new Response("Consultas sem resultado disponível.", { status: 409 });
+	if (entries.length === 0) return new Response("A entrega ainda não tem resultado para gerar o PDF.", {
+			status: 409,
+			headers: { "Content-Type": "text/plain; charset=utf-8" },
+		});
 
 	// PJ_FULL leva o parecer consolidado; PF e PJ levam o parecer da própria consulta.
 	const parecer = delivery.dossierOpinion ?? members.find((m) => m.opinion)?.opinion ?? null;
