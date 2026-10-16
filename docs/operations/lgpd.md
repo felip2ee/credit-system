@@ -75,9 +75,9 @@ O prazo de resposta é de **15 dias**. Quem atende é o admin do Bureau (`bureau
 O tick de pedidos (`POST /api/internal/orders/tick`) roda a varredura:
 
 - `lgpd_purge_technical`: apaga código de verificação, tentativa de cadastro e sessão expirados. Roda a cada rodada, sempre, com `pg_try_advisory_xact_lock`.
-- `lgpd_purge_bureau`: roda só com `LGPD_PURGE_ENABLED=1`. O padrão é desligado, até o jurídico aprovar os prazos de retenção (spec D4). Quando ligada, roda no máximo uma vez a cada 24 h e processa até 100 titulares por Bureau por execução. Para cada Bureau ativo, anonimiza titulares sem atividade há 5 anos e sem pedido aberto. Apaga autorizações SCR expiradas há 5 anos. Antes de apagar uma autorização, a consulta perde a referência a ela.
+- `lgpd_purge_bureau`: roda só com `LGPD_PURGE_ENABLED=1`. O padrão é desligado, até o jurídico aprovar os prazos de retenção (spec D4). Quando ligada, roda no máximo uma vez a cada 24 h e processa até 100 titulares por Bureau por execução. Para cada Bureau ativo, anonimiza titulares sem atividade há 5 anos e sem pedido aberto. Apaga autorizações SCR com mais de 5 anos desde o fim da vigência, a recusa ou o pedido sem resposta. Antes de apagar uma autorização, a consulta perde a referência a ela.
 
-A varredura é idempotente. Ela grava `lgpd.purge_bureau` quando apaga alguma coisa.
+A varredura é idempotente. Ela grava `lgpd.purge_bureau` em toda execução, mesmo sem contagem, e esse registro controla o intervalo de 24 h.
 
 ## 6. Limites
 

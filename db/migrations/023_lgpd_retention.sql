@@ -3,7 +3,7 @@
 --   código de verificação, sessão expirada: 24 h após expires_at   -> apagar (lgpd_purge_technical)
 --   tentativa de cadastro por IP:           30 dias                -> apagar (lgpd_purge_technical)
 --   Titular e dados de consulta:            5 anos sem atividade   -> anonimizar (lgpd_purge_bureau) ou a pedido
---   autorização SCR:                        5 anos após expires_at -> apagar (lgpd_purge_bureau)
+--   autorização SCR:                        5 anos após expires_at, refused_at, request_expires_at ou created_at -> apagar (lgpd_purge_bureau)
 --   pedido, razão, pagamento, repasse, NFS-e, auditoria, aceite de termos: mantidos (fiscal / append-only).
 -- Toda escrita passa por função SECURITY DEFINER com dono lgpd_owner (role própria, NOLOGIN), sob as políticas *_lgpd_* abaixo.
 -- auth_profile_lookup não ganha nenhum privilégio novo. app_runtime executa só as funções lgpd_*.
