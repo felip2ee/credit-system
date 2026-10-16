@@ -488,11 +488,13 @@ describe("enqueue_notification", () => {
 	});
 
 	it("gives not_allowed to a superadmin with an expired support session", async () => {
+		// Um único Date.now(): duas leituras podem diferir 1 ms e violar expires_at <= started_at + 1 hora.
+		const now = Date.now();
 		const expired = await seedSupportSession(owner, {
 			superadminId: superadmin.userId,
 			bureauId: tenantA.bureau.id,
-			startedAt: new Date(Date.now() - 7200_000),
-			expiresAt: new Date(Date.now() - 3600_000),
+			startedAt: new Date(now - 7200_000),
+			expiresAt: new Date(now - 3600_000),
 		});
 		await withDbContext(
 			app,
