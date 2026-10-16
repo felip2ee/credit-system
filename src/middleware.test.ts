@@ -15,6 +15,8 @@ describe("middleware public paths", () => {
     "/api/webhooks/whatsapp",
     "/api/internal/notifications/dispatch",
     "/api/internal/orders/tick",
+    "/api/health/live",
+    "/api/health/ready",
     "/termos",
     "/privacidade",
     "/cadastro/confirmar-email",
@@ -24,7 +26,7 @@ describe("middleware public paths", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
-  it.each(["/holders", "/bx", "/autorizacao-scrx", "/api/internal/outra", "/termosx", "/cadastrox", "/cadastro"])("redirects %s to /login without cookie", (path) => {
+  it.each(["/holders", "/bx", "/autorizacao-scrx", "/api/internal/outra", "/api/healthx", "/termosx", "/cadastrox", "/cadastro"])("redirects %s to /login without cookie", (path) => {
     const res = run(path);
     expect(new URL(res.headers.get("location") ?? "").pathname).toBe("/login");
   });
