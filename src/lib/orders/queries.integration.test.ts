@@ -30,6 +30,7 @@ import { quoteOrder } from "@/lib/catalog/quote";
 import { registerCounterPayment } from "@/lib/counter-payments/queries";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { listDossiers } from "@/lib/dossiers/queries";
 import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
@@ -263,6 +264,15 @@ describe("placeOrder", () => {
 		expect(await bureauWallet(t)).toEqual({ available: "199.00", reserved: "1.00" });
 		expect(await clientWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
 		expect((await orderOf(id)).state).toBe("awaiting_payment");
+	});
+
+	it("listDossiers shows the order state of the dossier", async () => {
+		const t = await newTenant("ord list");
+		const id = await placeCounter(t);
+
+		const listed = await listDossiers(staff(t), {});
+
+		expect(listed.find((d) => d.id === id)?.order_state).toBe("awaiting_payment");
 	});
 });
 

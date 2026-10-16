@@ -34,9 +34,9 @@ vi.mock("next/headers", () => ({
 import { writeAuditEvent } from "@/lib/audit/write";
 import { getDashboardMetrics } from "@/lib/dashboard/queries";
 import { pool } from "@/lib/db/pool";
-import { withUserTransaction } from "@/lib/db/transaction";
+import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { depsProductName } from "@/lib/deps/products";
 import {
-	createDossier,
 	getDossierDetail,
 	listDossiers,
 	saveDossierReport,
@@ -120,6 +120,49 @@ const parecer: Parecer = {
 	relatorio_markdown: "# Parecer",
 	disclaimer: "d",
 };
+
+// Dossiê pronto para as leituras: a abertura real é o pedido (orders/queries.ts), coberta em orders.integration.test.ts.
+async function seedDossier(
+	identity: DbIdentity,
+	input: {
+		kind: "PF" | "PJ" | "PJ_FULL";
+		holder: Pick<HolderInput, "type" | "name" | "document">;
+		partners?: { document: string; name: string; percentage: number | null; role: string | null }[];
+	},
+): Promise<{ id: string; consultationIds: string[] }> {
+	const actorId = identity.userId;
+	return withUserTransaction(identity, async (client) => {
+		const holderId = await ensureHolder(client, actorId, input.holder);
+		const members = [{ type: input.holder.type, document: onlyDigits(input.holder.document), name: input.holder.name, holderId }];
+		for (const partner of input.partners ?? []) {
+			const partnerId = await ensureHolder(client, actorId, { type: "PF", name: partner.name, document: partner.document });
+			await upsertPartnership(client, actorId, {
+				companyId: holderId,
+				partnerId,
+				percentage: partner.percentage,
+				role: partner.role,
+				source: "operator",
+			});
+			members.push({ type: "PF", document: onlyDigits(partner.document), name: partner.name, holderId: partnerId });
+		}
+		const dossier = await client.query<{ id: string }>(
+			`insert into dossiers (bureau_id, kind, holder_id, product, status, created_by, started_at)
+			 values (app_bureau_id(), $1, $2, $3, 'processing', $4, now()) returning id`,
+			[input.kind, holderId, depsProductName(input.holder.type), actorId],
+		);
+		const consultationIds: string[] = [];
+		for (const member of members) {
+			const { rows } = await client.query<{ id: string }>(
+				`insert into consultations
+				   (bureau_id, type, document, document_name, product, holder_id, dossier_id, created_by, status, requires_auth, scr_mode)
+				 values (app_bureau_id(), $1, $2, $3, $4, $5, $6, $7, 'processing', true, 'deps') returning id`,
+				[member.type, member.document, member.name, depsProductName(member.type), member.holderId, dossier.rows[0].id, actorId],
+			);
+			consultationIds.push(rows[0].id);
+		}
+		return { id: dossier.rows[0].id, consultationIds };
+	});
+}
 
 let a: SeededTenant;
 let b: SeededTenant;
@@ -303,104 +346,21 @@ describe.sequential("holders", () => {
 });
 
 describe.sequential("dossiers", () => {
-	it("createDossier PJ_FULL cria empresa e sócios, reusa o sócio existente e cria uma consulta por membro", async () => {
-		const existingCpf = randomCpf();
-		const existing = await createHolder(
-			a.operator,
-			pfInput({ document: existingCpf, name: "Sócio Existente" }),
-		);
-		if (!existing.ok) throw new Error("setup failed");
-
-		const cnpj = randomCnpj();
-		const created = await createDossier(a.operator, {
-			kind: "PJ_FULL",
-			holder: { type: "PJ", name: "Empresa Cheia", document: cnpj },
-			partners: [
-				{
-					document: existingCpf,
-					name: "Nome Ignorado",
-					email: null,
-					percentage: 50,
-					role: "Sócio",
-				},
-				{
-					document: randomCpf(),
-					name: "Sócio Novo",
-					email: "novo@example.test",
-					percentage: 50,
-					role: "Administrador",
-				},
-			],
-			scrMode: "internal",
-			email: "empresa@example.test",
-		});
-		expect(created.ok).toBe(true);
-		if (!created.ok) return;
-		expect(created.consultationIds).toHaveLength(3);
-
-		const company = await owner.query<{ id: string }>(
-			"select id from holders where bureau_id = $1 and document_digits = $2",
-			[a.bureau.id, cnpj],
-		);
-		const detail = await getHolderDetail(a.operator, company.rows[0].id);
-		expect(detail?.partners).toHaveLength(2);
-		expect(detail?.partners.map((p) => p.holder_id)).toContain(existing.id);
-		expect(detail?.partners.every((p) => p.source === "operator")).toBe(true);
-		expect(detail?.dossiers[0]).toMatchObject({
-			kind: "PJ_FULL",
-			report_status: "none",
-		});
-
-		const products = await owner.query<{ product: string; type: string }>(
-			"select product, type::text from consultations where dossier_id = $1 order by type",
-			[created.id],
-		);
-		expect(products.rows.map((r) => r.type)).toEqual(["PF", "PF", "PJ"]);
-		expect(
-			new Set(
-				products.rows.filter((r) => r.type === "PF").map((r) => r.product),
-			).size,
-		).toBe(1);
-
-		const sameHolder = await owner.query(
-			"select 1 from holders where bureau_id = $1 and document_digits = $2",
-			[a.bureau.id, onlyDigits(existingCpf)],
-		);
-		expect(sameHolder.rowCount).toBe(1);
-	});
-
-	it("createDossier PF com Titular PJ devolve kind_mismatch e não grava nada", async () => {
-		const cnpj = randomCnpj();
-		const result = await createDossier(a.operator, {
-			kind: "PF",
-			holder: { type: "PJ", name: "Empresa Errada", document: cnpj },
-			scrMode: "internal",
-		});
-		expect(result).toEqual({ ok: false, reason: "kind_mismatch" });
-		const rows = await owner.query(
-			"select 1 from holders where document_digits = $1",
-			[cnpj],
-		);
-		expect(rows.rowCount).toBe(0);
-	});
-
 	it("listDossiers filtra por tipo, devolve os membros e não mostra o outro Bureau", async () => {
-		const pf = await createDossier(a.operator, {
+		const pf = await seedDossier(a.operator, {
 			kind: "PF",
 			holder: { type: "PF", name: "Pessoa Lista", document: randomCpf() },
-			scrMode: "deps",
 		});
-		const bDossier = await createDossier(b.operator, {
+		const bDossier = await seedDossier(b.operator, {
 			kind: "PF",
 			holder: { type: "PF", name: "Pessoa Lista B", document: randomCpf() },
-			scrMode: "deps",
 		});
-		if (!pf.ok || !bDossier.ok) throw new Error("setup failed");
 
 		const onlyPf = await listDossiers(a.operator, { kind: "PF" });
 		expect(onlyPf.length).toBeGreaterThan(0);
 		expect(onlyPf.every((d) => d.kind === "PF")).toBe(true);
 		expect(onlyPf.find((d) => d.id === pf.id)?.members).toHaveLength(1);
+		expect(onlyPf.find((d) => d.id === pf.id)?.order_state).toBeNull();
 		expect(onlyPf.some((d) => d.id === bDossier.id)).toBe(false);
 
 		const full = await listDossiers(a.operator, { kind: "PJ_FULL" });
@@ -409,21 +369,18 @@ describe.sequential("dossiers", () => {
 
 	it("getHolderDetail PF lista as empresas em que é sócio", async () => {
 		const partnerCpf = randomCpf();
-		const created = await createDossier(a.operator, {
+		await seedDossier(a.operator, {
 			kind: "PJ_FULL",
 			holder: { type: "PJ", name: "Empresa do Sócio", document: randomCnpj() },
 			partners: [
 				{
 					document: partnerCpf,
 					name: "Sócia",
-					email: null,
 					percentage: 100,
 					role: null,
 				},
 			],
-			scrMode: "deps",
 		});
-		if (!created.ok) throw new Error("setup failed");
 
 		const partner = await owner.query<{ id: string }>(
 			"select id from holders where bureau_id = $1 and document_digits = $2",
@@ -434,12 +391,10 @@ describe.sequential("dossiers", () => {
 	});
 
 	it("saveDossierReport grava o parecer consolidado e getDossierDetail o devolve", async () => {
-		const created = await createDossier(a.operator, {
+		const created = await seedDossier(a.operator, {
 			kind: "PJ",
 			holder: { type: "PJ", name: "Empresa Parecer", document: randomCnpj() },
-			scrMode: "deps",
 		});
-		if (!created.ok) throw new Error("setup failed");
 		expect((await getDossierDetail(a.operator, created.id))?.report).toBeNull();
 
 		await saveDossierReport(a.operator, created.id, {
@@ -471,12 +426,10 @@ describe.sequential("dossiers", () => {
 	});
 
 	it("saveDossierReport com erro audita dossier.report como failure", async () => {
-		const created = await createDossier(a.operator, {
+		const created = await seedDossier(a.operator, {
 			kind: "PJ",
 			holder: { type: "PJ", name: "Empresa Falha", document: randomCnpj() },
-			scrMode: "deps",
 		});
-		if (!created.ok) throw new Error("setup failed");
 
 		await saveDossierReport(a.operator, created.id, { status: "error", error: "falhou" });
 
@@ -485,24 +438,6 @@ describe.sequential("dossiers", () => {
 			[created.id],
 		);
 		expect(rows).toEqual([{ outcome: "failure" }]);
-	});
-
-	it("createDossier audita holder.create do Titular novo, sem o documento completo", async () => {
-		const cnpj = randomCnpj();
-		const created = await createDossier(a.operator, {
-			kind: "PJ",
-			holder: { type: "PJ", name: "Empresa Auditada", document: cnpj },
-			scrMode: "deps",
-		});
-		if (!created.ok) throw new Error("setup failed");
-
-		const { rows } = await owner.query<{ metadata: Record<string, unknown> }>(
-			`select a.metadata from audit_logs a join holders h on h.id = a.record_id
-        where a.action = 'holder.create' and h.document_digits = $1`,
-			[cnpj],
-		);
-		expect(rows).toHaveLength(1);
-		expect(JSON.stringify(rows[0].metadata)).not.toContain(cnpj);
 	});
 });
 
@@ -552,12 +487,10 @@ describe.sequential("settings, auditoria e dashboard", () => {
 		const before = await getDashboardMetrics(solo.operator, period());
 		expect(before.counts.holders).toBe(1); // o Titular do seed
 
-		const created = await createDossier(solo.operator, {
+		await seedDossier(solo.operator, {
 			kind: "PF",
 			holder: { type: "PF", name: "Pessoa Métrica", document: randomCpf() },
-			scrMode: "deps",
 		});
-		if (!created.ok) throw new Error("setup failed");
 
 		const after = await getDashboardMetrics(solo.operator, period());
 		expect(after.counts.holders).toBe(2);
