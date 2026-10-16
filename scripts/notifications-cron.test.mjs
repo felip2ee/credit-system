@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createOpsAlerter, runOnce } from "./notifications-cron.mjs";
+import { createOpsAlerter, runOnce, smtpTransportOptions } from "./notifications-cron.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./notifications-cron.mjs", import.meta.url));
 const SECRET = "test-dispatch-secret-0123456789";
@@ -172,7 +172,7 @@ function harness({ responses, env = ALERT_ENV, sendMail, backupStateFile, startA
   const fetch = async () => {
     const next = queue.length > 1 ? queue.shift() : queue[0];
     if (next instanceof Error) throw next;
-    return { status: next.status, text: async () => next.body ?? "{}" };
+    return { status: next.status, text: async () => next.body ?? (next.status === 200 ? "{}" : "upstream error") };
   };
   const alerter = createOpsAlerter({
     env,
@@ -197,6 +197,12 @@ test("five consecutive non 200 dispatch responses send one dispatch_down alert",
   assert.equal(h.sent[0].from, ALERT_ENV.SMTP_FROM);
   await h.run();
   assert.equal(h.sent.length, 1);
+});
+
+test("a 500 with JSON body does not count toward dispatch_down", async () => {
+  const h = harness({ responses: [{ status: 500, body: '{"errors":0}' }] });
+  for (let i = 0; i < 6; i++) await h.run();
+  assert.equal(h.sent.length, 0);
 });
 
 test("a 200 resets the consecutive failure count", async () => {
@@ -335,6 +341,35 @@ test("transport failure is logged and does not stop the loop", async () => {
   assert.ok(attempts >= 1);
   assert.ok(h.logs.some((line) => line.includes("ECONNECTION")));
   assert.ok(!h.logs.join("\n").includes("hunter2"));
+});
+
+test("a failed send is not retried before 5 minutes", async () => {
+  let attempts = 0;
+  const h = harness({
+    responses: [{ status: 500 }],
+    sendMail: async () => {
+      attempts += 1;
+      throw Object.assign(new Error("down"), { code: "ETIMEDOUT" });
+    },
+  });
+  for (let i = 0; i < 5; i++) await h.run();
+  assert.equal(attempts, 1);
+  await h.run();
+  assert.equal(attempts, 1);
+  h.clock.at += 5 * 60_000;
+  await h.run();
+  assert.equal(attempts, 2);
+});
+
+test("transport is created with 10s timeouts and requireTLS when not secure", () => {
+  const base = { SMTP_HOST: "smtp.example.test", SMTP_PORT: "587", SMTP_USER: "u", SMTP_PASS: "p" };
+  const plain = smtpTransportOptions({ ...base, SMTP_SECURE: "false" });
+  assert.equal(plain.requireTLS, true);
+  for (const k of ["connectionTimeout", "greetingTimeout", "socketTimeout"]) assert.equal(plain[k], 10_000);
+  const secure = smtpTransportOptions({ ...base, SMTP_SECURE: "true" });
+  assert.equal(secure.secure, true);
+  assert.equal(secure.requireTLS, undefined);
+  assert.equal(secure.socketTimeout, 10_000);
 });
 
 test("alert body never includes the response body", async () => {

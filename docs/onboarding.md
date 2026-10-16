@@ -58,7 +58,7 @@ Testes que precisam de serviço:
 
 - Integração: `npx vitest run integration.test`. Exige Postgres e as variáveis `TEST_DATABASE_URL` e `TEST_DATABASE_OWNER_URL` (a CI define as duas).
 - Scripts: `npm run db:migrate:test`, `npm run setup:test`, `npm run ops:test`.
-- E2E: `npm run verify:release` roda o gate completo, incluindo o Playwright. Exige app em execução e banco com seed em `PLAYWRIGHT_BASE_URL` (padrão `http://127.0.0.1:3000`).
+- E2E: `npm run test:e2e` roda o Playwright. Ele roda na CI e dentro de `npm run verify:release`. Exige app em execução e banco com seed em `PLAYWRIGHT_BASE_URL` (padrão `http://127.0.0.1:3000`).
 
 Detalhes: [quality.md](quality.md).
 

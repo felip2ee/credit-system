@@ -22,12 +22,12 @@ Itens marcados **(post-deploy)** só a produção confirma. O PR do M7 lista-os 
 O repositório Restic fica fora do servidor, em um bucket S3-compatível (D1).
 
 1. Crie um bucket só para o backup: `<bucket>`.
-2. Ative **versionamento** no bucket. Sem versionamento, quem tiver a chave pode apagar o histórico.
+2. Proteja o histórico contra a chave do servidor. Uma chave que apaga objetos também apaga versões, e o R2 não tem versionamento clássico. Use Object Lock (modo governance ou compliance, retenção de 30 dias ou mais) **ou** uma política de chave/bucket que negue `s3:DeleteObjectVersion`, `s3:PutLifecycleConfiguration` e `s3:PutBucketVersioning`.
 3. Bloqueie todo acesso público. Não use ACL pública.
 4. Crie uma chave de acesso com escopo mínimo: só o bucket `<bucket>`.
 5. Guarde o endpoint (`<RESTIC_S3_ENDPOINT>`, sem `https://`), o nome do bucket e as duas partes da chave. O setup pede esses valores no passo 3.
 
-O container de backup grava e apaga objetos no bucket. O versionamento é a defesa contra apagamento (D14).
+O container de backup grava e apaga objetos no bucket. O Object Lock ou a política de negação é a defesa contra apagamento (D14). Com isso ativo, `restic forget --prune` exige retenção compatível com o bloqueio (`keep-*` não menor que o período do lock) ou uma credencial separada.
 
 ## 3. Gerar segredos e o arquivo de ambiente
 
@@ -73,13 +73,19 @@ Depois do setup:
 
    O estado deve ser `Complete`. Se houver `Failed` ou retentativas, leia `docker service logs reino_migrate`.
 
+   Se o `migrate` ficar em `Failed` (por exemplo, o Postgres demorou a iniciar), force uma nova execução:
+
+   ```sh
+   docker service update --force reino_migrate
+   ```
+
 4. Confirme o app:
 
    ```sh
    docker service logs reino_app
    ```
 
-   Procure a linha `Ready`. Antes disso, o app espera o schema com `migrate.mjs --check`: tenta até 30 vezes, com 5 s de intervalo. Se o schema não ficar pronto, o app sai com erro e o Swarm o reinicia.
+   Procure a linha `Ready`. Antes disso, o app espera o schema com `migrate.mjs --check`: tenta até 30 vezes, com 5 s de intervalo. Se o schema não ficar pronto, o app sai com erro e o Swarm o reinicia. O healthcheck tem `start_period` de 160 s para cobrir essa espera.
 
 5. Faça o primeiro backup manual. Confirme o snapshot no bucket:
 
@@ -97,9 +103,11 @@ Depois do setup:
 
    Anote a duração medida. O runbook de recuperação ainda não existe. **(post-deploy)**
 
-7. Configure o monitor externo. Veja [monitoring.md](monitoring.md), seção 3. **(post-deploy)**
+7. Ative a limpeza LGPD do Bureau depois que o jurídico aprovar os prazos de retenção. Defina `LGPD_PURGE_ENABLED=1` em `.env.production` e repita o `docker stack deploy` do passo 4.2. O padrão é `0` (desligado). Veja [lgpd.md](lgpd.md), seção 5. **(post-deploy)**
 
-8. Assine o [checklist de segurança](security-checklist.md) com evidência fora do repositório. **(post-deploy)**
+8. Configure o monitor externo. Veja [monitoring.md](monitoring.md), seção 3. **(post-deploy)**
+
+9. Assine o [checklist de segurança](security-checklist.md) com evidência fora do repositório. **(post-deploy)**
 
 ## 5. Atualização
 

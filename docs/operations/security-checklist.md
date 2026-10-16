@@ -47,8 +47,15 @@ Every box must be checked with evidence (command output saved outside the repo).
 
 ## 4. Backup repository (off-site, S3-compatible Restic)
 
-- [ ] Bucket dedicated to the Restic repository, with **versioning enabled** and
-  public access fully blocked (no ACL). (post-deploy)
+- [ ] Bucket dedicated to the Restic repository, with public access fully blocked
+  (no ACL). (post-deploy)
+- [ ] History is protected against the server key. A key that can delete objects
+  can also delete object versions, and R2 has no classic versioning. Use Object
+  Lock (governance or compliance, retention of 30 days or more) OR a key/bucket
+  policy that denies `s3:DeleteObjectVersion`, `s3:PutLifecycleConfiguration` and
+  `s3:PutBucketVersioning`. Then `restic forget --prune` needs lock-aware
+  retention (`--keep-*` not shorter than the lock period) or a separate
+  credential. (post-deploy)
 - [ ] Access key scoped to that bucket only. It is stored as the Docker secrets
   `restic_s3_access_key` and `restic_s3_secret_key`; the scripts export them as
   `AWS_*`. Never in the env file or in argv.
@@ -58,8 +65,8 @@ Every box must be checked with evidence (command output saved outside the repo).
 - [ ] `restic_password` stored only as a Docker secret; losing it = unrecoverable
   backups — escrow it offline.
 - [ ] **Residual risk accepted (D14):** the backup container can write and delete
-  objects in the bucket. Bucket versioning is the defense against deletion. A
-  compromise of the storage provider account is not covered.
+  objects in the bucket. Object Lock or the deny policy above is the defense
+  against deletion. A compromise of the storage provider account is not covered.
 
 ## 5. Restore evidence
 

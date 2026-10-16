@@ -8,7 +8,7 @@ O projeto não usa Sentry nem Prometheus (decisão D3 do [spec do M7](../superpo
 | Cron de alertas | Despacho de notificações, tick de pedidos, erros e backup atrasado. Envia e-mail para `OPS_ALERT_TO`. | Operador |
 | Monitor externo | `GET https://<APP_DOMAIN>/api/health/ready`, de fora do servidor. | Operador (configuração pós-deploy) |
 
-O healthcheck usa `/live`. Queda do banco não deve reiniciar o app. O monitor externo usa `/ready`, que testa o banco e o disco de documentos.
+O healthcheck usa `/live`. Queda do banco não deve reiniciar o app. O monitor externo usa `/ready`, que testa o banco e o disco de documentos. A rota é pública e faz trabalho por chamada: após o deploy, configure um rate-limit do Traefik em `/api/health/ready`. **(post-deploy)**
 
 ## 1. Alertas por e-mail
 
@@ -16,8 +16,8 @@ O serviço `notifications_cron` roda `scripts/notifications-cron.mjs` a cada 60 
 
 | Chave | Assunto | Dispara quando | Primeiro passo |
 |---|---|---|---|
-| `dispatch_down` | `[reino] dispatch indisponível` | 5 respostas seguidas não-200, ou falha de rede, em `POST /api/internal/notifications/dispatch` | `docker service logs reino_app`, depois `docker service ps reino_app` |
-| `tick_down` | `[reino] tick indisponível` | 5 respostas seguidas não-200, ou falha de rede, em `POST /api/internal/orders/tick` | Igual ao anterior |
+| `dispatch_down` | `[reino] dispatch indisponível` | 5 falhas seguidas em `POST /api/internal/notifications/dispatch`: falha de rede, ou resposta não-200 com corpo que não é JSON | `docker service logs reino_app`, depois `docker service ps reino_app` |
+| `tick_down` | `[reino] tick indisponível` | 5 falhas seguidas em `POST /api/internal/orders/tick`, com o mesmo critério | Igual ao anterior |
 | `dispatch_failed` | `[reino] notificações falhando` | Resposta do despacho com `failed > 0` ou `errors > 0` | Logs com `[notifications-dispatch]`. Estados de falha em [notifications.md](notifications.md), seção 6 |
 | `tick_errors` | `[reino] tick com erros` | Resposta do tick com `errors > 0` | Logs com `[orders-tick]`. Veja [orders.md](orders.md) |
 | `backup_stale` | `[reino] backup atrasado` | Marcador `/var/lib/backup/last-success` com mais de 36 h | `docker service logs reino_backup`. Rode o backup manual do [deploy.md](deploy.md) |
@@ -25,7 +25,9 @@ O serviço `notifications_cron` roda `scripts/notifications-cron.mjs` a cada 60 
 Regras de envio:
 
 - Cada chave envia no máximo um e-mail a cada 60 min.
-- Se o envio falha, a janela não é gravada. O cron tenta de novo no próximo ciclo. Com o SMTP fora do ar, isso gera uma linha de log por minuto.
+- Uma resposta 500 com corpo JSON não conta para `*_down`. Ela conta só para `dispatch_failed` ou `tick_errors`, quando `errors > 0`.
+- O SMTP tem timeouts de 10 s (conexão, saudação e socket) e exige STARTTLS quando `SMTP_SECURE` não é `true`.
+- Se o envio falha, a janela de 60 min não é gravada. O cron não tenta a mesma chave de novo por 5 minutos. Com o SMTP fora do ar, isso gera no máximo uma linha de log a cada 5 minutos por chave.
 - Não há e-mail de recuperação. Quando a condição passa, nada é enviado.
 - Sem `OPS_ALERT_TO`, o cron só grava no log.
 - O corpo do e-mail traz a chave, o status HTTP, as contagens e o horário. Não traz segredo nem dado pessoal.

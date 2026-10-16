@@ -13,8 +13,8 @@ read_file_env() {
   fi
 }
 read_file_env RESTIC_PASSWORD
-  read_file_env AWS_ACCESS_KEY_ID
-  read_file_env AWS_SECRET_ACCESS_KEY
+read_file_env AWS_ACCESS_KEY_ID
+read_file_env AWS_SECRET_ACCESS_KEY
 
 # Guard: never run forget/prune against an empty or unreachable repository.
 if [ "$(restic snapshots --json | jq 'length')" -lt 1 ]; then

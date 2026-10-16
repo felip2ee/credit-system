@@ -97,7 +97,7 @@ Os checks técnicos ficam em [docs/quality.md](docs/quality.md).
 
 ## Próxima entrega
 
-Concluir o M6 (pesquisa e entrega) conforme a spec e abrir o PR da branch `feature/m6-pesquisa-e-entrega`. Depois, fechar o M5 e o M4 conforme a tabela do MVP.
+Concluir o M7 (produção) conforme a spec e abrir o PR da branch `feature/m7-producao`. Depois, fechar o M5 e o M4 conforme a tabela do MVP.
 
 ## Manutenção
 

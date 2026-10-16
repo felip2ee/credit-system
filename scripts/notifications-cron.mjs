@@ -12,6 +12,8 @@ const MIN_INTERVAL_MS = 5_000;
 const TIMEOUT_MS = 55_000;
 const MAX_LOGGED_BODY = 200;
 const ALERT_WINDOW_MS = 60 * 60_000;
+const FAILED_SEND_RETRY_MS = 5 * 60_000;
+const SMTP_TIMEOUT_MS = 10_000;
 const CONSECUTIVE_FAILURES_TO_ALERT = 5;
 const BACKUP_MAX_AGE_MS = 36 * 60 * 60_000;
 const DISPATCH_COUNTS = ["claimed", "sent", "retried", "failed", "suppressed", "stale", "errors"];
@@ -31,6 +33,7 @@ function log(message) {
 // Alertas por e-mail com janela de 60 min por chave. Falha de transporte só é registrada: o loop segue.
 export function createOpsAlerter({ env, sendMail, now = Date.now, log: logger = log }) {
   const lastSentAt = new Map();
+  const lastFailedAt = new Map();
   let missingRecipientLogged = false;
   return {
     async alert(key, subject, body) {
@@ -42,11 +45,14 @@ export function createOpsAlerter({ env, sendMail, now = Date.now, log: logger = 
       const at = now();
       const previous = lastSentAt.get(key);
       if (previous !== undefined && at - previous < ALERT_WINDOW_MS) return;
+      const failedAt = lastFailedAt.get(key);
+      if (failedAt !== undefined && at - failedAt < FAILED_SEND_RETRY_MS) return;
       try {
         await sendMail({ from: env.SMTP_FROM, to: env.OPS_ALERT_TO, subject, text: body });
         lastSentAt.set(key, at);
         logger(`alerta enviado: ${key}`);
       } catch (error) {
+        lastFailedAt.set(key, at);
         logger(`falha ao enviar alerta ${key}: ${error?.code ?? error?.name ?? "error"}`);
       }
     },
@@ -124,7 +130,9 @@ export async function runOnce({
   for (const { name, url: target, label } of targets) {
     const { status, json } = await callOnce({ target, label, secret, fetch, log: logger });
     const downKey = `${name}_down`;
-    const consecutive = status === 200 ? 0 : (state.failures.get(downKey) ?? 0) + 1;
+    // Só falha de rede ou resposta não-200 sem JSON conta como "fora do ar"; 500 com JSON é erro de execução (alerta próprio).
+    const isDown = status === null || (status !== 200 && json === null);
+    const consecutive = !isDown ? 0 : (state.failures.get(downKey) ?? 0) + 1;
     state.failures.set(downKey, consecutive);
     if (consecutive >= CONSECUTIVE_FAILURES_TO_ALERT) {
       const fields = { "status HTTP": status ?? "falha de rede", "falhas consecutivas": consecutive };
@@ -160,18 +168,28 @@ function isCleartextExternal(rawUrl, name) {
   return !(host === "localhost" || host === "127.0.0.1" || host === "[::1]" || !host.includes("."));
 }
 
+// Timeouts curtos: um SMTP que não responde não pode travar o loop. Porta sem TLS implícito exige STARTTLS.
+export function smtpTransportOptions(env) {
+  const secure = env.SMTP_SECURE === "true";
+  return {
+    host: env.SMTP_HOST,
+    port: Number(env.SMTP_PORT) || 587,
+    secure,
+    ...(secure ? {} : { requireTLS: true }),
+    connectionTimeout: SMTP_TIMEOUT_MS,
+    greetingTimeout: SMTP_TIMEOUT_MS,
+    socketTimeout: SMTP_TIMEOUT_MS,
+    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+  };
+}
+
 // Sem OPS_ALERT_TO ou sem SMTP utilizável o alerter só registra: o cron nunca cai por causa de alerta.
 async function buildSendMail() {
   if (!process.env.OPS_ALERT_TO) return async () => {};
   try {
     const env = hydrateSecretEnv({ ...process.env });
     const { default: nodemailer } = await import("nodemailer");
-    const transport = nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: Number(env.SMTP_PORT) || 587,
-      secure: env.SMTP_SECURE === "true",
-      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
-    });
+    const transport = nodemailer.createTransport(smtpTransportOptions(env));
     return (message) => transport.sendMail(message);
   } catch (error) {
     log(`SMTP indisponível, alertas desligados: ${error?.code ?? error?.name ?? "error"}`);
