@@ -917,6 +917,18 @@ describe("dossier_orders_guard", () => {
 		await setState(id, "cancelled", ", state_reason = 'payment_timeout'");
 		await refused(setState(id, "ready"));
 	});
+
+	it("guard still refuses subject_name changes other than anonymization", async () => {
+		const id = await counterOrder();
+		await refused(owner.query("update dossier_orders set subject_name = 'X' where dossier_id = $1", [id]));
+		// A exceção vale só para o texto fixo da anonimização e não abre as outras colunas.
+		await refused(
+			owner.query("update dossier_orders set subject_name = 'Titular anonimizado', mode = 'online' where dossier_id = $1", [id]),
+		);
+		await owner.query("update dossier_orders set subject_name = 'Titular anonimizado' where dossier_id = $1", [id]);
+		const [row] = await rows<{ subject_name: string }>("select subject_name from dossier_orders where dossier_id = $1", [id]);
+		expect(row.subject_name).toBe("Titular anonimizado");
+	});
 });
 
 describe("public SCR confirmation with a request deadline", () => {

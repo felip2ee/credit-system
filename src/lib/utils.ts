@@ -59,8 +59,9 @@ export function formatDateTime(value: string | Date | null | undefined): string 
   }).format(date);
 }
 
-export function onlyDigits(value: string): string {
-  return value.replace(/\D/g, "");
+// Aceita null: o documento do Titular anonimizado (023) é nulo e passa por formatCPF/formatCNPJ nas telas.
+export function onlyDigits(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
 }
 
 // Validação simples de e-mail — suficiente para barrar disparos SCR sem destinatário.
