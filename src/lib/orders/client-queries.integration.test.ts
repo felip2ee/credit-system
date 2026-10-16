@@ -158,6 +158,7 @@ describe("listMyOrders", () => {
 			mode: "online",
 			productCode: "consulta_pf",
 			withAi: false,
+			selfResearch: true,
 			subjectName: expect.stringContaining("Titular"),
 			subjectDocumentMasked: maskCpf(onlyDigits(t.holder.document)),
 			state: "awaiting_authorization",
