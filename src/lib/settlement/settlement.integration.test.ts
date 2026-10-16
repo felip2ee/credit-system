@@ -16,6 +16,7 @@ import {
 	seedClientWalletTopup,
 	seedDossier,
 	seedOrderCatalog,
+	seedOrderDossier,
 	seedOrderDossierForSession,
 	seedPixCharge,
 	seedSuperadmin,
@@ -600,17 +601,15 @@ describe("idempotência e estados", () => {
 		expect(
 			await committed(clientCtx(t), (c) => reserve(c, { ...order, cost: "29.00" })),
 		).toEqual({ ok: true, reason: null, status: "captured" });
-		for (const changed of [
-			{ ...order, price: "51.00" },
-			{ ...order, mode: "counter" as const, clientId: null },
-		]) {
-			const ctx = changed.mode === "counter" ? operatorCtx(t) : clientCtx(t);
-			expect(await committed(ctx, (c) => reserve(c, changed))).toEqual({
-				ok: false,
-				reason: "already_exists",
-				status: null,
-			});
-		}
+		expect(
+			await committed(clientCtx(t), (c) => reserve(c, { ...order, price: "51.00" })),
+		).toEqual({ ok: false, reason: "already_exists", status: null });
+		// O pedido (dossier_orders) é online: o modo balcão não o encontra (022).
+		expect(
+			await committed(operatorCtx(t), (c) =>
+				reserve(c, { ...order, mode: "counter" as const, clientId: null }),
+			),
+		).toEqual({ ok: false, reason: "not_found", status: null });
 		// Outro Bureau com o mesmo order_ref não tem esse Dossiê: não vê nem toca o pedido.
 		const foreign = await setup();
 		expect(
@@ -1534,6 +1533,7 @@ describe("018: o pedido é um Dossiê do Bureau", () => {
 			holderId: t.holder.id,
 			createdBy: t.bureauAdmin.userId,
 		});
+		await seedOrderDossier(owner, { orderRef: ownDossier, bureauId: t.bureau.id, clientProfileId: t.client.userId });
 		const notFound = { ok: false, reason: "not_found", status: null };
 
 		expect(
@@ -1585,6 +1585,7 @@ describe("018: o pedido é um Dossiê do Bureau", () => {
 			holderId: t.holder.id,
 			createdBy: t.bureauAdmin.userId,
 		});
+		await seedOrderDossier(owner, { orderRef: dossier, bureauId: t.bureau.id, clientProfileId: null });
 		expect(
 			await committed(operatorCtx(t), (c) =>
 				reserveWithCatalog(c, counter("50.00", "30.00", dossier)),

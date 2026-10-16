@@ -34,7 +34,7 @@ import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { reserveOrder } from "@/lib/settlement/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedDossier, seedOrderCatalog, seedTenant, seedWalletTopup } from "@/test/seed";
+import { seedDossier, seedOrderCatalog, seedOrderDossier, seedTenant, seedWalletTopup } from "@/test/seed";
 
 import { listCounterPayments, registerCounterPayment, voidCounterPayment } from "./queries";
 
@@ -51,6 +51,8 @@ async function setup(label: string) {
 		holderId: tenant.holder.id,
 		createdBy: tenant.bureauAdmin.userId,
 	});
+	// reserve_order exige o pedido (dossier_orders) do Dossiê.
+	await seedOrderDossier(owner, { orderRef: dossierId, bureauId: tenant.bureau.id, clientProfileId: null });
 	const operator: DbIdentity = { ...tenant.operator };
 	const admin: DbIdentity = { ...tenant.bureauAdmin };
 	const client: DbIdentity = { ...tenant.client };
