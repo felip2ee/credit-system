@@ -78,11 +78,13 @@ Webhooks e worker:
 - Uma notificação entra na fila (tabela no Postgres) na mesma transação da regra de negócio.
 - O serviço `notifications_cron` (`scripts/notifications-cron.mjs`) chama `POST /api/internal/notifications/dispatch` a cada 60 s, com `NOTIFICATIONS_DISPATCH_SECRET`.
 - O despacho tenta de novo com espera crescente. Veja [operations/notifications.md](operations/notifications.md).
+- `POST /api/internal/orders/tick` executa os pedidos de pesquisa com a identidade de sistema do Bureau (perfil `is_system`), sem sessão. Veja [operations/orders.md](operations/orders.md).
 
 ## Dados e migrations
 
-- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `021`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
+- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `022`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
 - A 021 cria as contas de cliente: `legal_documents`, `legal_acceptances`, `verification_challenges`, `client_register_attempts`, e as funções `register_client` e de verificação (`request_*` e `confirm_*` de e-mail e de telefone).
+- A 022 cria os pedidos de pesquisa (`dossier_orders`, com estado protegido por trigger), a função `open_order` (única porta de criação de Dossiê), o perfil de sistema por Bureau (`profiles.is_system`) e a RLS de entrega do cliente. Veja [operations/orders.md](operations/orders.md).
 - Aplicar: `npm run db:migrate`. O runner grava checksums. Não edite uma migration já aplicada.
 - A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. Depois, só migrations novas.
 - Dois roles de conexão:

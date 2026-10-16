@@ -51,6 +51,8 @@ O M4 envia e-mail e WhatsApp por uma fila no Postgres (outbox). O serviço `noti
 
 **Template de autenticação (M5):** `verification_code`, categoria **Authentication**, idioma `pt_BR`, com botão **copiar código**. A migration 021 registra o template como `phone_verification`, com o parâmetro `code`. (post-deploy) A Meta aprova o template e um código real chega ao WhatsApp.
 
+**Templates do M6 (migration 022):** `scr_authorization` (WhatsApp v1, `pt_BR`, parâmetros `clientName`, `authorizedName`, `code`, `url`) e `research_released` (e-mail v1 e WhatsApp v1, parâmetros `clientName`, `url`). (post-deploy) A Meta aprova `scr_authorization` e `research_released` no WhatsApp (`pt_BR`, categoria Utility). O aviso de liberação e o pedido de autorização usam esses nomes. Veja [orders.md](orders.md).
+
 **Fora do escopo:** template de **marketing**. O M4 envia só mensagens transacionais pedidas pelo próprio fluxo.
 
 ## 5. Rodar o worker em dev
