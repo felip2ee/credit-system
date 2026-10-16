@@ -596,6 +596,7 @@ declare
   v_own record;
   v_main record;
   v_ai_ok boolean;
+  v_kind_bad boolean;
   v_type text;
   v_deps_pf text;
   v_deps_pj text;
@@ -725,8 +726,13 @@ begin
 
   -- 4) Tipo: consulta_pf é de Titular PF (11 dígitos); os outros produtos, de Titular PJ (14 dígitos).
   v_type := case when p_product_code = 'consulta_pf' then 'PF' else 'PJ' end;
-  if (v_self and v_own.type <> v_type)
-     or (not v_self and (p_subject_type <> v_type or length(v_digits) <> case v_type when 'PF' then 11 else 14 end)) then
+  -- v_own só existe na pesquisa própria (online): o plpgsql não garante curto-circuito, então o ramo é um if.
+  if v_self then
+    v_kind_bad := v_own.type <> v_type;
+  else
+    v_kind_bad := p_subject_type <> v_type or length(v_digits) <> case v_type when 'PF' then 11 else 14 end;
+  end if;
+  if v_kind_bad then
     return query select false, 'kind_mismatch'::text, null::uuid, null::text;
     return;
   end if;

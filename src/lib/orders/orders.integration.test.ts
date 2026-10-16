@@ -2,7 +2,7 @@
 // pool app_runtime para chamar as funções sob RLS.
 import { randomInt, randomUUID } from "node:crypto";
 
-import { Pool, type PoolClient } from "pg";
+import { Client, Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
@@ -115,7 +115,7 @@ type OpenArgs = {
 };
 type OpenResult = { ok: boolean; reason: string | null; dossier_id: string | null; state: string | null };
 
-function openOrder(client: PoolClient, args: Partial<OpenArgs> = {}): Promise<OpenResult> {
+function openOrder(client: Client | PoolClient, args: Partial<OpenArgs> = {}): Promise<OpenResult> {
 	const a: OpenArgs = {
 		product: "consulta_pf",
 		withAi: false,
@@ -550,6 +550,25 @@ describe("open_order", () => {
 		expect(scr).toEqual({ email: "contato@example.test", client_profile_id: null, requested_by: T.operator.userId });
 		const [audit] = await rows("select metadata from audit_logs where action = 'order.open' and record_id = $1", [result.dossier_id]);
 		expect(audit.metadata).toEqual({ mode: "counter", product_code: "consulta_pf", with_ai: false, members: 1 });
+	});
+
+	it("staff opens a counter order on a brand-new connection", async () => {
+		// Conexão nova: o plpgsql não tem variável de registro aquecida por chamada anterior (v_own nunca atribuída).
+		const fresh = new Client({ connectionString: TEST_DATABASE_URL });
+		await fresh.connect();
+		try {
+			await fresh.query("begin");
+			await fresh.query(
+				`select set_config('app.user_id', $1, true), set_config('app.user_role', $2, true),
+                set_config('app.bureau_id', $3, true), set_config('app.support_session_id', '', true)`,
+				[T.operator.userId, "operator", T.bureau.id],
+			);
+			const result = await openOrder(fresh, { email: "contato@example.test" });
+			await fresh.query("commit");
+			expect(result).toMatchObject({ ok: true, state: "awaiting_payment" });
+		} finally {
+			await fresh.end();
+		}
 	});
 
 	it("staff counter order with a buyer and without a contact when an authorization is usable", async () => {
