@@ -1,9 +1,11 @@
 // Pagamento recebido no balcão (M3b). Não mexe em nenhuma carteira. Insere direto (RLS exige a equipe do Bureau);
-// a anulação passa por void_counter_payment (015_client_wallet_settlement.sql). Auditoria na mesma transação.
+// a anulação passa por void_counter_payment (015_client_wallet_settlement.sql). Auditoria e atualização do estado do pedido
+// na mesma transação.
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { refreshOrderState } from "@/lib/orders/queries";
 
 export type CounterMethod = "cash" | "pix" | "card_machine" | "transfer" | "other";
 
@@ -72,6 +74,8 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 				targetId: rows[0].id,
 				metadata: { dossier_id: input.dossierId, method: input.method, amount: input.amount },
 			});
+			// Pagamento completo move o pedido para a autorização ou para a fila (D18).
+			await refreshOrderState(client, input.dossierId);
 			return rows[0].id;
 		});
 		return id === null ? { ok: false, reason: "online_settlement" } : { ok: true, id };
@@ -103,6 +107,8 @@ export async function voidCounterPayment(identity: DbIdentity, input: VoidInput)
 			targetId: input.id,
 			metadata: { dossier_id: payment.rows[0].dossier_id, amount: payment.rows[0].amount },
 		});
+		// Anulação antes da execução devolve o pedido para 'awaiting_payment'.
+		await refreshOrderState(client, payment.rows[0].dossier_id);
 		return { ok: true };
 	});
 }
