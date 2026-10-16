@@ -42,8 +42,9 @@ import {
 	type SeededTenant,
 } from "@/test/seed";
 
-import { getMyDelivery, listMyOrders } from "./client-queries";
+import { getMyDelivery, getMyOrder, listMyOrders } from "./client-queries";
 import { claimOrders, completeOrder, placeOrder, refreshOrderState, releaseDelivery, revokeDelivery } from "./queries";
+import { setAiStatus } from "./tick-queries";
 import type { OpenOrderInput } from "./types";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
@@ -60,9 +61,11 @@ const maskCpf = (digits: string) => `***.${digits.slice(3, 6)}.${digits.slice(6,
 
 async function newTenant(label: string): Promise<SeededTenant> {
 	const t = await seedTenant(owner, label);
-	const { rows } = await owner.query<{ id: string }>("select id from products where code = 'consulta_pf'");
-	await seedBureauCost(owner, { bureauId: t.bureau.id, productId: rows[0].id, cost: "1.00", setBy: t.bureauAdmin.userId });
-	await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: rows[0].id, salePrice: "50.00", updatedBy: t.bureauAdmin.userId });
+	for (const [code, price] of [["consulta_pf", "50.00"], ["parecer_ia", "20.00"]]) {
+		const { rows } = await owner.query<{ id: string }>("select id from products where code = $1", [code]);
+		await seedBureauCost(owner, { bureauId: t.bureau.id, productId: rows[0].id, cost: "1.00", setBy: t.bureauAdmin.userId });
+		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: rows[0].id, salePrice: price, updatedBy: t.bureauAdmin.userId });
+	}
 	await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "300.00", createdBy: t.bureauAdmin.userId });
 	return t;
 }
@@ -88,7 +91,7 @@ async function place(t: SeededTenant, buyer: DbIdentity, input: OpenOrderInput):
 	return result.dossierId;
 }
 
-async function release(t: SeededTenant, id: string) {
+async function release(t: SeededTenant, id: string, withAi = false) {
 	await owner.query(
 		`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days'
 		  where id in (select scr_authorization_id from consultations where dossier_id = $1) and status = 'pending'`,
@@ -98,6 +101,7 @@ async function release(t: SeededTenant, id: string) {
 		await refreshOrderState(c, id);
 		await claimOrders(c, 10, id);
 		expect(await completeOrder(c, staff(t), id)).toBe("completed");
+		if (withAi) await setAiStatus(c, staff(t), id, "done", 1);
 		expect(await releaseDelivery(c, staff(t), id, "https://app.example.test")).toEqual({ ok: true });
 	});
 }
@@ -151,6 +155,7 @@ describe("listMyOrders", () => {
 		expect(list.map((o) => o.dossierId)).toEqual([third, mine]);
 		expect(list[1]).toEqual({
 			dossierId: mine,
+			mode: "online",
 			productCode: "consulta_pf",
 			withAi: false,
 			subjectName: expect.stringContaining("Titular"),
@@ -187,6 +192,18 @@ describe("listMyOrders", () => {
 	});
 });
 
+describe("getMyOrder", () => {
+	it("getMyOrder finds an own order and returns null for another client's", async () => {
+		const t = await newTenant("cq one");
+		const other = await seedClientProfile(owner, t.bureau.id);
+		const id = await place(t, t.client, ownInput);
+
+		expect(await withUserTransaction(t.client, (c) => getMyOrder(c, id))).toMatchObject({ dossierId: id, mode: "online", state: "awaiting_authorization" });
+		expect(await withUserTransaction(other, (c) => getMyOrder(c, id))).toBeNull();
+		expect(await withUserTransaction(t.client, (c) => getMyOrder(c, crypto.randomUUID()))).toBeNull();
+	});
+});
+
 describe("getMyDelivery", () => {
 	it("getMyDelivery is null before release and after revoke", async () => {
 		const t = await newTenant("cq delivery");
@@ -203,19 +220,28 @@ describe("getMyDelivery", () => {
 			kind: "PF",
 			order: { dossierId: id, state: "released", price: "50.00" },
 			dossierOpinion: null,
-			members: [
-				{
-					type: "PF",
-					status: "completed",
-					canonical: { marker: "canonical" },
-					opinion: { apto: "apto" },
-				},
-			],
+			members: [{ type: "PF", status: "completed", canonical: { marker: "canonical" }, opinion: null }],
 		});
 		expect(delivery?.members).toHaveLength(1);
 		expect(await mine(other)).toBeNull();
 
 		await withUserTransaction(staff(t), (c) => revokeDelivery(c, staff(t), id, "Resultado em revisão"));
 		expect(await mine()).toBeNull();
+	});
+
+	it("exposes the opinion only for an order with the AI add-on", async () => {
+		const t = await newTenant("cq ai scope");
+		const without = await place(t, t.client, ownInput);
+		const withAi = await place(t, t.client, { ...ownInput, withAi: true });
+		await release(t, without);
+		await release(t, withAi, true);
+		await seedResult(t, without);
+		await seedResult(t, withAi);
+
+		const plain = await withUserTransaction(t.client, (c) => getMyDelivery(c, without));
+		const paid = await withUserTransaction(t.client, (c) => getMyDelivery(c, withAi));
+
+		expect(plain?.members[0].opinion).toBeNull();
+		expect(paid?.members[0].opinion).toEqual({ apto: "apto" });
 	});
 });

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { ORDER_REASON_LABEL } from "@/lib/orders/labels";
-import type { StaffOrderView } from "@/lib/orders/queries";
+import type { StaffOrderView } from "@/lib/orders/staff-queries";
 import type { OrderState } from "@/lib/orders/types";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 

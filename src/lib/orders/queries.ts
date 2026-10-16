@@ -13,15 +13,12 @@ import type { OrderQuote, SettlementFailure } from "@/lib/settlement/types";
 
 import {
 	LEASE_MINUTES,
-	MAX_AI_ATTEMPTS,
 	MAX_EXECUTION_ATTEMPTS,
-	PAYMENT_WINDOW_DAYS,
 	type AiStatus,
 	type OpenOrderFailure,
 	type OpenOrderInput,
 	type OrderKind,
 	type OrderMode,
-	type OrderProductCode,
 	type OrderState,
 	type OrderStateReason,
 } from "./types";
@@ -35,6 +32,7 @@ const OPEN_FAILURES: readonly string[] = [
 	"self_holder_missing",
 	"contact_is_buyer",
 	"buyer_not_found",
+	"too_many_requests",
 ];
 const MAX_REVOKE_REASON = 500;
 
@@ -109,6 +107,9 @@ export async function refreshOrderState(client: PoolClient, dossierId: string): 
 	return rows[0].state;
 }
 
+// Teto da coluna attempts (check 0..20): a retomada de lease vencida não pode estourá-lo e derrubar o claim do Bureau.
+const ATTEMPTS_COLUMN_MAX = 20;
+
 // array(...) avalia a subconsulta uma vez só: com IN (...) o Postgres a repete por linha e o limit deixa de valer.
 export async function claimOrders(
 	client: PoolClient,
@@ -118,7 +119,7 @@ export async function claimOrders(
 	const { rows } = await client.query<{ dossier_id: string; attempts: number }>(
 		`update dossier_orders o
 		    set state = 'executing', lease_until = now() + make_interval(mins => $3),
-		        attempts = o.attempts + 1, updated_at = now()
+		        attempts = least(o.attempts + 1, $4), updated_at = now()
 		  where o.dossier_id = any (array(
 		    select q.dossier_id from dossier_orders q
 		     where q.bureau_id = app_bureau_id()
@@ -129,7 +130,7 @@ export async function claimOrders(
 		     limit $1
 		     for update skip locked))
 		 returning o.dossier_id, o.attempts`,
-		[limit, dossierId ?? null, LEASE_MINUTES],
+		[limit, dossierId ?? null, LEASE_MINUTES, ATTEMPTS_COLUMN_MAX],
 	);
 	return rows.map((r) => ({ dossierId: r.dossier_id, attempts: r.attempts }));
 }
@@ -300,14 +301,22 @@ export async function retryOrderLater(
 		await failOrder(client, identity, dossierId, "deps_unavailable");
 		return "failed";
 	}
-	const { rowCount } = await client.query(
+	const { rows } = await client.query<{ next_attempt_at: Date }>(
 		`update dossier_orders
 		    set state = 'ready', lease_until = null,
 		        next_attempt_at = now() + make_interval(mins => least(2 ^ ($2::int - 1), 60)::int), updated_at = now()
-		  where dossier_id = $1 and state = 'executing'`,
+		  where dossier_id = $1 and state = 'executing'
+		returning next_attempt_at`,
 		[dossierId, attempts],
 	);
-	if (rowCount === 0) throw new Error("retryOrderLater: order is not executing");
+	if (!rows[0]) throw new Error("retryOrderLater: order is not executing");
+	await writeAuditEvent(client, {
+		actorId: identity.userId,
+		action: "order.retry",
+		targetTable: "dossier_orders",
+		targetId: dossierId,
+		metadata: { attempts, next_attempt_at: rows[0].next_attempt_at.toISOString() },
+	});
 	return "ready";
 }
 
@@ -398,7 +407,9 @@ export async function releaseDelivery(
 	if (order.state !== "completed" || order.ai_status === "pending") return { ok: false, reason: "invalid_state" };
 	if (!order.client_profile_id) return { ok: false, reason: "no_buyer" };
 	const released = await client.query<{ released_ms: string }>(
-		`update dossier_orders set state = 'released', released_at = now(), released_by = $2, updated_at = now()
+		`update dossier_orders
+		    set state = 'released', released_at = now(), released_by = $2, updated_at = now(),
+		        revoked_at = null, revoked_by = null, revoke_reason = null
 		  where dossier_id = $1
 		returning floor(extract(epoch from released_at) * 1000)::text as released_ms`,
 		[dossierId, identity.userId],
@@ -417,7 +428,8 @@ export async function releaseDelivery(
 	return { ok: true };
 }
 
-// Revogar não avisa o cliente. O texto do motivo fica na linha do pedido, nunca na auditoria.
+// Revogar não avisa o cliente. O texto do motivo fica na linha do pedido, nunca na auditoria. Liberar de novo é legítimo
+// e limpa a revogação (releaseDelivery).
 export async function revokeDelivery(
 	client: PoolClient,
 	identity: DbIdentity,
@@ -446,267 +458,4 @@ export async function revokeDelivery(
 		title: "Liberação da pesquisa revogada",
 	});
 	return { ok: true };
-}
-
-export async function expireScrRequests(client: PoolClient, identity: DbIdentity): Promise<number> {
-	const { rows } = await client.query<{ id: string; holder_id: string }>(
-		`update scr_authorizations
-		    set status = 'expired', auth_code = null, last_checked_at = now()
-		  where bureau_id = app_bureau_id() and status = 'pending' and request_expires_at < now()
-		returning id, holder_id`,
-	);
-	for (const row of rows) {
-		await recordHolderEvent(client, identity.userId, row.holder_id, {
-			eventType: "scr.expired",
-			title: "Pedido de autorização SCR expirado",
-		});
-		await writeAuditEvent(client, {
-			actorId: identity.userId,
-			action: "scr.expire",
-			targetTable: "scr_authorizations",
-			targetId: row.id,
-		});
-	}
-	return rows.length;
-}
-
-// Cancela o que não anda mais: autorização recusada ou expirada, e balcão sem pagamento no prazo.
-export async function cancelStalledOrders(client: PoolClient, identity: DbIdentity): Promise<number> {
-	const { rows } = await client.query<{ dossier_id: string; reason: OrderStateReason }>(
-		`select o.dossier_id,
-		        case when o.state = 'awaiting_payment' then 'payment_timeout'
-		             when exists (select 1 from consultations c join scr_authorizations s on s.id = c.scr_authorization_id
-		                           where c.dossier_id = o.dossier_id and s.status = 'not_authorized') then 'scr_refused'
-		             else 'scr_expired' end as reason
-		   from dossier_orders o
-		  where o.bureau_id = app_bureau_id()
-		    and ((o.state = 'awaiting_payment' and o.mode = 'counter'
-		          and o.created_at < now() - make_interval(days => $1))
-		      or (o.state = 'awaiting_authorization'
-		          and exists (select 1 from consultations c join scr_authorizations s on s.id = c.scr_authorization_id
-		                       where c.dossier_id = o.dossier_id and s.status in ('not_authorized', 'expired'))))
-		  order by o.created_at`,
-		[PAYMENT_WINDOW_DAYS],
-	);
-	let cancelled = 0;
-	for (const row of rows) {
-		const result = await cancelOrder(client, identity, row.dossier_id, row.reason);
-		if (result.ok) cancelled += 1;
-	}
-	return cancelled;
-}
-
-// Autorização vencida de pedido que espera: reaproveita a utilizável do mesmo escopo (Bureau, Titular, comprador) ou
-// abre um pedido novo, e religa a consulta. Mesma regra do passo 10 de open_order.
-async function renewExpiredAuthorizations(client: PoolClient, limit: number): Promise<void> {
-	const stale = await client.query<{
-		consultation_id: string;
-		bureau_id: string;
-		holder_id: string;
-		client_profile_id: string | null;
-		type: "PF" | "PJ";
-		document: string;
-		name: string | null;
-		email: string | null;
-		phone_e164: string | null;
-	}>(
-		`select c.id as consultation_id, s.bureau_id, s.holder_id, s.client_profile_id, s.type::text as type, s.document,
-		        s.name, coalesce(s.email, c.scr_email) as email, s.phone_e164
-		   from consultations c
-		   join scr_authorizations s on s.id = c.scr_authorization_id
-		   join dossier_orders o on o.dossier_id = c.dossier_id
-		  where o.bureau_id = app_bureau_id() and o.state = 'awaiting_authorization'
-		    and s.channel = 'internal' and s.status = 'authorized' and s.expires_at <= now()
-		  order by o.created_at, c.id
-		  limit $1`,
-		[limit],
-	);
-	for (const row of stale.rows) {
-		const usable = await client.query<{ id: string }>(
-			`select s.id from scr_authorizations s
-			  where s.bureau_id = $1 and s.holder_id = $2 and s.client_profile_id is not distinct from $3
-			    and s.channel = 'internal'
-			    and ((s.status = 'authorized' and s.expires_at > now())
-			         or (s.status = 'pending' and (s.request_expires_at is null or s.request_expires_at > now())))
-			  order by (s.status = 'authorized') desc, s.requested_at desc, s.id
-			  limit 1`,
-			[row.bureau_id, row.holder_id, row.client_profile_id],
-		);
-		let authorizationId = usable.rows[0]?.id;
-		if (!authorizationId) {
-			const created = await client.query<{ id: string }>(
-				`insert into scr_authorizations
-				   (bureau_id, document, type, name, email, phone_e164, holder_id, client_profile_id, consultation_id,
-				    requested_by, channel)
-				 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, app_user_id(), 'internal')
-				 returning id`,
-				[
-					row.bureau_id,
-					row.document,
-					row.type,
-					row.name,
-					row.email,
-					row.phone_e164,
-					row.holder_id,
-					row.client_profile_id,
-					row.consultation_id,
-				],
-			);
-			authorizationId = created.rows[0].id;
-		}
-		await client.query("update consultations set scr_authorization_id = $2 where id = $1", [row.consultation_id, authorizationId]);
-	}
-}
-
-export type ScrRequestToIssue = {
-	scrId: string;
-	holderId: string;
-	type: "PF" | "PJ";
-	document: string;
-	name: string;
-	email: string;
-	phoneE164: string | null;
-};
-
-export async function listScrRequestsToIssue(client: PoolClient, limit: number): Promise<ScrRequestToIssue[]> {
-	await renewExpiredAuthorizations(client, limit);
-	const { rows } = await client.query<{
-		id: string;
-		holder_id: string;
-		type: "PF" | "PJ";
-		document: string;
-		name: string;
-		email: string;
-		phone_e164: string | null;
-	}>(
-		`select s.id, s.holder_id, s.type::text as type, s.document, s.name, s.email, s.phone_e164
-		   from scr_authorizations s
-		  where s.bureau_id = app_bureau_id() and s.channel = 'internal' and s.status = 'pending'
-		    and s.auth_code is null and s.email is not null and s.name is not null
-		    and (s.request_expires_at is null or s.request_expires_at > now())
-		    and exists (select 1 from consultations c join dossier_orders o on o.dossier_id = c.dossier_id
-		                 where c.scr_authorization_id = s.id and o.state = 'awaiting_authorization')
-		  order by s.requested_at, s.id
-		  limit $1`,
-		[limit],
-	);
-	return rows.map((r) => ({
-		scrId: r.id,
-		holderId: r.holder_id,
-		type: r.type,
-		document: r.document,
-		name: r.name,
-		email: r.email,
-		phoneE164: r.phone_e164,
-	}));
-}
-
-// O tick chama refreshOrderState em cada um (passo "promover").
-export async function listOrdersToPromote(client: PoolClient, limit: number): Promise<string[]> {
-	const { rows } = await client.query<{ dossier_id: string }>(
-		`select dossier_id from dossier_orders
-		  where bureau_id = app_bureau_id() and state in ('awaiting_authorization', 'ready')
-		  order by created_at limit $1`,
-		[limit],
-	);
-	return rows.map((r) => r.dossier_id);
-}
-
-export async function listOrdersForAi(
-	client: PoolClient,
-	limit: number,
-): Promise<{ dossierId: string; kind: OrderKind; aiAttempts: number }[]> {
-	const { rows } = await client.query<{ dossier_id: string; kind: OrderKind; ai_attempts: number }>(
-		`select o.dossier_id, d.kind::text as kind, o.ai_attempts
-		   from dossier_orders o join dossiers d on d.id = o.dossier_id
-		  where o.bureau_id = app_bureau_id() and o.state = 'completed' and o.ai_status = 'pending' and o.ai_attempts < $2
-		  order by o.created_at limit $1`,
-		[limit, MAX_AI_ATTEMPTS],
-	);
-	return rows.map((r) => ({ dossierId: r.dossier_id, kind: r.kind, aiAttempts: r.ai_attempts }));
-}
-
-export async function setAiStatus(client: PoolClient, dossierId: string, status: AiStatus, attempts: number): Promise<void> {
-	await client.query(
-		"update dossier_orders set ai_status = $2, ai_attempts = $3, updated_at = now() where dossier_id = $1",
-		[dossierId, status, attempts],
-	);
-}
-
-// Online concluído, sem parecer em andamento e nunca revogado: D20 libera sozinho.
-export async function listOnlineOrdersToRelease(client: PoolClient, limit: number): Promise<string[]> {
-	const { rows } = await client.query<{ dossier_id: string }>(
-		`select dossier_id from dossier_orders
-		  where bureau_id = app_bureau_id() and mode = 'online' and state = 'completed'
-		    and ai_status <> 'pending' and revoked_at is null
-		  order by created_at limit $1`,
-		[limit],
-	);
-	return rows.map((r) => r.dossier_id);
-}
-
-export type StaffOrderView = {
-	dossierId: string;
-	mode: OrderMode;
-	state: OrderState;
-	reason: OrderStateReason | null;
-	productCode: OrderProductCode;
-	withAi: boolean;
-	aiStatus: AiStatus;
-	buyerName: string | null;
-	price: string;
-	paidTotal: string | null;
-	releasedAt: Date | null;
-	revokedAt: Date | null;
-	revokeReason: string | null;
-	createdAt: Date;
-};
-
-export async function getStaffOrder(client: PoolClient, dossierId: string): Promise<StaffOrderView | null> {
-	const { rows } = await client.query<{
-		dossier_id: string;
-		mode: OrderMode;
-		state: OrderState;
-		state_reason: OrderStateReason | null;
-		product_code: OrderProductCode;
-		with_ai: boolean;
-		ai_status: AiStatus;
-		buyer_name: string | null;
-		price: string | null;
-		paid_total: string | null;
-		released_at: Date | null;
-		revoked_at: Date | null;
-		revoke_reason: string | null;
-		created_at: Date;
-	}>(
-		`select o.dossier_id, o.mode, o.state, o.state_reason, o.product_code, o.with_ai, o.ai_status,
-		        p.full_name as buyer_name, s.price::text as price,
-		        case when o.mode = 'counter' then
-		          (select coalesce(sum(cp.amount), 0)::text from counter_payments cp
-		            where cp.dossier_id = o.dossier_id and cp.voided_at is null) end as paid_total,
-		        o.released_at, o.revoked_at, o.revoke_reason, o.created_at
-		   from dossier_orders o
-		   left join profiles p on p.id = o.client_profile_id
-		   left join order_settlements s on s.order_ref = o.dossier_id
-		  where o.dossier_id = $1`,
-		[dossierId],
-	);
-	const r = rows[0];
-	if (!r) return null;
-	return {
-		dossierId: r.dossier_id,
-		mode: r.mode,
-		state: r.state,
-		reason: r.state_reason,
-		productCode: r.product_code,
-		withAi: r.with_ai,
-		aiStatus: r.ai_status,
-		buyerName: r.buyer_name,
-		price: r.price ?? "0.00",
-		paidTotal: r.paid_total,
-		releasedAt: r.released_at,
-		revokedAt: r.revoked_at,
-		revokeReason: r.revoke_reason,
-		createdAt: r.created_at,
-	};
 }

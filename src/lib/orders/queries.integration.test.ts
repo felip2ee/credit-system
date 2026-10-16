@@ -46,24 +46,27 @@ import {
 import { getMyDelivery } from "./client-queries";
 import {
 	cancelOrder,
-	cancelStalledOrders,
 	claimOrders,
 	completeOrder,
-	expireScrRequests,
 	failOrder,
 	getExecutionPlan,
-	getStaffOrder,
-	listOnlineOrdersToRelease,
-	listOrdersForAi,
-	listOrdersToPromote,
-	listScrRequestsToIssue,
 	placeOrder,
 	refreshOrderState,
 	releaseDelivery,
 	retryOrderLater,
 	revokeDelivery,
-	setAiStatus,
 } from "./queries";
+import { getStaffOrder } from "./staff-queries";
+import {
+	cancelStalledOrders,
+	claimOrderForAi,
+	expireScrRequests,
+	listOnlineOrdersToRelease,
+	listOrdersForAi,
+	listOrdersToPromote,
+	listScrRequestsToIssue,
+	setAiStatus,
+} from "./tick-queries";
 import type { OpenOrderInput, OrderProductCode } from "./types";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
@@ -142,7 +145,7 @@ const thirdInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
 	self: false,
 	subject: { type: "PF", name: "Fulano de Tal", documentDigits: cpf() },
 	partners: [],
-	contact: { email: "titular@example.com", phoneE164: null },
+	contact: { email: `titular-${crypto.randomUUID()}@example.com`, phoneE164: null },
 	buyerProfileId: null,
 	...over,
 });
@@ -326,6 +329,16 @@ describe("claimOrders", () => {
 		expect((await orderOf(id)).state).toBe("executing");
 	});
 
+	it("a reclaim at the attempts ceiling does not break the claim", async () => {
+		const t = await newTenant("ord ceiling");
+		const id = await placeOnline(t);
+		await makeReady(t, id);
+		await claim(t, id);
+		await owner.query("update dossier_orders set attempts = 20, lease_until = now() - interval '1 minute' where dossier_id = $1", [id]);
+
+		expect(await withUserTransaction(staff(t), (c) => claimOrders(c, 10, id))).toEqual([{ dossierId: id, attempts: 20 }]);
+	});
+
 	it("next_attempt_at in the future is not claimed", async () => {
 		const t = await newTenant("ord backoff");
 		const id = await placeOnline(t);
@@ -363,6 +376,30 @@ describe("completeOrder", () => {
 		expect(audit).toHaveLength(1);
 		const timeline = await rows("select 1 from timeline_events where event_type = 'order.completed' and bureau_id = $1", [t.bureau.id]);
 		expect(timeline).toHaveLength(2);
+	});
+
+	it("counter order captures C on the bureau wallet and accrues nothing to the payable", async () => {
+		const t = await newTenant("ord counter capture");
+		const id = await placeCounter(t);
+		await registerCounterPayment(staff(t), {
+			dossierId: id,
+			method: "cash",
+			amount: "50.00",
+			note: null,
+			receivedAt: new Date("2026-10-14T12:00:00Z"),
+		});
+		expect(await bureauWallet(t)).toEqual({ available: "199.00", reserved: "1.00" });
+		const payableBefore = await rows("select kind, amount::text from bureau_payable_entries where bureau_id = $1", [t.bureau.id]);
+
+		await makeReady(t, id);
+		await claim(t, id);
+		expect(await withUserTransaction(staff(t), (c) => completeOrder(c, staff(t), id))).toBe("completed");
+
+		expect(await bureauWallet(t)).toEqual({ available: "199.00", reserved: "0.00" });
+		expect(await clientWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
+		const [settlement] = await rows("select mode, status, cost::text from order_settlements where order_ref = $1", [id]);
+		expect(settlement).toEqual({ mode: "counter", status: "captured", cost: "1.00" });
+		expect(await rows("select kind, amount::text from bureau_payable_entries where bureau_id = $1", [t.bureau.id])).toEqual(payableBefore);
 	});
 
 	it("clawed back capture fails the order without delivery", async () => {
@@ -457,6 +494,13 @@ describe("cancelOrder, failOrder and retryOrderLater", () => {
 		expect(await withUserTransaction(staff(t), (c) => retryOrderLater(c, staff(t), id, 1))).toBe("ready");
 		expect(await orderOf(id)).toMatchObject({ state: "ready", lease_until: null });
 		expect(await minutes()).toBe(1);
+		const retried = await rows<{ metadata: { attempts: number; next_attempt_at: string } }>(
+			"select metadata from audit_logs where action = 'order.retry' and record_id = $1",
+			[id],
+		);
+		expect(retried).toHaveLength(1);
+		expect(retried[0].metadata.attempts).toBe(1);
+		expect(Number.isNaN(Date.parse(retried[0].metadata.next_attempt_at))).toBe(false);
 
 		await owner.query("update dossier_orders set next_attempt_at = null, attempts = 2 where dossier_id = $1", [id]);
 		expect(await claim(t, id)).toBe(3);
@@ -538,8 +582,25 @@ describe("releaseDelivery and revokeDelivery", () => {
 		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE))).toEqual({ ok: false, reason: "invalid_state" });
 		await toCompleted(t, id);
 		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE))).toEqual({ ok: false, reason: "invalid_state" });
-		await withUserTransaction(staff(t), (c) => setAiStatus(c, id, "failed", 3));
+		await withUserTransaction(staff(t), (c) => setAiStatus(c, staff(t), id, "failed", 3));
 		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE))).toEqual({ ok: true });
+	});
+
+	it("release after revoke clears the revocation and the client reads the delivery again", async () => {
+		const t = await newTenant("ord rerelease");
+		const id = await placeOnline(t);
+		await toCompleted(t, id);
+		await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE));
+		await withUserTransaction(staff(t), (c) => revokeDelivery(c, staff(t), id, "Titular errado"));
+		expect(await withUserTransaction(buyerOf(t), (c) => getMyDelivery(c, id))).toBeNull();
+
+		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE))).toEqual({ ok: true });
+
+		expect(await rows("select revoked_at, revoked_by, revoke_reason from dossier_orders where dossier_id = $1", [id])).toEqual([
+			{ revoked_at: null, revoked_by: null, revoke_reason: null },
+		]);
+		expect((await orderOf(id)).state).toBe("released");
+		expect(await withUserTransaction(buyerOf(t), (c) => getMyDelivery(c, id))).not.toBeNull();
 	});
 
 	it("revokeDelivery requires a reason and hides the delivery from the client", async () => {
@@ -626,19 +687,19 @@ describe("authorization and stalled orders", () => {
 		const t = await newTenant("ord rerequest");
 		const id = await placeOnline(t);
 		const [pending] = await authorizationRows(id);
-		const issued = await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, 10));
+		const issued = await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, staff(t), 10));
 		expect(issued).toEqual([expect.objectContaining({ scrId: pending.id, type: "PF", phoneE164: null })]);
 		expect(issued[0].email).toContain("@");
 
 		// Com o código já emitido, a linha sai da lista.
 		await owner.query("update scr_authorizations set auth_code = 'ABC123' where id = $1", [pending.id]);
-		expect(await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, 10))).toEqual([]);
+		expect(await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, staff(t), 10))).toEqual([]);
 
 		await owner.query(
 			"update scr_authorizations set status = 'authorized', authorized_at = now() - interval '2 days', expires_at = now() - interval '1 minute', auth_code = null where id = $1",
 			[pending.id],
 		);
-		const again = await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, 10));
+		const again = await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, staff(t), 10));
 		expect(again).toHaveLength(1);
 		expect(again[0].scrId).not.toBe(pending.id);
 		expect(again[0].holderId).toBe(issued[0].holderId);
@@ -653,7 +714,7 @@ describe("authorization and stalled orders", () => {
 		expect(scope.client_profile_id).toBe(t.client.userId);
 		expect(scope.requested_by).toBe(t.operator.userId);
 		// Repetir não abre outra linha.
-		expect(await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, 10))).toHaveLength(1);
+		expect(await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, staff(t), 10))).toHaveLength(1);
 		expect(await rows("select 1 from scr_authorizations where holder_id = $1", [issued[0].holderId])).toHaveLength(2);
 	});
 });
@@ -662,6 +723,9 @@ describe("queue listings and views", () => {
 	it("lists the work for the tick and shows the order to the staff", async () => {
 		const t = await newTenant("ord views");
 		const id = await placeOnline(t, ownInput({ withAi: true }));
+		// Sem autorização o refresh não mudaria nada: o pedido ainda não é candidato.
+		expect(await withUserTransaction(staff(t), (c) => listOrdersToPromote(c, 10))).toEqual([]);
+		await authorizeAll(id);
 		expect(await withUserTransaction(staff(t), (c) => listOrdersToPromote(c, 10))).toEqual([id]);
 
 		const plan = await withUserTransaction(staff(t), (c) => getExecutionPlan(c, id));
@@ -676,7 +740,7 @@ describe("queue listings and views", () => {
 		expect(await withUserTransaction(staff(t), (c) => listOrdersForAi(c, 10))).toEqual([{ dossierId: id, kind: "PF", aiAttempts: 0 }]);
 		expect(await withUserTransaction(staff(t), (c) => listOnlineOrdersToRelease(c, 10))).toEqual([]);
 
-		await withUserTransaction(staff(t), (c) => setAiStatus(c, id, "done", 1));
+		await withUserTransaction(staff(t), (c) => setAiStatus(c, staff(t), id, "done", 1));
 		expect(await withUserTransaction(staff(t), (c) => listOrdersForAi(c, 10))).toEqual([]);
 		expect(await withUserTransaction(staff(t), (c) => listOnlineOrdersToRelease(c, 10))).toEqual([id]);
 
@@ -706,5 +770,128 @@ describe("queue listings and views", () => {
 		expect(await withUserTransaction(staff(t), (c) => getStaffOrder(c, id))).toMatchObject({ state: "awaiting_payment", price: "50.00", paidTotal: "20.00", buyerName: null });
 		await pay("30.00");
 		expect((await orderOf(id)).state).toBe("awaiting_authorization");
+	});
+});
+
+describe("tick candidates and AI claim", () => {
+	const isDue = async (t: SeededTenant) =>
+		(await rows<{ bureau_id: string }>("select bureau_id from due_order_bureaus() where bureau_id = $1", [t.bureau.id])).length === 1;
+
+	it("listOrdersToPromote is not starved by older orders that cannot change state", async () => {
+		const t = await newTenant("ord starve", { client: "2000.00" });
+		for (let i = 0; i < 25; i += 1) await placeOnline(t, thirdInput());
+		const newest = await placeOnline(t, thirdInput());
+		await authorizeAll(newest);
+
+		expect(await withUserTransaction(staff(t), (c) => listOrdersToPromote(c, 20))).toEqual([newest]);
+
+		// Pronto que perdeu a autorização também é candidato (volta a esperar).
+		await refresh(t, newest);
+		await owner.query(
+			`update scr_authorizations set expires_at = now() - interval '1 minute'
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[newest],
+		);
+		expect(await withUserTransaction(staff(t), (c) => listOrdersToPromote(c, 20))).toEqual([newest]);
+	});
+
+	it("open_order sets the request deadline when the pending row is created", async () => {
+		const t = await newTenant("ord deadline");
+		const id = await placeOnline(t, thirdInput());
+
+		const [row] = await rows<{ days: string }>(
+			`select extract(epoch from s.request_expires_at - now()) / 86400 as days from scr_authorizations s
+			  where s.id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[id],
+		);
+		expect(Number(row.days)).toBeGreaterThan(6.9);
+		expect(Number(row.days)).toBeLessThanOrEqual(7);
+	});
+
+	it("renewal without a contact expires the authorization and the order is cancelled as scr_expired", async () => {
+		const t = await newTenant("ord renew nocontact");
+		const id = await placeOnline(t, thirdInput());
+		await authorizeAll(id);
+		await owner.query(
+			`update scr_authorizations set email = null, expires_at = now() - interval '1 minute'
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[id],
+		);
+		await owner.query("update consultations set scr_email = null where dossier_id = $1", [id]);
+		const [holder] = await rows<{ holder_id: string }>("select holder_id from scr_authorizations where id in (select scr_authorization_id from consultations where dossier_id = $1)", [id]);
+
+		expect(await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, staff(t), 10))).toEqual([]);
+
+		expect(await rows("select 1 from scr_authorizations where holder_id = $1", [holder.holder_id])).toHaveLength(1);
+		expect(await rows("select status from scr_authorizations where holder_id = $1", [holder.holder_id])).toEqual([{ status: "expired" }]);
+		expect(await withUserTransaction(staff(t), (c) => cancelStalledOrders(c, staff(t)))).toBe(1);
+		expect(await orderOf(id)).toMatchObject({ state: "cancelled", state_reason: "scr_expired" });
+	});
+
+	it("renewed request carries the 7 day deadline", async () => {
+		const t = await newTenant("ord renew deadline");
+		const id = await placeOnline(t, thirdInput());
+		await authorizeAll(id);
+		await owner.query(
+			`update scr_authorizations set expires_at = now() - interval '1 minute'
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[id],
+		);
+
+		const [created] = await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, staff(t), 10));
+
+		const [row] = await rows<{ days: string }>(
+			"select extract(epoch from request_expires_at - now()) / 86400 as days from scr_authorizations where id = $1",
+			[created.scrId],
+		);
+		expect(Number(row.days)).toBeGreaterThan(6.9);
+	});
+
+	it("a Bureau whose only pending work is a revoked online order is not due", async () => {
+		const t = await newTenant("ord due revoked");
+		const id = await placeOnline(t);
+		await toCompleted(t, id);
+		expect(await isDue(t)).toBe(true);
+		await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE));
+		await withUserTransaction(staff(t), (c) => revokeDelivery(c, staff(t), id, "Titular errado"));
+
+		expect(await isDue(t)).toBe(false);
+	});
+
+	it("claimOrderForAi counts the attempt first and a live lease blocks the next claim and the listing", async () => {
+		const t = await newTenant("ord ai claim");
+		const id = await placeOnline(t, ownInput({ withAi: true }));
+		await toCompleted(t, id);
+
+		expect(await withUserTransaction(staff(t), (c) => claimOrderForAi(c, staff(t), id))).toBe(1);
+
+		expect(await rows("select ai_attempts, ai_status, (lease_until > now()) as leased from dossier_orders where dossier_id = $1", [id])).toEqual([
+			{ ai_attempts: 1, ai_status: "pending", leased: true },
+		]);
+		expect(await withUserTransaction(staff(t), (c) => claimOrderForAi(c, staff(t), id))).toBeNull();
+		expect(await withUserTransaction(staff(t), (c) => listOrdersForAi(c, 10))).toEqual([]);
+
+		// Lease vencida (queda do tick): volta à fila com a tentativa já contada.
+		await owner.query("update dossier_orders set lease_until = now() - interval '1 minute' where dossier_id = $1", [id]);
+		expect(await withUserTransaction(staff(t), (c) => listOrdersForAi(c, 10))).toEqual([{ dossierId: id, kind: "PF", aiAttempts: 1 }]);
+		expect(await withUserTransaction(staff(t), (c) => claimOrderForAi(c, staff(t), id))).toBe(2);
+		expect(await rows("select 1 from audit_logs where action = 'order.ai_status' and record_id = $1", [id])).toHaveLength(2);
+	});
+
+	it("claimOrderForAi closes as failed when a crash ate the last attempt, and setAiStatus audits", async () => {
+		const t = await newTenant("ord ai exhausted");
+		const id = await placeOnline(t, ownInput({ withAi: true }));
+		await toCompleted(t, id);
+		await owner.query("update dossier_orders set ai_attempts = 3 where dossier_id = $1", [id]);
+
+		expect(await withUserTransaction(staff(t), (c) => claimOrderForAi(c, staff(t), id))).toBeNull();
+
+		expect(await orderOf(id)).toMatchObject({ state: "completed", ai_status: "failed", lease_until: null });
+		await withUserTransaction(staff(t), (c) => setAiStatus(c, staff(t), id, "failed", 3));
+		const audit = await rows<{ metadata: unknown }>("select metadata from audit_logs where action = 'order.ai_status' and record_id = $1 order by created_at", [id]);
+		expect(audit.map((a) => a.metadata)).toEqual([
+			{ status: "failed", attempts: 3 },
+			{ status: "failed", attempts: 3 },
+		]);
 	});
 });

@@ -130,7 +130,7 @@ const thirdInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
 	self: false,
 	subject: { type: "PF", name: "Fulano de Tal", documentDigits: onlyDigits(randomCpf()) },
 	partners: [],
-	contact: { email: "titular@example.com", phoneE164: null },
+	contact: { email: `titular-${crypto.randomUUID()}@example.com`, phoneE164: null },
 	buyerProfileId: null,
 	...over,
 });
@@ -167,7 +167,7 @@ const scrOf = async (dossierId: string) =>
 const confirmScr = async (token: string, code: string) =>
 	(await pool.query<{ r: string }>("select confirm_public_scr_authorization($1, 'internal', $2, 'authorize', '203.0.113.9') as r", [token, code])).rows[0].r;
 
-const ZERO: TickResult = { bureaus: 1, expired: 0, cancelled: 0, requested: 0, promoted: 0, executed: 0, ai: 0, released: 0, errors: 0 };
+const ZERO: TickResult = { bureaus: 1, expired: 0, cancelled: 0, requested: 0, promoted: 0, executed: 0, ai: 0, released: 0, skipped: 0, errors: 0 };
 
 describe("runOrdersTick", () => {
 	it("online order end to end debits P from the client and accrues P minus C", async () => {
@@ -300,7 +300,7 @@ describe("runOrdersTick", () => {
 		expect(result).toEqual({ ...ZERO, bureaus: 2, requested: 1, errors: 1 });
 		expect((await scrOf(goodId)).auth_code).toMatch(/^[A-Z2-9]{6}$/);
 		expect((await scrOf(badId)).auth_code).toBeNull();
-		expect(JSON.stringify(errorLog.mock.calls)).not.toMatch(/titular@example\.com|sem-arroba/);
+		expect(JSON.stringify(errorLog.mock.calls)).not.toMatch(/titular-.*@example\.com|sem-arroba/);
 		errorLog.mockRestore();
 	});
 
@@ -318,5 +318,83 @@ describe("runOrdersTick", () => {
 		const first = await runOrdersTick();
 		expect(first).toMatchObject({ promoted: TICK_EXECUTION_LIMIT + 1, executed: TICK_EXECUTION_LIMIT, released: TICK_EXECUTION_LIMIT });
 		expect(await runOrdersTick()).toMatchObject({ executed: 1, released: 1 });
+	});
+
+	it("two overlapping ticks pay the AI opinion once and the second skips the Bureau", async () => {
+		const t = await newTenant("tick overlap");
+		const id = await place(buyerOf(t), t, thirdInput({ withAi: true }));
+		await owner.query(
+			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[id],
+		);
+		// Parecer lento: o segundo tick chega com o primeiro ainda dentro da chamada ao modelo.
+		fakes.generateParecer.mockImplementation(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 400));
+			return { parecer, model: "modelo-teste" };
+		});
+
+		const [a, b] = await Promise.all([runOrdersTick(), runOrdersTick()]);
+
+		expect(fakes.generateParecer).toHaveBeenCalledOnce();
+		expect([a.skipped, b.skipped].sort()).toEqual([0, 1]);
+		expect(a.ai + b.ai).toBe(1);
+		expect(await orderOf(id)).toEqual({ state: "released", state_reason: null, ai_status: "done" });
+		expect(await rows("select ai_attempts from dossier_orders where dossier_id = $1", [id])).toEqual([{ ai_attempts: 1 }]);
+	});
+
+	it("an authorized order is promoted on the first tick even behind 25 older waiting orders", async () => {
+		const t = await newTenant("tick starve");
+		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "2000.00", createdBy: t.bureauAdmin.userId });
+		for (let i = 0; i < 25; i += 1) await place(buyerOf(t), t, thirdInput());
+		const newest = await place(buyerOf(t), t, thirdInput());
+		await owner.query(
+			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[newest],
+		);
+
+		const result = await runOrdersTick();
+
+		expect(result).toMatchObject({ promoted: 1, executed: 1, released: 1 });
+		expect(await orderOf(newest)).toMatchObject({ state: "released" });
+	});
+
+	it("an order reclaimed past the attempt limit fails without calling the DEPS", async () => {
+		const t = await newTenant("tick exhausted");
+		const id = await place(buyerOf(t), t, thirdInput());
+		await owner.query(
+			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[id],
+		);
+		await runOrdersTick();
+		expect((await orderOf(id)).state).toBe("released");
+		// Reconstrói o caso: pedido preso em consulta, lease vencida e cinco tentativas já gastas.
+		const second = await place(buyerOf(t), t, thirdInput());
+		await owner.query(
+			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[second],
+		);
+		const client = await owner.connect();
+		try {
+			await client.query("begin");
+			await client.query("set local session_replication_role = replica");
+			await client.query(
+				"update dossier_orders set state = 'executing', attempts = 5, lease_until = now() - interval '1 minute' where dossier_id = $1",
+				[second],
+			);
+			await client.query("commit");
+		} finally {
+			client.release();
+		}
+		fakes.consultPF.mockClear();
+
+		await runOrdersTick();
+
+		expect(fakes.consultPF).not.toHaveBeenCalled();
+		expect(await orderOf(second)).toEqual({ state: "failed", state_reason: "deps_unavailable", ai_status: "none" });
+		expect(await clientWallet(t)).toEqual({ available: "150.00", reserved: "0.00" });
 	});
 });

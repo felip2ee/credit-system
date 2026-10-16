@@ -579,7 +579,9 @@ set search_path = pg_catalog, public
 as $$
 #variable_conflict use_column
 declare
-  c_email_re constant text := '^[^@\s]+@[^@\s]+\.[^@\s]+$';
+  -- Mesma forma de isValidEmail (src/lib/utils.ts): sem , ; ( ) < > " para o endereço não virar lista no nodemailer.
+  c_email_re constant text := '^[^\s@,;()<>"]+@[^\s@,;()<>"]+\.[^\s@,;()<>"]+$';
+  c_max_recent_requests constant integer := 3;
   v_bureau uuid := public.app_bureau_id();
   v_user uuid := public.app_user_id();
   v_role text := public.app_user_role();
@@ -615,6 +617,7 @@ declare
   v_mname text;
   v_mtype text;
   v_memail text;
+  v_recent integer;
   v_pdigits text;
   v_pname text;
   v_pemail text;
@@ -738,18 +741,22 @@ begin
   end if;
 
   -- 6) Contato do Titular principal. Própria: e-mail da conta e celular só se confirmado. Terceiro (cliente): e-mail
-  -- obrigatório e diferente do comprador. Equipe: o contato só é cobrado de quem não tem autorização utilizável (abaixo).
+  -- obrigatório. Em qualquer canal com comprador, o contato não pode ser o dele (D12). Equipe: o contato só é cobrado de
+  -- quem não tem autorização utilizável (abaixo).
   if v_self then
     v_email := lower(v_buyer_p.email);
     v_phone := case when v_buyer_p.phone_verified_at is not null then v_buyer_p.phone_e164 end;
-  elsif v_mode = 'online' then
-    if v_email is null then
+  else
+    if v_mode = 'online' and v_email is null then
       return query select false, 'invalid_input'::text, null::uuid, null::text;
       return;
     end if;
-    if v_email = lower(v_buyer_p.email) or (v_phone is not null and v_phone = v_buyer_p.phone_e164) then
-      return query select false, 'contact_is_buyer'::text, null::uuid, null::text;
-      return;
+    -- v_buyer_p só existe com comprador: o plpgsql não garante curto-circuito, então o ramo é um if.
+    if v_buyer is not null then
+      if v_email = lower(v_buyer_p.email) or (v_phone is not null and v_phone = v_buyer_p.phone_e164) then
+        return query select false, 'contact_is_buyer'::text, null::uuid, null::text;
+        return;
+      end if;
     end if;
   end if;
 
@@ -778,9 +785,10 @@ begin
       v_pemail := nullif(lower(btrim(coalesce(v_partner ->> 'email', ''))), '');
       v_prole := nullif(btrim(coalesce(v_partner ->> 'role', '')), '');
       v_ppct := null;
+      -- D9: um consentimento por membro. O sócio precisa do próprio e-mail; o contato da empresa nunca vale por ele.
       if jsonb_typeof(v_partner) <> 'object' or length(v_pdigits) not in (11, 14) or v_pdigits = v_digits
          or v_pname = '' or length(v_pname) > 200
-         or (v_pemail is not null and (length(v_pemail) > 254 or v_pemail !~ c_email_re))
+         or v_pemail is null or length(v_pemail) > 254 or v_pemail !~ c_email_re
          or (v_prole is not null and length(v_prole) > 100)
          or (v_partner -> 'percentage' is not null and jsonb_typeof(v_partner -> 'percentage') not in ('number', 'null')) then
         return query select false, 'invalid_input'::text, null::uuid, null::text;
@@ -793,13 +801,19 @@ begin
           return;
         end if;
       end if;
+      if v_buyer is not null then
+        if v_pemail = lower(v_buyer_p.email) then
+          return query select false, 'contact_is_buyer'::text, null::uuid, null::text;
+          return;
+        end if;
+      end if;
       if v_pdigits = any (v_seen) then
         continue;
       end if;
       v_seen := v_seen || v_pdigits;
       v_members := v_members || jsonb_build_array(jsonb_build_object(
         'digits', v_pdigits, 'name', v_pname, 'type', case length(v_pdigits) when 11 then 'PF' else 'PJ' end,
-        'email', coalesce(v_pemail, v_email), 'phone', null,
+        'email', v_pemail, 'phone', null,
         'deps', case length(v_pdigits) when 11 then v_deps_pf else v_deps_pj end,
         'percentage', v_ppct, 'role', v_prole));
     end loop;
@@ -880,11 +894,25 @@ begin
       returning id into v_cid;
 
       if v_auth_id is null then
+        -- Teto de pedidos novos por destinatário (e-mail ou celular) em 24 h: ninguém usa o remetente para spam de um destino.
+        -- A pesquisa própria vai para o e-mail da conta do comprador e não conta.
+        if not (v_self and v_i = 0) then
+          select count(*) into v_recent
+            from public.scr_authorizations s
+           where s.bureau_id = v_bureau and s.status = 'pending' and s.requested_at > now() - interval '24 hours'
+             and (lower(s.email) = v_memail
+                  or (v_member ->> 'phone' is not null and s.phone_e164 = v_member ->> 'phone'));
+          if v_recent >= c_max_recent_requests then
+            v_fail := 'too_many_requests';
+            raise exception 'open_order rolled back' using errcode = 'OR001';
+          end if;
+        end if;
+        -- O prazo do pedido conta da criação, mesmo que a emissão nunca aconteça; a emissão o renova.
         insert into public.scr_authorizations
           (bureau_id, document, type, name, email, phone_e164, holder_id, client_profile_id, consultation_id,
-           requested_by, channel)
+           requested_by, channel, request_expires_at)
         values (v_bureau, v_mdigits, v_mtype::public.query_type, v_mname, v_memail, v_member ->> 'phone', v_h, v_buyer,
-                v_cid, v_user, 'internal')
+                v_cid, v_user, 'internal', now() + interval '7 days')
         returning id into v_auth_id;
       end if;
       update public.consultations set scr_authorization_id = v_auth_id where id = v_cid;
@@ -940,7 +968,8 @@ as $$
               or o.state = 'awaiting_authorization'
               or (o.state = 'ready' and (o.next_attempt_at is null or o.next_attempt_at <= now()))
               or (o.state = 'executing' and (o.lease_until is null or o.lease_until < now()))
-              or (o.state = 'completed' and (o.ai_status = 'pending' or (o.mode = 'online' and o.ai_status <> 'pending')))))
+              or (o.state = 'completed' and (o.ai_status = 'pending'
+                   or (o.mode = 'online' and o.ai_status <> 'pending' and o.revoked_at is null)))))
        or exists (
          select 1 from public.scr_authorizations s
           where s.bureau_id = b.id and s.status = 'pending' and s.request_expires_at < now())
@@ -1023,9 +1052,9 @@ grant select (dossier_id, scr_authorization_id),
   insert (bureau_id, type, document, document_name, product, holder_id, dossier_id, created_by, status,
           requires_auth, scr_mode, scr_email),
   update (scr_authorization_id) on public.consultations to auth_profile_lookup;
-grant select (email, client_profile_id, request_expires_at, requested_at),
+grant select (email, phone_e164, client_profile_id, request_expires_at, requested_at),
   insert (bureau_id, document, type, name, email, phone_e164, holder_id, client_profile_id, consultation_id,
-          requested_by, channel) on public.scr_authorizations to auth_profile_lookup;
+          requested_by, channel, request_expires_at) on public.scr_authorizations to auth_profile_lookup;
 grant select (deps_product) on public.product_versions to auth_profile_lookup;
 grant select, insert (dossier_id, bureau_id, mode, client_profile_id, product_code, with_ai, self_research,
     subject_name, subject_document_masked, state, created_by),

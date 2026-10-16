@@ -28,6 +28,8 @@ const onlyDigits = (value: string) => value.replace(/\D/g, "");
 const cpf = () => onlyDigits(randomCpf());
 const cnpj = () => Array.from({ length: 14 }, () => randomInt(0, 10)).join("");
 const maskCpf = (d: string) => `***.${d.slice(3, 6)}.${d.slice(6, 9)}-**`;
+// E-mail novo a cada chamada: o teto de pedidos por destinatário conta o Bureau inteiro, e o Bureau T é compartilhado.
+const mail = () => `contato-${randomUUID()}@example.test`;
 const QUOTE = (code: string) => JSON.stringify({ lines: [{ code }] });
 
 type Identity = { userId: string; role: string; bureauId: string };
@@ -282,7 +284,7 @@ describe("open_order", () => {
 	it("an own document typed as another person still counts as own research", async () => {
 		const b = await newBuyer(T);
 		const result = await committed(b.identity, (c) =>
-			openOrder(c, { document: b.digits, name: "Outro Nome", email: "outra@example.test" }),
+			openOrder(c, { document: b.digits, name: "Outro Nome", email: mail() }),
 		);
 		expect(result.ok).toBe(true);
 		const [order] = await rows("select self_research from dossier_orders where dossier_id = $1", [result.dossier_id]);
@@ -317,8 +319,9 @@ describe("open_order", () => {
        values ($1, 'PF', 'Nome Antigo', $2, 'antigo@example.test', $3)`,
 			[T.bureau.id, document, T.bureauAdmin.userId],
 		);
+		const contact = mail();
 		const result = await committed(b.identity, (c) =>
-			openOrder(c, { name: "Nome Novo", document, email: "terceiro@example.test", phone: "+5563999990003" }),
+			openOrder(c, { name: "Nome Novo", document, email: contact, phone: "+5563999990003" }),
 		);
 		expect(result.ok).toBe(true);
 		const holders = await rows("select name, email, created_by from holders where bureau_id = $1 and document_digits = $2", [
@@ -330,7 +333,7 @@ describe("open_order", () => {
 			T.bureau.id,
 			document,
 		]);
-		expect(scr).toEqual({ email: "terceiro@example.test", phone_e164: "+5563999990003", client_profile_id: b.identity.userId });
+		expect(scr).toEqual({ email: contact, phone_e164: "+5563999990003", client_profile_id: b.identity.userId });
 		const [order] = await rows("select subject_name, subject_document_masked, self_research from dossier_orders where dossier_id = $1", [
 			result.dossier_id,
 		]);
@@ -340,7 +343,7 @@ describe("open_order", () => {
 	it("third party order creates the holder without contact data", async () => {
 		const b = await newBuyer(T);
 		const document = cpf();
-		await committed(b.identity, (c) => openOrder(c, { name: "Pessoa Nova", document, email: "nova@example.test" }));
+		await committed(b.identity, (c) => openOrder(c, { name: "Pessoa Nova", document, email: mail() }));
 		const [holder] = await rows("select name, email, phone, client_profile_id, created_by, type from holders where bureau_id = $1 and document_digits = $2", [
 			T.bureau.id,
 			document,
@@ -364,12 +367,64 @@ describe("open_order", () => {
 		);
 		expect(sameEmail).toMatchObject({ ok: false, reason: "contact_is_buyer" });
 		const samePhone = await committed(b.identity, (c) =>
-			openOrder(c, { document, email: "outro@example.test", phone: "+5563999990004" }),
+			openOrder(c, { document, email: mail(), phone: "+5563999990004" }),
 		);
 		expect(samePhone).toMatchObject({ ok: false, reason: "contact_is_buyer" });
 		// Recusa não deixa Titular nem Dossiê para trás.
 		expect(await rows("select 1 from holders where bureau_id = $1 and document_digits = $2", [T.bureau.id, document])).toHaveLength(0);
 		expect(await rows("select 1 from dossiers where created_by = $1", [b.identity.userId])).toHaveLength(0);
+	});
+
+	it("counter order with a buyer refuses the buyer's own contact", async () => {
+		const b = await newBuyer(T);
+		await setProfilePhone(b.identity.userId, "+5563999990005", true);
+		const document = cpf();
+		const sameEmail = await committed(staff(T), (c) =>
+			openOrder(c, { document, email: b.email.toUpperCase(), buyer: b.identity.userId }),
+		);
+		expect(sameEmail).toMatchObject({ ok: false, reason: "contact_is_buyer" });
+		const samePhone = await committed(staff(T), (c) =>
+			openOrder(c, { document, email: mail(), phone: "+5563999990005", buyer: b.identity.userId }),
+		);
+		expect(samePhone).toMatchObject({ ok: false, reason: "contact_is_buyer" });
+		const partnerIsBuyer = await committed(staff(T), (c) =>
+			openOrder(c, {
+				product: "dossie_pj_completo",
+				type: "PJ",
+				document: cnpj(),
+				email: mail(),
+				partners: [{ document: cpf(), name: "Sócio", email: b.email }],
+				buyer: b.identity.userId,
+			}),
+		);
+		expect(partnerIsBuyer).toMatchObject({ ok: false, reason: "contact_is_buyer" });
+		expect(await rows("select 1 from holders where bureau_id = $1 and document_digits = $2", [T.bureau.id, document])).toHaveLength(0);
+		// Sem comprador (balcão avulso) o contato é livre.
+		const noBuyer = await committed(staff(T), (c) => openOrder(c, { document, email: b.email }));
+		expect(noBuyer.ok).toBe(true);
+	});
+
+	it("a fourth third party request to the same e-mail or phone within 24 h is too_many_requests", async () => {
+		const b = await newBuyer(T);
+		const email = mail();
+		for (let i = 0; i < 3; i += 1) {
+			expect((await committed(b.identity, (c) => openOrder(c, { email }))).ok).toBe(true);
+		}
+		const holdersBefore = await rows("select 1 from holders where bureau_id = $1", [T.bureau.id]);
+
+		const fourth = await committed(b.identity, (c) => openOrder(c, { email }));
+
+		expect(fourth).toMatchObject({ ok: false, reason: "too_many_requests", dossier_id: null });
+		expect(await rows("select 1 from holders where bureau_id = $1", [T.bureau.id])).toHaveLength(holdersBefore.length);
+		// O teto vale também para o mesmo celular com outro e-mail, e o balcão está sujeito a ele.
+		const phone = "+5563999990006";
+		for (let i = 0; i < 3; i += 1) {
+			expect((await committed(staff(T), (c) => openOrder(c, { email: mail(), phone }))).ok).toBe(true);
+		}
+		expect(await committed(staff(T), (c) => openOrder(c, { email: mail(), phone }))).toMatchObject({ ok: false, reason: "too_many_requests" });
+		// Pedido de 25 h atrás não conta.
+		await owner.query("update scr_authorizations set requested_at = now() - interval '25 hours' where lower(email) = $1", [email]);
+		expect((await committed(b.identity, (c) => openOrder(c, { email }))).ok).toBe(true);
 	});
 
 	it("third party order needs a valid contact e-mail", async () => {
@@ -378,7 +433,7 @@ describe("open_order", () => {
 			const result = await committed(b.identity, (c) => openOrder(c, { email }));
 			expect(result).toMatchObject({ ok: false, reason: "invalid_input" });
 		}
-		const badPhone = await committed(b.identity, (c) => openOrder(c, { email: "ok@example.test", phone: "63999990000" }));
+		const badPhone = await committed(b.identity, (c) => openOrder(c, { email: mail(), phone: "63999990000" }));
 		expect(badPhone).toMatchObject({ ok: false, reason: "invalid_input" });
 	});
 
@@ -398,7 +453,7 @@ describe("open_order", () => {
 		const first = await newBuyer(T);
 		const second = await newBuyer(T);
 		const document = cpf();
-		const args = { document, email: "terceiro@example.test" };
+		const args = { document, email: mail() };
 		await committed(first.identity, (c) => openOrder(c, args));
 		const [holder] = await rows<{ id: string }>("select id from holders where bureau_id = $1 and document_digits = $2", [T.bureau.id, document]);
 		await authorize(holder.id);
@@ -421,7 +476,7 @@ describe("open_order", () => {
 	it("pending request in scope is linked, not duplicated", async () => {
 		const b = await newBuyer(T);
 		const document = cpf();
-		const args = { document, email: "terceiro@example.test" };
+		const args = { document, email: mail() };
 		const first = await committed(b.identity, (c) => openOrder(c, args));
 		const second = await committed(b.identity, (c) => openOrder(c, args));
 		const scr = await rows<{ id: string }>(
@@ -446,19 +501,19 @@ describe("open_order", () => {
 
 	it("client cannot order dossie_pj_completo or pass partners or a buyer", async () => {
 		const b = await newBuyer(T);
-		const full = await committed(b.identity, (c) => openOrder(c, { product: "dossie_pj_completo", type: "PJ", document: cnpj(), email: "x@example.test" }));
+		const full = await committed(b.identity, (c) => openOrder(c, { product: "dossie_pj_completo", type: "PJ", document: cnpj(), email: mail() }));
 		expect(full).toMatchObject({ ok: false, reason: "invalid_input" });
 		const partners = await committed(b.identity, (c) =>
-			openOrder(c, { email: "x@example.test", partners: [{ document: cpf(), name: "Sócio" }] }),
+			openOrder(c, { email: mail(), partners: [{ document: cpf(), name: "Sócio" }] }),
 		);
 		expect(partners).toMatchObject({ ok: false, reason: "invalid_input" });
-		const buyer = await committed(b.identity, (c) => openOrder(c, { email: "x@example.test", buyer: T.client.userId }));
+		const buyer = await committed(b.identity, (c) => openOrder(c, { email: mail(), buyer: T.client.userId }));
 		expect(buyer).toMatchObject({ ok: false, reason: "invalid_input" });
 	});
 
 	it("product not for sale", async () => {
 		const bare = await newTenant("ord bare", {});
-		const result = await committed(clientOf(bare), (c) => openOrder(c, { email: "x@example.test" }));
+		const result = await committed(clientOf(bare), (c) => openOrder(c, { email: mail() }));
 		expect(result).toMatchObject({ ok: false, reason: "product_not_for_sale" });
 		// Preço abaixo do custo efetivo também tira o produto da venda.
 		const cheap = await seedTenant(owner, "ord cheap");
@@ -468,33 +523,33 @@ describe("open_order", () => {
 			"insert into bureau_product_costs (bureau_id, product_id, cost, set_by) select $1, id, 9.00, $2 from products where code = 'consulta_pf'",
 			[cheap.bureau.id, cheap.bureauAdmin.userId],
 		);
-		const underCost = await committed(clientOf(cheap), (c) => openOrder(c, { email: "x@example.test" }));
+		const underCost = await committed(clientOf(cheap), (c) => openOrder(c, { email: mail() }));
 		expect(underCost).toMatchObject({ ok: false, reason: "product_not_for_sale" });
 	});
 
 	it("addon without a compatible main or without a catalog item is refused", async () => {
 		const noAddon = await newTenant("ord no addon", { consulta_pf: "50.00" });
-		const withAi = await committed(clientOf(noAddon), (c) => openOrder(c, { withAi: true, email: "x@example.test" }));
+		const withAi = await committed(clientOf(noAddon), (c) => openOrder(c, { withAi: true, email: mail() }));
 		expect(withAi).toMatchObject({ ok: false, reason: "addon_not_for_sale" });
-		const withoutAi = await committed(clientOf(noAddon), (c) => openOrder(c, { email: "x@example.test" }));
+		const withoutAi = await committed(clientOf(noAddon), (c) => openOrder(c, { email: mail() }));
 		expect(withoutAi.ok).toBe(true);
 	});
 
 	it("addon is recorded on the order", async () => {
-		const result = await committed(clientOf(T), (c) => openOrder(c, { withAi: true, email: "x@example.test" }));
+		const result = await committed(clientOf(T), (c) => openOrder(c, { withAi: true, email: mail() }));
 		expect(result.ok).toBe(true);
 		const [order] = await rows("select with_ai, ai_status from dossier_orders where dossier_id = $1", [result.dossier_id]);
 		expect(order).toEqual({ with_ai: true, ai_status: "none" });
 	});
 
 	it("kind mismatch", async () => {
-		const pjOnPf = await committed(clientOf(T), (c) => openOrder(c, { type: "PJ", document: cnpj(), email: "x@example.test" }));
+		const pjOnPf = await committed(clientOf(T), (c) => openOrder(c, { type: "PJ", document: cnpj(), email: mail() }));
 		expect(pjOnPf).toMatchObject({ ok: false, reason: "kind_mismatch" });
 		const pfOnPj = await committed(clientOf(T), (c) =>
-			openOrder(c, { product: "consulta_pj", type: "PF", document: cpf(), email: "x@example.test" }),
+			openOrder(c, { product: "consulta_pj", type: "PF", document: cpf(), email: mail() }),
 		);
 		expect(pfOnPj).toMatchObject({ ok: false, reason: "kind_mismatch" });
-		const wrongLength = await committed(clientOf(T), (c) => openOrder(c, { document: cnpj(), email: "x@example.test" }));
+		const wrongLength = await committed(clientOf(T), (c) => openOrder(c, { document: cnpj(), email: mail() }));
 		expect(wrongLength).toMatchObject({ ok: false, reason: "kind_mismatch" });
 		const b = await newBuyer(T);
 		const selfOnPj = await committed(b.identity, (c) => openOrder(c, { product: "consulta_pj", self: true, type: "PJ" }));
@@ -505,7 +560,7 @@ describe("open_order", () => {
 		const b = await newBuyer(T);
 		const document = cnpj();
 		const result = await committed(b.identity, (c) =>
-			openOrder(c, { product: "consulta_pj", type: "PJ", document, name: "Empresa Teste", email: "pj@example.test" }),
+			openOrder(c, { product: "consulta_pj", type: "PJ", document, name: "Empresa Teste", email: mail() }),
 		);
 		expect(result.ok).toBe(true);
 		const [dossier] = await rows("select kind, product from dossiers where id = $1", [result.dossier_id]);
@@ -519,7 +574,7 @@ describe("open_order", () => {
 		const session = await seedSupportSession(owner, { superadminId: sa.userId, bureauId: T.bureau.id });
 		const inSupport = await committed(
 			{ userId: sa.userId, role: "superadmin", bureauId: T.bureau.id },
-			(c) => openOrder(c, { email: "x@example.test" }),
+			(c) => openOrder(c, { email: mail() }),
 			session,
 		);
 		expect(inSupport).toMatchObject({ ok: false, reason: "not_allowed" });
@@ -531,7 +586,8 @@ describe("open_order", () => {
 	});
 
 	it("staff opens a counter order in awaiting_payment", async () => {
-		const result = await committed(staff(T), (c) => openOrder(c, { email: "contato@example.test", name: "Balcão Teste" }));
+		const contact = mail();
+		const result = await committed(staff(T), (c) => openOrder(c, { email: contact, name: "Balcão Teste" }));
 		expect(result).toMatchObject({ ok: true, state: "awaiting_payment" });
 		const [order] = await rows(
 			"select mode, client_profile_id, self_research, created_by, subject_name from dossier_orders where dossier_id = $1",
@@ -547,7 +603,7 @@ describe("open_order", () => {
 		const [scr] = await rows("select email, client_profile_id, requested_by from scr_authorizations where consultation_id in (select id from consultations where dossier_id = $1)", [
 			result.dossier_id,
 		]);
-		expect(scr).toEqual({ email: "contato@example.test", client_profile_id: null, requested_by: T.operator.userId });
+		expect(scr).toEqual({ email: contact, client_profile_id: null, requested_by: T.operator.userId });
 		const [audit] = await rows("select metadata from audit_logs where action = 'order.open' and record_id = $1", [result.dossier_id]);
 		expect(audit.metadata).toEqual({ mode: "counter", product_code: "consulta_pf", with_ai: false, members: 1 });
 	});
@@ -563,7 +619,7 @@ describe("open_order", () => {
                 set_config('app.bureau_id', $3, true), set_config('app.support_session_id', '', true)`,
 				[T.operator.userId, "operator", T.bureau.id],
 			);
-			const result = await openOrder(fresh, { email: "contato@example.test" });
+			const result = await openOrder(fresh, { email: mail() });
 			await fresh.query("commit");
 			expect(result).toMatchObject({ ok: true, state: "awaiting_payment" });
 		} finally {
@@ -575,7 +631,7 @@ describe("open_order", () => {
 		const b = await newBuyer(T);
 		const document = cpf();
 		const first = await committed(staff(T), (c) =>
-			openOrder(c, { document, email: "contato@example.test", buyer: b.identity.userId }),
+			openOrder(c, { document, email: mail(), buyer: b.identity.userId }),
 		);
 		expect(first).toMatchObject({ ok: true, state: "awaiting_payment" });
 		const [order] = await rows("select client_profile_id from dossier_orders where dossier_id = $1", [first.dossier_id]);
@@ -586,26 +642,26 @@ describe("open_order", () => {
 		// Outro escopo (sem comprador) pede contato.
 		const noContact = await committed(staff(T), (c) => openOrder(c, { document, email: null }));
 		expect(noContact).toMatchObject({ ok: false, reason: "invalid_input" });
-		const selfFlag = await committed(staff(T), (c) => openOrder(c, { self: true, email: "x@example.test" }));
+		const selfFlag = await committed(staff(T), (c) => openOrder(c, { self: true, email: mail() }));
 		expect(selfFlag).toMatchObject({ ok: false, reason: "invalid_input" });
 	});
 
 	it("buyer of another bureau is buyer_not_found", async () => {
 		const other = await committed(staff(T), (c) =>
-			openOrder(c, { email: "contato@example.test", buyer: U.client.userId }),
+			openOrder(c, { email: mail(), buyer: U.client.userId }),
 		);
 		expect(other).toMatchObject({ ok: false, reason: "buyer_not_found" });
 		const notClient = await committed(staff(T), (c) =>
-			openOrder(c, { email: "contato@example.test", buyer: T.bureauAdmin.userId }),
+			openOrder(c, { email: mail(), buyer: T.bureauAdmin.userId }),
 		);
 		expect(notClient).toMatchObject({ ok: false, reason: "buyer_not_found" });
 		const missing = await committed(staff(T), (c) =>
-			openOrder(c, { email: "contato@example.test", buyer: randomUUID() }),
+			openOrder(c, { email: mail(), buyer: randomUUID() }),
 		);
 		expect(missing).toMatchObject({ ok: false, reason: "buyer_not_found" });
 		await asReplica("update profiles set is_active = false where id = $1", [U.client.userId]);
 		const inactive = await committed(staff(U), (c) =>
-			openOrder(c, { email: "contato@example.test", buyer: U.client.userId }),
+			openOrder(c, { email: mail(), buyer: U.client.userId }),
 		);
 		expect(inactive).toMatchObject({ ok: false, reason: "buyer_not_found" });
 	});
@@ -614,17 +670,18 @@ describe("open_order", () => {
 		const company = cnpj();
 		const partnerPf = cpf();
 		const partnerPj = cnpj();
+		const [companyMail, partnerMail, holdingMail] = [mail(), mail(), mail()];
 		const result = await committed(staff(T), (c) =>
 			openOrder(c, {
 				product: "dossie_pj_completo",
 				type: "PJ",
 				name: "Empresa Completa",
 				document: company,
-				email: "empresa@example.test",
+				email: companyMail,
 				partners: [
-					{ document: partnerPf, name: "Sócia Um", email: "socia@example.test", percentage: 60, role: "Administradora" },
-					{ document: partnerPj, name: "Holding Dois", percentage: 40 },
-					{ document: partnerPf, name: "Sócia Um Repetida", email: "outra@example.test" },
+					{ document: partnerPf, name: "Sócia Um", email: partnerMail, percentage: 60, role: "Administradora" },
+					{ document: partnerPj, name: "Holding Dois", email: holdingMail, percentage: 40 },
+					{ document: partnerPf, name: "Sócia Um Repetida", email: mail() },
 				],
 			}),
 		);
@@ -652,10 +709,10 @@ describe("open_order", () => {
 		);
 		expect(consultations).toHaveLength(3);
 		const byDocument = Object.fromEntries(consultations.map((r) => [r.document, r]));
-		expect(byDocument[company]).toMatchObject({ type: "PJ", product: await depsProduct("dossie_pj_completo"), scr_email: "empresa@example.test" });
-		expect(byDocument[partnerPf]).toMatchObject({ type: "PF", product: await depsProduct("consulta_pf"), scr_email: "socia@example.test" });
-		// Sócio sem e-mail usa o contato principal.
-		expect(byDocument[partnerPj]).toMatchObject({ type: "PJ", scr_email: "empresa@example.test" });
+		expect(byDocument[company]).toMatchObject({ type: "PJ", product: await depsProduct("dossie_pj_completo"), scr_email: companyMail });
+		expect(byDocument[partnerPf]).toMatchObject({ type: "PF", product: await depsProduct("consulta_pf"), scr_email: partnerMail });
+		// Cada sócio tem o próprio e-mail: o contato da empresa nunca vale por ele (D9).
+		expect(byDocument[partnerPj]).toMatchObject({ type: "PJ", scr_email: holdingMail });
 		expect(await rows("select 1 from scr_authorizations where holder_id in (select holder_id from consultations where dossier_id = $1)", [result.dossier_id])).toHaveLength(3);
 		const [audit] = await rows("select metadata from audit_logs where action = 'order.open' and record_id = $1", [result.dossier_id]);
 		expect(audit.metadata).toMatchObject({ mode: "counter", product_code: "dossie_pj_completo", members: 3 });
@@ -671,7 +728,7 @@ describe("open_order", () => {
 				type: "PJ",
 				document: company,
 				email: null,
-				partners: [{ document: partner, name: "Sócio", email: "socio@example.test" }],
+				partners: [{ document: partner, name: "Sócio", email: mail() }],
 			}),
 		);
 		expect(result).toMatchObject({ ok: false, reason: "invalid_input", dossier_id: null });
@@ -685,10 +742,13 @@ describe("open_order", () => {
 			[{ document: cpf(), name: "" }],
 			[{ document: "123", name: "Curto" }],
 			[{ document: cpf(), name: "Sócio", email: "sem-arroba" }],
+			// D9: sócio sem e-mail próprio não herda o da empresa.
+			[{ document: cpf(), name: "Sócio sem e-mail" }],
+			[{ document: cpf(), name: "Sócio e-mail vazio", email: "  " }],
 		];
 		for (const partners of bad) {
 			const result = await committed(staff(T), (c) =>
-				openOrder(c, { product: "dossie_pj_completo", type: "PJ", document: company, email: "empresa@example.test", partners }),
+				openOrder(c, { product: "dossie_pj_completo", type: "PJ", document: company, email: mail(), partners }),
 			);
 			expect(result).toMatchObject({ ok: false, reason: "invalid_input" });
 		}
@@ -701,7 +761,7 @@ describe("settlement and state refresh", () => {
 		const buyer = await newBuyer(T);
 		const other = await newBuyer(T);
 		await seedClientWalletTopup(owner, { clientProfileId: buyer.identity.userId, amount: "100.00", createdBy: T.bureauAdmin.userId });
-		const placed = await committed(buyer.identity, (c) => openOrder(c, { email: "terceiro@example.test" }));
+		const placed = await committed(buyer.identity, (c) => openOrder(c, { email: mail() }));
 		const reserve = (c: PoolClient, who: Identity) =>
 			c
 				.query("select * from reserve_order($1, 'online', $2, 50.00, 0, $3::jsonb)", [
@@ -715,7 +775,7 @@ describe("settlement and state refresh", () => {
 		const accepted = await committed(buyer.identity, (c) => reserve(c, buyer.identity));
 		expect(accepted).toMatchObject({ ok: true, status: "reserved" });
 		// Pedido de balcão não serve ao modo online, nem o online ao balcão.
-		const counter = await committed(staff(T), (c) => openOrder(c, { email: "contato@example.test" }));
+		const counter = await committed(staff(T), (c) => openOrder(c, { email: mail() }));
 		const wrongMode = await committed(buyer.identity, (c) =>
 			c
 				.query("select * from reserve_order($1, 'online', $2, 50.00, 0, $3::jsonb)", [counter.dossier_id, buyer.identity.userId, QUOTE("consulta_pf")])
@@ -733,7 +793,7 @@ describe("settlement and state refresh", () => {
 	it("refresh_order_state follows payments and authorizations", async () => {
 		const R = await newTenant("ord refresh", { consulta_pf: "0.30" }, "0.10");
 		await seedWalletTopup(owner, { bureauId: R.bureau.id, amount: "10.00", createdBy: R.bureauAdmin.userId });
-		const placed = await committed(staff(R), (c) => openOrder(c, { email: "contato@example.test" }));
+		const placed = await committed(staff(R), (c) => openOrder(c, { email: mail() }));
 		const dossierId = placed.dossier_id as string;
 		const reserved = await committed(staff(R), (c) =>
 			c
@@ -777,8 +837,8 @@ describe("settlement and state refresh", () => {
 				product: "dossie_pj_completo",
 				type: "PJ",
 				document: cnpj(),
-				email: "empresa@example.test",
-				partners: [{ document: cpf(), name: "Sócio" }],
+				email: mail(),
+				partners: [{ document: cpf(), name: "Sócio", email: mail() }],
 			}),
 		);
 		const dossierId = placed.dossier_id as string;
@@ -808,7 +868,7 @@ describe("settlement and state refresh", () => {
 
 describe("dossier_orders_guard", () => {
 	async function counterOrder() {
-		const placed = await committed(staff(T), (c) => openOrder(c, { email: "contato@example.test" }));
+		const placed = await committed(staff(T), (c) => openOrder(c, { email: mail() }));
 		return placed.dossier_id as string;
 	}
 	const setState = (id: string, state: string, extra = "") =>
@@ -988,9 +1048,9 @@ describe("due_order_bureaus", () => {
 		const inactive = await newTenant("due inactive");
 		const expiring = await newTenant("due expiring");
 
-		await committed(clientOf(waiting), (c) => openOrder(c, { email: "x@example.test" }));
-		await committed(staff(counter), (c) => openOrder(c, { email: "x@example.test" }));
-		await committed(clientOf(inactive), (c) => openOrder(c, { email: "x@example.test" }));
+		await committed(clientOf(waiting), (c) => openOrder(c, { email: mail() }));
+		await committed(staff(counter), (c) => openOrder(c, { email: mail() }));
+		await committed(clientOf(inactive), (c) => openOrder(c, { email: mail() }));
 		await owner.query("update bureaus set status = 'inactive' where id = $1", [inactive.bureau.id]);
 		await owner.query(
 			`insert into scr_authorizations (bureau_id, document, type, holder_id, channel, status, request_expires_at)

@@ -4,7 +4,7 @@ Server-only integration with the deps.com.br bureau. Security-sensitive: it read
 
 ## Responsibility
 
-Belongs here: the HTTP client (`client.ts`, `real.ts`), the raw-payload-to-canonical adapter (`adapter.ts`), typed errors (`errors.ts`), product-name constants (`products.ts`) and recorded payloads in `__fixtures__/`. Does NOT belong here: persistence of consultations or SCR authorizations (`src/lib/scr/queries.ts`, `src/lib/consultations/`), shared types (`src/types/deps.ts`, `src/types/bureau.ts`), UI. `scr-auth.ts` is only a re-export shim of `@/lib/scr/queries`.
+Belongs here: the HTTP client (`client.ts`, `real.ts`), the raw-payload-to-canonical adapter (`adapter.ts`), typed errors (`errors.ts`), product-name constants (`products.ts`) and recorded payloads in `__fixtures__/`. Does NOT belong here: persistence of consultations or SCR authorizations (`src/lib/scr/queries.ts`, `src/lib/consultations/`), shared types (`src/types/deps.ts`, `src/types/bureau.ts`), UI.
 
 ## Key patterns
 

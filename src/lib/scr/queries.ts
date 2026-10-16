@@ -1,109 +1,13 @@
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { pool } from "@/lib/db/pool";
-import { recordHolderEvent } from "@/lib/holders/queries";
 import { enqueueNotification, type EnqueueFailure } from "@/lib/notifications/queries";
 import { toE164 } from "@/lib/notifications/recipient";
 import type { EntityKind, ScrAuthorization, ScrStatus } from "@/types/app";
-
-export interface ScrAuthUpsert {
-  document: string;
-  type: EntityKind;
-  status: ScrStatus;
-  name?: string | null;
-  email?: string | null;
-  queryId?: string | null;
-  holderId: string;
-  requestedBy?: string | null;
-}
-
-export function isUsableScrAuthorization(
-  status: ScrStatus,
-  expiresAt: string | null,
-  now = new Date(),
-): boolean {
-  return status === "authorized" && (!expiresAt || new Date(expiresAt) > now);
-}
-
-export async function hasValidInternalScr(identity: DbIdentity, document: string): Promise<boolean> {
-  return withUserTransaction(identity, async (client) => {
-    const { rows } = await client.query<{ status: ScrStatus; expires_at: string | null }>(
-      `select status::text, expires_at::text from scr_authorizations
-       where document = $1 and channel = 'internal'
-       order by requested_at desc limit 1`,
-      [document],
-    );
-    const row = rows[0];
-    return !!row && isUsableScrAuthorization(row.status, row.expires_at);
-  });
-}
-
-export async function upsertScrAuthorization(identity: DbIdentity, input: ScrAuthUpsert): Promise<void> {
-  await withUserTransaction(identity, async (client) => {
-    const current = await client.query<{ id: string }>(
-      `select id from scr_authorizations where document = $1
-       order by requested_at desc limit 1 for update`, [input.document],
-    );
-    const authorized = input.status === "authorized";
-    if (current.rows[0]) {
-      await client.query(
-        `update scr_authorizations set status=$2, type=$3, name=$4,
-         email=coalesce($5,email), holder_id=$6,
-         consultation_id=$7, last_checked_at=now(),
-         authorized_at=case when $8 then now() else authorized_at end,
-         requested_at=case when $8 then requested_at else now() end
-         where id=$1`,
-        [current.rows[0].id, input.status, input.type, input.name ?? null, input.email ?? null, input.holderId, input.queryId ?? null, authorized],
-      );
-      return;
-    }
-    await client.query(
-      `insert into scr_authorizations
-       (bureau_id,document,type,name,email,consultation_id,holder_id,status,requested_by,authorized_at)
-       values (app_bureau_id(),$1,$2,$3,$4,$5,$6,$7,$8,case when $7='authorized' then now() end)`,
-      [input.document, input.type, input.name ?? null, input.email ?? null, input.queryId ?? null, input.holderId, input.status, input.requestedBy ?? identity.userId],
-    );
-  });
-}
-
-export async function getScrAuthorization(identity: DbIdentity, id: string) {
-  return withUserTransaction(identity, async (client) => {
-    const { rows } = await client.query<{
-      id: string; document: string; type: EntityKind; name: string | null; email: string | null;
-      consultation_id: string | null; holder_id: string; status: ScrStatus;
-    }>(`select id,document,type,name,email,consultation_id,holder_id,status::text
-        from scr_authorizations where id=$1`, [id]);
-    return rows[0] ?? null;
-  });
-}
-
-export async function getScrByConsultation(identity: DbIdentity, consultationId: string) {
-  return withUserTransaction(identity, async (client) => {
-    const { rows } = await client.query<{ id: string; document: string }>(
-      `select id, document from scr_authorizations where consultation_id=$1
-       order by requested_at desc limit 1`, [consultationId]);
-    return rows[0] ?? null;
-  });
-}
 
 export async function markScrPending(identity: DbIdentity, id: string, email?: string | null): Promise<void> {
   await withUserTransaction(identity, (client) => client.query(
     `update scr_authorizations set status='pending', requested_at=now(), last_checked_at=now(),
      email=coalesce($2,email) where id=$1`, [id, email ?? null]));
-}
-
-export async function authorizeScr(identity: DbIdentity, input: { id: string; validityDays: number; consultationId?: string | null; holderId?: string | null; document?: string }) {
-  await withUserTransaction(identity, async (client) => {
-    await client.query(
-      `update scr_authorizations set status='authorized',authorized_at=now(),
-       expires_at=now()+($2::text||' days')::interval,last_checked_at=now() where id=$1`,
-      [input.id, input.validityDays],
-    );
-    if (input.holderId && input.document) await recordHolderEvent(client, identity.userId, input.holderId, {
-      eventType: "scr.authorized",
-      title: "Autoriza\u00e7\u00e3o SCR confirmada",
-      description: `Documento ${input.document}`,
-    });
-  });
 }
 
 export async function listScrAuthorizations(identity: DbIdentity, status?: ScrStatus): Promise<ScrAuthorization[]> {

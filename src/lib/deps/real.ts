@@ -44,6 +44,9 @@ interface SessionCache {
 
 const onlyDigits = (s: string) => s.replace(/\D/g, "");
 
+// Abaixo da lease do pedido (5 min): a chamada não passa da lease. O erro de tempo cai no caminho transitório do tick.
+export const DEPS_TIMEOUT_MS = 120_000;
+
 let session: SessionCache | null = null;
 
 async function login(cfg: RealClientConfig): Promise<SessionCache> {
@@ -51,6 +54,7 @@ async function login(cfg: RealClientConfig): Promise<SessionCache> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: cfg.email, senha: cfg.senha }),
+    signal: AbortSignal.timeout(DEPS_TIMEOUT_MS),
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
@@ -95,6 +99,7 @@ async function postWithAuth(
         Authorization: `Bearer ${t}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(DEPS_TIMEOUT_MS),
     });
 
   let s = await getSession(cfg);

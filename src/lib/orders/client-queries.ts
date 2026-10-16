@@ -5,12 +5,13 @@ import type { PoolClient } from "pg";
 import type { Parecer } from "@/types/ai";
 import type { CanonicalBureauResult } from "@/types/bureau";
 
-import type { OrderKind, OrderProductCode, OrderState, OrderStateReason } from "./types";
+import type { OrderKind, OrderMode, OrderProductCode, OrderState, OrderStateReason } from "./types";
 
 const DEFAULT_LIMIT = 50;
 
 export type ClientOrderListItem = {
 	dossierId: string;
+	mode: OrderMode;
 	productCode: OrderProductCode;
 	withAi: boolean;
 	subjectName: string;
@@ -25,6 +26,7 @@ export type ClientOrderListItem = {
 
 type OrderRow = {
 	dossier_id: string;
+	mode: OrderMode;
 	product_code: OrderProductCode;
 	with_ai: boolean;
 	subject_name: string;
@@ -36,11 +38,12 @@ type OrderRow = {
 	released_at: Date | null;
 };
 
-const ORDER_COLUMNS = `o.dossier_id, o.product_code, o.with_ai, o.subject_name, o.subject_document_masked, o.state,
+const ORDER_COLUMNS = `o.dossier_id, o.mode, o.product_code, o.with_ai, o.subject_name, o.subject_document_masked, o.state,
 	o.state_reason, s.price::text as price, o.created_at, o.released_at`;
 
 const toItem = (r: OrderRow): ClientOrderListItem => ({
 	dossierId: r.dossier_id,
+	mode: r.mode,
 	productCode: r.product_code,
 	withAi: r.with_ai,
 	subjectName: r.subject_name,
@@ -64,6 +67,17 @@ export async function listMyOrders(client: PoolClient, limit: number = DEFAULT_L
 	return rows.map(toItem);
 }
 
+// Um pedido próprio pelo id; nulo se não existe ou é de outro cliente (a RLS esconde o resto).
+export async function getMyOrder(client: PoolClient, dossierId: string): Promise<ClientOrderListItem | null> {
+	const { rows } = await client.query<OrderRow>(
+		`select ${ORDER_COLUMNS}
+		   from dossier_orders o left join order_settlements s on s.order_ref = o.dossier_id
+		  where o.dossier_id = $1 and o.client_profile_id = app_user_id()`,
+		[dossierId],
+	);
+	return rows[0] ? toItem(rows[0]) : null;
+}
+
 export type ClientDelivery = {
 	order: ClientOrderListItem;
 	kind: OrderKind;
@@ -79,6 +93,7 @@ export type ClientDelivery = {
 	dossierOpinion: Parecer | null;
 };
 
+// O parecer só sai com o adicional comprado (with_ai): a política RLS libera a linha, a regra de venda é daqui.
 // Nulo fora de 'released': pedido em andamento, revogado, de outro cliente ou inexistente.
 export async function getMyDelivery(client: PoolClient, dossierId: string): Promise<ClientDelivery | null> {
 	const order = await client.query<OrderRow & { kind: OrderKind; dossier_opinion: Parecer | null }>(
@@ -120,8 +135,8 @@ export async function getMyDelivery(client: PoolClient, dossierId: string): Prom
 			product: m.product,
 			status: m.status,
 			canonical: m.canonical_result,
-			opinion: m.full_report,
+			opinion: head.with_ai ? m.full_report : null,
 		})),
-		dossierOpinion: head.dossier_opinion,
+		dossierOpinion: head.with_ai ? head.dossier_opinion : null,
 	};
 }

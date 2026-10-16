@@ -29,7 +29,8 @@ export type OpenOrderFailure =
 	| "kind_mismatch"
 	| "self_holder_missing"
 	| "contact_is_buyer"
-	| "buyer_not_found";
+	| "buyer_not_found"
+	| "too_many_requests";
 export type OpenOrderInput = {
 	productCode: OrderProductCode;
 	withAi: boolean;
@@ -50,3 +51,5 @@ export const MAX_EXECUTION_ATTEMPTS = 5;
 export const MAX_AI_ATTEMPTS = 3;
 export const LEASE_MINUTES = 5;
 export const PAYMENT_WINDOW_DAYS = 7;
+// Prazo do pedido de autorização SCR, contado da criação do pedido (igual ao da 022: open_order e emissão).
+export const SCR_REQUEST_DAYS = 7;

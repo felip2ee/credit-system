@@ -65,20 +65,30 @@ describe("counterOrderSchema", () => {
 	});
 
 	it("accepts partners only for the complete dossier", () => {
-		const partner = { document: CPF, name: "Sócio Um", percentage: 50, role: "Sócio" };
+		const partner = { document: CPF, name: "Sócio Um", email: "socio@example.test", percentage: 50, role: "Sócio" };
 		const full = counterOrderSchema.safeParse(base({ productCode: "dossie_pj_completo", partners: [partner] }));
 		expect(full.success).toBe(true);
 		if (full.success) {
-			expect(full.data.partners).toEqual([{ documentDigits: CPF_DIGITS, name: "Sócio Um", email: null, percentage: 50, role: "Sócio" }]);
+			expect(full.data.partners).toEqual([{ documentDigits: CPF_DIGITS, name: "Sócio Um", email: "socio@example.test", percentage: 50, role: "Sócio" }]);
 			expect(full.data.subject).toEqual({ type: "PJ", name: "Empresa Ltda", documentDigits: CNPJ_DIGITS });
 		}
 		expect(counterOrderSchema.safeParse(base({ partners: [partner] })).success).toBe(false);
 	});
 
+	it("requires a valid e-mail for each partner", () => {
+		const partner = { document: CPF, name: "Sócio Um" };
+		const refuse = (email: unknown) =>
+			counterOrderSchema.safeParse(base({ productCode: "dossie_pj_completo", partners: [{ ...partner, email }] })).success;
+		expect(refuse(undefined)).toBe(false);
+		expect(refuse("")).toBe(false);
+		expect(refuse("sem-arroba")).toBe(false);
+		expect(refuse("socio@example.test")).toBe(true);
+	});
+
 	it("refuses an invalid partner CPF, more than 20 partners and a bad buyer id", () => {
-		const bad = { document: "111.111.111-11", name: "Sócio" };
+		const bad = { document: "111.111.111-11", name: "Sócio", email: "socio@example.test" };
 		expect(counterOrderSchema.safeParse(base({ productCode: "dossie_pj_completo", partners: [bad] })).success).toBe(false);
-		const many = Array.from({ length: 21 }, () => ({ document: CPF, name: "Sócio" }));
+		const many = Array.from({ length: 21 }, () => ({ document: CPF, name: "Sócio", email: "socio@example.test" }));
 		expect(counterOrderSchema.safeParse(base({ productCode: "dossie_pj_completo", partners: many })).success).toBe(false);
 		expect(counterOrderSchema.safeParse(base({ buyerProfileId: "x" })).success).toBe(false);
 		expect(counterOrderSchema.safeParse(base({ buyerProfileId: UUID })).success).toBe(true);

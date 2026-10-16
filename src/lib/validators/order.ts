@@ -78,10 +78,18 @@ export const clientOrderSchema = z
 				},
 	);
 
+// D9: um consentimento por membro. O e-mail do sócio é obrigatório; o contato da empresa nunca vale por ele.
+const partnerEmailSchema = z
+	.string({ required_error: "Informe o e-mail do sócio." })
+	.trim()
+	.min(1, "Informe o e-mail do sócio.")
+	.email("E-mail do sócio inválido.")
+	.max(254, "E-mail muito longo.");
+
 const partnerSchema = z.object({
 	document: z.string().refine(isValidCPF, "CPF do sócio inválido."),
 	name: nameSchema,
-	email: optionalEmail,
+	email: partnerEmailSchema,
 	percentage: percentageSchema.nullish().transform((v) => v ?? null),
 	role: optionalText(100),
 });

@@ -1,5 +1,8 @@
 // Execução do pedido (M6): claim curto, chamadas à DEPS fora de transação e transição final curta.
 // Nenhum documento, corpo da DEPS ou código chega ao log nem ao error_message.
+import type { PoolClient } from "pg";
+
+import { writeAuditEvent } from "@/lib/audit/write";
 import { executeConsultation } from "@/lib/consultations/service";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { getDepsClient } from "@/lib/deps/client";
@@ -17,15 +20,30 @@ type MemberResult = "completed" | "no_data" | "incompatible" | "unavailable";
 const NO_DATA_MESSAGE = "Sem dados na DEPS.";
 const UNAVAILABLE_MESSAGE = "Falha na consulta à DEPS.";
 
-async function markConsultation(identity: DbIdentity, consultationId: string, status: "processing" | "error", message?: string) {
-	await withUserTransaction(identity, (client) =>
-		client.query("update consultations set status = $2::consultation_status, error_message = $3 where id = $1", [
-			consultationId,
-			status,
-			message ?? null,
-		]),
-	);
+// Mudança de status da consulta + auditoria na mesma transação (executeConsultation grava o resultado, não estes status).
+async function setConsultationStatus(
+	client: PoolClient,
+	identity: DbIdentity,
+	consultationId: string,
+	status: "processing" | "error",
+	message?: string,
+): Promise<void> {
+	await client.query("update consultations set status = $2::consultation_status, error_message = $3 where id = $1", [
+		consultationId,
+		status,
+		message ?? null,
+	]);
+	await writeAuditEvent(client, {
+		actorId: identity.userId,
+		action: "consultation.status",
+		targetTable: "consultations",
+		targetId: consultationId,
+		metadata: { status },
+	});
 }
+
+const markConsultation = (identity: DbIdentity, consultationId: string, status: "processing" | "error", message?: string) =>
+	withUserTransaction(identity, (client) => setConsultationStatus(client, identity, consultationId, status, message));
 
 // Só o nome do erro vai para o log: a mensagem pode trazer documento ou trecho da resposta.
 function logFailure(step: string, error: unknown) {
@@ -70,7 +88,7 @@ const recordExecuted = (identity: DbIdentity, member: ExecutionMember) =>
 function failMain(identity: DbIdentity, dossierId: string, member: ExecutionMember, result: "no_data" | "incompatible") {
 	return withUserTransaction(identity, async (client) => {
 		if (result === "no_data") {
-			await client.query("update consultations set status = 'error', error_message = $2 where id = $1", [member.consultationId, NO_DATA_MESSAGE]);
+			await setConsultationStatus(client, identity, member.consultationId, "error", NO_DATA_MESSAGE);
 		}
 		await failOrder(client, identity, dossierId, result === "no_data" ? "deps_no_data" : "deps_incompatible");
 	});
@@ -79,10 +97,19 @@ function failMain(identity: DbIdentity, dossierId: string, member: ExecutionMemb
 async function retryMain(identity: DbIdentity, dossierId: string, member: ExecutionMember, attempts: number): Promise<RunOutcome> {
 	return withUserTransaction(identity, async (client) => {
 		if (attempts >= MAX_EXECUTION_ATTEMPTS) {
-			await client.query("update consultations set status = 'error', error_message = $2 where id = $1", [member.consultationId, UNAVAILABLE_MESSAGE]);
+			await setConsultationStatus(client, identity, member.consultationId, "error", UNAVAILABLE_MESSAGE);
 		}
 		return (await retryOrderLater(client, identity, dossierId, attempts)) === "ready" ? "retry" : "failed";
 	});
+}
+
+// Retomada de lease vencida além do limite: fecha sem chamar a DEPS (o claim já contou a tentativa).
+async function failExhausted(identity: DbIdentity, dossierId: string, main: ExecutionMember): Promise<RunOutcome> {
+	await withUserTransaction(identity, async (client) => {
+		await setConsultationStatus(client, identity, main.consultationId, "error", UNAVAILABLE_MESSAGE);
+		await failOrder(client, identity, dossierId, "deps_unavailable");
+	});
+	return "failed";
 }
 
 async function runClaimed(identity: DbIdentity, dossierId: string, attempts: number): Promise<RunOutcome> {
@@ -90,6 +117,7 @@ async function runClaimed(identity: DbIdentity, dossierId: string, attempts: num
 	if (!plan) throw new Error("runClaimed: order without execution plan");
 	const main = plan.members.find((m) => m.isMain);
 	if (!main) throw new Error("runClaimed: order without main consultation");
+	if (attempts > MAX_EXECUTION_ATTEMPTS) return failExhausted(identity, dossierId, main);
 
 	for (const member of plan.members) {
 		if (member.status === "completed") continue;

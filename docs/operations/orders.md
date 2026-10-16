@@ -19,11 +19,14 @@ Spec: [docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md](../sup
 
 ## 2. Prazos
 
-- Pedido de autorização SCR: expira 7 dias depois do envio.
+- Pedido de autorização SCR: expira 7 dias depois da criação do pedido. O envio do código renova o prazo.
+- Pedido de autorização SCR sem e-mail para reenviar (autorização vencida): a autorização passa a `expired` e o pedido vai para `cancelled` (`scr_expired`).
 - Pedido de balcão: sem pagamento completo em 7 dias, o pedido vai para `cancelled` (`payment_timeout`) e libera o custo reservado.
-- Execução: 5 tentativas no máximo. Cada claim cria uma lease de 5 minutos. Lease vencida volta a executar.
+- Execução: 5 tentativas no máximo. Cada claim cria uma lease de 5 minutos. Lease vencida volta a executar. Claim com mais de 5 tentativas vai para `failed` (`deps_unavailable`) sem chamar a DEPS.
+- Chamada à DEPS: aborta em 120 s e conta como erro transitório.
 - Erro transitório da DEPS: o pedido volta para `ready` com espera de `2^(tentativa-1)` minutos, no máximo 60. Na 5ª falha, o pedido vai para `failed` e libera a reserva.
-- Parecer IA: 3 tentativas. Depois, `ai_status = failed`. A entrega sai sem parecer.
+- Parecer IA: 3 tentativas. A tentativa é contada antes da chamada ao modelo, com lease de 5 minutos. Depois, `ai_status = failed`. A entrega sai sem parecer.
+- Pedidos de autorização por destinatário: no máximo 3 pedidos pendentes por e-mail ou celular em 24 h por Bureau. O 4º pedido é recusado (`too_many_requests`).
 
 ## 3. Cron
 
@@ -38,7 +41,7 @@ curl -X POST \
   "$ORDERS_TICK_URL"
 ```
 
-Duas chamadas em paralelo não chamam a DEPS duas vezes para o mesmo pedido. A lease impede isso.
+Um Bureau é processado por um tick de cada vez (lock de sessão no banco). Se outro tick já processa o Bureau, o tick novo o pula e conta em `skipped` na resposta. A lease impede que a DEPS seja chamada duas vezes para o mesmo pedido.
 
 ## 5. Ver um pedido preso
 

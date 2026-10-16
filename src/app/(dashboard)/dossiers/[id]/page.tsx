@@ -21,7 +21,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getDossierDetail } from "@/lib/dossiers/queries";
-import { getStaffOrder } from "@/lib/orders/queries";
+import { getStaffOrder } from "@/lib/orders/staff-queries";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
 

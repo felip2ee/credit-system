@@ -8,6 +8,7 @@ const SHARED_MESSAGES: Record<string, string> = {
 	self_holder_missing: "Sua conta não tem Titular. Fale com o Bureau.",
 	contact_is_buyer: "Informe o e-mail e o celular do titular, não os seus.",
 	buyer_not_found: "Cliente comprador não encontrado neste Bureau.",
+	too_many_requests: "Este titular já recebeu pedidos de autorização recentes. Tente novamente amanhã.",
 	no_buyer: "Este pedido não tem cliente comprador. Entregue o PDF pela equipe.",
 	invalid_state: "O pedido mudou de estado. Recarregue a página.",
 	not_found: "Pedido não encontrado.",

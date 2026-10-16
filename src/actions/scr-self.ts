@@ -1,23 +1,16 @@
 "use server";
 
-import { randomInt } from "node:crypto";
-
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 
 import { getScrTermSettings } from "@/actions/settings";
 import { getRequiredSession } from "@/lib/auth/session";
 import { config } from "@/lib/config";
+import { generateScrCode } from "@/lib/scr/code";
 import { buildScrConsentTerm } from "@/lib/scr/consent-term";
 import { confirmPublicScrAuthorization, getPublicScrAuthorization, issueSelfScrAuthorization, resolveScrContact, type PublicScrAuthorization } from "@/lib/scr/queries";
 import { formatCNPJ, formatCPF, formatDate, isValidEmail } from "@/lib/utils";
 
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function generateCode() {
-  let code = "";
-  for (let index = 0; index < 6; index += 1) code += CODE_ALPHABET[randomInt(0, CODE_ALPHABET.length)];
-  return code;
-}
 const siteUrl = () => config.betterAuthUrl.replace(/\/$/, "");
 
 const EMAIL_ERROR = "Titular sem e-mail v\u00e1lido \u2014 cadastre o e-mail antes de enviar.";
@@ -37,7 +30,7 @@ export async function sendScrSelfAuthorization(scrId: string): Promise<SendSelfR
   const document = scr.type === "PJ" ? formatCNPJ(scr.document) : formatCPF(scr.document);
   const term = await getScrTermSettings();
   const consent = buildScrConsentTerm({ authorizedName: term.authorizedName, authorizedDocument: term.authorizedDocument || undefined, institutionName: term.institutionName, clientName, document, city: term.city, date: formatDate(new Date()) });
-  const code = generateCode();
+  const code = generateScrCode();
   const issued = await issueSelfScrAuthorization(session, scrId, {
     code, email, consentText: consent.fullText, consentName: clientName, consentDocument: document,
     notification: { recipient: email, clientName: scr.name?.trim() || scr.holder_name?.trim() || "cliente", authorizedName: term.authorizedName, siteUrl: siteUrl(), phone: scr.phone_e164 },

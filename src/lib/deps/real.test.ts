@@ -59,6 +59,26 @@ describe("real deps client", () => {
     expect(consultBody().identificadorProduto).toBe("id-pj");
   });
 
+  it("every DEPS call carries a timeout signal below the order lease", async () => {
+    const deps = await client();
+
+    await deps.consultPF("39053344705", { product: "Smart PF 002" });
+
+    for (const call of fetchMock.mock.calls) expect(call[1].signal).toBeInstanceOf(AbortSignal);
+    const { DEPS_TIMEOUT_MS } = await import("./real");
+    expect(DEPS_TIMEOUT_MS).toBeLessThan(5 * 60_000);
+  });
+
+  it("a timed out call rejects, so the order takes the retry path", async () => {
+    const deps = await client();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/conta/entrar")) return json(loginBody);
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
+
+    await expect(deps.consultPF("39053344705", { product: "Smart PF 002" })).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
   it("throws with the product name when the account does not have it", async () => {
     const deps = await client();
 

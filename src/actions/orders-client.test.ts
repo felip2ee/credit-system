@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
 	catalog: [] as { code: string; name: string; kind: "main" | "addon"; salePrice: string }[],
 	placeOrder: vi.fn(),
 	query: vi.fn(),
+	accountStatus: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -27,6 +28,7 @@ vi.mock("@/lib/db/transaction", () => ({
 }));
 vi.mock("@/lib/bureaus/public", () => ({ getPublicCatalog: vi.fn(async () => state.catalog) }));
 vi.mock("@/lib/orders/queries", () => ({ placeOrder: state.placeOrder }));
+vi.mock("@/lib/account/queries", () => ({ getClientAccountStatus: state.accountStatus }));
 
 import { revalidatePath } from "next/cache";
 
@@ -57,6 +59,7 @@ beforeEach(() => {
 	];
 	state.query.mockImplementation(async () => ({ rows: state.slugRows }));
 	state.placeOrder.mockResolvedValue({ ok: true, dossierId: DOSSIER_ID, state: "awaiting_authorization" });
+	state.accountStatus.mockResolvedValue({ termsAccepted: true, emailVerified: true });
 });
 
 describe("openClientOrderAction", () => {
@@ -71,6 +74,24 @@ describe("openClientOrderAction", () => {
 		state.sessionError = new Error("no session");
 
 		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({ error: NOT_ALLOWED });
+		expect(state.placeOrder).not.toHaveBeenCalled();
+	});
+
+	it("refuses a client without accepted terms and does not place the order", async () => {
+		state.accountStatus.mockResolvedValue({ termsAccepted: false, emailVerified: true });
+
+		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({
+			error: "Aceite os termos de uso antes de fazer um pedido.",
+		});
+		expect(state.placeOrder).not.toHaveBeenCalled();
+	});
+
+	it("refuses a client with an unverified e-mail and does not place the order", async () => {
+		state.accountStatus.mockResolvedValue({ termsAccepted: true, emailVerified: false });
+
+		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({
+			error: "Confirme seu e-mail antes de comprar créditos.",
+		});
 		expect(state.placeOrder).not.toHaveBeenCalled();
 	});
 

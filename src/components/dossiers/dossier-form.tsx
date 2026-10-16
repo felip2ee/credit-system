@@ -272,7 +272,7 @@ export function DossierForm({ products, addons }: DossierFormProps) {
                     )}
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor={`partner-email-${i}`}>E-mail (opcional)</Label>
+                    <Label htmlFor={`partner-email-${i}`}>E-mail do sócio *</Label>
                     <Input
                       id={`partner-email-${i}`}
                       type="email"

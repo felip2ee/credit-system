@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { getClientAccountStatus } from "@/lib/account/queries";
 import { getRequiredSession, type RequiredSession } from "@/lib/auth/session";
 import { getPublicCatalog } from "@/lib/bureaus/public";
 import { toCents } from "@/lib/catalog/money";
@@ -22,6 +23,9 @@ export interface ActionResult {
 
 const NOT_ALLOWED = "Ação não permitida.";
 const INVALID_PHONE = "Celular inválido. Use DDD e número.";
+// Mesma trava de e-mail da recarga (credits-topup). Os termos só eram checados no layout do portal; a action chamada direto passava.
+const EMAIL_NOT_VERIFIED = "Confirme seu e-mail antes de comprar créditos.";
+const TERMS_NOT_ACCEPTED = "Aceite os termos de uso antes de fazer um pedido.";
 
 // Só nome do passo e motivo: nunca documento, contato nem a mensagem do driver.
 function logFailure(step: string, detail: unknown): void {
@@ -83,6 +87,9 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 	if (parsed.data.contactPhone !== null && !phoneE164) return { error: INVALID_PHONE };
 
 	try {
+		const status = await withUserTransaction(session, (client) => getClientAccountStatus(client, session.userId));
+		if (!status.termsAccepted) return { error: TERMS_NOT_ACCEPTED };
+		if (!status.emailVerified) return { error: EMAIL_NOT_VERIFIED };
 		const quote = await quoteFromPublicCatalog(session, parsed.data.productCode, parsed.data.withAi);
 		if (!quote.ok) return { error: CLIENT_ORDER_MESSAGES[quote.reason] };
 		const input: OpenOrderInput = {
