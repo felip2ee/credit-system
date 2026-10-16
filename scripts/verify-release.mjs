@@ -34,6 +34,8 @@ const FAKE_COMPOSE_ENV = {
   SMTP_FROM: "verify@verify.invalid",
   DEPS_API_EMAIL: "verify@verify.invalid",
   BACKUP_ALERT_TO: "verify@verify.invalid",
+  RESTIC_S3_ENDPOINT: "s3.verify.invalid",
+  RESTIC_S3_BUCKET: "verify-bucket",
 };
 
 // deferred:true => needs real production infra (Docker daemon / target Postgres /

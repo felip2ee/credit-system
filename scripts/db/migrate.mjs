@@ -10,10 +10,9 @@ import { hydrateSecretEnv } from "../../src/lib/runtime-secrets.mjs";
 
 hydrateSecretEnv(process.env);
 
-const migrationsDirectory = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../db/migrations",
-);
+const migrationsDirectory =
+  process.env.MIGRATIONS_DIR ||
+  resolve(dirname(fileURLToPath(import.meta.url)), "../../db/migrations");
 
 export async function loadMigrations(directory = migrationsDirectory) {
   const names = (await readdir(directory))
@@ -96,6 +95,18 @@ export async function migrate(connectionString = process.env.DATABASE_OWNER_URL)
       }
     }
 
+    // --check runs as app_runtime and only needs to read the history. Granted after
+    // the loop: migration 001 moves the table to schema_owner.
+    await client.query(`
+      do $$
+      begin
+        if exists (select 1 from pg_roles where rolname = 'app_runtime') then
+          grant select on schema_migrations to app_runtime;
+        end if;
+      end
+      $$
+    `);
+
     if (pending.length === 0) console.log("database schema is current");
   } finally {
     try {
@@ -110,10 +121,46 @@ export async function migrate(connectionString = process.env.DATABASE_OWNER_URL)
   }
 }
 
-if (
-  process.argv[1] &&
-  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+// Read-only, lock-free: exit 0 current, 2 pending migrations, 1 error.
+export async function checkSchema(
+  connectionString = process.env.DATABASE_URL || process.env.DATABASE_OWNER_URL,
 ) {
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required");
+  }
+
+  const client = new pg.Client({ connectionString });
+  try {
+    await client.connect();
+    const { rows } = await client.query(
+      "select version, checksum from schema_migrations order by version",
+    );
+    return pendingMigrations(
+      await loadMigrations(),
+      new Map(rows.map(({ version, checksum }) => [version, checksum])),
+    ).length;
+  } finally {
+    await client.end();
+  }
+}
+
+const isMain =
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain && process.argv.includes("--check")) {
+  checkSchema()
+    .then((pending) => {
+      if (pending > 0) {
+        console.error(`schema has ${pending} pending migration(s)`);
+        process.exitCode = 2;
+      }
+    })
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    });
+} else if (isMain) {
   migrate().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
