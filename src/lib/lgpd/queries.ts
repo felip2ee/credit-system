@@ -13,7 +13,7 @@ import type {
 	PurgeCounts,
 } from "./types";
 
-const HOLDER_FAILURES: readonly AnonymizeHolderFailure[] = ["not_found", "already_anonymized", "open_orders"];
+const HOLDER_FAILURES: readonly AnonymizeHolderFailure[] = ["not_found", "already_anonymized", "client_active", "open_orders"];
 const CLIENT_FAILURES: readonly AnonymizeClientFailure[] = ["not_found", "already_anonymized", "balance", "open_orders"];
 
 export async function anonymizeHolder(
@@ -77,17 +77,28 @@ export async function purgeTechnicalData(identity: DbIdentity): Promise<PurgeCou
 	});
 }
 
+// A auditoria sai sempre, mesmo com contagens zeradas: é ela que marca a última varredura (lgpd_sweep_targets, 24 h).
 export async function purgeBureauData(identity: DbIdentity): Promise<PurgeCounts> {
 	return withUserTransaction(identity, async (client) => {
 		const { rows } = await client.query<{ counts: PurgeCounts }>("select lgpd_purge_bureau() as counts");
 		const counts = rows[0].counts;
-		if (Object.values(counts).some((n) => n > 0)) {
-			await writeAuditEvent(client, {
-				actorId: identity.userId,
-				action: "lgpd.purge_bureau",
-				metadata: counts,
-			});
-		}
+		await writeAuditEvent(client, {
+			actorId: identity.userId,
+			action: "lgpd.purge_bureau",
+			metadata: counts,
+		});
 		return counts;
+	});
+}
+
+export type SweepTarget = { bureauId: string; systemProfileId: string };
+
+// Bureaus ativos sem varredura nas últimas 24 h, com o perfil de sistema que assume a varredura.
+export async function listSweepTargets(identity: DbIdentity): Promise<SweepTarget[]> {
+	return withUserTransaction(identity, async (client) => {
+		const { rows } = await client.query<{ bureau_id: string; system_profile_id: string }>(
+			"select bureau_id, system_profile_id from lgpd_sweep_targets() order by bureau_id",
+		);
+		return rows.map((row) => ({ bureauId: row.bureau_id, systemProfileId: row.system_profile_id }));
 	});
 }

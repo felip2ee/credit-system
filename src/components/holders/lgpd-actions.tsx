@@ -48,6 +48,9 @@ function AnonymizeDialog({ open, onClose, title, warning, submitLabel, run }: An
         <p className="text-sm text-muted-foreground">{warning}</p>
         <div className="space-y-2">
           <Label htmlFor="lgpd-reason">Motivo (mínimo 10 caracteres)</Label>
+          <p id="lgpd-reason-hint" className="text-xs text-muted-foreground">
+            Não inclua documento ou dados pessoais no motivo.
+          </p>
           <textarea
             id="lgpd-reason"
             rows={3}
@@ -57,7 +60,7 @@ function AnonymizeDialog({ open, onClose, title, warning, submitLabel, run }: An
             onChange={(e) => setReason(e.target.value)}
             disabled={isPending}
             aria-invalid={error !== null}
-            aria-describedby={error ? "lgpd-error" : undefined}
+            aria-describedby={error ? "lgpd-reason-hint lgpd-error" : "lgpd-reason-hint"}
             className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           />
         </div>
@@ -118,7 +121,7 @@ export function LgpdActions({ holderId, clientProfileId, anonymized }: LgpdActio
         open={dialog === "holder"}
         onClose={close}
         title="Anonimizar titular"
-        warning="Os dados pessoais do titular e das consultas são apagados. Pedidos, pagamentos e auditoria são mantidos. Não há como desfazer."
+        warning="Os dados pessoais do titular e das consultas são apagados. Pedidos e pagamentos são mantidos. As autorizações SCR (prova do consentimento), a razão financeira e a auditoria ficam por 5 anos. Não há como desfazer."
         submitLabel="Anonimizar"
         run={(reason) => anonymizeHolderAction({ holderId, reason })}
       />

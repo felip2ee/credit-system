@@ -5,7 +5,7 @@ import { config } from "@/lib/config";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { recordHolderEvent } from "@/lib/holders/queries";
-import { purgeBureauData, purgeTechnicalData } from "@/lib/lgpd/queries";
+import { listSweepTargets, purgeBureauData, purgeTechnicalData } from "@/lib/lgpd/queries";
 import { generateScrCode } from "@/lib/scr/code";
 import { buildScrConsentTerm } from "@/lib/scr/consent-term";
 import { issueSelfScrAuthorization, type IssueSelfScrResult } from "@/lib/scr/queries";
@@ -26,7 +26,6 @@ import {
 	setAiStatus,
 	type ScrRequestToIssue,
 } from "./tick-queries";
-import { listSweepIdentities } from "./sweep";
 import { MAX_AI_ATTEMPTS, type OrderState } from "./types";
 
 export type TickResult = {
@@ -212,9 +211,13 @@ async function withBureauLock(bureauId: string, work: () => Promise<void>): Prom
 	}
 }
 
+// A retenção de 5 anos fica desligada até o jurídico confirmar os prazos (LGPD_PURGE_ENABLED=1 liga).
+// lgpd_sweep_targets() só devolve Bureau sem varredura nas últimas 24 h: o guarda vive no banco e vale após reinício.
 async function sweepBureaus(result: TickResult): Promise<void> {
-	const identities = (await guarded(result, "list-purge-bureaus", listSweepIdentities)) ?? [];
-	for (const identity of identities) {
+	if (process.env.LGPD_PURGE_ENABLED !== "1") return;
+	const targets = (await guarded(result, "list-purge-bureaus", () => listSweepTargets(PLATFORM_IDENTITY))) ?? [];
+	for (const target of targets) {
+		const identity: DbIdentity = { userId: target.systemProfileId, role: "operator", bureauId: target.bureauId };
 		addCounts(result.purged, await guarded(result, "purge-bureau", () => purgeBureauData(identity)));
 	}
 }

@@ -128,9 +128,15 @@ export async function updateHolder(
 	id: string,
 	input: HolderInput,
 ): Promise<
-	{ ok: true } | { ok: false; reason: "not_found" | "duplicate_document" }
+	{ ok: true } | { ok: false; reason: "not_found" | "duplicate_document" | "anonymized" }
 > {
 	return withUserTransaction(identity, async (client) => {
+		// Titular anonimizado não muda mais (o trigger holders_anonymized_guard também recusa).
+		const current = await client.query<{ anonymized_at: string | null }>(
+			"select anonymized_at::text from holders where id = $1",
+			[id],
+		);
+		if (current.rows[0]?.anonymized_at) return { ok: false, reason: "anonymized" } as const;
 		try {
 			const updated = await client.query(
 				`update holders set

@@ -32,7 +32,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { pool } from "@/lib/db/pool";
-import type { DbIdentity } from "@/lib/db/transaction";
+import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
 	randomCpf,
@@ -45,8 +45,10 @@ import {
 	type SeededTenant,
 } from "@/test/seed";
 
+import { updateHolder } from "@/lib/holders/queries";
+
 import { exportHolder } from "./export";
-import { anonymizeClientAccount, anonymizeHolder, purgeBureauData, purgeTechnicalData } from "./queries";
+import { anonymizeClientAccount, anonymizeHolder, listSweepTargets, purgeBureauData, purgeTechnicalData } from "./queries";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 
@@ -546,6 +548,212 @@ describe("purge", () => {
 			await holder.end(); // fechar a sessão libera o lock
 		}
 		expect(await purgeTechnicalData(adminOf(tenant))).toHaveProperty("session");
+	});
+});
+
+// Envelhece o Titular sem passar pelos triggers (updated_at só muda pelo trigger).
+async function ageHolder(g: Graph, years: number, extraDays = 1): Promise<void> {
+	const when = new Date(Date.now() - (years * 365 + extraDays) * DAY_MS);
+	const c = await owner.connect();
+	try {
+		await c.query("begin");
+		await c.query("set local session_replication_role = replica");
+		await c.query("update holders set updated_at = $2 where id = $1", [g.holderId, when]);
+		await c.query("update dossiers set completed_at = $2 where id = $1", [g.dossierId, when]);
+		await c.query("update consultations set consulted_at = $2 where dossier_id = $1", [g.dossierId, when]);
+		await c.query("commit");
+	} finally {
+		c.release();
+	}
+}
+
+const systemOf = async (tenant: SeededTenant): Promise<DbIdentity> => {
+	const { rows } = await owner.query<{ id: string }>("select id from profiles where bureau_id = $1 and is_system", [tenant.bureau.id]);
+	return { userId: rows[0].id, role: "operator", bureauId: tenant.bureau.id };
+};
+
+describe("scr purge by last known date", () => {
+	it("purge deletes refused and stale pending authorizations older than 5 years and keeps a fresh refused one", async () => {
+		const tenant = await seedTenant(owner, "lgpd-scr-null");
+		const { holderId } = await seedHolderGraph(tenant);
+		const insert = async (status: string, column: "refused_at" | "request_expires_at", when: string) =>
+			(
+				await owner.query<{ id: string }>(
+					`insert into scr_authorizations (bureau_id, document, type, holder_id, status, channel, ${column})
+           values ($1, $2, 'PF', $3, $4, 'internal', now() - $5::interval) returning id`,
+					[tenant.bureau.id, randomCpf(), holderId, status, when],
+				)
+			).rows[0].id;
+		const refused = await insert("not_authorized", "refused_at", "5 years 1 day");
+		const stalePending = await insert("pending", "request_expires_at", "5 years 1 day");
+		const freshRefused = await insert("not_authorized", "refused_at", "1 day");
+
+		const counts = await purgeBureauData(adminOf(tenant));
+
+		expect(counts.scr_authorizations).toBe(2);
+		const left = await owner.query<{ id: string }>("select id from scr_authorizations where id = any($1)", [[refused, stalePending, freshRefused]]);
+		expect(left.rows).toEqual([{ id: freshRefused }]);
+	});
+});
+
+describe("purge cap and failure isolation", () => {
+	it("purge anonymizes at most p_limit holders per call", async () => {
+		const tenant = await seedTenant(owner, "lgpd-cap");
+		const system = await systemOf(tenant);
+		for (let i = 0; i < 3; i += 1) await ageHolder(await seedHolderGraph(tenant), 5);
+
+		const first = await withUserTransaction(system, (c) => c.query("select lgpd_purge_bureau(2) as r"));
+		const second = await withUserTransaction(system, (c) => c.query("select lgpd_purge_bureau(2) as r"));
+
+		expect(first.rows[0].r.holders_anonymized).toBe(2);
+		expect(second.rows[0].r.holders_anonymized).toBe(1);
+	});
+
+	it("purge counts a failing holder and goes on with the others", async () => {
+		const tenant = await seedTenant(owner, "lgpd-fail");
+		const system = await systemOf(tenant);
+		const bad = await seedHolderGraph(tenant);
+		const good = await seedHolderGraph(tenant);
+		await owner.query("update holders set notes = 'LGPD-FAIL' where id = $1", [bad.holderId]);
+		await ageHolder(bad, 5);
+		await ageHolder(good, 5);
+		await owner.query(
+			`create or replace function public.lgpd_test_fail() returns trigger language plpgsql as
+       $f$ begin raise exception 'lgpd test failure'; end $f$`,
+		);
+		await owner.query(
+			`create trigger lgpd_test_fail before update on public.holders for each row
+         when (old.notes = 'LGPD-FAIL') execute function public.lgpd_test_fail()`,
+		);
+		try {
+			const { rows } = await withUserTransaction(system, (c) => c.query("select lgpd_purge_bureau() as r"));
+
+			expect(rows[0].r).toMatchObject({ holders_anonymized: 1, holders_failed: 1 });
+		} finally {
+			await owner.query("drop trigger lgpd_test_fail on public.holders");
+			await owner.query("drop function public.lgpd_test_fail()");
+		}
+		const state = async (id: string) => (await owner.query("select anonymized_at from holders where id = $1", [id])).rows[0].anonymized_at;
+		expect(await state(good.holderId)).not.toBeNull();
+		expect(await state(bad.holderId)).toBeNull();
+	});
+});
+
+describe("holder linked to an active client account", () => {
+	it("anonymize holder returns client_active until the account is anonymized", async () => {
+		const tenant = await seedTenant(owner, "lgpd-client-active");
+		const g = await seedHolderGraph(tenant);
+		await owner.query("update holders set client_profile_id = $1 where id = $2", [tenant.client.userId, g.holderId]);
+
+		expect(await anonymizeHolder(adminOf(tenant), { holderId: g.holderId, reason: REASON })).toEqual({
+			ok: false,
+			reason: "client_active",
+		});
+		expect(await anonymizeClientAccount(adminOf(tenant), { profileId: tenant.client.userId, reason: REASON })).toEqual({ ok: true });
+		expect(await anonymizeHolder(adminOf(tenant), { holderId: g.holderId, reason: REASON })).toEqual({ ok: true });
+	});
+
+	it("the 5 year purge skips a holder linked to an active client account", async () => {
+		const tenant = await seedTenant(owner, "lgpd-client-sweep");
+		const g = await seedHolderGraph(tenant);
+		await owner.query("update holders set client_profile_id = $1 where id = $2", [tenant.client.userId, g.holderId]);
+		await ageHolder(g, 6);
+
+		const counts = await purgeBureauData(adminOf(tenant));
+
+		expect(counts.holders_anonymized).toBe(0);
+		expect((await owner.query("select anonymized_at from holders where id = $1", [g.holderId])).rows[0].anonymized_at).toBeNull();
+	});
+});
+
+describe("system profile of another bureau", () => {
+	it("anonymize holder as the system profile of another bureau gets not_found", async () => {
+		const tenant = await seedTenant(owner, "lgpd-sys-a");
+		const other = await seedTenant(owner, "lgpd-sys-b");
+		const g = await seedHolderGraph(other);
+		const foreignSystem = await systemOf(tenant);
+
+		const result = await anonymizeHolder({ ...foreignSystem, bureauId: other.bureau.id }, { holderId: g.holderId, reason: REASON });
+
+		expect(result).toEqual({ ok: false, reason: "not_found" });
+	});
+});
+
+describe("anonymized holder guard", () => {
+	it("the app cannot edit an anonymized holder or clear anonymized_at", async () => {
+		const tenant = await seedTenant(owner, "lgpd-guard");
+		const g = await seedHolderGraph(tenant);
+		await anonymizeHolder(adminOf(tenant), { holderId: g.holderId, reason: REASON });
+
+		await expect(
+			withUserTransaction(adminOf(tenant), (c) => c.query("update holders set name = 'Outro nome' where id = $1", [g.holderId])),
+		).rejects.toThrow("anonymized holder does not change");
+		await expect(
+			withUserTransaction(adminOf(tenant), (c) => c.query("update holders set anonymized_at = null where id = $1", [g.holderId])),
+		).rejects.toThrow("anonymized holder does not change");
+		expect((await owner.query("select name from holders where id = $1", [g.holderId])).rows[0].name).toBe("Titular anonimizado");
+	});
+
+	it("updateHolder returns anonymized for an anonymized holder", async () => {
+		const tenant = await seedTenant(owner, "lgpd-guard-update");
+		const g = await seedHolderGraph(tenant);
+		await anonymizeHolder(adminOf(tenant), { holderId: g.holderId, reason: REASON });
+
+		const result = await updateHolder(adminOf(tenant), g.holderId, { type: "PF", name: "Maria Souza", document: randomCpf() });
+
+		expect(result).toEqual({ ok: false, reason: "anonymized" });
+	});
+
+	it("the app cannot set anonymized_at on a live holder", async () => {
+		const tenant = await seedTenant(owner, "lgpd-guard-set");
+		const g = await seedHolderGraph(tenant);
+
+		await expect(
+			withUserTransaction(adminOf(tenant), (c) => c.query("update holders set anonymized_at = now() where id = $1", [g.holderId])),
+		).rejects.toThrow("anonymized_at changes only through lgpd_anonymize_holder");
+	});
+});
+
+describe("sweep targets", () => {
+	it("targets hold the active bureau with its system profile until it is swept, for 24 hours", async () => {
+		const tenant = await seedTenant(owner, "lgpd-targets");
+		const system = await systemOf(tenant);
+		const expected = { bureauId: tenant.bureau.id, systemProfileId: system.userId };
+		const platform: DbIdentity = { userId: "", role: "operator", bureauId: null };
+
+		expect(await listSweepTargets(platform)).toContainEqual(expected);
+
+		await purgeBureauData(system);
+		expect(await listSweepTargets(platform)).not.toContainEqual(expected);
+
+		// Audit é append-only para o app; o dono volta a data 25 h sem triggers.
+		const c = await owner.connect();
+		try {
+			await c.query("begin");
+			await c.query("set local session_replication_role = replica");
+			await c.query("update audit_logs set created_at = now() - interval '25 hours' where bureau_id = $1 and action = 'lgpd.purge_bureau'", [
+				tenant.bureau.id,
+			]);
+			await c.query("commit");
+		} finally {
+			c.release();
+		}
+		expect(await listSweepTargets(platform)).toContainEqual(expected);
+	});
+
+	it("an inactive bureau is not a target", async () => {
+		const tenant = await seedTenant(owner, "lgpd-targets-off");
+		await owner.query("update bureaus set status = 'inactive' where id = $1", [tenant.bureau.id]);
+
+		const targets = await listSweepTargets({ userId: "", role: "operator", bureauId: null });
+
+		expect(targets.map((t) => t.bureauId)).not.toContain(tenant.bureau.id);
+	});
+
+	it("purge technical refuses a client caller", async () => {
+		const tenant = await seedTenant(owner, "lgpd-tech-client");
+
+		expect(await purgeTechnicalData({ ...tenant.client })).toEqual({});
 	});
 });
 

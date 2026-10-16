@@ -30,6 +30,11 @@ async function requireHolderWrite(): Promise<RequiredSession | null> {
 
 const DUPLICATE_MESSAGE = "Já existe um Titular com este documento.";
 const NOT_FOUND_MESSAGE = "Titular não encontrado.";
+const UPDATE_FAILURES = {
+  not_found: NOT_FOUND_MESSAGE,
+  duplicate_document: DUPLICATE_MESSAGE,
+  anonymized: "Titular anonimizado. Nenhuma edição é permitida.",
+} as const;
 
 export async function createHolder(values: HolderFormValues): Promise<ActionResult> {
   const parsed = holderSchema.safeParse(values);
@@ -63,7 +68,7 @@ export async function updateHolder(id: string, values: HolderFormValues): Promis
   try {
     const result = await updateHolderQuery(session, id, parsed.data);
     if (!result.ok) {
-      return { error: result.reason === "not_found" ? NOT_FOUND_MESSAGE : DUPLICATE_MESSAGE };
+      return { error: UPDATE_FAILURES[result.reason] };
     }
   } catch {
     return { error: "Falha ao salvar o Titular." };

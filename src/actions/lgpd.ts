@@ -16,17 +16,25 @@ export interface LgpdActionResult {
 const NOT_ALLOWED = "Você não tem permissão para anonimizar dados.";
 const GENERIC_FAILURE = "Não foi possível concluir a operação.";
 
+// Sem separadores, uma sequência de 11 (CPF) ou 14 (CNPJ) dígitos é documento.
+function hasNoDocument(reason: string): boolean {
+	const runs = reason.replace(/[.\-/]/g, "").match(/\d+/g) ?? [];
+	return runs.every((run) => run.length !== 11 && run.length !== 14);
+}
+
 const reasonSchema = z
 	.string()
 	.trim()
 	.min(10, "Informe o motivo com pelo menos 10 caracteres.")
-	.max(500, "O motivo aceita até 500 caracteres.");
+	.max(500, "O motivo aceita até 500 caracteres.")
+	.refine(hasNoDocument, "O motivo não pode conter CPF ou CNPJ.");
 const holderSchema = z.object({ holderId: uuidSchema, reason: reasonSchema });
 const clientSchema = z.object({ profileId: uuidSchema, reason: reasonSchema });
 
 const FAILURE_MESSAGES: Record<AnonymizeHolderFailure | AnonymizeClientFailure, string> = {
 	not_found: "Titular não encontrado.",
 	already_anonymized: "Já anonimizado.",
+	client_active: "Anonimize primeiro a conta do cliente ligada a este titular.",
 	open_orders: "Há pedido em andamento para este titular. Conclua ou cancele antes de anonimizar.",
 	balance: "A conta tem saldo. Devolva ou zere o saldo antes de anonimizar.",
 };
