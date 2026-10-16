@@ -51,3 +51,33 @@ jobs:
           TRAEFIK_PROXY_CIDR: 10.0.0.0/8
           NODE_ENV: production
         run: npm run build
+      - run: npx playwright install --with-deps chromium
+      # The integration suites leave many Bureaus behind; the orders tick sweeps all of them.
+      - name: Reset the database for e2e
+        run: npm run db:reset
+      - name: E2E (Playwright)
+        env:
+          DATABASE_URL: postgres://app_runtime:test@localhost:54329/credit_system
+          BETTER_AUTH_SECRET: e2e-only-not-a-production-secret-0123456789
+          BETTER_AUTH_URL: http://127.0.0.1:3000
+          DOCUMENT_ROOT: /tmp/documents
+          CLAMAV_HOST: localhost
+          CLAMAV_PORT: "3310"
+          SMTP_HOST: localhost
+          SMTP_PORT: "465"
+          SMTP_SECURE: "true"
+          SMTP_USER: e2e
+          SMTP_PASS: e2e-only-placeholder
+          TRAEFIK_PROXY_CIDR: 10.0.0.0/8
+          ASAAS_DRIVER: fake
+          WHATSAPP_DRIVER: fake
+          NOTIFICATIONS_DISPATCH_SECRET: e2e-dispatch-secret-0123456789abcdef
+          # Not production: config requires an https BETTER_AUTH_URL and the fake drivers are blocked there.
+          NODE_ENV: test
+          TEST_DATABASE_OWNER_URL: postgres://postgres:test@localhost:54329/credit_system
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/

@@ -12,6 +12,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "type-check": "tsc --noEmit",
     "db:migrate": "node scripts/db/migrate.mjs",
     "db:reset": "node scripts/db/reset.mjs",
