@@ -1,6 +1,10 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { Pool } from "pg";
 
+import { assertE2eDatabase } from "./db-guard";
+
+export { assertE2eDatabase };
+
 // Everything the e2e run seeds carries the `e2e-` prefix; global-setup deletes it at the start of each run.
 export const E2E = {
   bureauSlug: "e2e-bureau",
@@ -33,6 +37,7 @@ export async function dbQuery<T extends Record<string, unknown> = Record<string,
   sql: string,
   params: unknown[] = [],
 ): Promise<T[]> {
+  if (!pool) assertE2eDatabase(DATABASE_OWNER_URL);
   pool ??= new Pool({ connectionString: DATABASE_OWNER_URL, max: 2 });
   return (await pool.query(sql, params)).rows as T[];
 }

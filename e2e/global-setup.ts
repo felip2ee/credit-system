@@ -10,7 +10,7 @@ import {
   seedClientWalletTopup,
   seedWalletTopup,
 } from "../src/test/seed";
-import { AUTH_DIR, DATABASE_OWNER_URL, E2E } from "./fixtures";
+import { assertE2eDatabase, AUTH_DIR, DATABASE_OWNER_URL, E2E } from "./fixtures";
 
 type Fk = { child: string; childCols: string[]; parentCols: string[] };
 
@@ -64,6 +64,7 @@ async function insertUser(client: PoolClient, input: { email: string; password: 
 }
 
 export default async function globalSetup() {
+  assertE2eDatabase(DATABASE_OWNER_URL);
   mkdirSync(AUTH_DIR, { recursive: true });
   const owner = new Pool({ connectionString: DATABASE_OWNER_URL, max: 2 });
   const client = await owner.connect();
