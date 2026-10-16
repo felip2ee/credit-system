@@ -318,7 +318,16 @@ describe("listNotifications", () => {
 		const purged = await failedNotification({ recipient: null, params: null });
 		const pending = await failedNotification({ status: "pending" });
 
-		const rows = (await listNotifications(superadmin, { limit: 100 })).rows;
+		// seedPage deixa linhas imutáveis datadas de 2030 a cada execução: elas se acumulam e passam a ocupar a primeira página.
+		// Por isso pagina até achar as três linhas do teste.
+		const wanted = new Set([live, purged, pending]);
+		const rows: Awaited<ReturnType<typeof listNotifications>>["rows"] = [];
+		let cursor: string | null = null;
+		do {
+			const page = await listNotifications(superadmin, { limit: 100, cursor });
+			rows.push(...page.rows.filter((r) => wanted.has(r.id)));
+			cursor = rows.length === wanted.size ? null : page.nextCursor;
+		} while (cursor);
 		const retryable = (id: string) => rows.find((r) => r.id === id)?.retryable;
 
 		expect(retryable(live)).toBe(true);
