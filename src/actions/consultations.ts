@@ -10,12 +10,13 @@ import type { EntityKind } from "@/types/app";
 const currentIdentity = async () => { try { return await getRequiredSession(); } catch { return null; } };
 
 const PICK_LIMIT = 10;
-export interface HolderPick { id: string; type: EntityKind; name: string; document: string; email: string | null; }
-export async function searchHolders(term: string): Promise<HolderPick[]> {
+export interface HolderPick { id: string; type: EntityKind; name: string; document: string; email: string | null; clientProfileId: string | null; }
+// portalOnly: só Titulares com conta no portal (comprador do pedido de balcão).
+export async function searchHolders(term: string, portalOnly = false): Promise<HolderPick[]> {
   const identity = await currentIdentity(); if (!identity) return [];
   if (!hasPermission(identity, "holders:read")) return [];
-  const rows = await listHolders(identity, { q: term });
-  return rows.slice(0, PICK_LIMIT).map(({ id, type, name, document, email }) => ({ id, type, name, document, email }));
+  const rows = await listHolders(identity, { q: term, portalOnly });
+  return rows.slice(0, PICK_LIMIT).map(({ id, type, name, document, email, client_profile_id }) => ({ id, type, name, document, email, clientProfileId: client_profile_id }));
 }
 export interface RecentConsultationResult { exists: boolean; queryId?: string; consultedAt?: string; }
 export async function findRecentConsultation(document: string): Promise<RecentConsultationResult> {

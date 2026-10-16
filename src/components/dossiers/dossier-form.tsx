@@ -1,278 +1,315 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useFieldArray, useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { Plus, Trash2 } from "lucide-react";
 
-import { createDossier, processDossierMember } from "@/actions/dossiers";
+import { lookupCnpj } from "@/actions/holders";
+import { openCounterOrderAction } from "@/actions/orders";
+import { BuyerPicker, type Buyer } from "@/components/dossiers/buyer-picker";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
+import { counterOrderSchema } from "@/lib/validators/order";
 
-interface SocioRow {
-  cpf: string;
+type OrderFormValues = z.input<typeof counterOrderSchema>;
+
+export interface CatalogOption {
+  code: string;
   name: string;
-  email: string;
+  // Preço de venda do catálogo, decimal em string. Nunca digitado pelo operador.
+  price: string;
+  addonFor: string[] | null;
 }
 
-const emptySocio = (): SocioRow => ({ cpf: "", name: "", email: "" });
+interface DossierFormProps {
+  products: CatalogOption[];
+  addons: CatalogOption[];
+}
 
-export function DossierForm() {
+const FULL_PRODUCT = "dossie_pj_completo";
+const PF_PRODUCT = "consulta_pf";
+const SELECT_CLASS = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
+
+export function DossierForm({ products, addons }: DossierFormProps) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [lookupMsg, setLookupMsg] = useState<string | null>(null);
+  const [buyer, setBuyer] = useState<Buyer | null>(null);
 
-  const [cnpj, setCnpj] = useState("");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [socios, setSocios] = useState<SocioRow[]>([emptySocio()]);
-  const [reuseExisting, setReuseExisting] = useState(true);
-  // Origem da autorização SCR das consultas da pesquisa (mesma escolha da consulta
-  // avulsa): "internal" = nosso termo; "deps" = autorização gerida pela deps.
-  const [scrMode, setScrMode] = useState<"internal" | "deps">("internal");
-  const [error, setError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    getValues,
+    control,
+    formState: { errors },
+  } = useForm<OrderFormValues>({
+    resolver: zodResolver(counterOrderSchema),
+    defaultValues: {
+      productCode: (products[0]?.code ?? "") as OrderFormValues["productCode"],
+      withAi: false,
+      buyerProfileId: null,
+      subject: { name: "", document: "" },
+      contactEmail: "",
+      contactPhone: "",
+      partners: [],
+    },
+  });
+  const { fields, append, remove, replace } = useFieldArray({ control, name: "partners" });
 
-  const updateSocio = (i: number, patch: Partial<SocioRow>) =>
-    setSocios((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+  const productCode = watch("productCode");
+  const withAi = watch("withAi");
+  const product = products.find((p) => p.code === productCode);
+  const addon = addons.find((a) => a.addonFor?.includes(productCode));
+  const isFull = productCode === FULL_PRODUCT;
+  const isPf = productCode === PF_PRODUCT;
+  const total = (product ? Number(product.price) : 0) + (withAi && addon ? Number(addon.price) : 0);
 
-  const addSocio = () => setSocios((prev) => [...prev, emptySocio()]);
-  const removeSocio = (i: number) =>
-    setSocios((prev) => prev.filter((_, idx) => idx !== i));
+  // Trocar de produto descarta o que não vale mais: parecer IA sem adicional e sócios fora do PJ completo.
+  useEffect(() => {
+    if (!addon) setValue("withAi", false);
+    if (!isFull) replace([]);
+  }, [addon, isFull, replace, setValue]);
 
-  const onSubmit = async () => {
-    setError(null);
-    if (!isValidCNPJ(onlyDigits(cnpj))) {
-      setError("Informe um CNPJ válido.");
-      return;
-    }
-    const filled = socios.filter((s) => onlyDigits(s.cpf).length > 0);
-    for (const s of filled) {
-      if (!isValidCPF(onlyDigits(s.cpf))) {
-        setError(`CPF de sócio inválido: ${s.cpf}`);
+  const onLookup = () => {
+    setLookupMsg(null);
+    startTransition(async () => {
+      const result = await lookupCnpj(getValues("subject.document"));
+      if (result.error || !result.data) {
+        setLookupMsg(result.error ?? "Falha na consulta.");
         return;
       }
-    }
-
-    setRunning(true);
-    setProgress(null);
-    try {
-      const res = await createDossier({
-        kind: "PJ_FULL",
-        document: onlyDigits(cnpj),
-        name: name.trim() || undefined,
-        email: email.trim() || null,
-        partners: filled.map((s) => ({
-          cpf: onlyDigits(s.cpf),
-          name: s.name.trim() || undefined,
-          email: s.email.trim() || null,
-        })),
-        scrMode,
-      });
-      if (res.error || !res.dossierId || !res.consultationIds) {
-        setError(res.error ?? "Falha ao criar a pesquisa.");
-        setRunning(false);
-        return;
-      }
-
-      // Processa uma consulta por vez (cada chamada = 1 consulta à deps).
-      // O e-mail do titular já está gravado em consultations.scr_email.
-      const ids = res.consultationIds;
-      for (let i = 0; i < ids.length; i++) {
-        setProgress({ done: i, total: ids.length });
-        await processDossierMember(ids[i], reuseExisting);
-      }
-
-      router.push(`/dossiers/${res.dossierId}`);
-      router.refresh();
-    } catch {
-      setError("Falha ao processar as consultas. Abra a pesquisa e use 'Continuar processamento'.");
-      setRunning(false);
-    }
+      setValue("subject.name", result.data.name, { shouldValidate: true });
+      if (result.data.email && !getValues("contactEmail")) setValue("contactEmail", result.data.email);
+      setLookupMsg(`Dados carregados${result.data.situacao ? ` — ${result.data.situacao}` : ""}.`);
+    });
   };
+
+  // O schema valida e transforma; a ação valida de novo no servidor com os valores brutos.
+  const onSubmit = () => {
+    setServerError(null);
+    startTransition(async () => {
+      const res = await openCounterOrderAction({ ...getValues(), buyerProfileId: buyer?.profileId ?? null });
+      if (res.error || !res.id) {
+        setServerError(res.error ?? "Falha ao abrir o pedido.");
+        return;
+      }
+      router.push(`/dossiers/${res.id}`);
+      router.refresh();
+    });
+  };
+
+  if (products.length === 0) {
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        Nenhum produto à venda no catálogo. Ative um produto em Configurações &gt; Catálogo.
+      </p>
+    );
+  }
 
   return (
     <Card className="max-w-3xl">
       <CardHeader>
-        <CardTitle className="text-lg">PJ completo</CardTitle>
+        <CardTitle className="text-lg">Pedido de balcão</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Empresa */}
-        <div className="space-y-4 rounded-md border p-4">
-          <p className="text-sm font-medium">Empresa (CNPJ)</p>
-          <div className="grid gap-3 sm:grid-cols-2">
+      <CardContent>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
+          {/* Produto e preço do catálogo */}
+          <div className="space-y-3 rounded-md border p-4">
             <div className="space-y-1">
-              <Label htmlFor="cnpj">CNPJ</Label>
-              <Input
-                id="cnpj"
-                placeholder="00.000.000/0000-00"
-                value={cnpj}
-                onChange={(e) => setCnpj(e.target.value)}
-              />
+              <Label htmlFor="productCode">Produto</Label>
+              <select id="productCode" className={SELECT_CLASS} disabled={isPending} {...register("productCode")}>
+                {products.map((p) => (
+                  <option key={p.code} value={p.code}>
+                    {p.name} — {formatCurrency(Number(p.price))}
+                  </option>
+                ))}
+              </select>
+              {errors.productCode && (
+                <p className="text-xs text-destructive">{errors.productCode.message}</p>
+              )}
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="razao">Razão social (opcional)</Label>
-              <Input
-                id="razao"
-                placeholder="Nome da empresa"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1 sm:col-span-2">
-              <Label htmlFor="company-email">E-mail do titular</Label>
-              <Input
-                id="company-email"
-                type="email"
-                placeholder="contato@empresa.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Sócios */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Sócios (CPF)</p>
-            <Button type="button" variant="outline" size="sm" onClick={addSocio}>
-              <Plus className="h-4 w-4" />
-              Adicionar sócio
-            </Button>
-          </div>
-
-          {socios.map((s, i) => (
-            <div
-              key={i}
-              className="grid items-end gap-3 rounded-md border p-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
-            >
-              <div className="space-y-1">
-                <Label htmlFor={`cpf-${i}`}>CPF</Label>
-                <Input
-                  id={`cpf-${i}`}
-                  placeholder="000.000.000-00"
-                  value={s.cpf}
-                  onChange={(e) => updateSocio(i, { cpf: e.target.value })}
+            {addon && (
+              <div className="flex items-start gap-2">
+                <input
+                  id="withAi"
+                  type="checkbox"
+                  disabled={isPending}
+                  className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                  {...register("withAi")}
                 />
+                <Label htmlFor="withAi" className="cursor-pointer">
+                  Incluir parecer IA (+ {formatCurrency(Number(addon.price))})
+                </Label>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor={`nome-${i}`}>Nome (opcional)</Label>
-                <Input
-                  id={`nome-${i}`}
-                  placeholder="Nome do sócio"
-                  value={s.name}
-                  onChange={(e) => updateSocio(i, { name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor={`email-${i}`}>E-mail (opcional)</Label>
-                <Input
-                  id={`email-${i}`}
-                  type="email"
-                  placeholder="socio@email.com"
-                  value={s.email}
-                  onChange={(e) => updateSocio(i, { email: e.target.value })}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => removeSocio(i)}
-                disabled={socios.length === 1}
-                aria-label="Remover sócio"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
-          <p className="text-xs text-muted-foreground">
-            Digite o CPF completo de cada sócio — o bureau mascara o CPF no quadro
-            societário, então não dá para puxar automaticamente.
-          </p>
-        </div>
-
-        {/* Origem da autorização SCR (vale para todas as consultas da pesquisa) */}
-        <div className="space-y-2">
-          <Label>Autorização SCR</Label>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => setScrMode("internal")}
-              aria-pressed={scrMode === "internal"}
-              className={
-                "rounded-md border p-3 text-left text-sm transition-colors " +
-                (scrMode === "internal"
-                  ? "border-primary bg-primary/5 ring-1 ring-primary"
-                  : "hover:bg-muted/50")
-              }
-            >
-              <span className="font-medium">Autorização própria</span>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Nosso termo por e-mail + código. Cada consulta só roda se o titular
-                já autorizou no nosso sistema.
-              </p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setScrMode("deps")}
-              aria-pressed={scrMode === "deps"}
-              className={
-                "rounded-md border p-3 text-left text-sm transition-colors " +
-                (scrMode === "deps"
-                  ? "border-primary bg-primary/5 ring-1 ring-primary"
-                  : "hover:bg-muted/50")
-              }
-            >
-              <span className="font-medium">Autorização da deps</span>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                A deps verifica a autorização dela. Não usa nosso termo; sem
-                autorização, a consulta fica pendente.
-              </p>
-            </button>
-          </div>
-        </div>
-
-        {/* Reutilizar dados existentes */}
-        <div className="flex items-start gap-2 rounded-md border bg-muted/30 p-3">
-          <input
-            id="reuse-existing"
-            type="checkbox"
-            checked={reuseExisting}
-            onChange={(e) => setReuseExisting(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor="reuse-existing" className="cursor-pointer">
-              Reutilizar dados existentes
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Reaproveita consultas já feitas na deps, sem gerar nova cobrança.
-              Desmarque para forçar consultas novas (com custo).
+            )}
+            <p className="text-sm" aria-live="polite">
+              Total: <span className="font-semibold">{formatCurrency(total)}</span>
             </p>
           </div>
-        </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+          <BuyerPicker value={buyer} onChange={setBuyer} disabled={isPending} />
 
-        <Button onClick={onSubmit} disabled={running}>
-          {running ? "Processando consultas..." : "Iniciar pesquisa"}
-        </Button>
-        {running && (
-          <p className="text-xs text-muted-foreground">
-            {progress
-              ? `Consultando ${progress.done + 1} de ${progress.total}...`
-              : "Criando a pesquisa..."}{" "}
-            As consultas rodam uma a uma; isso pode levar alguns segundos.
-          </p>
-        )}
+          {/* Titular */}
+          <div className="space-y-4 rounded-md border p-4">
+            <p className="text-sm font-medium">Titular ({isPf ? "pessoa física" : "empresa"})</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="subject-document">{isPf ? "CPF" : "CNPJ"}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="subject-document"
+                    inputMode="numeric"
+                    placeholder={isPf ? "000.000.000-00" : "00.000.000/0000-00"}
+                    aria-invalid={Boolean(errors.subject?.document)}
+                    disabled={isPending}
+                    {...register("subject.document")}
+                  />
+                  {!isPf && (
+                    <Button type="button" variant="outline" onClick={onLookup} disabled={isPending}>
+                      Consultar CNPJ
+                    </Button>
+                  )}
+                </div>
+                {errors.subject?.document && (
+                  <p className="text-xs text-destructive">{errors.subject.document.message}</p>
+                )}
+                {lookupMsg && (
+                  <p className="text-xs text-muted-foreground" aria-live="polite">
+                    {lookupMsg}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="subject-name">{isPf ? "Nome" : "Razão social"}</Label>
+                <Input
+                  id="subject-name"
+                  aria-invalid={Boolean(errors.subject?.name)}
+                  disabled={isPending}
+                  {...register("subject.name")}
+                />
+                {errors.subject?.name && <p className="text-xs text-destructive">{errors.subject.name.message}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="contactEmail">E-mail do titular</Label>
+                <Input
+                  id="contactEmail"
+                  type="email"
+                  placeholder="contato@exemplo.com"
+                  aria-invalid={Boolean(errors.contactEmail)}
+                  disabled={isPending}
+                  {...register("contactEmail")}
+                />
+                {errors.contactEmail && <p className="text-xs text-destructive">{errors.contactEmail.message}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="contactPhone">Celular do titular</Label>
+                <Input
+                  id="contactPhone"
+                  type="tel"
+                  placeholder="(11) 99999-9999"
+                  aria-invalid={Boolean(errors.contactPhone)}
+                  disabled={isPending}
+                  {...register("contactPhone")}
+                />
+                {errors.contactPhone && <p className="text-xs text-destructive">{errors.contactPhone.message}</p>}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              O titular recebe o pedido de autorização para consultar o SCR por e-mail e celular.
+            </p>
+          </div>
+
+          {/* Sócios (só PJ completo) */}
+          {isFull && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">Sócios (CPF)</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => append({ document: "", name: "", email: "" })}
+                >
+                  <Plus className="h-4 w-4" />
+                  Adicionar sócio
+                </Button>
+              </div>
+              {fields.map((field, i) => (
+                <div key={field.id} className="grid items-start gap-3 rounded-md border p-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                  <div className="space-y-1">
+                    <Label htmlFor={`partner-doc-${i}`}>CPF</Label>
+                    <Input
+                      id={`partner-doc-${i}`}
+                      placeholder="000.000.000-00"
+                      aria-invalid={Boolean(errors.partners?.[i]?.document)}
+                      disabled={isPending}
+                      {...register(`partners.${i}.document`)}
+                    />
+                    {errors.partners?.[i]?.document && (
+                      <p className="text-xs text-destructive">{errors.partners[i]?.document?.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`partner-name-${i}`}>Nome</Label>
+                    <Input
+                      id={`partner-name-${i}`}
+                      aria-invalid={Boolean(errors.partners?.[i]?.name)}
+                      disabled={isPending}
+                      {...register(`partners.${i}.name`)}
+                    />
+                    {errors.partners?.[i]?.name && (
+                      <p className="text-xs text-destructive">{errors.partners[i]?.name?.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`partner-email-${i}`}>E-mail (opcional)</Label>
+                    <Input
+                      id={`partner-email-${i}`}
+                      type="email"
+                      aria-invalid={Boolean(errors.partners?.[i]?.email)}
+                      disabled={isPending}
+                      {...register(`partners.${i}.email`)}
+                    />
+                    {errors.partners?.[i]?.email && (
+                      <p className="text-xs text-destructive">{errors.partners[i]?.email?.message}</p>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="mt-6"
+                    onClick={() => remove(i)}
+                    disabled={isPending}
+                    aria-label={`Remover sócio ${i + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              {errors.partners?.message && <p className="text-xs text-destructive">{errors.partners.message}</p>}
+              <p className="text-xs text-muted-foreground">
+                Digite o CPF completo de cada sócio: o bureau mascara o CPF no quadro societário.
+              </p>
+            </div>
+          )}
+
+          <div aria-live="polite">{serverError && <p className="text-sm text-destructive">{serverError}</p>}</div>
+
+          <Button type="submit" disabled={isPending}>
+            {isPending ? "Abrindo pedido..." : "Abrir pedido"}
+          </Button>
+        </form>
       </CardContent>
     </Card>
   );

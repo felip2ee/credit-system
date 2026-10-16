@@ -28,7 +28,7 @@ Rules active in this directory — read them before touching code here:
 ## Local conventions
 
 - Add a new bureau variant by dropping a payload in `__fixtures__/` (`pf-current`, `pf-legacy`, `pj-current`, `pj-legacy`) and a case in `adapter.test.ts`.
-- Product names come only from `products.ts` (`DEPS_PRODUCT_PF`, `DEPS_PRODUCT_PJ`, `depsProductName`); do not repeat the literals.
+- Product names come only from `products.ts` (`DEPS_PRODUCT_PF`, `DEPS_PRODUCT_PJ`); do not repeat the literals.
 - Server-only: never import this directory from client components.
 - Comments here are pt-BR; the adapter header comments are English.
 

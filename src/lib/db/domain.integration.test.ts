@@ -35,7 +35,7 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import { getDashboardMetrics } from "@/lib/dashboard/queries";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
-import { depsProductName } from "@/lib/deps/products";
+import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
 import {
 	getDossierDetail,
 	listDossiers,
@@ -63,6 +63,8 @@ import {
 	type SeededTenant,
 } from "@/test/seed";
 import type { Parecer } from "@/types/ai";
+
+const depsProductName = (type: "PF" | "PJ") => (type === "PF" ? DEPS_PRODUCT_PF : DEPS_PRODUCT_PJ);
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 2 });
 

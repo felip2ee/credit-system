@@ -8,8 +8,6 @@ import {
   ConsultationResult,
   ConsultationUnavailable,
 } from "@/components/consultations/consultation-result";
-import { ReprocessButton } from "@/components/consultations/reprocess-button";
-import { RetryScrButton } from "@/components/consultations/retry-scr-button";
 import {
   ConsultationOpinion,
   type OpinionData,
@@ -94,30 +92,25 @@ export default async function ConsultationDetailPage({
 
       {query.status === "pending_authorization" && (
         <Card>
-          <CardContent className="space-y-4 p-6">
+          <CardContent className="p-6">
             <p className="text-sm text-muted-foreground">
-              Consulta aguardando autorização SCR do consultado. Conceda a
-              autorização no <span className="font-medium">portal da deps</span> e use{" "}
-              <span className="font-medium">Tentar novamente</span> para reverificar:
-              assim que o titular estiver autorizado, a consulta é concluída na hora.
-              Você também pode acompanhar em{" "}
-              <Link href="/scr" className="underline">
-                Autorizações SCR
+              Consulta aguardando a autorização SCR do titular. Assim que ele autorizar, o pedido segue sozinho.
+              Acompanhe o estado em{" "}
+              <Link href={`/dossiers/${query.dossier_id}`} className="underline">
+                Ver pesquisa
               </Link>
               .
             </p>
-            <RetryScrButton queryId={query.id} />
           </CardContent>
         </Card>
       )}
 
       {query.status === "error" && (
         <Card>
-          <CardContent className="space-y-3 p-6">
+          <CardContent className="p-6">
             <p className="text-sm text-destructive">
               {query.error_message ?? "Erro ao processar a consulta."}
             </p>
-            <ReprocessButton queryId={query.id} />
           </CardContent>
         </Card>
       )}
