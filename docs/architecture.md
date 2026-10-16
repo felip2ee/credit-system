@@ -81,7 +81,8 @@ Webhooks e worker:
 
 ## Dados e migrations
 
-- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `020`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
+- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `021`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
+- A 021 cria as contas de cliente: `legal_documents`, `legal_acceptances`, `verification_challenges`, `client_register_attempts`, e as funções `register_client` e de verificação (`request_*` e `confirm_*` de e-mail e de telefone).
 - Aplicar: `npm run db:migrate`. O runner grava checksums. Não edite uma migration já aplicada.
 - A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. Depois, só migrations novas.
 - Dois roles de conexão:

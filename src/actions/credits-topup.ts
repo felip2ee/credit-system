@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
 
+import { getClientAccountStatus } from "@/lib/account/queries";
 import { getAsaasClient } from "@/lib/asaas";
 import { AsaasOutcomeUnknownError } from "@/lib/asaas/client";
 import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
@@ -31,6 +32,7 @@ export interface ClientTopupActionResult {
 
 const NOT_ALLOWED = "Você não tem permissão para recarregar a carteira.";
 const FAILED = "Não foi possível gerar o PIX. Tente novamente.";
+const EMAIL_NOT_VERIFIED = "Confirme seu e-mail antes de comprar créditos.";
 const NO_WALLET = "Carteira não encontrada. Contate o suporte.";
 const TOO_MANY_PENDING = "Há PIX pendentes demais. Pague ou aguarde expirar antes de gerar outro.";
 const DESCRIPTION = "Recarga de créditos";
@@ -62,6 +64,8 @@ function logUnbound(chargeId: string, asaasPaymentId: string, externalReference:
 // nunca chega a criar cobrança externa. A linha leva a referência externa, que o webhook usa se o bind falhar.
 async function reserveCharge(session: Session, amount: string, externalReference: string): Promise<ReserveOutcome> {
 	return withUserTransaction(session, async (client) => {
+		// Primeiro de tudo: sem e-mail confirmado nenhuma linha PIX é reservada nem o Asaas é chamado.
+		if (!(await getClientAccountStatus(client, session.userId)).emailVerified) return { blocked: EMAIL_NOT_VERIFIED };
 		if (!(await getClientWallet(client, session.userId))) return { blocked: NO_WALLET };
 		await lockClientPixCharges(client, session.userId);
 		if ((await countPendingClientPixCharges(client, session.userId)) >= MAX_PENDING_PIX_CHARGES)

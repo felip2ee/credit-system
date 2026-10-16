@@ -134,7 +134,8 @@ export async function seedSupportSession(
 		endedAt?: Date | null;
 	},
 ): Promise<string> {
-	const startedAt = input.startedAt ?? new Date();
+	// app_support_active() compara com o now() do banco; a margem de 5 s absorve o desvio de relógio entre app e banco.
+	const startedAt = input.startedAt ?? new Date(Date.now() - 5_000);
 	const expiresAt =
 		input.expiresAt ?? new Date(startedAt.getTime() + ONE_HOUR_MS);
 	const { rows } = await owner.query<{ id: string }>(

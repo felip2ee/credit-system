@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
 import {
 	randomCpf,
+	seedClientProfile,
 	seedSupportSession,
 	seedSuperadmin,
 	seedTenant,
@@ -1947,3 +1948,166 @@ describe("change-password is a reserved slug", () => {
 async function expectRejectCode(promise: Promise<unknown>, code: string) {
 	await expect(promise).rejects.toMatchObject({ code });
 }
+
+describe("client accounts (021)", () => {
+	const PUBLIC_FUNCTIONS = [
+		"register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text)",
+		"confirm_email_verification(text)",
+		"request_email_verification(uuid, text, text)",
+		"request_phone_verification(uuid, text, text)",
+		"confirm_phone_verification(uuid, text)",
+		"accept_legal_documents(uuid, integer, integer, inet, text)",
+		"set_notification_channel(uuid, text)",
+	];
+	const INTERNAL_FUNCTIONS = [
+		"enqueue_system_notification(uuid, uuid, text, text, text, jsonb, text, text)",
+		"account_issue_email_challenge(uuid, text, text)",
+		"legal_current_version(text)",
+		"account_secret_hash(text)",
+		"account_mask_recipient(text, text)",
+	];
+	const NEW_TABLES = ["legal_documents", "legal_acceptances", "verification_challenges", "client_register_attempts"];
+	const CONTACT_UPDATES = [
+		"phone_e164 = '+5563999999999'",
+		"phone_verified_at = now()",
+		"notification_channel = 'whatsapp'",
+	];
+
+	let T: SeededTenant;
+	let acceptanceId: string;
+
+	beforeAll(async () => {
+		T = await seedTenant(owner, "tenant accounts");
+		const { rows } = await owner.query<{ id: string }>(
+			`insert into legal_acceptances (profile_id, document_id)
+       select $1, d.id from legal_documents d where d.kind = 'terms' and d.version = 1 returning id`,
+			[T.client.userId],
+		);
+		acceptanceId = rows[0].id;
+	});
+
+	it("app_runtime cannot write phone_e164, phone_verified_at or notification_channel", async () => {
+		for (const actor of [T.client, T.bureauAdmin]) {
+			for (const assignment of CONTACT_UPDATES) {
+				await withDbContext(app, ctxOf(actor), (client) =>
+					expectNoEffect(client.query(`update profiles set ${assignment} where id = $1`, [T.client.userId])),
+				);
+			}
+			const inserted = randomUUID();
+			await owner.query('insert into "user" (id, name, email) values ($1, $2, $3)', [
+				inserted, "Contato", `${inserted}@example.test`,
+			]);
+			await withDbContext(app, ctxOf(actor), async (client) => {
+				await expect(
+					client.query(
+						`insert into profiles (id, auth_user_id, full_name, email, role, bureau_id, phone_e164)
+             values ($1::uuid, $1::text, 'Contato', $2, 'client', $3, '+5563999999999')`,
+						[inserted, `${inserted}@example.test`, T.bureau.id],
+					),
+				).rejects.toMatchObject({ code: "42501" });
+			});
+		}
+		const { rows } = await owner.query(
+			"select phone_e164, phone_verified_at, notification_channel from profiles where id = $1",
+			[T.client.userId],
+		);
+		expect(rows).toEqual([{ phone_e164: null, phone_verified_at: null, notification_channel: "email" }]);
+	});
+
+	it("app_runtime cannot read verification_challenges or client_register_attempts", async () => {
+		await expectCode(app, "select 1 from verification_challenges", [], "42501");
+		await expectCode(app, "select 1 from client_register_attempts", [], "42501");
+	});
+
+	it("app_runtime cannot insert, update or delete the new tables", async () => {
+		const writes: Record<string, string[]> = {
+			legal_documents: [
+				"insert into legal_documents (kind, version, title, body_md) values ('terms', 99, 'x', 'x')",
+				"update legal_documents set title = 'x'",
+				"delete from legal_documents",
+			],
+			legal_acceptances: [
+				`insert into legal_acceptances (profile_id, document_id) values ('${T.client.userId}', gen_random_uuid())`,
+				"update legal_acceptances set ip = null",
+				"delete from legal_acceptances",
+			],
+			verification_challenges: [
+				`insert into verification_challenges (profile_id, kind, target, code_hash, expires_at)
+         values ('${T.client.userId}', 'email', 'a@b.c', '${sha()}', now())`,
+				"update verification_challenges set attempts = 0",
+				"delete from verification_challenges",
+			],
+			client_register_attempts: [
+				"insert into client_register_attempts (ip) values ('10.0.0.1')",
+				"update client_register_attempts set ip = null",
+				"delete from client_register_attempts",
+			],
+		};
+		for (const table of NEW_TABLES) {
+			for (const sql of writes[table]) await expectCode(app, sql, [], "42501");
+		}
+	});
+
+	it("legal_documents are readable without context", async () => {
+		const { rows } = await app.query<{ kind: string; version: number }>(
+			"select kind, version from legal_documents where version = 1 order by kind",
+		);
+		expect(rows).toEqual([
+			{ kind: "privacy", version: 1 },
+			{ kind: "terms", version: 1 },
+		]);
+	});
+
+	it("client reads only own legal_acceptances", async () => {
+		const other = await seedClientProfile(owner, T.bureau.id);
+		await owner.query(
+			"insert into legal_acceptances (profile_id, document_id) select $1, d.id from legal_documents d where d.kind = 'privacy' and d.version = 1",
+			[other.userId],
+		);
+		const own = await withDbContext(app, ctxOf(T.client), (client) =>
+			client.query<{ profile_id: string }>("select profile_id from legal_acceptances"),
+		);
+		expect(own.rows.length).toBeGreaterThan(0);
+		expect(new Set(own.rows.map((row) => row.profile_id))).toEqual(new Set([T.client.userId]));
+	});
+
+	it("staff reads zero legal_acceptances", async () => {
+		for (const actor of [T.bureauAdmin, T.operator]) {
+			const { rows } = await withDbContext(app, ctxOf(actor), (client) =>
+				client.query<{ n: string }>("select count(*) as n from legal_acceptances"),
+			);
+			expect(Number(rows[0].n)).toBe(0);
+		}
+		expect(await app.query("select 1 from legal_acceptances")).toMatchObject({ rowCount: 0 });
+	});
+
+	it("enqueue_system_notification and helpers are not executable by app_runtime", async () => {
+		const privilege = async (signature: string) =>
+			(
+				await owner.query<{ allowed: boolean }>(
+					"select has_function_privilege('app_runtime', $1::regprocedure, 'execute') as allowed",
+					[signature],
+				)
+			).rows[0].allowed;
+		for (const signature of INTERNAL_FUNCTIONS) expect(await privilege(signature)).toBe(false);
+		for (const signature of PUBLIC_FUNCTIONS) expect(await privilege(signature)).toBe(true);
+		await expectCode(app, "select account_secret_hash('x')", [], "42501");
+		await expectCode(app, "select legal_current_version('terms')", [], "42501");
+	});
+
+	it("legal_documents and legal_acceptances reject update and delete", async () => {
+		const guarded = [
+			"update legal_documents set title = 'x' where kind = 'terms' and version = 1",
+			"delete from legal_documents where kind = 'terms' and version = 1",
+		];
+		for (const sql of guarded) await expectCode(owner, sql, [], "23514");
+		await expectCode(owner, "update legal_acceptances set ip = null where id = $1", [acceptanceId], "23514");
+		await expectCode(owner, "delete from legal_acceptances where id = $1", [acceptanceId], "23514");
+	});
+
+	it("rejects the slugs cadastro, termos and privacidade", async () => {
+		for (const slug of ["cadastro", "termos", "privacidade"]) {
+			await expectCode(owner, "insert into bureaus (name, slug) values ('X', $1)", [slug], "23514");
+		}
+	});
+});

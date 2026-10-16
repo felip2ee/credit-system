@@ -47,7 +47,11 @@ beforeEach(() => {
 	vi.stubGlobal("fetch", fetchMock);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
+});
 
 describe("sendWhatsappNotification", () => {
 	it("posts the template to the Graph API and returns the message id", async () => {
@@ -69,6 +73,31 @@ describe("sendWhatsappNotification", () => {
 		expect(result).toMatchObject({ ok: true });
 		expect(result.ok && result.providerMessageId).toMatch(/^fake-wamid-[0-9a-f-]{36}$/);
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("fake driver logs template, masked recipient and params outside production", async () => {
+		configMock.readWhatsappConfig.mockReturnValue({ ...metaConfig, driver: "fake" });
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		await sendWhatsappNotification(notification);
+		expect(info).toHaveBeenCalledWith("[whatsapp:fake]", {
+			template: "scr_code",
+			to: "+55*******5615",
+			params: { code: "123456" },
+		});
+		expect(JSON.stringify(info.mock.calls)).not.toContain("5563992345615");
+	});
+
+	it("fake driver never logs in production", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		// Em produção readWhatsappConfig recusa o driver fake e devolve null.
+		configMock.readWhatsappConfig.mockReturnValue(null);
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		expect(await sendWhatsappNotification(notification)).toEqual({
+			ok: false,
+			permanent: true,
+			code: "channel_not_configured",
+		});
+		expect(info).not.toHaveBeenCalled();
 	});
 
 	it("is permanent channel_not_configured without configuration", async () => {

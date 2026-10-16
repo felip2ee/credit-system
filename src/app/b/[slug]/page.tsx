@@ -37,10 +37,17 @@ export default async function PublicBureauPage({
             ))}
           </ul>
         )}
-        <p className="text-muted-foreground">Cadastro em breve</p>
-        <Link href="/login" className="inline-block font-medium underline underline-offset-4">
-          Entrar
-        </Link>
+        <div className="flex justify-center gap-6">
+          <Link
+            href={`/b/${bureau.slug}/cadastro`}
+            className="inline-block font-medium underline underline-offset-4"
+          >
+            Criar conta
+          </Link>
+          <Link href="/login" className="inline-block font-medium underline underline-offset-4">
+            Entrar
+          </Link>
+        </div>
       </div>
     </main>
   );

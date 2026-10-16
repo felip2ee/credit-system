@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
 	countPending: vi.fn(),
 	lock: vi.fn(),
 	getClientWallet: vi.fn(),
+	getClientAccountStatus: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -53,6 +54,10 @@ vi.mock("@/lib/wallet/client-queries", () => ({
 	getClientWallet: state.getClientWallet,
 }));
 
+vi.mock("@/lib/account/queries", () => ({
+	getClientAccountStatus: state.getClientAccountStatus,
+}));
+
 import { revalidatePath } from "next/cache";
 
 import { AsaasOutcomeUnknownError } from "@/lib/asaas/client";
@@ -76,6 +81,7 @@ beforeEach(() => {
 		available: "0.00",
 		reserved: "0.00",
 	});
+	state.getClientAccountStatus.mockResolvedValue({ emailVerified: true, phoneVerified: true });
 	state.countPending.mockResolvedValue(0);
 	state.reserveCharge.mockResolvedValue({
 		ok: true,
@@ -139,6 +145,26 @@ describe("requestClientTopupAction", () => {
 		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(
 			NOT_ALLOWED,
 		);
+	});
+
+	it("topup is refused while the email is not verified", async () => {
+		state.getClientAccountStatus.mockResolvedValue({ emailVerified: false, phoneVerified: true });
+
+		const result = await requestClientTopupAction({ amount: "100.00" });
+
+		expect(result.error).toBe("Confirme seu e-mail antes de comprar créditos.");
+		expect(state.getClientAccountStatus).toHaveBeenCalledWith(expect.anything(), USER_ID);
+		expect(state.getClientWallet).not.toHaveBeenCalled();
+		expect(state.lock).not.toHaveBeenCalled();
+		expect(state.reserveCharge).not.toHaveBeenCalled();
+		expect(state.adapterCreate).not.toHaveBeenCalled();
+	});
+
+	it("unverified phone does not block topup", async () => {
+		state.getClientAccountStatus.mockResolvedValue({ emailVerified: true, phoneVerified: false });
+
+		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBeNull();
+		expect(state.adapterCreate).toHaveBeenCalledTimes(1);
 	});
 
 	it.each(["9.99", "5000.01", "10.005", "abc", "", "-10.00"])(
