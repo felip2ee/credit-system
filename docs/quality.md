@@ -11,7 +11,8 @@
 | `npm run check` | Composto: lint, type-check e test. |
 | `npm run db:migrate:test` | `node --test` do runner de migrations e do reset. |
 | `npm run setup:test` | `unittest` do `setup_production.py`. |
-| `npm run ops:test` | `node --test` do cron de notificações. |
+| `npm run ops:test` | `node --test` do cron de notificações. Roda `docker/backup/backup.test.sh` se `restic` estiver instalado. |
+| `npm run test:e2e` | Playwright em `e2e/`: login com MFA, compra no portal e balcão até `ready`. Exige app e banco com seed. |
 | `npm run verify:release` | Gate de release: lint, type-check, Vitest, `node --test`, `unittest`, Playwright, build, `docker compose config`, migration duas vezes, suítes com Postgres. Para na primeira falha. |
 
 Quando rodar:
@@ -38,7 +39,7 @@ Quando rodar:
 - **Unitários:** Vitest, colocados ao lado do código (`src/**/*.test.ts`). Cobrem regras de negócio, ramificações, dinheiro, segurança e regressões.
 - **Integração:** `*.integration.test.ts`, com Postgres real. Em dev: `127.0.0.1:54329`. Roles: `app_runtime` (`TEST_DATABASE_URL`) e dono (`TEST_DATABASE_OWNER_URL`). Algumas suítes que disputam o mesmo lock rodam em série.
 - **Scripts:** `node --test` (migrate, reset, cron de notificações) e `python -m unittest` (setup de produção).
-- **E2E:** Playwright em `e2e/` (hoje só `auth.spec.ts`). Rode por `npm run verify:release`. Exige app e banco com seed. Não roda na CI.
+- **E2E:** Playwright em `e2e/`: `login`, `portal-order`, `counter-order` e `auth`. `npm run test:e2e` sobe o app pelo `webServer` e semeia o banco (`e2e/global-setup.ts`). A CI roda depois de `npm run db:reset`. Os fluxos param em `ready`: o e2e não chama a DEPS nem a OpenAI (D8 do spec do M7). A execução da consulta fica nos testes de integração, com cliente falso.
 - Teste componentes só para renderização condicional, validação de formulário, estado ou acessibilidade. UI apenas visual não recebe teste.
 - Não escreva teste que repete o código. Não afirme cobertura que não foi medida.
 
@@ -60,6 +61,5 @@ Checks são comandos explícitos. Este projeto não usa hooks Git, bloqueios de 
 - O maior arquivo que não é teste é `src/lib/catalog/queries.ts`, com 560 linhas.
 - O Vitest inclui só `.test.ts`. Arquivos `.test.tsx` não rodam.
 - Não há cobertura mínima configurada.
-- O Playwright fica fora da CI.
 - O build local exige variáveis de ambiente de produção.
 - Não há logger estruturado. O código usa `console` direto.

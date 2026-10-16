@@ -5,12 +5,9 @@ Every box must be checked with evidence (command output saved outside the repo).
 
 ## 1. Secrets — generation & rotation
 
-- [ ] All 14 stack secrets are Docker **external** secrets (never in the compose
-  file, never in env files committed to git):
-  `database_url`, `database_webhook_url`, `database_owner_url`, `better_auth_secret`, `smtp_pass`,
-  `deps_api_password`, `openai_api_key`, `superadmin_password`, `postgres_password`,
-  `schema_owner_password`, `app_runtime_password`, `backup_reader_password`, `app_webhook_password`,
-  `restic_password`.
+- [ ] All 22 stack secrets are Docker **external** secrets (never in the compose
+  file, never in env files committed to git). The list is the `secrets` section of
+  `docker-stack.yml`.
 - [ ] `scripts/setup/setup_production.py` generates the secrets and creates them in Docker.
 - [ ] Generate each high-entropy secret with:
   ```sh
@@ -18,9 +15,9 @@ Every box must be checked with evidence (command output saved outside the repo).
   printf %s "$VALUE" | docker secret create <name> -
   ```
 - [ ] `database_url` uses role `app_runtime` (NOSUPERUSER NOBYPASSRLS).
-  `database_owner_url` uses the `postgres` superuser. The `reino_app` entrypoint
-  reads it only to run migrations: migrations run `CREATE ROLE` / `ALTER ROLE ... [NO]BYPASSRLS`,
-  which require superuser. The app service never gets this DSN.
+  `database_owner_url` uses the `postgres` superuser. Only the one-shot `migrate`
+  service reads it: migrations run `CREATE ROLE` / `ALTER ROLE ... [NO]BYPASSRLS`,
+  which require superuser. `reino_app` never gets this DSN (see §6).
 - [ ] `.env.local`, `.env*.example` contain **no real secret values** and are gitignored / not staged.
 - [ ] `credenciais-GUARDAR.txt` was moved to a password manager and deleted from the server.
 - [ ] Rotation procedure documented: `docker secret rm` + recreate + `docker
@@ -48,30 +45,35 @@ Every box must be checked with evidence (command output saved outside the repo).
   forwarded-IP / rate-limit trust is correct.
 - [ ] HSTS header set (Traefik middleware or app).
 
-## 4. Backup repository (on-server, local encrypted Restic)
+## 4. Backup repository (off-site, S3-compatible Restic)
 
-- [ ] `restic_repo` volume is bound to a **separate disk** (provider block storage
-  at `/srv/reino-restic`), not the primary disk — a primary-disk failure must not
-  take the backups with it.
-- [ ] The disk / mount is not world-readable; the volume is only mounted into the
-  `backup` service (`read_only` container, no shell exposure).
+- [ ] Bucket dedicated to the Restic repository, with **versioning enabled** and
+  public access fully blocked (no ACL). (post-deploy)
+- [ ] Access key scoped to that bucket only. It is stored as the Docker secrets
+  `restic_s3_access_key` and `restic_s3_secret_key`; the scripts export them as
+  `AWS_*`. Never in the env file or in argv.
+- [ ] `RESTIC_REPOSITORY` starts with `s3:`. The backup and restore scripts refuse
+  any other repository. `BACKUP_ALLOW_LOCAL_REPO` exists only for the test
+  harness and is not set in production.
 - [ ] `restic_password` stored only as a Docker secret; losing it = unrecoverable
   backups — escrow it offline.
-- [ ] **Residual risk accepted**: backups live on the same VPS. They survive DB
-  corruption, a bad migration, an accidental delete, and app-level compromise,
-  but NOT total loss of the host / provider account. If off-site copies become a
-  requirement, add a periodic `restic copy` to a remote repo (the only external
-  dependency the design would then take).
+- [ ] **Residual risk accepted (D14):** the backup container can write and delete
+  objects in the bucket. Bucket versioning is the defense against deletion. A
+  compromise of the storage provider account is not covered.
 
 ## 5. Restore evidence
 
-- [ ] `sh docker/backup/backup.test.sh` passes (failed dump/snapshot cannot write
-  a success marker or trigger prune).
-- [ ] `restore-test.sh` has run into an isolated throwaway cluster; all
-  `RESTORE_REQUIRED_TABLES` (20 core tables) found in the restored dump.
-- [ ] Measured restore (RTO) recorded in the recovery runbook.
-- [ ] Monthly restore drill (`0 4 1 * *` cron) emails `BACKUP_ALERT_TO`; alert
-  path tested (SMTP creds via `--netrc-file`, never on argv).
+- [ ] `sh docker/backup/backup.test.sh` passes. `npm run ops:test` runs it when
+  `restic` is on the PATH and skips it otherwise.
+- [ ] `restore-test.sh` restores into an isolated throwaway cluster and every table
+  in `RESTORE_REQUIRED_TABLES` is in the restored dump. (post-deploy)
+- [ ] Measured restore duration (RTO) is recorded. The recovery runbook does not
+  exist yet. (post-deploy)
+- [ ] Monthly drill (`0 4 1 * *` cron) emails `BACKUP_ALERT_TO`. The first drill is
+  run by hand (see [deploy.md](deploy.md), step 4.6). Alert path tested (SMTP creds
+  via `--netrc-file`, never on argv).
+- [ ] Alert `backup_stale` fires when the success marker is older than 36 h (see
+  [monitoring.md](monitoring.md)).
 
 ## 6. Database roles & RLS
 
@@ -98,6 +100,13 @@ Run after schema migrate (`\du` and the queries below as `postgres`):
   `service.integration`, `auth.integration`, `*.queries.integration` pass against
   the real target (verify-release gate 12).
 - [ ] Public SCR authorization link (migration 008) is single-use / non-replayable.
+- [ ] `reino_app` has no owner DSN. These commands show no `database_owner_url`,
+  no `DATABASE_OWNER_URL_FILE` and no `RUN_MIGRATIONS` in `reino_app`:
+  ```sh
+  docker service inspect reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Secrets}}'
+  docker service inspect reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}'
+  ```
+  Only `reino_migrate` lists `database_owner_url`.
 
 ## 7. File permissions (`DOCUMENT_ROOT`)
 
