@@ -388,6 +388,7 @@ export interface HolderRow {
 	zip_code: string | null;
 	notes: string | null;
 	client_profile_id: string | null;
+	anonymized_at: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -441,7 +442,7 @@ export async function getHolderDetail(
 		const holder = await client.query<HolderRow>(
 			`select id, type, name, document, email, phone, address, address_number,
               address_complement, neighborhood, city, state, zip_code, notes,
-              client_profile_id, created_at::text, updated_at::text
+              client_profile_id, anonymized_at::text, created_at::text, updated_at::text
          from holders where id = $1`,
 			[id],
 		);

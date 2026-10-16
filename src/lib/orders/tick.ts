@@ -5,6 +5,7 @@ import { config } from "@/lib/config";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { recordHolderEvent } from "@/lib/holders/queries";
+import { purgeBureauData, purgeTechnicalData } from "@/lib/lgpd/queries";
 import { generateScrCode } from "@/lib/scr/code";
 import { buildScrConsentTerm } from "@/lib/scr/consent-term";
 import { issueSelfScrAuthorization, type IssueSelfScrResult } from "@/lib/scr/queries";
@@ -25,6 +26,7 @@ import {
 	setAiStatus,
 	type ScrRequestToIssue,
 } from "./tick-queries";
+import { listSweepIdentities } from "./sweep";
 import { MAX_AI_ATTEMPTS, type OrderState } from "./types";
 
 export type TickResult = {
@@ -39,6 +41,8 @@ export type TickResult = {
 	// Bureaus que outro tick já processava (lock por Bureau): ficam para o próximo.
 	skipped: number;
 	errors: number;
+	// Linhas apagadas ou anonimizadas pela varredura LGPD, somadas por tabela (todos os Bureaus).
+	purged: Record<string, number>;
 };
 
 // Pedidos executados no tick inteiro (todos os Bureaus): cada um chama a DEPS, e o tick tem de caber no timeout do cron.
@@ -49,6 +53,14 @@ const STEP_BATCH = 20;
 const PROMOTE_BATCH = 500;
 
 type Counters = Omit<TickResult, "bureaus">;
+
+// A varredura técnica não tem tenant e a função SECURITY DEFINER não lê o contexto: roda mesmo sem Bureau devido.
+const PLATFORM_IDENTITY: DbIdentity = { userId: "", role: "operator", bureauId: null };
+
+
+function addCounts(total: Record<string, number>, counts: Record<string, number> | undefined): void {
+	for (const [table, n] of Object.entries(counts ?? {})) total[table] = (total[table] ?? 0) + n;
+}
 
 // Roda uma unidade de trabalho. O log leva só o nome do passo e do erro: a mensagem pode trazer documento ou contato.
 async function guarded<T>(counters: Counters, step: string, work: () => Promise<T>): Promise<T | undefined> {
@@ -200,6 +212,13 @@ async function withBureauLock(bureauId: string, work: () => Promise<void>): Prom
 	}
 }
 
+async function sweepBureaus(result: TickResult): Promise<void> {
+	const identities = (await guarded(result, "list-purge-bureaus", listSweepIdentities)) ?? [];
+	for (const identity of identities) {
+		addCounts(result.purged, await guarded(result, "purge-bureau", () => purgeBureauData(identity)));
+	}
+}
+
 export async function runOrdersTick(): Promise<TickResult> {
 	const due = await pool.query<{ bureau_id: string; system_profile_id: string }>(
 		"select bureau_id, system_profile_id from due_order_bureaus()",
@@ -215,7 +234,9 @@ export async function runOrdersTick(): Promise<TickResult> {
 		released: 0,
 		skipped: 0,
 		errors: 0,
+		purged: {},
 	};
+	addCounts(result.purged, await guarded(result, "purge-technical", () => purgeTechnicalData(PLATFORM_IDENTITY)));
 	for (const bureau of due.rows) {
 		const identity: DbIdentity = { userId: bureau.system_profile_id, role: "operator", bureauId: bureau.bureau_id };
 		const ran = await withBureauLock(bureau.bureau_id, () =>
@@ -223,5 +244,6 @@ export async function runOrdersTick(): Promise<TickResult> {
 		);
 		if (!ran) result.skipped += 1;
 	}
+	await sweepBureaus(result);
 	return result;
 }

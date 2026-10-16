@@ -30,6 +30,18 @@ const fakes = vi.hoisted(() => ({ consultPF: vi.fn(), generateParecer: vi.fn(), 
 vi.mock("@/lib/deps/client", () => ({ getDepsClient: () => ({ consultPF: fakes.consultPF, consultPJ: vi.fn() }) }));
 vi.mock("@/lib/ai/opinion", () => ({ generateParecer: fakes.generateParecer, generateCompanyParecer: fakes.generateCompanyParecer }));
 
+// A varredura de retenção lista todos os Bureaus do banco (compartilhado e cheio de tenants de outros testes): aqui só os do escopo.
+// A listagem real tem o seu teste abaixo.
+vi.mock("./sweep", () => ({
+	listSweepIdentities: async () => {
+		const { rows } = await owner.query<{ id: string; bureau_id: string }>(
+			"select id, bureau_id from profiles where is_system and bureau_id = any($1)",
+			[Array.from(scope)],
+		);
+		return rows.map((row) => ({ userId: row.id, role: "operator", bureauId: row.bureau_id }));
+	},
+}));
+
 import { quoteOrder } from "@/lib/catalog/quote";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
@@ -41,6 +53,7 @@ import {
 	seedBureauCost,
 	seedCatalogItem,
 	seedClientWalletTopup,
+	seedExpiredChallenge,
 	seedTenant,
 	seedWalletTopup,
 	type SeededTenant,
@@ -167,7 +180,20 @@ const scrOf = async (dossierId: string) =>
 const confirmScr = async (token: string, code: string) =>
 	(await pool.query<{ r: string }>("select confirm_public_scr_authorization($1, 'internal', $2, 'authorize', '203.0.113.9') as r", [token, code])).rows[0].r;
 
-const ZERO: TickResult = { bureaus: 1, expired: 0, cancelled: 0, requested: 0, promoted: 0, executed: 0, ai: 0, released: 0, skipped: 0, errors: 0 };
+// `purged` é global (varredura LGPD sem tenant): o banco compartilhado pode ter linhas vencidas de outros arquivos.
+const ZERO: TickResult = {
+	bureaus: 1,
+	expired: 0,
+	cancelled: 0,
+	requested: 0,
+	promoted: 0,
+	executed: 0,
+	ai: 0,
+	released: 0,
+	skipped: 0,
+	errors: 0,
+	purged: expect.any(Object) as Record<string, number>,
+};
 
 describe("runOrdersTick", () => {
 	it("online order end to end debits P from the client and accrues P minus C", async () => {
@@ -214,6 +240,46 @@ describe("runOrdersTick", () => {
 		// Nada devido: o Bureau fica de fora e o tick seguinte não faz nada.
 		expect(await runOrdersTick()).toEqual({ ...ZERO, bureaus: 0 });
 	});
+
+	it("tick purges expired challenges", async () => {
+		const t = await newTenant("tick purge");
+		const old = await seedExpiredChallenge(owner, { profileId: t.client.userId, expiresAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) });
+		const fresh = await seedExpiredChallenge(owner, { profileId: t.client.userId, expiresAt: new Date(Date.now() - 60 * 60 * 1000) });
+
+		const result = await runOrdersTick();
+
+		expect(result.purged.verification_challenges).toBeGreaterThanOrEqual(1);
+		expect(result.errors).toBe(0);
+		const left = await rows<{ id: string }>("select id from verification_challenges where id = any($1)", [[old, fresh]]);
+		expect(left).toEqual([{ id: fresh }]);
+	});
+
+	it("tick purges a bureau with no pending orders", async () => {
+		const t = await newTenant("tick purge idle");
+		const old = await owner.query<{ id: string }>(
+			`insert into scr_authorizations (bureau_id, document, type, holder_id, status, channel, expires_at)
+       values ($1, $2, 'PF', $3, 'authorized', 'internal', now() - interval '5 years 1 day') returning id`,
+			[t.bureau.id, randomCpf(), t.holder.id],
+		);
+
+		// Sem pedido devido: o Bureau fica fora de due_order_bureaus() e mesmo assim é varrido.
+		const result = await runOrdersTick();
+
+		expect(result.bureaus).toBe(0);
+		expect(result.errors).toBe(0);
+		expect(result.purged.scr_authorizations).toBeGreaterThanOrEqual(1);
+		expect(await rows("select 1 from scr_authorizations where id = $1", [old.rows[0].id])).toEqual([]);
+	});
+
+	it("the sweep list holds the system identity of an active bureau with no orders", async () => {
+		const t = await newTenant("tick sweep list");
+		const { listSweepIdentities } = await vi.importActual<typeof import("./sweep")>("./sweep");
+		const [system] = await rows<{ id: string }>("select id from profiles where bureau_id = $1 and is_system", [t.bureau.id]);
+
+		const identities = await listSweepIdentities();
+
+		expect(identities).toContainEqual({ userId: system.id, role: "operator", bureauId: t.bureau.id });
+	}, 120_000);
 
 	it("expired request cancels and releases on the tick", async () => {
 		const t = await newTenant("tick expired");
