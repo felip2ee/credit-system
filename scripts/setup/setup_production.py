@@ -32,7 +32,6 @@ ENV_KEYS = [
     "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER", "SMTP_FROM",
     "SUPERADMIN_EMAIL",
     "DEPS_API_BASE_URL", "DEPS_API_EMAIL", "DEPS_API_CENTRO_CUSTOS",
-    "DEPS_PRODUTO_PF", "DEPS_PRODUTO_PJ",
     "OPENAI_MODEL", "BACKUP_ALERT_TO",
     "WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION",
 ]
@@ -111,8 +110,6 @@ QUESTIONS: list[tuple[str, str, str, Callable[[str], bool]]] = [
     ("DEPS_API_BASE_URL", "URL da API DEPS", "https://api-portal.deps.com.br", _nonempty),
     ("DEPS_API_EMAIL", "Usuário DEPS", "", _nonempty),
     ("DEPS_API_CENTRO_CUSTOS", "Centro de custos DEPS (opcional)", "", _any),
-    ("DEPS_PRODUTO_PF", "Produto DEPS PF", "Smart PF 002", _nonempty),
-    ("DEPS_PRODUTO_PJ", "Produto DEPS PJ", "Smart PJ 010", _nonempty),
     ("OPENAI_MODEL", "Modelo OpenAI", "gpt-4o", _nonempty),
     ("BACKUP_ALERT_TO", "E-mail para alertas de backup", "", valid_email),
     ("WHATSAPP_DRIVER", "Driver do WhatsApp (vazio = desligado; meta = Cloud API)", "", lambda v: v in ("", "meta")),

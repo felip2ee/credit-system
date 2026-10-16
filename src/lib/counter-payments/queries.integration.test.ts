@@ -34,7 +34,7 @@ import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { reserveOrder } from "@/lib/settlement/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedDossier, seedOrderCatalog, seedTenant, seedWalletTopup } from "@/test/seed";
+import { seedDossier, seedOrderCatalog, seedOrderDossier, seedTenant, seedWalletTopup } from "@/test/seed";
 
 import { listCounterPayments, registerCounterPayment, voidCounterPayment } from "./queries";
 
@@ -51,6 +51,8 @@ async function setup(label: string) {
 		holderId: tenant.holder.id,
 		createdBy: tenant.bureauAdmin.userId,
 	});
+	// reserve_order exige o pedido (dossier_orders) do Dossiê.
+	await seedOrderDossier(owner, { orderRef: dossierId, bureauId: tenant.bureau.id, clientProfileId: null });
 	const operator: DbIdentity = { ...tenant.operator };
 	const admin: DbIdentity = { ...tenant.bureauAdmin };
 	const client: DbIdentity = { ...tenant.client };
@@ -225,5 +227,48 @@ describe("listCounterPayments", () => {
 		const listed = await withUserTransaction(b.operator, (c) => listCounterPayments(c, a.dossierId));
 		expect(listed.payments).toHaveLength(0);
 		expect(listed.paidTotal).toBe("0.00");
+	});
+});
+
+describe("order state follows the payments", () => {
+	async function reserved(label: string) {
+		const ctx = await setup(label);
+		await seedWalletTopup(owner, { bureauId: ctx.tenant.bureau.id, amount: "100.00", createdBy: ctx.tenant.bureauAdmin.userId });
+		await withUserTransaction(ctx.operator, async (c) => {
+			const { lines } = await seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
+			return reserveOrder(c, {
+				orderRef: ctx.dossierId,
+				mode: "counter",
+				clientProfileId: null,
+				quote: {
+					ok: true,
+					lines: [{ productVersionId: randomUUID(), code: lines[0].code, costCents: 3000, priceCents: 5000 }],
+					totalCostCents: 3000,
+					totalPriceCents: 5000,
+				},
+			});
+		});
+		return ctx;
+	}
+	const stateOf = async (dossierId: string) =>
+		(await owner.query<{ state: string }>("select state from dossier_orders where dossier_id = $1", [dossierId])).rows[0].state;
+
+	it("payment equal to price moves the order out of awaiting_payment", async () => {
+		const { dossierId, operator } = await reserved("Counter S1");
+
+		await registerCounterPayment(operator, pay(dossierId, "49.99"));
+		expect(await stateOf(dossierId)).toBe("awaiting_payment");
+		await registerCounterPayment(operator, pay(dossierId, "0.01"));
+		// Sem consultas autorizadas, o próximo passo é a autorização do Titular.
+		expect(await stateOf(dossierId)).toBe("awaiting_authorization");
+	});
+
+	it("void before execution moves it back", async () => {
+		const { dossierId, operator } = await reserved("Counter S2");
+		const full = (await registerCounterPayment(operator, pay(dossierId, "50.00"))) as { id: string };
+		expect(await stateOf(dossierId)).toBe("awaiting_authorization");
+
+		expect(await voidCounterPayment(operator, { id: full.id, reason: "Valor lançado por engano" })).toEqual({ ok: true });
+		expect(await stateOf(dossierId)).toBe("awaiting_payment");
 	});
 });

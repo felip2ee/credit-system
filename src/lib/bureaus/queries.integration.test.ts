@@ -182,7 +182,7 @@ describe("admin credentials", () => {
 		const tenant = await seedTenant(owner, "cred");
 		const other = await seedTenant(owner, "cred-other");
 		const adminId = (
-			await owner.query<{ id: string }>("select id from profiles where bureau_id = $1", [created.id])
+			await owner.query<{ id: string }>("select id from profiles where bureau_id = $1 and not is_system", [created.id])
 		).rows[0].id;
 		const set = (email: string, bureauId = created.id) =>
 			setBureauAdminCredentials(superadmin, { bureauId, email, password: temporary });

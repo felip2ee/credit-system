@@ -303,6 +303,15 @@ describe("setUserActive and setUserRole", () => {
 		);
 	});
 
+	it("never targets the system profile", async () => {
+		target("operator", [ADMIN_ID]);
+
+		await setUserRole({ userId: OTHER_ID, role: "bureau_admin" });
+
+		const lock = state.query.mock.calls.map(([sql]) => sql as string).find((s) => s.includes("for update"));
+		expect(lock).toContain("not is_system");
+	});
+
 	it("does nothing when the target is already an administrator", async () => {
 		target("bureau_admin", [OTHER_ID, ADMIN_ID]);
 

@@ -1,5 +1,6 @@
 // Calls the notifications dispatch route every 60 s. Runs as its own Swarm service.
 // Config: NOTIFICATIONS_DISPATCH_URL + NOTIFICATIONS_DISPATCH_SECRET (or *_FILE).
+// Optional: ORDERS_TICK_URL (same secret) makes the loop call the orders tick right after each dispatch.
 import { readFileSync } from "node:fs";
 
 const MIN_INTERVAL_MS = 5_000;
@@ -20,6 +21,7 @@ function readSecret() {
 
 let url;
 let secret;
+const tickUrl = process.env.ORDERS_TICK_URL || null;
 try {
   url = process.env.NOTIFICATIONS_DISPATCH_URL;
   secret = readSecret();
@@ -33,12 +35,12 @@ if (!url || !secret) {
 }
 
 // O Bearer viaja no pedido: http só vale em loopback ou em nome de serviço da rede interna (sem ponto, como http://app:3000).
-function isCleartextExternal(rawUrl) {
+function isCleartextExternal(rawUrl, name) {
   let parsed;
   try {
     parsed = new URL(rawUrl);
   } catch {
-    console.error("notifications-cron: NOTIFICATIONS_DISPATCH_URL is not a valid URL");
+    console.error(`notifications-cron: ${name} is not a valid URL`);
     process.exit(1);
   }
   if (parsed.protocol !== "http:") return false;
@@ -46,12 +48,13 @@ function isCleartextExternal(rawUrl) {
   return !(host === "localhost" || host === "127.0.0.1" || host === "[::1]" || !host.includes("."));
 }
 
-if (isCleartextExternal(url)) {
+for (const [name, value] of [["NOTIFICATIONS_DISPATCH_URL", url], ["ORDERS_TICK_URL", tickUrl]]) {
+  if (!value || !isCleartextExternal(value, name)) continue;
   if (process.env.NODE_ENV === "production") {
-    console.error("notifications-cron: refusing http:// to a non-internal host in production (the Bearer would travel in clear)");
+    console.error(`notifications-cron: refusing http:// to a non-internal host in production (the Bearer would travel in clear): ${name}`);
     process.exit(1);
   }
-  console.warn("notifications-cron: NOTIFICATIONS_DISPATCH_URL uses http:// to a non-internal host; the Bearer travels in clear");
+  console.warn(`notifications-cron: ${name} uses http:// to a non-internal host; the Bearer travels in clear`);
 }
 
 let stopped = false;
@@ -63,23 +66,24 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
-async function dispatchOnce() {
+async function callOnce(target, label) {
   try {
-    const response = await fetch(url, {
+    const response = await fetch(target, {
       method: "POST",
       headers: { Authorization: `Bearer ${secret}` },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const body = (await response.text()).slice(0, MAX_LOGGED_BODY);
-    log(`status=${response.status} body=${body}`);
+    log(`${label}status=${response.status} body=${body}`);
   } catch (error) {
-    log(`request failed: ${error.name}`);
+    log(`${label}request failed: ${error.name}`);
   }
 }
 
 // Sequential loop: the next call starts only after the previous one ends.
 while (!stopped) {
-  await dispatchOnce();
+  await callOnce(url, "");
+  if (tickUrl) await callOnce(tickUrl, "orders-tick ");
   await new Promise((resolve) => {
     timer = setTimeout(resolve, INTERVAL_MS);
   });

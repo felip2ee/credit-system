@@ -5,9 +5,8 @@ import { Download } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
 import { DossierStatusBadge, DOSSIER_KIND_LABEL } from "@/components/dossiers/dossier-badges";
-import { RetryScrButton } from "@/components/consultations/retry-scr-button";
 import { DossierReportPanel } from "@/components/dossiers/dossier-report-panel";
-import { ProcessPendingButton } from "@/components/dossiers/process-pending-button";
+import { OrderPanel } from "@/components/dossiers/order-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -20,7 +19,9 @@ import {
 } from "@/components/ui/table";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
+import { withUserTransaction } from "@/lib/db/transaction";
 import { getDossierDetail } from "@/lib/dossiers/queries";
+import { getStaffOrder } from "@/lib/orders/staff-queries";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
 
@@ -34,6 +35,7 @@ export default async function DossierDetailPage({
   const detail = await getDossierDetail(session, params.id);
   if (!detail) notFound();
   const { dossier: d, members, report } = detail;
+  const order = await withUserTransaction(session, (client) => getStaffOrder(client, d.id));
   const canWrite = hasPermission(session, "consultations:write");
   const completedCount = members.filter((m) => m.status === "completed").length;
   // Empresa (PJ) primeiro, depois sócios (PF).
@@ -43,9 +45,6 @@ export default async function DossierDetailPage({
 
   const canGenerate = members.some((m) => m.type === "PJ" && m.status === "completed");
   const hasCompleted = members.some((m) => m.status === "completed");
-  const pendingIds = members
-    .filter((m) => m.status === "processing")
-    .map((m) => m.id);
 
   return (
     <div className="space-y-6">
@@ -72,8 +71,14 @@ export default async function DossierDetailPage({
         )}
       </PageHeader>
 
-      {/* Consultas ainda na fila (ex.: aba fechada durante o processamento) */}
-      {canWrite && pendingIds.length > 0 && <ProcessPendingButton queryIds={pendingIds} />}
+      {/* Sem pedido (dados antigos de desenvolvimento): o painel não aparece */}
+      {order && (
+        <OrderPanel
+          order={order}
+          canWrite={canWrite && !session.supportSessionId}
+          canRegisterPayment={hasPermission(session, "counter:write")}
+        />
+      )}
 
       {/* Consultas da pesquisa */}
       <Card>
@@ -86,7 +91,6 @@ export default async function DossierDetailPage({
                 <TableHead>Documento</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Consultado em</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -105,16 +109,11 @@ export default async function DossierDetailPage({
                     <QueryStatusBadge status={m.status} />
                   </TableCell>
                   <TableCell>{formatDate(m.consulted_at)}</TableCell>
-                  <TableCell className="text-right">
-                    {m.status === "pending_authorization" && (
-                      <RetryScrButton queryId={m.id} />
-                    )}
-                  </TableCell>
                 </TableRow>
               ))}
               {ordered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
                     Nenhuma consulta nesta pesquisa.
                   </TableCell>
                 </TableRow>

@@ -13,6 +13,7 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Done | null>(null);
+  const [expired, setExpired] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const submit = (decision: "authorize" | "refuse") => {
@@ -26,6 +27,7 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
       if (res.status === "authorized") setDone("authorized");
       else if (res.status === "refused") setDone("refused");
       else if (res.status === "already") setDone("authorized");
+      else if (res.status === "expired") setExpired(res.message);
       else setError(res.message);
     });
   };
@@ -34,6 +36,13 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
     return (
       <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
         Autorização concedida com sucesso. Você já pode fechar esta página.
+      </div>
+    );
+  }
+  if (expired) {
+    return (
+      <div className="rounded-md border bg-muted p-4 text-sm text-muted-foreground" role="alert">
+        {expired}
       </div>
     );
   }

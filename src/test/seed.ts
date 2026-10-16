@@ -364,8 +364,9 @@ export async function seedDossier(
 	return rows[0].id;
 }
 
-// reserve_order exige que order_ref seja um Dossiê do Bureau. Cria o Dossiê com esse id sobre o titular do cliente
-// (ou sobre qualquer titular do Bureau, no balcão). Repetir não faz nada; sem titular elegível não cria nada.
+// reserve_order exige que order_ref seja o pedido (dossier_orders) do Bureau. Cria o Dossiê com esse id sobre o titular
+// do cliente (ou sobre qualquer titular do Bureau, no balcão) e o pedido que o acompanha: online com o cliente, senão
+// balcão. Repetir não faz nada; sem titular elegível não cria nada.
 export async function seedOrderDossier(
 	owner: Pool,
 	input: { orderRef: string; bureauId: string; clientProfileId: string | null },
@@ -375,6 +376,16 @@ export async function seedOrderDossier(
      select $1, $2, 'PF', h.id, 'smart_pf', h.created_by from holders h
       where h.bureau_id = $2 and ($3::uuid is null or h.client_profile_id = $3)
       order by h.created_at limit 1
+     on conflict do nothing`,
+		[input.orderRef, input.bureauId, input.clientProfileId],
+	);
+	await owner.query(
+		`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
+         subject_document_masked, state, created_by)
+     select d.id, d.bureau_id, case when $3::uuid is null then 'counter' else 'online' end, $3::uuid, 'consulta_pf',
+            'Titular seed', '***.000.000-**', 'awaiting_authorization', h.created_by
+       from dossiers d join holders h on h.bureau_id = d.bureau_id and h.id = d.holder_id
+      where d.id = $1 and d.bureau_id = $2
      on conflict do nothing`,
 		[input.orderRef, input.bureauId, input.clientProfileId],
 	);

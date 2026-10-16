@@ -6,16 +6,11 @@ import { revalidatePath } from "next/cache";
 import { getScrTermSettings } from "@/actions/settings";
 import { getRequiredSession } from "@/lib/auth/session";
 import { config } from "@/lib/config";
+import { generateScrCode } from "@/lib/scr/code";
 import { buildScrConsentTerm } from "@/lib/scr/consent-term";
 import { confirmPublicScrAuthorization, getPublicScrAuthorization, issueSelfScrAuthorization, resolveScrContact, type PublicScrAuthorization } from "@/lib/scr/queries";
 import { formatCNPJ, formatCPF, formatDate, isValidEmail } from "@/lib/utils";
 
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function generateCode() {
-  let code = "";
-  for (let index = 0; index < 6; index += 1) code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
-  return code;
-}
 const siteUrl = () => config.betterAuthUrl.replace(/\/$/, "");
 
 const EMAIL_ERROR = "Titular sem e-mail v\u00e1lido \u2014 cadastre o e-mail antes de enviar.";
@@ -35,10 +30,10 @@ export async function sendScrSelfAuthorization(scrId: string): Promise<SendSelfR
   const document = scr.type === "PJ" ? formatCNPJ(scr.document) : formatCPF(scr.document);
   const term = await getScrTermSettings();
   const consent = buildScrConsentTerm({ authorizedName: term.authorizedName, authorizedDocument: term.authorizedDocument || undefined, institutionName: term.institutionName, clientName, document, city: term.city, date: formatDate(new Date()) });
-  const code = generateCode();
+  const code = generateScrCode();
   const issued = await issueSelfScrAuthorization(session, scrId, {
     code, email, consentText: consent.fullText, consentName: clientName, consentDocument: document,
-    notification: { recipient: email, clientName: scr.name?.trim() || scr.holder_name?.trim() || "cliente", authorizedName: term.authorizedName, siteUrl: siteUrl() },
+    notification: { recipient: email, clientName: scr.name?.trim() || scr.holder_name?.trim() || "cliente", authorizedName: term.authorizedName, siteUrl: siteUrl(), phone: scr.phone_e164 },
   });
   if (!issued.ok) return { error: ISSUE_ERRORS[issued.reason] ?? ENQUEUE_ERROR };
   revalidatePath("/scr");
@@ -48,7 +43,7 @@ export async function sendScrSelfAuthorization(scrId: string): Promise<SendSelfR
 export type { PublicScrAuthorization };
 export async function getScrSelfAuthorizationByToken(token: string): Promise<PublicScrAuthorization | null> { return getPublicScrAuthorization(token); }
 
-export interface ConfirmResult { status: "authorized" | "refused" | "invalid_code" | "not_found" | "already"; message: string; }
+export interface ConfirmResult { status: "authorized" | "refused" | "invalid_code" | "not_found" | "already" | "expired"; message: string; }
 
 export async function confirmScrSelfAuthorization(token: string, code: string, decision: "authorize" | "refuse"): Promise<ConfirmResult> {
   const provided = code.trim().toUpperCase().replace(/\s+/g, "");
@@ -56,6 +51,6 @@ export async function confirmScrSelfAuthorization(token: string, code: string, d
   const ip = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() || requestHeaders.get("x-real-ip") || null;
   const result = await confirmPublicScrAuthorization(token, provided, decision, ip);
   revalidatePath("/scr");
-  const messages = { authorized: "Autoriza\u00e7\u00e3o concedida. Obrigado!", refused: "Autoriza\u00e7\u00e3o recusada.", invalid_code: "C\u00f3digo incorreto. Confira o e-mail.", not_found: "Autoriza\u00e7\u00e3o n\u00e3o encontrada.", already: "Esta autoriza\u00e7\u00e3o j\u00e1 foi respondida." };
+  const messages = { authorized: "Autoriza\u00e7\u00e3o concedida. Obrigado!", refused: "Autoriza\u00e7\u00e3o recusada.", invalid_code: "C\u00f3digo incorreto. Confira o e-mail.", not_found: "Autoriza\u00e7\u00e3o n\u00e3o encontrada.", already: "Esta autoriza\u00e7\u00e3o j\u00e1 foi respondida.", expired: "Este pedido de autoriza\u00e7\u00e3o expirou. Pe\u00e7a um novo a quem solicitou a pesquisa." };
   return { status: result.status, message: messages[result.status] };
 }

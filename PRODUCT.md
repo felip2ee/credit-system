@@ -39,7 +39,7 @@ Roadmap do spec. O estado reflete o repositório em 2026-10-15. A produção nã
 | M3 | Financeiro | Carteiras e livro-razão, Asaas, webhooks, NFS-e, repasse. |
 | M4 | Notificações | Fila de envio, templates de e-mail, WhatsApp Cloud API. Em desenvolvimento na branch `feature/m4-notificacoes`. |
 | M5 | Contas de cliente | Auto-cadastro com verificações, portal. Em execução na branch `feature/m5-contas-de-cliente`. Spec: [docs/superpowers/specs/2026-10-15-m5-contas-de-cliente-design.md](docs/superpowers/specs/2026-10-15-m5-contas-de-cliente-design.md). |
-| M6 | Pesquisa e entrega | Autoatendimento, terceiros, fluxo assistido, entrega. |
+| M6 | Pesquisa e entrega | Autoatendimento, terceiros, fluxo assistido, entrega. Em execução na branch `feature/m6-pesquisa-e-entrega`. Spec: [docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md](docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md). |
 | M7 | Produção | Backup fora do servidor, monitoramento, retenção LGPD, e2e Playwright. |
 
 Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milestone como entregue sem checar o código e a spec dele.
@@ -98,7 +98,7 @@ Os checks técnicos ficam em [docs/quality.md](docs/quality.md).
 
 ## Próxima entrega
 
-Fechar o M4 (notificações) e abrir o PR da branch `feature/m4-notificacoes`. Depois, concluir o M5 (contas de cliente) conforme a spec.
+Concluir o M6 (pesquisa e entrega) conforme a spec e abrir o PR da branch `feature/m6-pesquisa-e-entrega`. Depois, fechar o M5 e o M4 conforme a tabela do MVP.
 
 ## Manutenção
 

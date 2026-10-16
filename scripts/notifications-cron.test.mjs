@@ -96,3 +96,61 @@ test("accepts http:// to a service name or loopback in production", async () => 
 
   assert.match(cron.output(), /status=200/);
 });
+
+test("calls ORDERS_TICK_URL right after the dispatch with the same Bearer", async () => {
+  const seen = [];
+  const { server, url } = await startServer((req, res) => {
+    seen.push({ path: req.url, method: req.method, auth: req.headers.authorization });
+    res.end("{}");
+  });
+  const cron = runCron({
+    NOTIFICATIONS_DISPATCH_URL: url,
+    ORDERS_TICK_URL: url.replace("/dispatch", "/tick"),
+    NOTIFICATIONS_DISPATCH_SECRET: SECRET,
+  });
+  await sleep(700);
+  cron.child.kill("SIGTERM");
+  await new Promise((resolve) => cron.child.on("exit", resolve));
+  server.close();
+
+  assert.deepEqual(
+    seen.map((call) => [call.path, call.method, call.auth]),
+    [
+      ["/dispatch", "POST", `Bearer ${SECRET}`],
+      ["/tick", "POST", `Bearer ${SECRET}`],
+    ],
+  );
+  assert.match(cron.output(), /orders-tick status=200/);
+  assert.ok(!cron.output().includes(SECRET));
+});
+
+test("does not call any tick without ORDERS_TICK_URL", async () => {
+  const paths = [];
+  const { server, url } = await startServer((req, res) => {
+    paths.push(req.url);
+    res.end("{}");
+  });
+  const cron = runCron({ NOTIFICATIONS_DISPATCH_URL: url, NOTIFICATIONS_DISPATCH_SECRET: SECRET });
+  await sleep(700);
+  cron.child.kill("SIGTERM");
+  await new Promise((resolve) => cron.child.on("exit", resolve));
+  server.close();
+
+  assert.deepEqual(paths, ["/dispatch"]);
+  assert.ok(!cron.output().includes("orders-tick"));
+});
+
+test("refuses an external http:// ORDERS_TICK_URL in production", () => {
+  const refused = spawnSync(process.execPath, [SCRIPT], {
+    env: {
+      PATH: process.env.PATH,
+      NODE_ENV: "production",
+      NOTIFICATIONS_DISPATCH_URL: "http://127.0.0.1:9/dispatch",
+      ORDERS_TICK_URL: "http://tick.example.com/x",
+      NOTIFICATIONS_DISPATCH_SECRET: SECRET,
+    },
+    encoding: "utf8",
+  });
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /refusing http.*ORDERS_TICK_URL/);
+});

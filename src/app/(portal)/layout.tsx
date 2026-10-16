@@ -30,6 +30,9 @@ export default async function PortalLayout({ children }: { children: React.React
             <span className="text-xs text-muted-foreground">Portal do Cliente</span>
           </Link>
           <div className="flex items-center gap-3">
+            <Link href="/portal/pesquisas" className="text-sm font-medium hover:underline">
+              Pesquisas
+            </Link>
             {hasPermission(session, "credits:read") && (
               <Link href="/portal/credits" className="text-sm font-medium hover:underline">
                 Créditos

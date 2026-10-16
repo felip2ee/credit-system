@@ -2111,3 +2111,203 @@ describe("client accounts (021)", () => {
 		}
 	});
 });
+
+describe("orders and delivery (022)", () => {
+	const PUBLIC_FUNCTIONS = [
+		"open_order(text, boolean, boolean, text, text, text, jsonb, text, text, uuid)",
+		"refresh_order_state(uuid)",
+		"due_order_bureaus()",
+		"reserve_order(uuid, text, uuid, numeric, numeric, jsonb)",
+		"confirm_public_scr_authorization(text, text, text, text, text)",
+	];
+	const INTERNAL_FUNCTIONS = ["create_bureau_system_profile()", "order_mask_document(text)"];
+
+	let T: SeededTenant;
+	let rows: Rows;
+	let otherClient: { userId: string; role: "client"; bureauId: string };
+	let thirdPartyHolder: string;
+	let ownOrder: string;
+	let otherOrder: string;
+	let foreign: SeededTenant;
+
+	const insertOrder = (dossier: string, clientId: string | null, state = "completed") =>
+		owner.query(
+			`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
+         subject_document_masked, state, released_at, created_by)
+       values ($1, $2, $3, $4, 'consulta_pf', 'Titular', '***.000.000-**', $5, case when $5 = 'released' then now() end, $6)`,
+			[dossier, T.bureau.id, clientId ? "online" : "counter", clientId, state, T.bureauAdmin.userId],
+		);
+	const setState = (dossier: string, state: string) =>
+		owner.query(
+			"update dossier_orders set state = $2::text, released_at = case when $2::text = 'released' then now() end where dossier_id = $1",
+			[dossier, state],
+		);
+	const countAs = async (actor: Actor, sql: string, params: unknown[] = []) =>
+		withDbContext(app, actor, async (client) => Number((await client.query<{ n: string }>(sql, params)).rows[0].n));
+
+	beforeAll(async () => {
+		[T, foreign] = await Promise.all([seedTenant(owner, "tenant orders"), seedTenant(owner, "tenant orders foreign")]);
+		rows = await seedRows(T);
+		otherClient = { ...(await seedClientProfile(owner, T.bureau.id)), role: "client" };
+		thirdPartyHolder = await insertId(
+			"insert into holders (bureau_id, type, name, document, created_by) values ($1, 'PF', 'Terceiro', $2, $3) returning id",
+			[T.bureau.id, randomCpf(), T.bureauAdmin.userId],
+		);
+		ownOrder = rows.dossier;
+		await insertOrder(ownOrder, T.client.userId);
+		otherOrder = await insertId(
+			"insert into dossiers (bureau_id, kind, holder_id, product, created_by) values ($1, 'PF', $2, 'smart_pf', $3) returning id",
+			[T.bureau.id, thirdPartyHolder, T.bureauAdmin.userId],
+		);
+		await insertOrder(otherOrder, otherClient.userId);
+	});
+
+	it("client reads only own dossier_orders", async () => {
+		const own = await withDbContext(app, ctxOf(T.client), (client) =>
+			client.query<{ dossier_id: string }>("select dossier_id from dossier_orders"),
+		);
+		expect(own.rows.map((r) => r.dossier_id)).toEqual([ownOrder]);
+		const other = await withDbContext(app, ctxOf(otherClient), (client) =>
+			client.query<{ dossier_id: string }>("select dossier_id from dossier_orders"),
+		);
+		expect(other.rows.map((r) => r.dossier_id)).toEqual([otherOrder]);
+	});
+
+	it("staff reads the orders of its bureau and nothing of another", async () => {
+		for (const actor of [T.bureauAdmin, T.operator]) {
+			expect(await countAs(ctxOf(actor), "select count(*) as n from dossier_orders")).toBe(2);
+		}
+		expect(await countAs(ctxOf(foreign.operator), "select count(*) as n from dossier_orders where bureau_id = $1", [T.bureau.id])).toBe(0);
+		expect(await countAs(ctxOf(foreign.bureauAdmin), "select count(*) as n from dossier_orders where bureau_id = $1", [T.bureau.id])).toBe(0);
+		expect(await countAs(ctxOf(sa), "select count(*) as n from dossier_orders")).toBe(0);
+	});
+
+	it("client reads delivery only while released", async () => {
+		const deliveries = (actor: Actor) =>
+			withDbContext(app, actor, async (client) => {
+				const count = async (sql: string, id: string) =>
+					Number((await client.query<{ n: string }>(sql, [id])).rows[0].n);
+				return {
+					dossiers: await count("select count(*) as n from dossiers where id = $1", rows.dossier),
+					consultations: await count("select count(*) as n from consultations where id = $1", rows.consultation),
+					results: await count("select count(*) as n from bureau_results where consultation_id = $1", rows.consultation),
+					reports: await count("select count(*) as n from ai_reports where consultation_id = $1", rows.consultation),
+				};
+			});
+		const none = { dossiers: 0, consultations: 0, results: 0, reports: 0 };
+		const all = { dossiers: 1, consultations: 1, results: 1, reports: 1 };
+
+		await setState(ownOrder, "completed");
+		expect(await deliveries(ctxOf(T.client))).toEqual(none);
+		await setState(ownOrder, "released");
+		expect(await deliveries(ctxOf(T.client))).toEqual(all);
+		// Outro cliente, com pedido liberado de outro Dossiê, não lê o deste.
+		await setState(otherOrder, "released");
+		expect(await deliveries(ctxOf(otherClient))).toEqual(none);
+		expect(await deliveries(ctxOf(foreign.client))).toEqual(none);
+		await setState(otherOrder, "completed");
+		await setState(ownOrder, "completed");
+		expect(await deliveries(ctxOf(T.client))).toEqual(none);
+	});
+
+	it("client reads zero third party holders, payloads, scr rows and costs", async () => {
+		await setState(ownOrder, "released");
+		try {
+			expect(await countAs(ctxOf(T.client), "select count(*) as n from holders where id = $1", [thirdPartyHolder])).toBe(0);
+			expect(await countAs(ctxOf(T.client), "select count(*) as n from holders where id = $1", [T.holder.id])).toBe(1);
+			expect(await countAs(ctxOf(T.client), "select count(*) as n from bureau_payloads")).toBe(0);
+			expect(await countAs(ctxOf(T.client), "select count(*) as n from scr_authorizations")).toBe(0);
+			expect(await countAs(ctxOf(T.client), "select count(*) as n from order_settlement_cost($1)", [ownOrder])).toBe(0);
+		} finally {
+			await setState(ownOrder, "completed");
+		}
+	});
+
+	it("nobody inserts dossier_orders outside open_order", async () => {
+		const dossier = await insertId(
+			"insert into dossiers (bureau_id, kind, holder_id, product, created_by) values ($1, 'PF', $2, 'smart_pf', $3) returning id",
+			[T.bureau.id, thirdPartyHolder, T.bureauAdmin.userId],
+		);
+		for (const actor of [T.client, T.operator, T.bureauAdmin]) {
+			await withDbContext(app, ctxOf(actor), async (client) => {
+				await expect(
+					client.query(
+						`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
+               subject_document_masked, state, created_by)
+             values ($1, $2, 'online', $3, 'consulta_pf', 'X', '***.000.000-**', 'awaiting_authorization', $3)`,
+						[dossier, T.bureau.id, T.client.userId],
+					),
+				).rejects.toMatchObject({ code: "42501" });
+			});
+		}
+	});
+
+	it("client cannot update or delete dossier_orders", async () => {
+		await withDbContext(app, ctxOf(T.client), async (client) => {
+			await expectNoEffect(client.query("update dossier_orders set attempts = 5 where dossier_id = $1", [ownOrder]));
+			await expectNoEffect(client.query("update dossier_orders set state = 'released' where dossier_id = $1", [ownOrder]));
+			await expectNoEffect(client.query("delete from dossier_orders where dossier_id = $1", [ownOrder]));
+		});
+		const { rows: check } = await owner.query("select state, attempts from dossier_orders where dossier_id = $1", [ownOrder]);
+		expect(check).toEqual([{ state: "completed", attempts: 0 }]);
+	});
+
+	it("staff updates only the mutable columns", async () => {
+		await withDbContext(app, ctxOf(T.operator), async (client) => {
+			await expect(client.query("update dossier_orders set attempts = 1 where dossier_id = $1", [ownOrder])).resolves.toMatchObject({ rowCount: 1 });
+		});
+		// Um erro aborta a transação: cada recusa roda na sua.
+		for (const sql of ["update dossier_orders set subject_name = 'X' where dossier_id = $1", "delete from dossier_orders where dossier_id = $1"]) {
+			await withDbContext(app, ctxOf(T.operator), async (client) => {
+				await expect(client.query(sql, [ownOrder])).rejects.toMatchObject({ code: "42501" });
+			});
+		}
+		await withDbContext(app, ctxOf(foreign.operator), async (client) => {
+			await expectNoEffect(client.query("update dossier_orders set attempts = 1 where dossier_id = $1", [otherOrder]));
+		});
+	});
+
+	it("app_runtime cannot change is_system or update the system profile", async () => {
+		const { rows: system } = await owner.query<{ id: string }>("select id from profiles where bureau_id = $1 and is_system", [T.bureau.id]);
+		expect(system).toHaveLength(1);
+		const refusals = [
+			["update profiles set is_system = true where id = $1", T.operator.userId],
+			["update profiles set is_system = false where id = $1", system[0].id],
+			["update profiles set full_name = 'Outro' where id = $1", system[0].id],
+			["update profiles set is_active = false where id = $1", system[0].id],
+			["delete from profiles where id = $1", system[0].id],
+		] as const;
+		for (const [sql, id] of refusals) {
+			await withDbContext(app, ctxOf(T.bureauAdmin), async (client) => {
+				await expect(client.query(sql, [id])).rejects.toMatchObject({ code: "42501" });
+			});
+		}
+		const id = randomUUID();
+		await owner.query('insert into "user" (id, name, email) values ($1, $2, $3)', [id, "Falso", `${id}@example.test`]);
+		await withDbContext(app, ctxOf(T.bureauAdmin), async (client) => {
+			await expect(
+				client.query(
+					`insert into profiles (id, auth_user_id, full_name, email, role, bureau_id, is_system)
+           values ($1::uuid, $1::text, 'Falso', $2, 'operator', $3, true)`,
+					[id, `${id}@example.test`, T.bureau.id],
+				),
+			).rejects.toMatchObject({ code: "42501" });
+		});
+		const { rows: after } = await owner.query("select full_name, is_active from profiles where id = $1", [system[0].id]);
+		expect(after).toEqual([{ full_name: "Sistema", is_active: true }]);
+	});
+
+	it("create_bureau_system_profile and order_mask_document are not executable by app_runtime", async () => {
+		const privilege = async (signature: string) =>
+			(
+				await owner.query<{ allowed: boolean }>(
+					"select has_function_privilege('app_runtime', $1::regprocedure, 'execute') as allowed",
+					[signature],
+				)
+			).rows[0].allowed;
+		for (const signature of INTERNAL_FUNCTIONS) expect(await privilege(signature)).toBe(false);
+		for (const signature of PUBLIC_FUNCTIONS) expect(await privilege(signature)).toBe(true);
+		await expectCode(app, "select order_mask_document('12345678901')", [], "42501");
+		await expectCode(app, "select create_bureau_system_profile()", [], "42501");
+	});
+});
