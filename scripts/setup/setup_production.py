@@ -32,7 +32,8 @@ ENV_KEYS = [
     "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER", "SMTP_FROM",
     "SUPERADMIN_EMAIL",
     "DEPS_API_BASE_URL", "DEPS_API_EMAIL", "DEPS_API_CENTRO_CUSTOS",
-    "OPENAI_MODEL", "BACKUP_ALERT_TO",
+    "OPENAI_MODEL", "BACKUP_ALERT_TO", "OPS_ALERT_TO",
+    "RESTIC_S3_ENDPOINT", "RESTIC_S3_BUCKET",
     "WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION",
 ]
 
@@ -41,13 +42,15 @@ SECRET_NAMES = [
     "backup_reader_password", "app_webhook_password", "app_dispatch_password", "database_url",
     "database_webhook_url", "dispatch_database_url", "database_owner_url",
     "better_auth_secret", "smtp_pass", "deps_api_password", "openai_api_key",
-    "restic_password", "superadmin_password",
+    "restic_password", "restic_s3_access_key", "restic_s3_secret_key", "superadmin_password",
     "whatsapp_access_token", "whatsapp_app_secret", "whatsapp_verify_token",
     "notifications_dispatch_secret",
 ]
 
 _DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_S3_ENDPOINT = re.compile(r"^[A-Za-z0-9.-]+(:\d{1,5})?$")
+_S3_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 Runner = Callable[..., "tuple[int, str]"]
@@ -73,6 +76,14 @@ def valid_cidr(v: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def valid_s3_endpoint(v: str) -> bool:
+    return bool(_S3_ENDPOINT.match(v))
+
+
+def valid_s3_bucket(v: str) -> bool:
+    return bool(_S3_BUCKET.match(v))
 
 
 def valid_digest(v: str) -> bool:
@@ -112,6 +123,9 @@ QUESTIONS: list[tuple[str, str, str, Callable[[str], bool]]] = [
     ("DEPS_API_CENTRO_CUSTOS", "Centro de custos DEPS (opcional)", "", _any),
     ("OPENAI_MODEL", "Modelo OpenAI", "gpt-4o", _nonempty),
     ("BACKUP_ALERT_TO", "E-mail para alertas de backup", "", valid_email),
+    ("OPS_ALERT_TO", "E-mail para alertas operacionais (vazio = o mesmo do backup)", "", valid_email),
+    ("RESTIC_S3_ENDPOINT", "Endpoint S3 do backup (host[:porta], sem https://)", "", valid_s3_endpoint),
+    ("RESTIC_S3_BUCKET", "Bucket S3 do backup", "", valid_s3_bucket),
     ("WHATSAPP_DRIVER", "Driver do WhatsApp (vazio = desligado; meta = Cloud API)", "", lambda v: v in ("", "meta")),
     ("WHATSAPP_PHONE_NUMBER_ID", "ID do número do WhatsApp (vazio = WhatsApp desligado)", "", _any),
     ("WHATSAPP_GRAPH_VERSION", "Versão da Graph API da Meta", "v21.0", _nonempty),
@@ -126,6 +140,8 @@ SECRET_QUESTIONS: list[tuple[str, str, Callable[[str], bool], bool]] = [
     ("deps_api_password", "Senha DEPS", _nonempty, False),
     ("openai_api_key", "Chave da API OpenAI", _nonempty, False),
     ("superadmin_password", "Senha do superadmin (vazio = gerar)", lambda v: v == "" or valid_superadmin_password(v), True),
+    ("restic_s3_access_key", "Chave de acesso S3 do backup", _nonempty, False),
+    ("restic_s3_secret_key", "Chave secreta S3 do backup", _nonempty, False),
     ("whatsapp_access_token", "Token de sistema do WhatsApp (vazio = WhatsApp desligado)", _any, False),
     ("whatsapp_app_secret", "App secret da Meta (vazio = WhatsApp desligado)", _any, False),
 ]
@@ -160,6 +176,8 @@ def build_secrets(provided: dict[str, str]) -> dict[str, str]:
         "deps_api_password": provided["deps_api_password"],
         "openai_api_key": provided["openai_api_key"],
         "restic_password": gen_hex(32),
+        "restic_s3_access_key": provided["restic_s3_access_key"],
+        "restic_s3_secret_key": provided["restic_s3_secret_key"],
         "superadmin_password": provided.get("superadmin_password") or gen_password(),
         "whatsapp_access_token": provided.get("whatsapp_access_token") or WHATSAPP_OFF_PLACEHOLDER,
         "whatsapp_app_secret": provided.get("whatsapp_app_secret") or WHATSAPP_OFF_PLACEHOLDER,
@@ -294,6 +312,8 @@ def collect(run: Runner, input_fn=input, getpass_fn=getpass.getpass) -> tuple[di
     for key, prompt, default, validator in QUESTIONS:
         if key == "TRAEFIK_PROXY_CIDR":
             default = detect_proxy_cidr(env_values["TRAEFIK_NETWORK"], run) or ""
+        if key == "OPS_ALERT_TO":
+            default = env_values["BACKUP_ALERT_TO"]
         env_values[key] = ask(prompt, default, validator, input_fn)
     provided = {name: ask_secret(prompt, validator, getpass_fn) for name, prompt, validator, _ in SECRET_QUESTIONS}
     return env_values, provided

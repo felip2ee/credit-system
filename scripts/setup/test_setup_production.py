@@ -43,6 +43,9 @@ def answers(**overrides):
         "DEPS_API_CENTRO_CUSTOS": "",
         "OPENAI_MODEL": "gpt-4o",
         "BACKUP_ALERT_TO": "ops@exemplo.com.br",
+        "OPS_ALERT_TO": "ops@exemplo.com.br",
+        "RESTIC_S3_ENDPOINT": "s3.us-west-004.backblazeb2.com",
+        "RESTIC_S3_BUCKET": "reino-backup",
         "WHATSAPP_DRIVER": "",
         "WHATSAPP_PHONE_NUMBER_ID": "",
         "WHATSAPP_GRAPH_VERSION": "v21.0",
@@ -61,6 +64,8 @@ PROVIDED = {
     "superadmin_password": "superadmin-password-1",
     "whatsapp_access_token": "wa-token-test",
     "whatsapp_app_secret": "wa-app-secret-test",
+    "restic_s3_access_key": "s3-access-key-test",
+    "restic_s3_secret_key": "s3-secret-key-test",
 }
 
 
@@ -88,6 +93,16 @@ class Validators(unittest.TestCase):
         self.assertTrue(sp.valid_digest(""))
         self.assertTrue(sp.valid_digest("a" * 64))
         self.assertFalse(sp.valid_digest("sha256:" + "a" * 64))
+
+    def test_s3_endpoint_must_be_host_or_url_without_scheme_bucket_without_slash(self):
+        for good in ["s3.us-west-004.backblazeb2.com", "minio.local:9000"]:
+            self.assertTrue(sp.valid_s3_endpoint(good), good)
+        for bad in ["", "https://s3.example.com", "s3.example.com/bucket", "host with space", "host:abc"]:
+            self.assertFalse(sp.valid_s3_endpoint(bad), bad)
+        for good in ["reino-backup", "a.b-c1"]:
+            self.assertTrue(sp.valid_s3_bucket(good), good)
+        for bad in ["", "a", "-ab", "ab-", "Ab", "a/b", "a b"]:
+            self.assertFalse(sp.valid_s3_bucket(bad), bad)
 
     def test_superadmin_password(self):
         self.assertTrue(sp.valid_superadmin_password("x" * 12))
@@ -153,6 +168,45 @@ class Building(unittest.TestCase):
         self.assertEqual(keys, set(sp.ENV_KEYS))
         for secret in PROVIDED.values():
             self.assertNotIn(secret, env)
+
+
+class S3Backup(unittest.TestCase):
+    def test_env_file_has_restic_s3_endpoint_bucket_and_ops_alert_to(self):
+        env = sp.render_env(answers())
+        self.assertIn("RESTIC_S3_ENDPOINT=s3.us-west-004.backblazeb2.com\n", env)
+        self.assertIn("RESTIC_S3_BUCKET=reino-backup\n", env)
+        self.assertIn("OPS_ALERT_TO=ops@exemplo.com.br\n", env)
+
+    def test_s3_keys_are_docker_secrets_and_never_in_env_file(self):
+        values = sp.build_secrets(PROVIDED)
+        self.assertEqual(values["restic_s3_access_key"], "s3-access-key-test")
+        self.assertEqual(values["restic_s3_secret_key"], "s3-secret-key-test")
+        self.assertIn("restic_s3_access_key", sp.SECRET_NAMES)
+        self.assertIn("restic_s3_secret_key", sp.SECRET_NAMES)
+        env = sp.render_env(answers())
+        self.assertNotIn("s3-access-key-test", env)
+        self.assertNotIn("s3-secret-key-test", env)
+        self.assertFalse(any(k.startswith("restic_s3_") for k in sp.ENV_KEYS))
+
+    def test_credentials_file_has_s3_keys(self):
+        creds = sp.render_credentials(answers(), sp.build_secrets(PROVIDED))
+        self.assertIn("restic_s3_access_key=s3-access-key-test", creds)
+        self.assertIn("restic_s3_secret_key=s3-secret-key-test", creds)
+
+    def test_ops_alert_to_defaults_to_backup_alert_to(self):
+        given = answers(BACKUP_ALERT_TO="backup@exemplo.com.br")
+        by_prompt = {prompt: key for key, prompt, _, _ in sp.QUESTIONS}
+        seen = {}
+
+        def input_fn(text):
+            prompt = text.split(" [")[0].rstrip(": ")
+            key = by_prompt[prompt]
+            seen[key] = text
+            return "" if key == "OPS_ALERT_TO" else given[key]
+
+        env_values, _ = sp.collect(FakeRunner(), input_fn, lambda _: "x" * 12)
+        self.assertIn("[backup@exemplo.com.br]", seen["OPS_ALERT_TO"])
+        self.assertEqual(env_values["OPS_ALERT_TO"], "backup@exemplo.com.br")
 
 
 class Applying(unittest.TestCase):

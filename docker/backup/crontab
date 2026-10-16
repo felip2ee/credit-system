@@ -6,6 +6,9 @@
 #      restore-test.sh logs and emails the measured drill duration every month;
 #      record it in the recovery runbook.
 #
+# The Restic repository is remote: an S3-compatible bucket (RESTIC_REPOSITORY=s3:...),
+# reached with the restic_s3_access_key / restic_s3_secret_key Docker secrets.
+#
 # Operator prerequisites (S3 bucket holding the Restic repo):
 #   - object versioning MUST be enabled (server keys cannot then erase history);
 #   - public access MUST be fully denied (block-all-public-access / no ACLs).
