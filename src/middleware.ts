@@ -12,6 +12,7 @@ const publicPaths = [
   "/api/webhooks/asaas",
   "/api/webhooks/whatsapp",
   "/api/internal/notifications/dispatch",
+  "/api/internal/orders/tick",
 ];
 
 const publicPrefixes = ["/b/", "/autorizacao-scr/", "/cadastro/"];

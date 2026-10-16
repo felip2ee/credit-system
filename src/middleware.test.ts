@@ -14,6 +14,7 @@ describe("middleware public paths", () => {
     "/api/webhooks/asaas",
     "/api/webhooks/whatsapp",
     "/api/internal/notifications/dispatch",
+    "/api/internal/orders/tick",
     "/termos",
     "/privacidade",
     "/cadastro/confirmar-email",
