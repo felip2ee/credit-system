@@ -16,8 +16,8 @@ export type { DepsRawConsult };
 
 export interface RealDepsClient {
   readonly mode: "real";
-  consultPF(cpf: string, options?: ConsultOptions): Promise<DepsRawConsult>;
-  consultPJ(cnpj: string, options?: ConsultOptions): Promise<DepsRawConsult>;
+  consultPF(cpf: string, options: ConsultOptions): Promise<DepsRawConsult>;
+  consultPJ(cnpj: string, options: ConsultOptions): Promise<DepsRawConsult>;
   checkScrAuthorization(document: string): Promise<ScrAuthorizationCheck>;
   requestScrAuthorization(input: ScrRequestInput): Promise<ScrRequestResult>;
 }
@@ -27,10 +27,6 @@ interface RealClientConfig {
   email: string;
   senha: string;
   centroCusto: string;
-  // Nome dos produtos a usar (default: Smart PF 002 / Smart PJ 010).
-  // Os IDs vêm do retorno do login (campo `produtos[].identificador`).
-  produtoPfNome?: string;
-  produtoPjNome?: string;
 }
 
 interface DepsProduto {
@@ -42,8 +38,8 @@ interface DepsProduto {
 interface SessionCache {
   token: string;
   expiresAt: number;
-  produtoIdPF: string | null;
-  produtoIdPJ: string | null;
+  // nome do produto → identificador (retorno do login, `produtos[]`).
+  produtoIds: Map<string, string>;
 }
 
 const onlyDigits = (s: string) => s.replace(/\D/g, "");
@@ -75,12 +71,9 @@ async function login(cfg: RealClientConfig): Promise<SessionCache> {
   const expiresAt = Date.now() + (expiresIn - 60) * 1000;
 
   const produtos = (payload.produtos as DepsProduto[] | undefined) ?? [];
-  const nomePF = cfg.produtoPfNome ?? DEPS_PRODUCT_PF;
-  const nomePJ = cfg.produtoPjNome ?? DEPS_PRODUCT_PJ;
-  const produtoIdPF = produtos.find((p) => p.nome === nomePF)?.identificador ?? null;
-  const produtoIdPJ = produtos.find((p) => p.nome === nomePJ)?.identificador ?? null;
+  const produtoIds = new Map(produtos.map((p) => [p.nome, p.identificador]));
 
-  return { token, expiresAt, produtoIdPF, produtoIdPJ };
+  return { token, expiresAt, produtoIds };
 }
 
 async function getSession(cfg: RealClientConfig): Promise<SessionCache> {
@@ -114,14 +107,10 @@ async function postWithAuth(
   return res;
 }
 
-async function getProductId(
-  cfg: RealClientConfig,
-  tipo: "PF" | "PJ"
-): Promise<string> {
+async function getProductId(cfg: RealClientConfig, nome: string): Promise<string> {
   const s = await getSession(cfg);
-  const id = tipo === "PF" ? s.produtoIdPF : s.produtoIdPJ;
+  const id = s.produtoIds.get(nome);
   if (!id) {
-    const nome = tipo === "PF" ? (cfg.produtoPfNome ?? DEPS_PRODUCT_PF) : (cfg.produtoPjNome ?? DEPS_PRODUCT_PJ);
     throw new Error(`Produto "${nome}" não está disponível para esta conta na deps.`);
   }
   return id;
@@ -131,7 +120,7 @@ async function executeConsult(
   cfg: RealClientConfig,
   document: string,
   identificadorProduto: string,
-  options?: ConsultOptions
+  options: ConsultOptions
 ): Promise<{ httpStatus: number; body: unknown }> {
   // Body mínimo verificado em produção (n8n). `version` e `codigoCentroCustos`
   // são descritos como obrigatórios na doc mas a API aceita sem eles — só
@@ -140,14 +129,14 @@ async function executeConsult(
     documento: document,
     identificadorProduto,
     // true = reaproveita dados existentes na deps (sem nova cobrança).
-    reutilizarDadosExistentes: options?.reuseExisting ?? true,
+    reutilizarDadosExistentes: options.reuseExisting ?? true,
     // Gestão da autorização SCR (doc §4.2). Default true (autogestão):
     //   true  → NÓS gerimos o consentimento (termo + código por e-mail, ver
     //           actions/scr-self.ts); a deps cadastra a autorização no momento
     //           da consulta e não dispara o próprio e-mail.
     //   false → a deps verifica se já existe autorização registrada nela; se não
     //           houver, a consulta não é feita (retorna 400 → SCR pendente).
-    autorizacaoScr: options?.autorizacaoScr ?? true,
+    autorizacaoScr: options.autorizacaoScr ?? true,
   };
   if (cfg.centroCusto && cfg.centroCusto.length > 0) {
     body.codigoCentroCustos = cfg.centroCusto;
@@ -184,22 +173,22 @@ export function createRealDepsClient(cfg: RealClientConfig): RealDepsClient {
     mode: "real",
     async consultPF(cpf, options) {
       const document = onlyDigits(cpf);
-      const produtoId = await getProductId(cfg, "PF");
+      const produtoId = await getProductId(cfg, options.product);
       const { httpStatus, body } = await executeConsult(cfg, document, produtoId, options);
       return {
         httpStatus,
-        product: cfg.produtoPfNome ?? DEPS_PRODUCT_PF,
+        product: options.product,
         body,
         receivedAt: new Date().toISOString(),
       };
     },
     async consultPJ(cnpj, options) {
       const document = onlyDigits(cnpj);
-      const produtoId = await getProductId(cfg, "PJ");
+      const produtoId = await getProductId(cfg, options.product);
       const { httpStatus, body } = await executeConsult(cfg, document, produtoId, options);
       return {
         httpStatus,
-        product: cfg.produtoPjNome ?? DEPS_PRODUCT_PJ,
+        product: options.product,
         body,
         receivedAt: new Date().toISOString(),
       };
@@ -218,7 +207,7 @@ export function createRealDepsClient(cfg: RealClientConfig): RealDepsClient {
     },
     async requestScrAuthorization(input: ScrRequestInput): Promise<ScrRequestResult> {
       const document = onlyDigits(input.document);
-      const identificadorProduto = await getProductId(cfg, input.type);
+      const identificadorProduto = await getProductId(cfg, input.type === "PF" ? DEPS_PRODUCT_PF : DEPS_PRODUCT_PJ);
       const body: Record<string, unknown> = {
         documento: document,
         identificadorProduto,

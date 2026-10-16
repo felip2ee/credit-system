@@ -36,9 +36,9 @@ import { pool } from "@/lib/db/pool";
 import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
 import { enqueueNotification } from "@/lib/notifications/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedTenant, type SeededTenant } from "@/test/seed";
+import { randomCpf, seedTenant, type SeededTenant } from "@/test/seed";
 
-import { issueSelfScrAuthorization, listScrAuthorizations } from "./queries";
+import { issueSelfScrAuthorization, listScrAuthorizations, resolveScrContact } from "./queries";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const OLD_CODE = "OLDCOD";
@@ -74,7 +74,7 @@ async function seedScr(tenant: SeededTenant): Promise<string> {
 	return rows[0].id;
 }
 
-const input = (overrides: Partial<{ code: string; recipient: string }> = {}) => ({
+const input = (overrides: Partial<{ code: string; recipient: string; phone: string | null }> = {}) => ({
 	code: "NEW234",
 	email: "titular@example.test",
 	consentText: "consent",
@@ -85,6 +85,7 @@ const input = (overrides: Partial<{ code: string; recipient: string }> = {}) => 
 		clientName: "Titular",
 		authorizedName: "Rainha",
 		siteUrl: SITE_URL,
+		...(overrides.phone !== undefined ? { phone: overrides.phone } : {}),
 	},
 	...(overrides.code ? { code: overrides.code } : {}),
 });
@@ -180,6 +181,105 @@ describe("issueSelfScrAuthorization", () => {
 		expect(result).toEqual({ ok: false, reason: "not_found" });
 		expect(await authCode(id)).toBe(OLD_CODE);
 		expect(await notificationsOf(id)).toHaveLength(0);
+	});
+});
+
+describe("issueSelfScrAuthorization with expiry and WhatsApp", () => {
+	const row = async (id: string) =>
+		(
+			await owner.query<{ expires_in_days: number; phone_e164: string | null }>(
+				"select extract(epoch from request_expires_at - now()) / 86400 as expires_in_days, phone_e164 from scr_authorizations where id = $1",
+				[id],
+			)
+		).rows[0];
+
+	it("sets request_expires_at to about 7 days and keeps the phone when none is given", async () => {
+		const id = await seedScr(tenantA);
+		await owner.query("update scr_authorizations set phone_e164 = '+5511987654321' where id = $1", [id]);
+
+		await issueSelfScrAuthorization(tenantA.operator, id, input());
+
+		const saved = await row(id);
+		expect(Number(saved.expires_in_days)).toBeGreaterThan(6.99);
+		expect(Number(saved.expires_in_days)).toBeLessThanOrEqual(7);
+		expect(saved.phone_e164).toBe("+5511987654321");
+	});
+
+	it("queues the e-mail and the WhatsApp message and stores the phone when a phone is given", async () => {
+		const id = await seedScr(tenantA);
+
+		const result = await issueSelfScrAuthorization(tenantA.operator, id, input({ phone: "+5511987654321" }));
+
+		expect(result).toEqual({ ok: true });
+		expect((await row(id)).phone_e164).toBe("+5511987654321");
+		const channels = await owner.query<{ channel: string; status: string }>(
+			`select t.channel::text as channel, n.status::text as status
+         from notifications n join notification_templates t on t.id = n.template_id
+        where n.reference = $1 order by t.channel`,
+			[`scr_authorization:${id}`],
+		);
+		expect(channels.rows).toEqual([
+			{ channel: "email", status: "pending" },
+			{ channel: "whatsapp", status: "pending" },
+		]);
+	});
+
+	it("queues only the e-mail when there is no phone", async () => {
+		const id = await seedScr(tenantA);
+
+		await issueSelfScrAuthorization(tenantA.operator, id, input({ phone: null }));
+
+		expect(await notificationsOf(id)).toHaveLength(1);
+	});
+
+	it("rolls back the code and the e-mail when the WhatsApp message is invalid_recipient", async () => {
+		const id = await seedScr(tenantA);
+		const original = (await vi.importActual<typeof import("@/lib/notifications/queries")>("@/lib/notifications/queries")).enqueueNotification;
+		vi.mocked(enqueueNotification)
+			.mockImplementationOnce(original)
+			.mockResolvedValueOnce({ ok: false, reason: "invalid_recipient" });
+
+		const result = await issueSelfScrAuthorization(tenantA.operator, id, input({ phone: "+5511987654321" }));
+
+		expect(result).toEqual({ ok: false, reason: "invalid_recipient" });
+		expect(await authCode(id)).toBe(OLD_CODE);
+		expect(await notificationsOf(id)).toHaveLength(0);
+		expect((await row(id)).phone_e164).toBeNull();
+	});
+
+	it("refuses a malformed phone before touching the record", async () => {
+		const id = await seedScr(tenantA);
+
+		const result = await issueSelfScrAuthorization(tenantA.operator, id, input({ phone: "123" }));
+
+		expect(result).toEqual({ ok: false, reason: "invalid_recipient" });
+		expect(await authCode(id)).toBe(OLD_CODE);
+	});
+});
+
+describe("resolveScrContact", () => {
+	it("self registered holder email is never the default", async () => {
+		const selfDocument = randomCpf();
+		const holder = await owner.query<{ id: string }>(
+			`insert into holders (bureau_id, type, name, document, email, created_by, client_profile_id)
+       values ($1, 'PF', 'Autocadastro', $2, 'auto@example.test', $3, $3) returning id`,
+			[tenantA.bureau.id, selfDocument, tenantA.client.userId],
+		);
+		const selfScr = await owner.query<{ id: string }>(
+			`insert into scr_authorizations (bureau_id, document, type, holder_id, status, channel, phone_e164)
+       values ($1, $2, 'PF', $3, 'pending', 'internal', '+5511987654321') returning id`,
+			[tenantA.bureau.id, selfDocument, holder.rows[0].id],
+		);
+		await owner.query("update holders set email = 'operador@example.test' where id = $1", [tenantA.holder.id]);
+		const operatorScr = await seedScr(tenantA);
+
+		const self = await resolveScrContact(tenantA.operator, selfScr.rows[0].id);
+		const operator = await resolveScrContact(tenantA.operator, operatorScr);
+
+		expect(self?.holder_email).toBeNull();
+		expect(self?.phone_e164).toBe("+5511987654321");
+		expect(operator?.holder_email).toBe("operador@example.test");
+		expect(operator?.phone_e164).toBeNull();
 	});
 });
 

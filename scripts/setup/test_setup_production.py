@@ -41,8 +41,6 @@ def answers(**overrides):
         "DEPS_API_BASE_URL": "https://api-portal.deps.com.br",
         "DEPS_API_EMAIL": "deps@exemplo.com.br",
         "DEPS_API_CENTRO_CUSTOS": "",
-        "DEPS_PRODUTO_PF": "Smart PF 002",
-        "DEPS_PRODUTO_PJ": "Smart PJ 010",
         "OPENAI_MODEL": "gpt-4o",
         "BACKUP_ALERT_TO": "ops@exemplo.com.br",
         "WHATSAPP_DRIVER": "",
@@ -121,6 +119,12 @@ class Building(unittest.TestCase):
     def test_env_keys_have_whatsapp_settings(self):
         for key in ("WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION"):
             self.assertIn(key, sp.ENV_KEYS)
+
+    def test_setup_does_not_ask_for_deps_products(self):
+        asked = {q[0] for q in sp.QUESTIONS}
+        for key in ("DEPS_PRODUTO_PF", "DEPS_PRODUTO_PJ"):
+            self.assertNotIn(key, sp.ENV_KEYS)
+            self.assertNotIn(key, asked)
 
     def test_whatsapp_driver_defaults_to_off_and_refuses_fake(self):
         _, _, default, validator = next(q for q in sp.QUESTIONS if q[0] == "WHATSAPP_DRIVER")

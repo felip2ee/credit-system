@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  confirm: vi.fn(async (): Promise<{ status: string }> => ({ status: "authorized" })),
+  randomInt: vi.fn((min: number, _max: number) => min),
   issue: vi.fn(async (): Promise<{ ok: true } | { ok: false; reason: string }> => ({ ok: true })),
   resolve: vi.fn(async () => ({
-    type: "PF", document: "39053344705", email: "titular@example.test", name: "Titular",
-  }) as Record<string, string> | null),
+    type: "PF", document: "39053344705", email: "titular@example.test", name: "Titular", phone_e164: null,
+  }) as Record<string, string | null> | null),
 }));
 
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomInt: state.randomInt,
+}));
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Map()) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({
@@ -24,16 +30,18 @@ vi.mock("@/lib/scr/queries", () => ({
   resolveScrContact: state.resolve,
   issueSelfScrAuthorization: state.issue,
   getPublicScrAuthorization: vi.fn(),
-  confirmPublicScrAuthorization: vi.fn(),
+  confirmPublicScrAuthorization: state.confirm,
 }));
 vi.mock("@/lib/config", () => ({ config: { betterAuthUrl: "https://canonical.example.test/" } }));
 
-import { sendScrSelfAuthorization } from "./scr-self";
+import { confirmScrSelfAuthorization, sendScrSelfAuthorization } from "./scr-self";
 
 describe("sendScrSelfAuthorization", () => {
   beforeEach(() => {
     state.issue.mockClear();
     state.issue.mockResolvedValue({ ok: true });
+    state.randomInt.mockReset();
+    state.randomInt.mockImplementation((min) => min);
   });
 
   it("passes the runtime canonical URL, not NEXT_PUBLIC_SITE_URL, to the enqueue step", async () => {
@@ -50,8 +58,35 @@ describe("sendScrSelfAuthorization", () => {
           clientName: "Titular",
           authorizedName: "Rainha",
           siteUrl: "https://canonical.example.test",
+          phone: null,
         },
       }),
+    );
+  });
+
+  it("scr code uses randomInt and only letters of the alphabet", async () => {
+    await sendScrSelfAuthorization("scr-1");
+    expect((state.issue.mock.calls[0] as unknown[])[2]).toEqual(expect.objectContaining({ code: "AAAAAA" }));
+
+    state.issue.mockClear();
+    state.randomInt.mockImplementation((_min, max) => max - 1);
+    await sendScrSelfAuthorization("scr-1");
+    const { code } = (state.issue.mock.calls[0] as unknown[])[2] as { code: string };
+    expect(code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+    expect(state.randomInt).toHaveBeenCalledWith(0, 32);
+  });
+
+  it("passes the SCR phone to the enqueue step, and null when the record has none", async () => {
+    state.resolve.mockResolvedValueOnce({ type: "PF", document: "39053344705", email: "titular@example.test", name: "Titular", phone_e164: "+5511987654321" });
+    await sendScrSelfAuthorization("scr-1");
+    expect((state.issue.mock.calls[0] as unknown[])[2]).toEqual(
+      expect.objectContaining({ notification: expect.objectContaining({ phone: "+5511987654321" }) }),
+    );
+
+    state.issue.mockClear();
+    await sendScrSelfAuthorization("scr-1");
+    expect((state.issue.mock.calls[0] as unknown[])[2]).toEqual(
+      expect.objectContaining({ notification: expect.objectContaining({ phone: null }) }),
     );
   });
 
@@ -94,5 +129,16 @@ describe("sendScrSelfAuthorization", () => {
     state.issue.mockResolvedValueOnce({ ok: false, reason: "not_found" });
 
     await expect(sendScrSelfAuthorization("scr-1")).resolves.toEqual({ error: "Registro SCR não encontrado." });
+  });
+});
+
+describe("confirmScrSelfAuthorization", () => {
+  it("maps expired to the new-request message", async () => {
+    state.confirm.mockResolvedValueOnce({ status: "expired" });
+
+    await expect(confirmScrSelfAuthorization("token", "abc123", "authorize")).resolves.toEqual({
+      status: "expired",
+      message: "Este pedido de autorização expirou. Peça um novo a quem solicitou a pesquisa.",
+    });
   });
 });

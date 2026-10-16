@@ -26,8 +26,6 @@ export function getDepsClient(): DepsClient {
   const email = process.env.DEPS_API_EMAIL;
   const senha = process.env.DEPS_API_PASSWORDL ?? process.env.DEPS_API_PASSWORD;
   const centroCusto = process.env.DEPS_API_CENTRO_CUSTOS ?? "";
-  const produtoPfNome = process.env.DEPS_PRODUTO_PF; // opcional, default "Smart PF 002"
-  const produtoPjNome = process.env.DEPS_PRODUTO_PJ; // opcional, default "Smart PJ 010"
 
   if (!baseUrl || !email || !senha) {
     throw new Error(
@@ -40,8 +38,6 @@ export function getDepsClient(): DepsClient {
     email,
     senha,
     centroCusto,
-    produtoPfNome,
-    produtoPjNome,
   });
   return cached;
 }
