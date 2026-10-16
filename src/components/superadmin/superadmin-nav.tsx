@@ -5,6 +5,7 @@ const ITEMS = [
   { href: "/superadmin/products", label: "Produtos" },
   { href: "/superadmin/payouts", label: "Repasses" },
   { href: "/superadmin/nfse", label: "NFS-e" },
+  { href: "/superadmin/notifications", label: "Notificações" },
   { href: "/superadmin/settings/prompts", label: "Prompts da IA" },
   { href: "/superadmin/settings/scr", label: "Termo SCR" },
 ];

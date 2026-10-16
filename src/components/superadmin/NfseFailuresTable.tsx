@@ -17,7 +17,7 @@ export interface NfseFailureView {
   createdAt: Date;
 }
 
-function RetryButton({ chargeId }: { chargeId: string }) {
+function RetryButton({ chargeId, label }: { chargeId: string; label: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -33,7 +33,7 @@ function RetryButton({ chargeId }: { chargeId: string }) {
 
   return (
     <div className="space-y-1">
-      <Button size="sm" variant="outline" onClick={retry} disabled={isPending}>
+      <Button size="sm" variant="outline" onClick={retry} disabled={isPending} aria-label={`Tentar de novo a nota da cobrança ${label}`}>
         {isPending ? "Enviando..." : "Tentar de novo"}
       </Button>
       {error && (
@@ -69,7 +69,7 @@ export function NfseFailuresTable({ rows, canRetry }: { rows: NfseFailureView[];
             <TableCell>{formatDateTime(row.updatedAt ?? row.createdAt)}</TableCell>
             {canRetry && (
               <TableCell>
-                <RetryButton chargeId={row.chargeId} />
+                <RetryButton chargeId={row.chargeId} label={`${row.chargeId.slice(0, 8)} (${row.bureauName})`} />
               </TableCell>
             )}
           </TableRow>

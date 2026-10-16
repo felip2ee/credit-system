@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { ASAAS_INVOICE_EVENT_PREFIX, ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
@@ -38,6 +39,28 @@ function logApplyFailure(error: unknown): void {
 		name: error instanceof Error ? error.name : typeof error,
 		code: error instanceof Error && "code" in error ? error.code : undefined,
 	});
+}
+
+// Trabalho depois da resposta (nota fiscal). Next 14.2 não tem after(); o servidor standalone segue vivo, então a
+// promessa termina sozinha. Nunca fica sem catch: a falha só vai ao log (nome e código), nunca ao Asaas.
+function runAfterAck(step: string, task: () => Promise<unknown>): void {
+	void Promise.resolve()
+		.then(task)
+		.catch((error) =>
+			console.error(`[asaas-webhook] ${step} falhou`, {
+				name: error instanceof Error ? error.name : typeof error,
+				code: error instanceof Error && "code" in error ? error.code : undefined,
+			}),
+		);
+}
+
+// O crédito do cliente muda o saldo da tela dele; o cache falhar não pode virar 500 (o crédito já está gravado).
+function revalidateClientCredits(): void {
+	try {
+		revalidatePath("/portal/credits");
+	} catch (error) {
+		console.error("[asaas-webhook] revalidação falhou", { name: error instanceof Error ? error.name : typeof error });
+	}
 }
 
 const isInvoiceEvent = (raw: unknown): boolean =>
@@ -103,12 +126,20 @@ export async function POST(request: Request): Promise<Response> {
 		return respond(500);
 	}
 
-	// Depois do crédito e fora dele: a nota nunca desfaz o crédito nem muda o status da resposta.
+	// O crédito já está gravado. A nota (chamada lenta ao Asaas) roda depois da resposta e nunca muda o status dela.
+	const paymentId = parsed.data.payment.id;
 	if (result === "credited") {
-		await requestInvoiceForPayment(parsed.data.payment.id).catch(() => {});
+		runAfterAck("pedido da nota", () => requestInvoiceForPayment(paymentId));
+		revalidateClientCredits();
 	} else if (result === "duplicate" && PAYMENT_CREDIT_EVENTS.has(parsed.data.event)) {
-		// Reenvio de um crédito já aplicado: repara a nota que ficou em not_requested. Nota já pedida não é agendada de novo.
-		await repairInvoiceForPayment(parsed.data.payment.id).catch(() => {});
+		// Reenvio de um crédito já aplicado: repara a nota que ficou em not_requested ou presa em pending (mais de 10 min).
+		runAfterAck("reparo da nota", () => repairInvoiceForPayment(paymentId));
+	} else if (result === "unknown_charge" && PAYMENT_CREDIT_EVENTS.has(parsed.data.event)) {
+		// Pagamento de uma cobrança que o banco não tem (por exemplo, a linha não foi salva depois de criar o PIX): ninguém foi creditado.
+		console.error("[asaas-webhook] pagamento de cobrança desconhecida, sem crédito", { asaasPaymentId: paymentId });
+	} else if (result === "partial_refund_ignored") {
+		// Estorno parcial não mexe em saldo (M6): 200 evita o reenvio do Asaas; o evento fica registrado no banco.
+		console.warn("[asaas-webhook] estorno parcial ignorado");
 	}
 	return respond(200);
 }

@@ -30,6 +30,7 @@ vi.mock("next/headers", () => ({
 	},
 }));
 
+import { fromCents } from "@/lib/catalog/money";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { getWallet } from "@/lib/wallet/queries";
@@ -37,6 +38,7 @@ import { getClientWallet } from "@/lib/wallet/client-queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
+	seedOrderCatalog,
 	seedOrderDossierForSession,
 	seedTenant,
 	seedWalletTopup,
@@ -49,9 +51,15 @@ import type { OrderQuote, ReserveOrderInput } from "./types";
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 
 // reserve_order exige um Dossiê do Bureau com o id do pedido.
+// reserve_order confere preço e custo no catálogo do Bureau: o produto criado aqui casa com a cotação.
 const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
 	await seedOrderDossierForSession(owner, c, { orderRef: input.orderRef, clientProfileId: input.clientProfileId });
-	return reserveOrderRaw(c, input);
+	const { lines } = await seedOrderCatalog(owner, c, {
+		price: fromCents(input.quote.totalPriceCents),
+		cost: fromCents(input.quote.totalCostCents),
+	});
+	const quoted = lines.length ? [{ ...input.quote.lines[0], code: lines[0].code }] : input.quote.lines;
+	return reserveOrderRaw(c, { ...input, quote: { ...input.quote, lines: quoted } });
 };
 
 afterAll(async () => {
@@ -155,7 +163,8 @@ describe("online settlement", () => {
 			price: "45.90",
 			cost: "12.30",
 			status: "reserved",
-			quote: { lines: quote.lines },
+			// A cotação gravada é a que o banco montou do catálogo: o código vem do produto, não do chamador.
+			quote: { lines: [expect.objectContaining({ costCents: 1230, priceCents: 4590 })] },
 		});
 	});
 
@@ -170,7 +179,10 @@ describe("online settlement", () => {
 		const asClient = await withUserTransaction(client, (c) => getSettlement(c, orderRef));
 		expect(asClient).toMatchObject({ orderRef, price: "45.90", status: "reserved", cost: null, quote: null });
 		const asAdmin = await withUserTransaction({ ...tenant.bureauAdmin }, (c) => getSettlement(c, orderRef));
-		expect(asAdmin).toMatchObject({ cost: "12.30", quote: { lines: quote.lines } });
+		expect(asAdmin).toMatchObject({
+			cost: "12.30",
+			quote: { lines: [expect.objectContaining({ costCents: 1230, priceCents: 4590 })] },
+		});
 		const asOperator = await withUserTransaction(operator, (c) => getSettlement(c, orderRef));
 		expect(asOperator).toMatchObject({ cost: "12.30" });
 		const outsider = await setup("Settle O3c");
@@ -384,7 +396,7 @@ describe("settlement audit", () => {
 
 		const result = await withUserTransaction(client, (c) => captureOrder(c, orderRef));
 
-		expect(result).toEqual({ ok: false, reason: "reservation_clawed_back" });
+		expect(result).toEqual({ ok: true, status: "released", clawedBack: true });
 		const settlement = await withUserTransaction(client, (c) => getSettlement(c, orderRef));
 		expect(settlement?.status).toBe("released");
 		expect(await auditRows(settlement?.id as string, "settlement.release")).toHaveLength(1);

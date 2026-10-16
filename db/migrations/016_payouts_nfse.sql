@@ -151,6 +151,10 @@ alter table pix_charges add column nfse_number text check (nfse_number is null o
 alter table pix_charges add column nfse_url text check (nfse_url is null or (nfse_url ~ '^https://[^[:space:]]+$' and length(nfse_url) <= 2000));
 alter table pix_charges add column nfse_updated_at timestamptz;
 alter table pix_charges add column nfse_attempts integer not null default 0 check (nfse_attempts >= 0);
+-- Id da nota (invoice) no Asaas: liga o evento da nota à cobrança. Nulo até o Asaas devolver o id.
+alter table pix_charges add column asaas_invoice_id text
+  check (asaas_invoice_id is null or (btrim(asaas_invoice_id) <> '' and length(asaas_invoice_id) <= 100));
+create unique index pix_charges_asaas_invoice_idx on pix_charges(asaas_invoice_id) where asaas_invoice_id is not null;
 
 -- Cria o repasse: trava o Bureau com um lock de transação (duas chamadas do mesmo Bureau se enfileiram e a segunda
 -- já enxerga os itens da primeira), soma os lançamentos ainda sem repasse até o corte e grava repasse e itens.
@@ -301,8 +305,11 @@ $$;
 
 -- Webhook sem sessão: quem chama é só app_webhook (o EXECUTE é a autorização). Transições permitidas:
 -- not_requested -> qualquer; pending -> issued | failed; failed -> issued. issued é final; repetir não muda nada.
+-- Uma nota presa em pending há mais de 10 minutos (o processo caiu entre o pedido e o registro) pode ser reservada
+-- de novo: pending -> pending vale como mudança e devolve changed = true a quem a reservou. O id da nota do Asaas
+-- (p_invoice_id) é gravado enquanto estiver nulo, mesmo sem mudança de status; a nova reserva descarta o id antigo.
 -- A nota nunca toca carteira nem lançamento.
-create function set_nfse_status(p_charge_id uuid, p_status text, p_number text, p_url text)
+create function set_nfse_status(p_charge_id uuid, p_status text, p_number text, p_url text, p_invoice_id text default null)
 returns table (ok boolean, reason text, status text, changed boolean)
 language plpgsql
 security definer
@@ -313,7 +320,7 @@ declare
   v_charge public.pix_charges;
   v_change boolean;
 begin
-  if p_status is null or p_status not in ('pending', 'issued', 'failed') then
+  if p_status is null or p_status not in ('pending', 'issued', 'failed', 'canceled') then
     return query select false, 'invalid_status'::text, null::text, false;
     return;
   end if;
@@ -323,6 +330,10 @@ begin
   end if;
   if p_url is not null and (p_url !~ '^https://[^[:space:]]+$' or length(p_url) > 2000) then
     return query select false, 'invalid_url'::text, null::text, false;
+    return;
+  end if;
+  if p_invoice_id is not null and (btrim(p_invoice_id) = '' or length(p_invoice_id) > 100) then
+    return query select false, 'invalid_invoice_id'::text, null::text, false;
     return;
   end if;
 
@@ -336,10 +347,29 @@ begin
     return;
   end if;
 
+  -- 'canceled' (nota cancelada no Asaas) só age sobre nota issued: ela passa a failed sem número nem endereço,
+  -- então o comprovante some e o superadmin pode pedir nova nota. Em outro estado não muda nada.
+  if p_status = 'canceled' then
+    if v_charge.nfse_status <> 'issued' then
+      return query select true, null::text, v_charge.nfse_status, false;
+      return;
+    end if;
+    update public.pix_charges
+       set nfse_status = 'failed', nfse_number = null, nfse_url = null, nfse_updated_at = now()
+     where id = v_charge.id;
+    return query select true, null::text, 'failed'::text, true;
+    return;
+  end if;
+
   v_change := v_charge.nfse_status = 'not_requested'
     or (v_charge.nfse_status = 'pending' and p_status in ('issued', 'failed'))
-    or (v_charge.nfse_status = 'failed' and p_status = 'issued');
+    or (v_charge.nfse_status = 'failed' and p_status = 'issued')
+    or (v_charge.nfse_status = 'pending' and p_status = 'pending'
+        and coalesce(v_charge.nfse_updated_at, '-infinity'::timestamptz) < now() - interval '10 minutes');
   if not v_change then
+    if p_invoice_id is not null and v_charge.asaas_invoice_id is null then
+      update public.pix_charges set asaas_invoice_id = p_invoice_id where id = v_charge.id;
+    end if;
     return query select true, null::text, v_charge.nfse_status, false;
     return;
   end if;
@@ -348,13 +378,16 @@ begin
      set nfse_status = p_status,
          nfse_number = coalesce(p_number, nfse_number),
          nfse_url = coalesce(p_url, nfse_url),
+         asaas_invoice_id = case when v_charge.nfse_status = 'pending' and p_status = 'pending'
+                                 then p_invoice_id else coalesce(p_invoice_id, asaas_invoice_id) end,
          nfse_updated_at = now()
    where id = v_charge.id;
   return query select true, null::text, p_status, true;
 end
 $$;
 
--- Nova tentativa manual: só nota failed volta a pending, e conta a tentativa.
+-- Nova tentativa manual: só nota failed de cobrança paga volta a pending, e conta a tentativa. O id da nota anterior
+-- é descartado: a nova tentativa cria outra nota no Asaas.
 create function request_nfse_retry(p_charge_id uuid)
 returns table (ok boolean, reason text, status text)
 language plpgsql
@@ -377,19 +410,20 @@ begin
     return query select false, 'not_found'::text, null::text;
     return;
   end if;
-  if v_charge.nfse_status <> 'failed' then
+  if v_charge.nfse_status <> 'failed' or v_charge.status <> 'paid' then
     return query select false, 'invalid_state'::text, v_charge.nfse_status;
     return;
   end if;
 
   update public.pix_charges
-     set nfse_status = 'pending', nfse_attempts = nfse_attempts + 1, nfse_updated_at = now()
+     set nfse_status = 'pending', nfse_attempts = nfse_attempts + 1, nfse_updated_at = now(),
+         asaas_invoice_id = null
    where id = v_charge.id;
   return query select true, null::text, 'pending'::text;
 end
 $$;
 
--- Lista das notas que falharam, para a tela de nova tentativa. É uma função, não uma política em pix_charges:
+-- Lista das notas que falharam (de cobrança paga), para a tela de nova tentativa. É uma função, não uma política em pix_charges:
 -- o superadmin continua sem ler cobranças de Bureau algum. Só dados da cobrança, sem pix_payload.
 create function list_failed_nfse(p_limit integer default 100)
 returns table (charge_id uuid, bureau_id uuid, amount numeric, charge_status text, nfse_attempts integer,
@@ -409,7 +443,7 @@ begin
   return query
     select c.id, c.bureau_id, c.amount, c.status, c.nfse_attempts, c.nfse_updated_at, c.created_at
       from public.pix_charges c
-     where c.nfse_status = 'failed'
+     where c.nfse_status = 'failed' and c.status = 'paid'
      order by c.nfse_updated_at desc nulls last, c.id
      limit greatest(1, least(coalesce(p_limit, 100), 500));
 end
@@ -423,7 +457,7 @@ alter function payout_items_check_entry() owner to schema_owner;
 alter function create_payout(uuid, timestamptz) owner to auth_profile_lookup;
 alter function mark_payout_paid(uuid, text, text, text) owner to auth_profile_lookup;
 alter function cancel_payout(uuid) owner to auth_profile_lookup;
-alter function set_nfse_status(uuid, text, text, text) owner to auth_profile_lookup;
+alter function set_nfse_status(uuid, text, text, text, text) owner to auth_profile_lookup;
 alter function request_nfse_retry(uuid) owner to auth_profile_lookup;
 alter function list_failed_nfse(integer) owner to auth_profile_lookup;
 
@@ -442,8 +476,8 @@ grant execute on function request_nfse_retry(uuid) to app_runtime;
 grant execute on function list_failed_nfse(integer) to app_runtime;
 -- Só app_webhook executa set_nfse_status; app_runtime não, para que uma injeção de SQL na aplicação não
 -- consiga fabricar nota.
-revoke all on function set_nfse_status(uuid, text, text, text) from public, app_runtime;
-grant execute on function set_nfse_status(uuid, text, text, text) to app_webhook;
+revoke all on function set_nfse_status(uuid, text, text, text, text) from public, app_runtime;
+grant execute on function set_nfse_status(uuid, text, text, text, text) to app_webhook;
 
 revoke all on payouts, payout_items from public, app_runtime, auth_profile_lookup;
 grant select on payouts, payout_items to app_runtime;
@@ -453,7 +487,7 @@ grant select on payouts, payout_items to backup_reader;
 grant select, insert (bureau_id, cutoff_at, amount, created_by),
   update (status, paid_at, paid_by, receipt_object_key, receipt_mime, receipt_sha256) on payouts to auth_profile_lookup;
 grant select, insert, delete on payout_items to auth_profile_lookup;
-grant update (nfse_status, nfse_number, nfse_url, nfse_updated_at, nfse_attempts) on pix_charges to auth_profile_lookup;
+grant update (nfse_status, nfse_number, nfse_url, nfse_updated_at, nfse_attempts, asaas_invoice_id) on pix_charges to auth_profile_lookup;
 
 create policy payouts_gateway_select on payouts for select to auth_profile_lookup using (true);
 create policy payouts_gateway_insert on payouts for insert to auth_profile_lookup with check (true);

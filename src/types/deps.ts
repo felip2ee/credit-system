@@ -210,7 +210,8 @@ export interface DepsConsultResultPF extends DepsConsultBase {
 export type DepsConsultResult = DepsConsultResultPF | DepsConsultResultPJ;
 
 export interface ConsultOptions {
-  product?: string;
+  // Nome do produto na deps (casa com `produtos[].nome` do login).
+  product: string;
   includeScr?: boolean;
   // Quando true, a deps reaproveita os dados já existentes da consulta
   // (não gera nova cobrança). Default true. Desmarque para forçar consulta nova.
@@ -271,8 +272,8 @@ export interface DepsRawConsult {
 
 export interface DepsClient {
   readonly mode: "real";
-  consultPF(cpf: string, options?: ConsultOptions): Promise<DepsRawConsult>;
-  consultPJ(cnpj: string, options?: ConsultOptions): Promise<DepsRawConsult>;
+  consultPF(cpf: string, options: ConsultOptions): Promise<DepsRawConsult>;
+  consultPJ(cnpj: string, options: ConsultOptions): Promise<DepsRawConsult>;
   checkScrAuthorization(document: string): Promise<ScrAuthorizationCheck>;
   requestScrAuthorization(input: ScrRequestInput): Promise<ScrRequestResult>;
 }

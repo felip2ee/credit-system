@@ -52,7 +52,9 @@ export async function listPayableEntries(
 	const cursor = options.cursor ?? null;
 	const match = cursor === null ? null : CURSOR.exec(cursor);
 	if (cursor !== null && !match) throw new RangeError("Cursor inválido.");
-	const limit = Math.min(Math.max(Math.trunc(options.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
+	// NaN e Infinity (limit vindo de um parse malfeito) voltam ao padrão em vez de virar "limit NaN" no SQL.
+	const requested = options.limit !== undefined && Number.isFinite(options.limit) ? options.limit : DEFAULT_LIMIT;
+	const limit = Math.min(Math.max(Math.trunc(requested), 1), MAX_LIMIT);
 
 	const { rows } = await client.query<EntryRow>(
 		`select id, kind, amount, order_ref, created_at,

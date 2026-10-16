@@ -49,7 +49,7 @@ export default async function UsersPage() {
       `select id, full_name, email, role, is_active, created_at::text,
               exists (select 1 from account a where a.user_id = profiles.auth_user_id) as has_account
          from profiles
-        where role in ('bureau_admin', 'operator')
+        where role in ('bureau_admin', 'operator') and not is_system
         order by created_at asc`,
     ),
   );

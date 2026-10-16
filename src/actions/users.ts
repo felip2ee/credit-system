@@ -50,7 +50,7 @@ async function lockStaffTarget(
 	const { rows } = await client.query<{ role: string; isActive: boolean }>(
 		`select role::text as role, is_active as "isActive"
        from profiles
-      where id = $1 and bureau_id = $2 and role in ('bureau_admin', 'operator')
+      where id = $1 and bureau_id = $2 and role in ('bureau_admin', 'operator') and not is_system
         for update`,
 		[userId, bureauId],
 	);
@@ -175,7 +175,7 @@ export async function resendTeamInvite(input: {
 			}>(
 				`select full_name as "fullName", email, role::text as role
            from profiles
-          where id = $1 and bureau_id = $2 and role in ('bureau_admin', 'operator')`,
+          where id = $1 and bureau_id = $2 and role in ('bureau_admin', 'operator') and not is_system`,
 				[userId.data, session.bureauId],
 			);
 			const member = rows[0];

@@ -32,16 +32,18 @@ ENV_KEYS = [
     "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER", "SMTP_FROM",
     "SUPERADMIN_EMAIL",
     "DEPS_API_BASE_URL", "DEPS_API_EMAIL", "DEPS_API_CENTRO_CUSTOS",
-    "DEPS_PRODUTO_PF", "DEPS_PRODUTO_PJ",
     "OPENAI_MODEL", "BACKUP_ALERT_TO",
+    "WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION",
 ]
 
 SECRET_NAMES = [
     "postgres_password", "schema_owner_password", "app_runtime_password",
-    "backup_reader_password", "app_webhook_password", "database_url",
-    "database_webhook_url", "database_owner_url",
+    "backup_reader_password", "app_webhook_password", "app_dispatch_password", "database_url",
+    "database_webhook_url", "dispatch_database_url", "database_owner_url",
     "better_auth_secret", "smtp_pass", "deps_api_password", "openai_api_key",
     "restic_password", "superadmin_password",
+    "whatsapp_access_token", "whatsapp_app_secret", "whatsapp_verify_token",
+    "notifications_dispatch_secret",
 ]
 
 _DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
@@ -108,10 +110,11 @@ QUESTIONS: list[tuple[str, str, str, Callable[[str], bool]]] = [
     ("DEPS_API_BASE_URL", "URL da API DEPS", "https://api-portal.deps.com.br", _nonempty),
     ("DEPS_API_EMAIL", "Usuário DEPS", "", _nonempty),
     ("DEPS_API_CENTRO_CUSTOS", "Centro de custos DEPS (opcional)", "", _any),
-    ("DEPS_PRODUTO_PF", "Produto DEPS PF", "Smart PF 002", _nonempty),
-    ("DEPS_PRODUTO_PJ", "Produto DEPS PJ", "Smart PJ 010", _nonempty),
     ("OPENAI_MODEL", "Modelo OpenAI", "gpt-4o", _nonempty),
     ("BACKUP_ALERT_TO", "E-mail para alertas de backup", "", valid_email),
+    ("WHATSAPP_DRIVER", "Driver do WhatsApp (vazio = desligado; meta = Cloud API)", "", lambda v: v in ("", "meta")),
+    ("WHATSAPP_PHONE_NUMBER_ID", "ID do número do WhatsApp (vazio = WhatsApp desligado)", "", _any),
+    ("WHATSAPP_GRAPH_VERSION", "Versão da Graph API da Meta", "v21.0", _nonempty),
     ("REINO_IMAGE_OWNER", "Dono das imagens no GHCR", "felip2ee", _nonempty),
     ("REINO_IMAGE_DIGEST", "Digest sha256 da imagem do app (64 hex; vazio = preencher depois)", "", valid_digest),
     ("REINO_BACKUP_DIGEST", "Digest sha256 da imagem de backup (64 hex; vazio = preencher depois)", "", valid_digest),
@@ -123,7 +126,12 @@ SECRET_QUESTIONS: list[tuple[str, str, Callable[[str], bool], bool]] = [
     ("deps_api_password", "Senha DEPS", _nonempty, False),
     ("openai_api_key", "Chave da API OpenAI", _nonempty, False),
     ("superadmin_password", "Senha do superadmin (vazio = gerar)", lambda v: v == "" or valid_superadmin_password(v), True),
+    ("whatsapp_access_token", "Token de sistema do WhatsApp (vazio = WhatsApp desligado)", _any, False),
+    ("whatsapp_app_secret", "App secret da Meta (vazio = WhatsApp desligado)", _any, False),
 ]
+
+# Docker secrets não aceitam valor vazio: WhatsApp desligado grava este marcador.
+WHATSAPP_OFF_PLACEHOLDER = "whatsapp-disabled"
 
 
 def gen_hex(nbytes: int = 24) -> str:
@@ -135,15 +143,17 @@ def gen_password() -> str:
 
 
 def build_secrets(provided: dict[str, str]) -> dict[str, str]:
-    pg, owner, app, backup, webhook = gen_hex(), gen_hex(), gen_hex(), gen_hex(), gen_hex()
+    pg, owner, app, backup, webhook, dispatch = (gen_hex() for _ in range(6))
     return {
         "postgres_password": pg,
         "schema_owner_password": owner,
         "app_runtime_password": app,
         "backup_reader_password": backup,
         "app_webhook_password": webhook,
+        "app_dispatch_password": dispatch,
         "database_url": f"postgresql://app_runtime:{app}@postgres:5432/credit_system",
         "database_webhook_url": f"postgresql://app_webhook:{webhook}@postgres:5432/credit_system",
+        "dispatch_database_url": f"postgresql://app_dispatch:{dispatch}@postgres:5432/credit_system",
         "database_owner_url": f"postgresql://postgres:{pg}@postgres:5432/credit_system",
         "better_auth_secret": gen_hex(32),
         "smtp_pass": provided["smtp_pass"],
@@ -151,6 +161,10 @@ def build_secrets(provided: dict[str, str]) -> dict[str, str]:
         "openai_api_key": provided["openai_api_key"],
         "restic_password": gen_hex(32),
         "superadmin_password": provided.get("superadmin_password") or gen_password(),
+        "whatsapp_access_token": provided.get("whatsapp_access_token") or WHATSAPP_OFF_PLACEHOLDER,
+        "whatsapp_app_secret": provided.get("whatsapp_app_secret") or WHATSAPP_OFF_PLACEHOLDER,
+        "whatsapp_verify_token": gen_hex(32),
+        "notifications_dispatch_secret": gen_hex(32),
     }
 
 

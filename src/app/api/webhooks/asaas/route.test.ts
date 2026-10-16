@@ -8,7 +8,10 @@ const state = vi.hoisted(() => ({
 	requestInvoiceForPayment: vi.fn(),
 	repairInvoiceForPayment: vi.fn(),
 	applyInvoiceEvent: vi.fn(),
+	revalidatePath: vi.fn(),
 }));
+
+vi.mock("next/cache", () => ({ revalidatePath: state.revalidatePath }));
 
 vi.mock("@/lib/config", () => ({
 	readAsaasConfig: () => ({ driver: "fake", webhookToken: "w".repeat(32) }),
@@ -143,7 +146,7 @@ describe("POST /api/webhooks/asaas result", () => {
 		});
 	});
 
-	it.each(["credited", "refunded", "duplicate", "ignored", "unknown_charge"])("answers 200 for %s", async (result) => {
+	it.each(["credited", "refunded", "duplicate", "ignored", "unknown_charge", "partial_refund_ignored"])("answers 200 for %s", async (result) => {
 		state.applyAsaasPayment.mockResolvedValue(result);
 
 		expect((await call(body)).status).toBe(200);
@@ -248,18 +251,51 @@ describe("POST /api/webhooks/asaas invoice scheduling after the credit", () => {
 		expect(state.repairInvoiceForPayment).not.toHaveBeenCalled();
 	});
 
-	it("keeps the 200 when the repair rejects", async () => {
+	it("keeps the 200 when the repair rejects, and logs it", async () => {
 		state.applyAsaasPayment.mockResolvedValue("duplicate");
 		state.repairInvoiceForPayment.mockRejectedValue(new Error("x"));
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
 
+		expect((await call(body)).status).toBe(200);
+		await vi.waitFor(() => expect(log).toHaveBeenCalledWith("[asaas-webhook] reparo da nota falhou", { name: "Error", code: undefined }));
+	});
+
+	it("keeps the 200 when the invoice step fails, and logs it", async () => {
+		state.requestInvoiceForPayment.mockRejectedValue(new Error("asaas down"));
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		expect((await call(body)).status).toBe(200);
+		await vi.waitFor(() => expect(log).toHaveBeenCalledWith("[asaas-webhook] pedido da nota falhou", { name: "Error", code: undefined }));
+	});
+
+	it("answers 200 before a slow Asaas invoice call finishes", async () => {
+		let finish: (value: string) => void = () => {};
+		state.requestInvoiceForPayment.mockReturnValue(new Promise<string>((resolve) => (finish = resolve)));
+
+		const response = await call(body);
+
+		expect(response.status).toBe(200);
+		expect(state.requestInvoiceForPayment).toHaveBeenCalledWith("pay_1");
+		finish("pending");
+	});
+
+	it("revalidates the client credits page after a credit, and keeps the 200 if revalidation throws", async () => {
+		await call(body);
+		expect(state.revalidatePath).toHaveBeenCalledWith("/portal/credits");
+
+		state.revalidatePath.mockImplementation(() => {
+			throw new Error("no static generation store");
+		});
+		vi.spyOn(console, "error").mockImplementation(() => {});
 		expect((await call(body)).status).toBe(200);
 	});
 
-	it("keeps the 200 when the invoice step fails", async () => {
-		state.requestInvoiceForPayment.mockRejectedValue(new Error("asaas down"));
-		vi.spyOn(console, "error").mockImplementation(() => {});
+	it("does not revalidate when nothing was credited", async () => {
+		state.applyAsaasPayment.mockResolvedValue("duplicate");
 
-		expect((await call(body)).status).toBe(200);
+		await call(body);
+
+		expect(state.revalidatePath).not.toHaveBeenCalled();
 	});
 
 	it("does not schedule when the credit itself fails", async () => {

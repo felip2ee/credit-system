@@ -32,7 +32,7 @@ vi.mock("next/headers", () => ({
 
 import { POST } from "@/app/api/webhooks/asaas/route";
 import { ASAAS_EVENT_INVOICE_AUTHORIZED, ASAAS_EVENT_INVOICE_ERROR, ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
-import { buildFakeInvoiceEvent, buildFakePaymentEvent } from "@/lib/asaas/fake";
+import { buildFakeInvoiceEvent, buildFakePaymentEvent, setFakeInvoiceStatus } from "@/lib/asaas/fake";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
@@ -164,10 +164,10 @@ describe("nfse_charge_by_payment (app_webhook)", () => {
 		const { tenant, charge } = await setup();
 		const refunded = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId, status: "refunded", amount: "50.00" });
 
-		expect(await findNfseChargeByPayment(charge.asaasPaymentId)).toEqual({ chargeId: charge.id, amount: "100.00" });
+		expect(await findNfseChargeByPayment(charge.asaasPaymentId)).toEqual({ chargeId: charge.id, amount: "100.00", invoiceId: null });
 		expect(await findNfseChargeByPayment(refunded.asaasPaymentId)).toBeNull();
 		const raw = await getWebhookPool().query("select * from nfse_charge_by_payment($1)", [charge.asaasPaymentId]);
-		expect(raw.fields.map((f) => f.name)).toEqual(["charge_id", "amount"]);
+		expect(raw.fields.map((f) => f.name)).toEqual(["charge_id", "amount", "asaas_invoice_id"]);
 	});
 
 	it("finds nothing for an unpaid charge or an unknown payment", async () => {
@@ -250,13 +250,16 @@ describe("NFS-e end to end (webhook route, fake Asaas driver)", () => {
 		const credit = await post(buildFakePaymentEvent({ eventId: `evt_${randomUUID()}`, asaasPaymentId: charge.asaasPaymentId, value: 100 }));
 		expect(credit.status).toBe(200);
 		expect(await balance(tenant.bureau.id)).toBe("100.00");
-		expect(await nfse(charge.id)).toMatchObject({ nfse_status: "pending" });
+		// A nota é pedida depois da resposta (fire-and-forget): espera o registro do agendamento.
+		await vi.waitFor(async () => expect(await nfse(charge.id)).toMatchObject({ nfse_status: "pending" }));
 
 		const error = await post(
-			buildFakeInvoiceEvent({ eventId: `evt_${randomUUID()}`, event: ASAAS_EVENT_INVOICE_ERROR, asaasPaymentId: charge.asaasPaymentId }),
+			buildFakeInvoiceEvent({ eventId: `evt_${randomUUID()}`, event: ASAAS_EVENT_INVOICE_ERROR, asaasPaymentId: charge.asaasPaymentId, invoiceId: `inv_fake_${charge.id}` }),
 		);
 		expect(error.status).toBe(200);
 		expect(await nfse(charge.id)).toMatchObject({ nfse_status: "failed" });
+		// No Asaas a nota com erro fica em ERROR; a nova tentativa não a adota e agenda outra.
+		setFakeInvoiceStatus(charge.asaasPaymentId, "ERROR");
 
 		expect(await requestNfseRetry(superadmin, charge.id)).toEqual({ ok: true });
 		expect(await rescheduleInvoice(superadmin, charge.id)).toBe("pending");
@@ -266,7 +269,7 @@ describe("NFS-e end to end (webhook route, fake Asaas driver)", () => {
 			buildFakeInvoiceEvent({
 				eventId: `evt_${randomUUID()}`,
 				event: ASAAS_EVENT_INVOICE_AUTHORIZED,
-				asaasPaymentId: charge.asaasPaymentId,
+				asaasPaymentId: charge.asaasPaymentId, invoiceId: `inv_fake_${charge.id}`,
 				number: "77",
 				pdfUrl: "https://nfse.example/77.pdf",
 			}),

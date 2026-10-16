@@ -7,9 +7,13 @@ const state = vi.hoisted(() => ({
 	role: "client" as string,
 	sessionError: null as Error | null,
 	adapterCreate: vi.fn(),
-	insertCharge: vi.fn(),
+	reserveCharge: vi.fn(),
+	bindCharge: vi.fn(),
+	cancelCharge: vi.fn(),
 	countPending: vi.fn(),
+	lock: vi.fn(),
 	getClientWallet: vi.fn(),
+	getClientAccountStatus: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -39,16 +43,24 @@ vi.mock("@/lib/asaas", () => ({
 	getAsaasClient: () => ({ createPixCharge: state.adapterCreate }),
 }));
 vi.mock("@/lib/wallet/pix-charges", () => ({
-	createClientPixCharge: state.insertCharge,
+	reserveClientPixCharge: state.reserveCharge,
+	bindPixCharge: state.bindCharge,
+	cancelUnboundPixCharge: state.cancelCharge,
 	countPendingClientPixCharges: state.countPending,
+	lockClientPixCharges: state.lock,
 	MAX_PENDING_PIX_CHARGES: 10,
 }));
 vi.mock("@/lib/wallet/client-queries", () => ({
 	getClientWallet: state.getClientWallet,
 }));
 
+vi.mock("@/lib/account/queries", () => ({
+	getClientAccountStatus: state.getClientAccountStatus,
+}));
+
 import { revalidatePath } from "next/cache";
 
+import { AsaasOutcomeUnknownError } from "@/lib/asaas/client";
 import { SessionAccessError } from "@/lib/auth/session";
 
 import { requestClientTopupAction } from "./credits-topup";
@@ -69,12 +81,15 @@ beforeEach(() => {
 		available: "0.00",
 		reserved: "0.00",
 	});
+	state.getClientAccountStatus.mockResolvedValue({ emailVerified: true, phoneVerified: true });
 	state.countPending.mockResolvedValue(0);
-	state.insertCharge.mockResolvedValue({
+	state.reserveCharge.mockResolvedValue({
 		ok: true,
 		id: "charge-1",
 		expiresAt: new Date("2030-01-01T00:30:00Z"),
 	});
+	state.bindCharge.mockResolvedValue(true);
+	state.cancelCharge.mockResolvedValue(undefined);
 });
 
 describe("requestClientTopupAction", () => {
@@ -94,19 +109,20 @@ describe("requestClientTopupAction", () => {
 			USER_ID,
 		);
 		expect(state.countPending).toHaveBeenCalledWith(expect.anything(), USER_ID);
-		expect(state.insertCharge).toHaveBeenCalledWith(
+		const reference = state.adapterCreate.mock.calls[0][0].externalReference;
+		expect(state.reserveCharge).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
 				userId: USER_ID,
 				role: "client",
 				bureauId: BUREAU_ID,
 			}),
-			{
-				asaasPaymentId: "pay_secret_id",
-				pixPayload: "000201pix",
-				amount: "100.00",
-			},
+			{ externalReference: reference, amount: "100.00" },
 		);
+		expect(state.bindCharge).toHaveBeenCalledWith(expect.anything(), "charge-1", {
+			asaasPaymentId: "pay_secret_id",
+			pixPayload: "000201pix",
+		});
 		expect(revalidatePath).toHaveBeenCalledWith("/portal/credits");
 	});
 
@@ -119,7 +135,7 @@ describe("requestClientTopupAction", () => {
 				NOT_ALLOWED,
 			);
 			expect(state.adapterCreate).not.toHaveBeenCalled();
-			expect(state.insertCharge).not.toHaveBeenCalled();
+			expect(state.reserveCharge).not.toHaveBeenCalled();
 		},
 	);
 
@@ -129,6 +145,26 @@ describe("requestClientTopupAction", () => {
 		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(
 			NOT_ALLOWED,
 		);
+	});
+
+	it("topup is refused while the email is not verified", async () => {
+		state.getClientAccountStatus.mockResolvedValue({ emailVerified: false, phoneVerified: true });
+
+		const result = await requestClientTopupAction({ amount: "100.00" });
+
+		expect(result.error).toBe("Confirme seu e-mail antes de comprar créditos.");
+		expect(state.getClientAccountStatus).toHaveBeenCalledWith(expect.anything(), USER_ID);
+		expect(state.getClientWallet).not.toHaveBeenCalled();
+		expect(state.lock).not.toHaveBeenCalled();
+		expect(state.reserveCharge).not.toHaveBeenCalled();
+		expect(state.adapterCreate).not.toHaveBeenCalled();
+	});
+
+	it("unverified phone does not block topup", async () => {
+		state.getClientAccountStatus.mockResolvedValue({ emailVerified: true, phoneVerified: false });
+
+		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBeNull();
+		expect(state.adapterCreate).toHaveBeenCalledTimes(1);
 	});
 
 	it.each(["9.99", "5000.01", "10.005", "abc", "", "-10.00"])(
@@ -155,7 +191,7 @@ describe("requestClientTopupAction", () => {
 
 		expect(result.error).toBe("Carteira não encontrada. Contate o suporte.");
 		expect(state.adapterCreate).not.toHaveBeenCalled();
-		expect(state.insertCharge).not.toHaveBeenCalled();
+		expect(state.reserveCharge).not.toHaveBeenCalled();
 	});
 
 	it("blocks a new charge at 10 pending charges and calls no Asaas", async () => {
@@ -177,32 +213,76 @@ describe("requestClientTopupAction", () => {
 		).toBeNull();
 	});
 
-	it("saves no charge when the adapter fails", async () => {
+	it("closes the reserved charge when the adapter fails, and binds nothing", async () => {
 		state.adapterCreate.mockRejectedValue(new Error("Asaas respondeu 500"));
 		vi.spyOn(console, "error").mockImplementation(() => {});
 
 		const result = await requestClientTopupAction({ amount: "100.00" });
 
 		expect(result.error).toBe(FAILED);
-		expect(state.insertCharge).not.toHaveBeenCalled();
+		expect(state.cancelCharge).toHaveBeenCalledWith(expect.anything(), "charge-1");
+		expect(state.bindCharge).not.toHaveBeenCalled();
 	});
 
-	it("reports an error and skips Asaas when the pre-checks fail", async () => {
+	it("keeps the reserved row pending when the Asaas outcome is unknown, so a later payment still credits", async () => {
+		state.adapterCreate.mockRejectedValue(new AsaasOutcomeUnknownError("Asaas respondeu 502"));
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const result = await requestClientTopupAction({ amount: "100.00" });
+
+		expect(result.error).toBe(FAILED);
+		expect(state.cancelCharge).not.toHaveBeenCalled();
+		expect(state.bindCharge).not.toHaveBeenCalled();
+	});
+
+	it("still reports the failure when closing the reserved charge fails too", async () => {
+		state.adapterCreate.mockRejectedValue(new Error("Asaas respondeu 500"));
+		state.cancelCharge.mockRejectedValue(new Error("db down"));
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(FAILED);
+	});
+
+	it("reports an error and skips Asaas when the reservation fails", async () => {
 		state.getClientWallet.mockRejectedValue(new Error("db down"));
 		vi.spyOn(console, "error").mockImplementation(() => {});
 
-		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(
-			FAILED,
-		);
+		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(FAILED);
 		expect(state.adapterCreate).not.toHaveBeenCalled();
 	});
 
-	it("reports an error when the charge cannot be saved", async () => {
-		state.insertCharge.mockRejectedValue(new Error("db down"));
-		vi.spyOn(console, "error").mockImplementation(() => {});
+	it.each([
+		["the bind throws", () => state.bindCharge.mockRejectedValue(new Error("db down"))],
+		["the bind refuses", () => state.bindCharge.mockResolvedValue(false)],
+	])("when %s: keeps the row pending, cancels nothing, and logs payment id and reference", async (_name, arrange) => {
+		arrange();
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(
-			FAILED,
+		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(FAILED);
+		const reference = state.adapterCreate.mock.calls[0][0].externalReference;
+		expect(state.cancelCharge).not.toHaveBeenCalled();
+		expect(log).toHaveBeenCalledWith(expect.stringContaining("sem ligação"), {
+			chargeId: "charge-1",
+			asaasPaymentId: "pay_secret_id",
+			externalReference: reference,
+		});
+	});
+
+	it("locks the client, checks the cap, then reserves, all before Asaas", async () => {
+		const order: string[] = [];
+		state.lock.mockImplementation(async () => void order.push("lock"));
+		state.countPending.mockImplementation(async () => (order.push("count"), 0));
+		state.reserveCharge.mockImplementation(
+			async () => (order.push("reserve"), { ok: true, id: "c", expiresAt: new Date() }),
 		);
+		state.adapterCreate.mockImplementation(async () => {
+			order.push("asaas");
+			return { asaasPaymentId: "p", pixPayload: "x", qrImageBase64: "y" };
+		});
+
+		await requestClientTopupAction({ amount: "100.00" });
+
+		expect(order).toEqual(["lock", "count", "reserve", "asaas"]);
+		expect(state.lock).toHaveBeenCalledWith(expect.anything(), USER_ID);
 	});
 });

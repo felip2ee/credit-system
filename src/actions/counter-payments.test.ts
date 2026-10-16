@@ -107,6 +107,13 @@ describe("registerCounterPaymentAction validation", () => {
 		["invalid dossierId", { dossierId: "abc" }, "Dossiê inválido."],
 		["note above 500 characters", { note: "x".repeat(501) }, "Observação com no máximo 500 caracteres."],
 		["invalid date", { receivedAt: "ontem" }, "Data de recebimento inválida."],
+		["null date (would become 1970)", { receivedAt: null }, "Data de recebimento inválida."],
+		["numeric date", { receivedAt: 0 }, "Data de recebimento inválida."],
+		["empty date", { receivedAt: "" }, "Data de recebimento inválida."],
+		["a date-time instead of a date", { receivedAt: "2026-10-14T12:00:00Z" }, "Data de recebimento inválida."],
+		["an impossible calendar date", { receivedAt: "2026-02-30" }, "Data de recebimento inválida."],
+		["a date before 2000", { receivedAt: "1999-12-31" }, "Data de recebimento inválida."],
+		["a future date", { receivedAt: "2999-01-01" }, "A data de recebimento não pode ser futura."],
 	])("rejects %s", async (_name, patch, message) => {
 		expect((await registerCounterPaymentAction({ ...form, ...patch })).error).toBe(message);
 		expect(state.registerCounterPayment).not.toHaveBeenCalled();

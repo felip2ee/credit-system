@@ -51,7 +51,10 @@ export function CreatePayoutForm({ bureaus }: CreatePayoutFormProps) {
             <select
               id="payout-bureau"
               value={bureauId}
-              onChange={(e) => setBureauId(e.target.value)}
+              onChange={(e) => {
+                setBureauId(e.target.value);
+                setDone(false);
+              }}
               disabled={isPending}
               className="flex h-10 w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -68,7 +71,10 @@ export function CreatePayoutForm({ bureaus }: CreatePayoutFormProps) {
               id="payout-cutoff"
               type="date"
               value={cutoff}
-              onChange={(e) => setCutoff(e.target.value)}
+              onChange={(e) => {
+                setCutoff(e.target.value);
+                setDone(false);
+              }}
               disabled={isPending}
               className="w-44"
             />

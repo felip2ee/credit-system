@@ -15,6 +15,10 @@ describe("nfseNoteFor", () => {
 		expect(nfseNoteFor(status, null)).toEqual({ kind: "text", text });
 	});
 
+	it.each(["javascript:alert(1)", "data:text/html,x", "not a url"])("does not link the unsafe url %s", (url) => {
+		expect(nfseNoteFor("issued", url)).toEqual({ kind: "text", text: "Nota emitida" });
+	});
+
 	it("shows nothing when the note was never requested", () => {
 		expect(nfseNoteFor("not_requested", null)).toBeNull();
 	});

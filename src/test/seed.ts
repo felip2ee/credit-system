@@ -134,7 +134,8 @@ export async function seedSupportSession(
 		endedAt?: Date | null;
 	},
 ): Promise<string> {
-	const startedAt = input.startedAt ?? new Date();
+	// app_support_active() compara com o now() do banco; a margem de 5 s absorve o desvio de relógio entre app e banco.
+	const startedAt = input.startedAt ?? new Date(Date.now() - 5_000);
 	const expiresAt =
 		input.expiresAt ?? new Date(startedAt.getTime() + ONE_HOUR_MS);
 	const { rows } = await owner.query<{ id: string }>(
@@ -363,8 +364,9 @@ export async function seedDossier(
 	return rows[0].id;
 }
 
-// reserve_order exige que order_ref seja um Dossiê do Bureau. Cria o Dossiê com esse id sobre o titular do cliente
-// (ou sobre qualquer titular do Bureau, no balcão). Repetir não faz nada; sem titular elegível não cria nada.
+// reserve_order exige que order_ref seja o pedido (dossier_orders) do Bureau. Cria o Dossiê com esse id sobre o titular
+// do cliente (ou sobre qualquer titular do Bureau, no balcão) e o pedido que o acompanha: online com o cliente, senão
+// balcão. Repetir não faz nada; sem titular elegível não cria nada.
 export async function seedOrderDossier(
 	owner: Pool,
 	input: { orderRef: string; bureauId: string; clientProfileId: string | null },
@@ -374,6 +376,16 @@ export async function seedOrderDossier(
      select $1, $2, 'PF', h.id, 'smart_pf', h.created_by from holders h
       where h.bureau_id = $2 and ($3::uuid is null or h.client_profile_id = $3)
       order by h.created_at limit 1
+     on conflict do nothing`,
+		[input.orderRef, input.bureauId, input.clientProfileId],
+	);
+	await owner.query(
+		`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
+         subject_document_masked, state, created_by)
+     select d.id, d.bureau_id, case when $3::uuid is null then 'counter' else 'online' end, $3::uuid, 'consulta_pf',
+            'Titular seed', '***.000.000-**', 'awaiting_authorization', h.created_by
+       from dossiers d join holders h on h.bureau_id = d.bureau_id and h.id = d.holder_id
+      where d.id = $1 and d.bureau_id = $2
      on conflict do nothing`,
 		[input.orderRef, input.bureauId, input.clientProfileId],
 	);
@@ -389,6 +401,37 @@ export async function seedOrderDossierForSession(
 		"select nullif(current_setting('app.bureau_id', true), '') as id",
 	);
 	if (rows[0].id) await seedOrderDossier(owner, { ...input, bureauId: rows[0].id });
+}
+
+// reserve_order confere preço e custo no catálogo do Bureau da sessão (a que vai chamar reserve_order): cria um
+// produto principal à venda por `price`, com custo efetivo `cost`, e devolve a cotação que o aponta. Valores que
+// reserve_order recusa antes do catálogo (preço <= 0, custo negativo, preço abaixo do custo, mais de duas casas)
+// não criam produto: a cotação volta vazia.
+export async function seedOrderCatalog(
+	owner: Pool,
+	session: PoolClient,
+	input: { price: string; cost: string },
+): Promise<{ lines: { code: string }[] }> {
+	const price = Number(input.price);
+	const cost = Number(input.cost);
+	const twoDecimals = (v: string) => /^\d+(\.\d{1,2})?$/.test(v);
+	if (!twoDecimals(input.price) || !twoDecimals(input.cost) || price <= 0 || price < cost || price > 99999999.99) {
+		return { lines: [] };
+	}
+	const { rows } = await session.query<{ bureau_id: string; user_id: string }>(
+		"select nullif(current_setting('app.bureau_id', true), '') as bureau_id, current_setting('app.user_id', true) as user_id",
+	);
+	if (!rows[0].bureau_id) return { lines: [] };
+	// O catálogo só ativa item com custo > 0: o custo zero entra como segunda versão do produto.
+	const product = await seedProduct(owner, { baseCost: cost > 0 ? input.cost : "0.01" });
+	await seedCatalogItem(owner, {
+		bureauId: rows[0].bureau_id,
+		productId: product.id,
+		salePrice: input.price,
+		updatedBy: rows[0].user_id,
+	});
+	if (cost === 0) await seedProductVersion(owner, { productId: product.id, version: 2, baseCost: "0.00" });
+	return { lines: [{ code: product.code }] };
 }
 
 // Lançamento de valor a repassar já assinado (acréscimo +, estorno −). O acréscimo exige order_ref (FK para

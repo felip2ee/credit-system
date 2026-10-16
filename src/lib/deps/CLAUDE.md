@@ -4,7 +4,7 @@ Server-only integration with the deps.com.br bureau. Security-sensitive: it read
 
 ## Responsibility
 
-Belongs here: the HTTP client (`client.ts`, `real.ts`), the raw-payload-to-canonical adapter (`adapter.ts`), typed errors (`errors.ts`), product-name constants (`products.ts`) and recorded payloads in `__fixtures__/`. Does NOT belong here: persistence of consultations or SCR authorizations (`src/lib/scr/queries.ts`, `src/lib/consultations/`), shared types (`src/types/deps.ts`, `src/types/bureau.ts`), UI. `scr-auth.ts` is only a re-export shim of `@/lib/scr/queries`.
+Belongs here: the HTTP client (`client.ts`, `real.ts`), the raw-payload-to-canonical adapter (`adapter.ts`), typed errors (`errors.ts`), product-name constants (`products.ts`) and recorded payloads in `__fixtures__/`. Does NOT belong here: persistence of consultations or SCR authorizations (`src/lib/scr/queries.ts`, `src/lib/consultations/`), shared types (`src/types/deps.ts`, `src/types/bureau.ts`), UI.
 
 ## Key patterns
 
@@ -28,7 +28,7 @@ Rules active in this directory — read them before touching code here:
 ## Local conventions
 
 - Add a new bureau variant by dropping a payload in `__fixtures__/` (`pf-current`, `pf-legacy`, `pj-current`, `pj-legacy`) and a case in `adapter.test.ts`.
-- Product names come only from `products.ts` (`DEPS_PRODUCT_PF`, `DEPS_PRODUCT_PJ`, `depsProductName`); do not repeat the literals.
+- Product names come only from `products.ts` (`DEPS_PRODUCT_PF`, `DEPS_PRODUCT_PJ`); do not repeat the literals.
 - Server-only: never import this directory from client components.
 - Comments here are pt-BR; the adapter header comments are English.
 

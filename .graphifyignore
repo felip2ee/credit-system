@@ -1,0 +1,103 @@
+# .graphifyignore — gitignore syntax; seeded from project .gitignore + graphify extraction filters.
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.worktrees/
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# playwright
+/test-results/
+/playwright-report/
+.claude/settings.local.json
+.claude/*.local.*
+.claude/.aia-harness-pending/
+graphify-out/
+graphify-out/cost.json
+graphify-out/cache/
+
+node_modules/
+dist/
+build/
+out/
+coverage/
+.next/
+.nuxt/
+.turbo/
+*.min.js
+*.generated.*
+
+# graphify extraction filters
+# Skip binary/media files from semantic extraction
+# (AST still processes code files normally)
+
+# Images — rendered separately, not needed for semantic
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+*.ico
+
+# PDFs — low signal-to-noise in semantic extraction
+*.pdf
+
+# Videos/audio — transcribed but usually verbose; filter at source if needed
+*.mp4
+*.mov
+*.mp3
+*.wav
+*.flac
+
+.claude/
+docs/
+.agents/
+.code-review-graph/
+.superpowers/
+
+*.md
+
+# toolkit: segredos, lockfiles, gerados
+.env
+.env.*
+*.key
+*.p12
+*.pfx
+auth.json
+credentials.json
+*.log
+package-lock.json
+.codex/
+.vercel/

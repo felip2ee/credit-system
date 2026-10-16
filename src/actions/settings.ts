@@ -7,7 +7,6 @@ import { hasPermission } from "@/lib/db/permissions";
 import type { DbIdentity } from "@/lib/db/transaction";
 import {
   deleteSettings,
-  readSetting,
   readSettings,
   upsertSettings,
 } from "@/lib/settings/queries";
@@ -18,10 +17,13 @@ import {
   aiPromptKey,
   type AiPromptKind,
 } from "@/lib/ai/prompt";
+import { SCR_SETTING_KEYS } from "@/lib/scr/consent-term";
 import {
-  SCR_SETTING_KEYS,
-  SCR_TERM_DEFAULTS,
-} from "@/lib/scr/consent-term";
+  asString,
+  readAiPrompt,
+  readScrTermSettings,
+  type ScrTermSettings,
+} from "@/lib/settings/readers";
 
 // Exported readers are public endpoints ("use server"): reject roles without settings:read (client).
 async function readerIdentity(): Promise<DbIdentity> {
@@ -40,18 +42,10 @@ async function adminIdentity(): Promise<DbIdentity | null> {
   }
 }
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
 // ── AI prompts ────────────────────────────────────────────────────────────
 
-async function readStored(kind: AiPromptKind): Promise<string | null> {
-  return asString(await readSetting(await readerIdentity(), aiPromptKey(kind)));
-}
-
 export async function getAiPrompt(kind: AiPromptKind): Promise<string> {
-  return (await readStored(kind)) ?? DEFAULT_AI_PROMPTS[kind];
+  return readAiPrompt(await readerIdentity(), kind);
 }
 
 export interface AiPromptEntry {
@@ -134,39 +128,10 @@ export async function saveAiPrompts(input: SaveAiPromptsInput): Promise<SaveResu
 
 // ── Termo SCR (autogestão) ────────────────────────────────────────────────
 
-export interface ScrTermSettings {
-  authorizedName: string;
-  authorizedDocument: string;
-  institutionName: string;
-  city: string;
-}
+export type { ScrTermSettings };
 
-// Assumes request scope (reads the session via readerIdentity). A future
-// non-request caller must be given an explicit identity parameter instead.
 export async function getScrTermSettings(): Promise<ScrTermSettings> {
-  const stored = await readSettings(await readerIdentity(), [
-    SCR_SETTING_KEYS.authorizedName,
-    SCR_SETTING_KEYS.authorizedDocument,
-    SCR_SETTING_KEYS.institutionName,
-    SCR_SETTING_KEYS.city,
-  ]);
-  const pick = (key: string, fallback: string) =>
-    asString(stored.get(key)) ?? fallback;
-  return {
-    authorizedName: pick(
-      SCR_SETTING_KEYS.authorizedName,
-      SCR_TERM_DEFAULTS.authorizedName,
-    ),
-    authorizedDocument: pick(
-      SCR_SETTING_KEYS.authorizedDocument,
-      SCR_TERM_DEFAULTS.authorizedDocument,
-    ),
-    institutionName: pick(
-      SCR_SETTING_KEYS.institutionName,
-      SCR_TERM_DEFAULTS.institutionName,
-    ),
-    city: pick(SCR_SETTING_KEYS.city, SCR_TERM_DEFAULTS.city),
-  };
+  return readScrTermSettings(await readerIdentity());
 }
 
 export async function saveScrTermSettings(

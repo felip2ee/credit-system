@@ -345,26 +345,28 @@ export interface HolderListItem {
 	city: string | null;
 	state: string | null;
 	updated_at: string;
+	client_profile_id: string | null;
 }
 
 const LIST_LIMIT = 100;
 
 export async function listHolders(
 	identity: DbIdentity,
-	filters: { type?: EntityKind; q?: string },
+	filters: { type?: EntityKind; q?: string; portalOnly?: boolean },
 ): Promise<HolderListItem[]> {
 	const term = filters.q?.trim() ?? "";
 	const digits = term.replace(/\D/g, "");
 	return withUserTransaction(identity, async (client) => {
 		const { rows } = await client.query<HolderListItem>(
-			`select id, type, name, document, email, city, state, updated_at::text
+			`select id, type, name, document, email, city, state, updated_at::text, client_profile_id
          from holders
         where ($1::query_type is null or type = $1::query_type)
+          and ($4 = false or client_profile_id is not null)
           and ($2 = '' or name ilike '%' || $2 || '%'
                or ($3 <> '' and document_digits like '%' || $3 || '%'))
         order by updated_at desc
         limit ${LIST_LIMIT}`,
-			[filters.type ?? null, term, digits],
+			[filters.type ?? null, term, digits, filters.portalOnly === true],
 		);
 		return rows;
 	});

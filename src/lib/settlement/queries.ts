@@ -15,9 +15,11 @@ import type {
 	SettlementStatus,
 } from "./types";
 
-type ResultRow = { ok: boolean; reason: SettlementFailure | null; status: SettlementStatus | null };
+type ResultRow = { ok: boolean; reason: SettlementFailure | "reservation_clawed_back" | null; status: SettlementStatus | null };
 
 function toResult(row: ResultRow): SettlementResult {
+	// capture_order responde ok = false, mas gravou o fechamento: aqui vira sucesso, para que ninguém desfaça a transação.
+	if (row.reason === "reservation_clawed_back") return { ok: true, status: "released", clawedBack: true };
 	return row.ok
 		? { ok: true, status: row.status as SettlementStatus }
 		: { ok: false, reason: row.reason as SettlementFailure };
@@ -82,9 +84,7 @@ export async function reserveOrder(client: PoolClient, input: ReserveOrderInput)
 export async function captureOrder(client: PoolClient, orderRef: string): Promise<SettlementResult> {
 	const { rows } = await client.query<ResultRow>("select ok, reason, status from capture_order($1)", [orderRef]);
 	const result = toResult(rows[0]);
-	if (result.ok) await auditTransition(client, orderRef, "settlement.capture");
-	// O pedido foi fechado como liberado: audita o fechamento. O chamador mantém a transação.
-	else if (result.reason === "reservation_clawed_back") await auditTransition(client, orderRef, "settlement.release");
+	if (result.ok) await auditTransition(client, orderRef, result.clawedBack ? "settlement.release" : "settlement.capture");
 	return result;
 }
 

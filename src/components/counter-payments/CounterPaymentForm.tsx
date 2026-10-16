@@ -32,16 +32,19 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
   const [receivedAt, setReceivedAt] = useState(todayInSaoPaulo);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [amountInvalid, setAmountInvalid] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const invalid = moneyError(amount);
     if (invalid) {
+      setAmountInvalid(true);
       setError(invalid);
       return;
     }
     setError(null);
+    setAmountInvalid(false);
     startTransition(async () => {
       const res = await registerCounterPaymentAction({
         dossierId,
@@ -92,8 +95,8 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               disabled={isPending}
-              aria-invalid={error !== null}
-              aria-describedby={error ? "cp-error" : undefined}
+              aria-invalid={amountInvalid}
+              aria-describedby={amountInvalid ? "cp-error" : undefined}
             />
           </div>
           <div className="space-y-2">

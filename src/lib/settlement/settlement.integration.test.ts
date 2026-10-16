@@ -15,6 +15,8 @@ import {
 	seedClientProfile,
 	seedClientWalletTopup,
 	seedDossier,
+	seedOrderCatalog,
+	seedOrderDossier,
 	seedOrderDossierForSession,
 	seedPixCharge,
 	seedSuperadmin,
@@ -90,13 +92,18 @@ type ReserveInput = {
 };
 
 // reserve_order exige um Dossiê do Bureau da sessão: cria o Dossiê do pedido antes de chamar (o caso sem Dossiê
-// usa reserveRaw).
+// usa reserveRaw) e confere preço e custo no catálogo: sem `quote`, cria o produto que casa com preço e custo.
 async function reserve(c: PoolClient, input: ReserveInput) {
 	await seedOrderDossierForSession(owner, c, {
 		orderRef: input.orderRef,
 		clientProfileId: input.mode === "online" ? input.clientId : null,
 	});
-	return reserveRaw(c, input);
+	return reserveWithCatalog(c, input);
+}
+// Como reserve, sem criar o Dossiê (o teste já o tem).
+async function reserveWithCatalog(c: PoolClient, input: ReserveInput) {
+	const quote = input.quote ?? (await seedOrderCatalog(owner, c, { price: input.price, cost: input.cost }));
+	return reserveRaw(c, { ...input, quote });
 }
 const reserveRaw = (c: PoolClient, input: ReserveInput) =>
 	c
@@ -277,17 +284,28 @@ describe("reserve_order / capture_order / release_order (online)", () => {
 		});
 	});
 
-	it("stores the quote intact", async () => {
+	it("stores the quote the database built from the catalog, not the caller's", async () => {
 		const t = await setup("100.00", "0");
-		const quote = {
-			lines: [
-				{ product_version_id: randomUUID(), price: "50.00", cost: "30.00" },
-			],
-			total: "50.00",
+		const order = {
+			...online(t),
+			quote: { lines: [{ code: "ignored" }], total: "999.00", note: "caller field" },
 		};
-		const order = { ...online(t), quote };
-		await committed(clientCtx(t), (c) => reserve(c, order));
-		expect((await settlement(order.orderRef)).quote).toEqual(quote);
+		const code = await committed(clientCtx(t), async (c) => {
+			const { lines } = await seedOrderCatalog(owner, c, { price: order.price, cost: order.cost });
+			await seedOrderDossierForSession(owner, c, { orderRef: order.orderRef, clientProfileId: t.client.userId });
+			await reserveRaw(c, { ...order, quote: { lines: [{ code: lines[0].code, costCents: 1, priceCents: 1 }] } });
+			return lines[0].code;
+		});
+		expect((await settlement(order.orderRef)).quote).toEqual({
+			lines: [
+				{
+					productVersionId: expect.any(String),
+					code,
+					costCents: 3000,
+					priceCents: 5000,
+				},
+			],
+		});
 	});
 });
 
@@ -579,18 +597,19 @@ describe("idempotência e estados", () => {
 			reason: null,
 			status: "captured",
 		});
-		for (const changed of [
-			{ ...order, price: "51.00" },
-			{ ...order, cost: "29.00" },
-			{ ...order, mode: "counter" as const, clientId: null },
-		]) {
-			const ctx = changed.mode === "counter" ? operatorCtx(t) : clientCtx(t);
-			expect(await committed(ctx, (c) => reserve(c, changed))).toEqual({
-				ok: false,
-				reason: "already_exists",
-				status: null,
-			});
-		}
+		// O custo do chamador não conta no modo online: repetir com outro custo devolve o mesmo que repetir igual.
+		expect(
+			await committed(clientCtx(t), (c) => reserve(c, { ...order, cost: "29.00" })),
+		).toEqual({ ok: true, reason: null, status: "captured" });
+		expect(
+			await committed(clientCtx(t), (c) => reserve(c, { ...order, price: "51.00" })),
+		).toEqual({ ok: false, reason: "already_exists", status: null });
+		// O pedido (dossier_orders) é online: o modo balcão não o encontra (022).
+		expect(
+			await committed(operatorCtx(t), (c) =>
+				reserve(c, { ...order, mode: "counter" as const, clientId: null }),
+			),
+		).toEqual({ ok: false, reason: "not_found", status: null });
 		// Outro Bureau com o mesmo order_ref não tem esse Dossiê: não vê nem toca o pedido.
 		const foreign = await setup();
 		expect(
@@ -1447,9 +1466,13 @@ describe("018: custo fora do alcance do cliente", () => {
 	it("returns cost and quote only to the staff of the Bureau and to the superadmin", async () => {
 		const t = await setup("100.00", "100.00");
 		const foreign = await setup("0", "0");
-		const quote = { lines: [{ code: "smart_pf", costCents: 3000 }] };
-		const order = { ...online(t, "50.00", "30.00"), quote };
+		const order = online(t, "50.00", "30.00");
 		await committed(clientCtx(t), (c) => reserve(c, order));
+		const { rows: stored } = await owner.query<{ quote: unknown }>(
+			"select quote from order_settlements where order_ref = $1",
+			[order.orderRef],
+		);
+		const quote = stored[0].quote;
 
 		const read = (ctx: Ctx) =>
 			withDbContext(app, ctx, async (c) =>
@@ -1510,6 +1533,7 @@ describe("018: o pedido é um Dossiê do Bureau", () => {
 			holderId: t.holder.id,
 			createdBy: t.bureauAdmin.userId,
 		});
+		await seedOrderDossier(owner, { orderRef: ownDossier, bureauId: t.bureau.id, clientProfileId: t.client.userId });
 		const notFound = { ok: false, reason: "not_found", status: null };
 
 		expect(
@@ -1549,7 +1573,7 @@ describe("018: o pedido é um Dossiê do Bureau", () => {
 
 		expect(
 			await committed(clientCtx(t), (c) =>
-				reserveRaw(c, online(t, "50.00", "30.00", ownDossier)),
+				reserveWithCatalog(c, online(t, "50.00", "30.00", ownDossier)),
 			),
 		).toEqual({ ok: true, reason: null, status: "reserved" });
 	});
@@ -1561,9 +1585,10 @@ describe("018: o pedido é um Dossiê do Bureau", () => {
 			holderId: t.holder.id,
 			createdBy: t.bureauAdmin.userId,
 		});
+		await seedOrderDossier(owner, { orderRef: dossier, bureauId: t.bureau.id, clientProfileId: null });
 		expect(
 			await committed(operatorCtx(t), (c) =>
-				reserveRaw(c, counter("50.00", "30.00", dossier)),
+				reserveWithCatalog(c, counter("50.00", "30.00", dossier)),
 			),
 		).toEqual({ ok: true, reason: null, status: "reserved" });
 	});
@@ -1843,8 +1868,8 @@ describe("018: estorno de PIX cobre a reserva", () => {
 			amount: "100.00",
 			status: "paid",
 		});
-		// O cliente gastou 70 (reserva + captura): sobram 30 e nada reservado.
-		const order = online(t, "70.00", "50.00");
+		// O cliente gastou 70 (reserva + captura): sobram 30 e nada reservado. Preço igual ao custo: sem valor a repassar.
+		const order = online(t, "70.00", "70.00");
 		await committed(clientCtx(t), (c) => reserve(c, order));
 		await committed(adminCtx(t), (c) => capture(c, order.orderRef));
 

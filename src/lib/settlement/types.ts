@@ -14,12 +14,12 @@ export type SettlementFailure =
 	| "price_below_cost"
 	| "invalid_amount"
 	| "reservation_exceeded"
-	// capture_order: um estorno de PIX retomou a reserva; o pedido foi fechado como "released" (a transação segue).
-	| "reservation_clawed_back"
 	| "already_exists";
 
+// clawedBack: capture_order não capturou. Um estorno de PIX retomou a reserva e o pedido foi fechado como "released"
+// com o que sobrou devolvido. É um sucesso: o fechamento está gravado e o chamador deve confirmar a transação.
 export type SettlementResult =
-	| { ok: true; status: SettlementStatus }
+	| { ok: true; status: SettlementStatus; clawedBack?: true }
 	| { ok: false; reason: SettlementFailure };
 
 export type ReserveOrderInput = {

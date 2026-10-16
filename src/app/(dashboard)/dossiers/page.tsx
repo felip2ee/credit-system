@@ -9,6 +9,7 @@ import {
   DossierStatusBadge,
 } from "@/components/dossiers/dossier-badges";
 import { dossierFilterParam, parseDossierFilter } from "@/components/dossiers/filters";
+import { OrderStateBadge } from "@/components/dossiers/order-state-badge";
 import { maskDocument } from "@/components/dossiers/mask-document";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -51,16 +52,10 @@ export default async function DossiersPage({
       <PageHeader title="Pesquisas" description="Dossiês de consulta por titular e quadro societário">
         {canWrite && (
           <>
-            <Button asChild variant="outline">
-              <Link href="/consultations/new">
-                <Plus className="h-4 w-4" />
-                Consulta PF/PJ
-              </Link>
-            </Button>
             <Button asChild>
               <Link href="/dossiers/new">
                 <Plus className="h-4 w-4" />
-                PJ completo
+                Novo pedido
               </Link>
             </Button>
           </>
@@ -123,6 +118,7 @@ export default async function DossiersPage({
                       {d.kind === "PJ_FULL" && d.report_status === "completed" && (
                         <AptitudeBadge status={d.aptitude_status} />
                       )}
+                      {d.order_state && <OrderStateBadge state={d.order_state} />}
                       <DossierStatusBadge status={d.status} />
                     </summary>
                     <div className="space-y-2 border-t bg-muted/20 px-4 py-3 pl-11">

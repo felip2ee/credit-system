@@ -8,6 +8,7 @@ import { METHOD_LABEL } from "@/components/counter-payments/CounterPaymentForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -34,27 +35,27 @@ interface CounterPaymentListProps {
 
 export function CounterPaymentList({ payments, canWrite }: CounterPaymentListProps) {
   const router = useRouter();
-  const [voidingId, setVoidingId] = useState<string | null>(null);
+  const [voiding, setVoiding] = useState<CounterPaymentRow | null>(null);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const cancel = () => {
-    setVoidingId(null);
+    setVoiding(null);
     setReason("");
     setError(null);
   };
 
   const confirmVoid = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!voidingId) return;
+    if (!voiding) return;
     if (reason.trim() === "") {
       setError("Informe o motivo da anulação.");
       return;
     }
     setError(null);
     startTransition(async () => {
-      const res = await voidCounterPaymentAction({ id: voidingId, reason });
+      const res = await voidCounterPaymentAction({ id: voiding.id, reason });
       if (res.error) {
         setError(res.error);
         return;
@@ -112,9 +113,10 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
                           size="sm"
                           onClick={() => {
                             cancel();
-                            setVoidingId(p.id);
+                            setVoiding(p);
                           }}
                           disabled={isPending}
+                          aria-label={`Anular pagamento de ${dateFormat.format(new Date(p.receivedAt))}, ${formatCurrency(Number(p.amount))}`}
                         >
                           Anular
                         </Button>
@@ -126,33 +128,43 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
             </TableBody>
           </Table>
         )}
-        {canWrite && voidingId && (
-          <form onSubmit={confirmVoid} noValidate className="mt-4 space-y-2 rounded-md border p-4">
-            <Label htmlFor="cp-void-reason">Motivo da anulação</Label>
-            <Input
-              id="cp-void-reason"
-              autoFocus
-              maxLength={500}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              disabled={isPending}
-              aria-invalid={error !== null}
-              aria-describedby={error ? "cp-void-error" : undefined}
-            />
-            {error && (
-              <p id="cp-void-error" role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
+        {canWrite && (
+          <Dialog open={voiding !== null} onClose={cancel} title="Anular pagamento" dismissible={!isPending}>
+            {voiding && (
+              <form onSubmit={confirmVoid} noValidate className="space-y-4">
+                <p className="rounded-md bg-muted p-3 text-sm">
+                  {dateFormat.format(new Date(voiding.receivedAt))} · {METHOD_LABEL[voiding.method]} ·{" "}
+                  <strong>{formatCurrency(Number(voiding.amount))}</strong>
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="cp-void-reason">Motivo da anulação</Label>
+                  <Input
+                    id="cp-void-reason"
+                    autoFocus
+                    maxLength={500}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    disabled={isPending}
+                    aria-invalid={error !== null}
+                    aria-describedby={error ? "cp-void-error" : undefined}
+                  />
+                  {error && (
+                    <p id="cp-void-error" role="alert" className="text-sm text-destructive">
+                      {error}
+                    </p>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={cancel} disabled={isPending}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" size="sm" disabled={isPending || reason.trim() === ""}>
+                    {isPending ? "Anulando..." : "Confirmar anulação"}
+                  </Button>
+                </div>
+              </form>
             )}
-            <div className="flex gap-2">
-              <Button type="submit" size="sm" disabled={isPending || reason.trim() === ""}>
-                {isPending ? "Anulando..." : "Confirmar anulação"}
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={cancel} disabled={isPending}>
-                Cancelar
-              </Button>
-            </div>
-          </form>
+          </Dialog>
         )}
       </CardContent>
     </Card>

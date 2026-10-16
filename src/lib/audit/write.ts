@@ -29,7 +29,7 @@ export interface AuditEvent {
   bureauId?: string | null;
 }
 
-const SENSITIVE_KEY =
+export const SENSITIVE_KEY =
   /(cpf|cnpj|document|documento|password|senha|secret|token|auth_code|authcode|hash|api[_-]?key)/i;
 
 // Mask sensitive-looking values recursively. Strings keep at most a 2-char
