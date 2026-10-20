@@ -42,8 +42,15 @@ function OpinionReadOnly({ title, parecer }: { title: string; parecer: Parecer }
 	);
 }
 
-function MemberResult({ member }: { member: ClientDelivery["members"][number] }) {
+// Só consulta concluída mostra conteúdo; o rodapé técnico (meta) fica só com a equipe.
+function forClient(member: ClientDelivery["members"][number]) {
+	if (member.status !== "completed") return { full: null, view: null };
 	const content = toConsultationContent(member.payload, member.canonical);
+	return { ...content, full: content.full && { ...content.full, meta: [] } };
+}
+
+function MemberResult({ member }: { member: ClientDelivery["members"][number] }) {
+	const content = forClient(member);
 	if (content.full) return <FullConsultationResult view={content.full} />;
 	if (content.view) {
 		return (

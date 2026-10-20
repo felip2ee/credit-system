@@ -128,7 +128,7 @@ export async function getMyDelivery(client: PoolClient, dossierId: string): Prom
 		   left join lateral (
 		     select bp.payload from bureau_payloads bp
 		      where bp.consultation_id = c.id
-		      order by bp.received_at desc limit 1
+		      order by (bp.id is not distinct from r.payload_id) desc, bp.received_at desc limit 1
 		   ) p on true
 		   left join ai_reports a on a.consultation_id = c.id
 		  where c.dossier_id = $1

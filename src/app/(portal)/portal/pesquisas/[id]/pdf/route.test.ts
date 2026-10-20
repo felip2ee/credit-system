@@ -24,10 +24,9 @@ vi.mock("@/lib/db/transaction", () => ({
 vi.mock("@/lib/orders/client-queries", () => ({ getMyDelivery: state.getMyDelivery }));
 vi.mock("@/lib/pdf/letterhead", () => ({ letterheadDataUri: () => "data:image/png;base64,AAAA" }));
 vi.mock("@/lib/pdf/dossier-document", () => ({ renderDossierPdf: state.render }));
-vi.mock("@/lib/consultations/view-model", () => ({ formatSubjectDocument: () => "390.533.447-05" }));
 vi.mock("@/lib/consultations/full-view", () => ({
 	toConsultationContent: (payload: unknown, canonical: { name: string } | null) => ({
-		full: payload ? { marker: "full" } : null,
+		full: payload ? { marker: "full", meta: [{ label: "Versão", value: "1" }] } : null,
 		view: canonical ? { subject: { name: canonical.name, documentLabel: "CPF", location: null } } : null,
 	}),
 }));
@@ -46,8 +45,8 @@ const delivery = (overrides: Record<string, unknown> = {}) => ({
 	},
 	kind: "PJ_FULL",
 	members: [
-		{ consultationId: "c2", type: "PF", name: "Sócio Um", product: null, status: "completed", canonical: { name: "Sócio Um" }, payload: null, opinion: null },
-		{ consultationId: "c1", type: "PJ", name: "Empresa X", product: "Dossiê PJ", status: "completed", canonical: { name: "Empresa X" }, payload: null, opinion: null },
+		{ consultationId: "c2", type: "PF", name: "Sócio Um", product: null, status: "completed", canonical: { name: "Sócio Um", document: { type: "cpf", value: "39053344705" } }, payload: null, opinion: null },
+		{ consultationId: "c1", type: "PJ", name: "Empresa X", product: "Dossiê PJ", status: "completed", canonical: { name: "Empresa X", document: { type: "cnpj", value: "11222333000181" } }, payload: null, opinion: null },
 		{ consultationId: "c3", type: "PF", name: "Sem dado", product: null, status: "error", canonical: null, payload: null, opinion: null },
 	],
 	dossierOpinion: null,
@@ -123,19 +122,38 @@ describe("client pdf route", () => {
 		expect(data.report).toBeNull();
 	});
 
-	it("renders a member that has a payload but no canonical result", async () => {
+	it("renders a completed member that has a payload but no canonical result, without the meta footer", async () => {
 		state.getMyDelivery.mockResolvedValue(
 			delivery({
 				members: [
-					{ consultationId: "c4", type: "PF", name: "Só payload", product: null, status: "payload_incompatible", canonical: null, payload: { mix: {} }, opinion: null },
+					{ consultationId: "c4", type: "PF", name: "Só payload", product: null, status: "completed", canonical: null, payload: { mix: {} }, opinion: null },
 				],
 			}),
 		);
 		await call();
 		const [data] = state.render.mock.calls[0];
 		expect(data.entries).toHaveLength(1);
-		expect(data.entries[0].content).toEqual({ full: { marker: "full" }, view: null });
+		expect(data.entries[0].content).toEqual({ full: { marker: "full", meta: [] }, view: null });
 		expect(data.entries[0].header.cpf).toBe("—");
+	});
+
+	it("skips a member that has a payload but is not completed", async () => {
+		state.getMyDelivery.mockResolvedValue(
+			delivery({
+				members: [
+					{ consultationId: "c4", type: "PF", name: "Incompatível", product: null, status: "payload_incompatible", canonical: null, payload: { mix: {} }, opinion: null },
+				],
+			}),
+		);
+		const res = await call();
+		expect(res.status).toBe(409);
+		expect(state.render).not.toHaveBeenCalled();
+	});
+
+	it("masks the document in each entry header", async () => {
+		await call();
+		const [data] = state.render.mock.calls[0];
+		expect(data.entries.map((e: { header: { cpf: string } }) => e.header.cpf)).toEqual(["**.222.333/0001-**", "***.533.447-**"]);
 	});
 
 	it("passes the dossier opinion to the report block", async () => {

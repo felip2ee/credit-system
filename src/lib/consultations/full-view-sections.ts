@@ -176,7 +176,7 @@ const groupPart = (title: string, group: Rec | null): SectionPart | null =>
 function queryInfoPart(items: unknown[] | null): SectionPart | null {
   const fields = (items ?? []).filter(isRecord).map((item, index): GenericField => {
     const label = typeof item.descricao === "string" ? item.descricao : `Informação ${index + 1}`;
-    return { key: label, label, value: { kind: "text", text: formatScalar("informacao", item.valor) } };
+    return { key: String(index), label, value: { kind: "text", text: formatScalar("informacao", item.valor) } };
   });
   return fieldsPart(labelFor("informacaoConsulta"), fields);
 }

@@ -46,10 +46,11 @@ export async function GET(
 
   const entries: DossierEntry[] = [];
   for (const m of ordered) {
-    const content = toConsultationContent(
-      await loadLatestPayload(session, m.id),
-      await loadCanonicalResult(session, m.id),
-    );
+    const [payload, canonical] = await Promise.all([
+      loadLatestPayload(session, m.id),
+      loadCanonicalResult(session, m.id),
+    ]);
+    const content = toConsultationContent(payload, canonical);
     if (!content.full && !content.view) continue;
 
     const header: FullPdfHeader = {

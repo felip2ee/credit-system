@@ -22,14 +22,18 @@ export async function loadCanonicalResult(
   });
 }
 
-// Payload bruto mais recente da consulta, sob RLS; null se não houver (purgado ou nunca recebido).
+// Payload bruto da consulta, sob RLS: o referenciado por bureau_results.payload_id (o validado) quando há resultado,
+// senão o mais recente. null se não houver (purgado ou nunca recebido).
 export async function loadLatestPayload(
   identity: DbIdentity,
   consultationId: string,
 ): Promise<unknown> {
   return withUserTransaction(identity, async (client: PoolClient) => {
     const { rows } = await client.query<{ payload: unknown }>(
-      "select payload from bureau_payloads where consultation_id = $1 order by received_at desc limit 1",
+      `select bp.payload from bureau_payloads bp
+        left join bureau_results r on r.consultation_id = bp.consultation_id
+        where bp.consultation_id = $1
+        order by (bp.id is not distinct from r.payload_id) desc, bp.received_at desc limit 1`,
       [consultationId],
     );
     return rows[0]?.payload ?? null;

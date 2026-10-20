@@ -32,7 +32,7 @@ Antimetas (seria falha mesmo funcionando):
 
 ### 3.1 Fonte de dados: o payload bruto
 
-A tela, o PDF e a IA leem `bureau_payloads.payload` (jsonb, já salvo em toda consulta concluída). Localização: a linha mais recente de `bureau_payloads` da consulta (`order by received_at desc limit 1`), não via `bureau_results.payload_id`. Assim consultas `payload_incompatible` e `no_data`, que têm payload mas não têm `bureau_results`, também mostram tudo. Não leem `canonical_result` para o conteúdo; `canonical_result` segue para score/risco em listas e para o que já o usa.
+A tela, o PDF e a IA leem `bureau_payloads.payload` (jsonb, já salvo em toda consulta concluída). Localização: a linha apontada por `bureau_results.payload_id` quando a consulta tem resultado (tela, PDF e IA usam o mesmo payload que gerou o canônico); sem `bureau_results`, a linha mais recente de `bureau_payloads` (`order by received_at desc limit 1`). Assim consultas `payload_incompatible` e `no_data` também mostram tudo para a equipe. Não leem `canonical_result` para o conteúdo; `canonical_result` segue para score/risco em listas e para o que já o usa.
 
 Forma do payload: o adapter já aceita `[{mix}]`, `{mix}` ou o objeto `mix` direto (`extractMix`, `src/lib/deps/adapter.ts:95-101`). `toFullConsultationView` reutiliza `extractMix` (exportá-lo). Chaves no nível raiz fora de `mix` (hoje `consultasComplementares`) vão para `meta`.
 
@@ -81,6 +81,7 @@ A tela e o PDF consomem só `FullConsultationView`. Um componente React renderiz
 - Nova migration `db/migrations/NNN_bureau_payloads_client_released.sql`: política `bureau_payloads_client_released` para `select`, espelho exato de `bureau_results_client_released` (`db/migrations/022_orders_delivery.sql:1032-1038`), trocando a junção para `bureau_payloads.consultation_id`.
 - `getMyDelivery` (`src/lib/orders/client-queries.ts`) passa a selecionar o payload mais recente de cada consulta do pedido (lateral join em `bureau_payloads`).
 - A página `src/app/(portal)/portal/pesquisas/[id]/page.tsx`, `delivery-view` e a rota PDF do portal usam `toFullConsultationView`.
+- Portal: só membros com `status = 'completed'` mostram o conteúdo completo; os demais mantêm "Resultado indisponível". O cliente não vê o rodapé "Dados da consulta" (item 11): `linkCompartilhamento` contorna máscara, revogação e purga, e `usuario`/`consultante`/`centroCusto` são internos do Bureau. Decisão da revisão de segurança.
 - PDF do dossiê (equipe e portal): todas as seções de 3.2, por membro, sem limite de páginas. O documento atual (`dossier-document.tsx`) compõe o novo documento de consulta por membro.
 
 ### 3.6 Parecer por IA
@@ -94,7 +95,8 @@ A tela e o PDF consomem só `FullConsultationView`. Um componente React renderiz
 ### 3.7 Segurança e LGPD
 
 - RLS: a equipe já lê `bureau_payloads` (`bureau_payloads_staff`). O cliente só lê com pedido `released` (3.5). Teste de integração cobre: cliente do pedido liberado lê; cliente de pedido não liberado não lê; cliente de outro Bureau não lê.
-- O payload tem CPF completo (`mix.pessoa.data.cpf`). Isso já é assim hoje; nada novo é armazenado. Tela, PDF e IA mascaram `cpf`, `cnpj` e `documento` em qualquer profundidade do payload (chave exata, sem varrer strings livres).
+- O payload tem CPF completo (`mix.pessoa.data.cpf`). Isso já é assim hoje; nada novo é armazenado. Tela, PDF e IA mascaram toda chave que contém `cpf`, `cnpj` ou `documento` (`isDocumentKey`, sem distinção de maiúsculas, ex. `cpfCnpj`, `documentoSocio`) em qualquer profundidade do payload (por chave, sem varrer strings livres).
+- IA: orçamento total de 160.000 caracteres no parecer de grupo, dividido por igual entre empresa e sócios (`pruneCompanyForAi`). `numero`/`complemento` só caem dentro de objetos de endereço (preserva números de processo).
 - Tela e PDF mostram `nomeMae`, telefones, e-mails e endereços completos (dado do próprio titular, lido por quem já o atende hoje).
 - IA (OpenAI, terceiro), decisão do usuário: `pruneForAi` remove `pessoa.nomeMae`, `pessoa.dataNascimento`, `pessoa.identidade`, `pessoa.dadosCadastrais` (endereço residencial), `contatosPreferenciais`, `emails`, `outrosEnderecos` e, em qualquer profundidade, as chaves `telefone`, `telefones`, `email`, `emails`, `endereco`, `enderecos`, `cep` (equivalentes PJ). Esses dados não influenciam o parecer. Tudo o mais vai, com documentos mascarados.
 - Máscara: `formatCPF` não mascara; a máscara é `maskDocumentValue` (`src/lib/mask-document.ts`, movido de `src/components/dossiers/`), mesma saída de `order_mask_document` no SQL.

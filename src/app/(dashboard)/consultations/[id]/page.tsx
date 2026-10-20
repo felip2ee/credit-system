@@ -42,10 +42,11 @@ export default async function ConsultationDetailPage({
   let opinion: OpinionData | null = null;
   if (query.status === "completed" || query.status === "payload_incompatible") {
     // payload_incompatible, ou consulta histórica sem payload nem canônico, cai em incompatibleView.
-    content = toConsultationContent(
-      await loadLatestPayload(session, query.id),
-      await loadCanonicalResult(session, query.id),
-    );
+    const [payload, canonical] = await Promise.all([
+      loadLatestPayload(session, query.id),
+      loadCanonicalResult(session, query.id),
+    ]);
+    content = toConsultationContent(payload, canonical);
 
     const reportRow = await getConsultationReport(session, query.id);
     if (reportRow) {

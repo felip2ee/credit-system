@@ -276,7 +276,7 @@ export async function dossierCanonicalResults(
          left join lateral (
            select bp.payload from bureau_payloads bp
             where bp.consultation_id = c.id
-            order by bp.received_at desc limit 1
+            order by (bp.id is not distinct from r.payload_id) desc, bp.received_at desc limit 1
          ) p on true
         where c.dossier_id = $1 and c.status = 'completed' order by c.created_at`,
 			[dossierId],

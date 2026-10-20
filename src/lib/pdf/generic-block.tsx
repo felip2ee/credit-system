@@ -8,26 +8,44 @@ function isInline(field: GenericField): boolean {
   return field.value.kind === "text";
 }
 
+// Mantém a ordem da tela: campos de texto vizinhos formam uma grade; um campo aninhado fecha a grade.
 function PdfFields({ fields }: { fields: GenericField[] }) {
-  const inline = fields.filter(isInline);
-  const nested = fields.filter((f) => !isInline(f));
+  const groups: (GenericField[] | GenericField)[] = [];
+  for (const field of fields) {
+    const last = groups[groups.length - 1];
+    if (!isInline(field)) groups.push(field);
+    else if (Array.isArray(last)) last.push(field);
+    else groups.push([field]);
+  }
   return (
     <>
-      {inline.length > 0 && (
-        <View style={s.grid}>
-          {inline.map((f) => (
-            <Field key={f.key} label={f.label} value={f.value.kind === "text" ? f.value.text : ""} />
-          ))}
-        </View>
+      {groups.map((group) =>
+        Array.isArray(group) ? (
+          <View key={group[0].key} style={s.grid}>
+            {group.map((f) => (
+              <Field key={f.key} label={f.label} value={f.value.kind === "text" ? f.value.text : ""} />
+            ))}
+          </View>
+        ) : (
+          <View key={group.key}>
+            <Text style={s.ssh}>{group.label}</Text>
+            <PdfGenericValue value={group.value} />
+          </View>
+        ),
       )}
-      {nested.map((f) => (
-        <View key={f.key}>
-          <Text style={s.ssh}>{f.label}</Text>
-          <PdfGenericValue value={f.value} />
-        </View>
-      ))}
     </>
   );
+}
+
+const MAX_WEIGHT = 40;
+
+// Largura de cada coluna proporcional ao maior texto (rótulo ou célula), normalizada para somar 1.
+export function columnWidths(columns: { label: string }[], rows: string[][]): number[] {
+  const weights = columns.map((column, i) =>
+    Math.min(MAX_WEIGHT, Math.max(column.label.length, 3, ...rows.map((row) => (row[i] ?? "").length))),
+  );
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  return weights.map((weight) => weight / total);
 }
 
 // Renderiza qualquer valor genérico da deps; partes recolhidas na tela saem por inteiro no PDF.
@@ -38,8 +56,13 @@ export function PdfGenericValue({ value }: { value: GenericValue }) {
     case "fields":
       return <PdfFields fields={value.fields} />;
     case "table": {
-      const widths = value.columns.map(() => 1 / value.columns.length);
-      return <Table cols={value.columns.map((c) => c.label)} widths={widths} rows={value.rows} />;
+      return (
+        <Table
+          cols={value.columns.map((c) => c.label)}
+          widths={columnWidths(value.columns, value.rows)}
+          rows={value.rows}
+        />
+      );
     }
     case "json":
       return (

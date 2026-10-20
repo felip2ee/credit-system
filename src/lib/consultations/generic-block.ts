@@ -1,17 +1,19 @@
 // Renderizador genérico: qualquer valor do payload da DEPS vira GenericValue (texto, campos, tabela ou JSON).
 // Documentos (cpf/cnpj/documento) saem sempre mascarados, em qualquer profundidade.
 
-import { DOCUMENT_KEYS, isEnvelope, isRecord } from "@/lib/deps/payload-shape";
+import { isDocumentKey, isEnvelope, isRecord } from "@/lib/deps/payload-shape";
 import { maskDocumentValue } from "@/lib/mask-document";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
-import type { GenericBlock, GenericValue } from "@/types/consultation-view";
+import type { GenericBlock, GenericField, GenericValue } from "@/types/consultation-view";
 import { labelFor } from "./labels";
 
 const EMPTY = "—";
 const MAX_FIELDS_DEPTH = 4;
 const CURRENCY_KEY = /valor|total|limite|ticket|renda|gasto/i;
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
-const MIDNIGHT = /^(\d{4})-(\d{2})-(\d{2})T00:00:00(?:\.0+)?$/;
+const MIDNIGHT = /^(\d{4})-(\d{2})-(\d{2})T00:00:00(?:\.0+)?(?:Z|[+-]\d{2}:\d{2})?$/;
+// Identificadores numéricos: dígitos puros, sem separador de milhar.
+const PLAIN_NUMBER_KEY = /^(ano|numero|cep|codigo|id)$/i;
 const DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/;
 const DATE_TIME_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 const NUMBER_FORMAT = new Intl.NumberFormat("pt-BR");
@@ -25,7 +27,7 @@ function maskDeep(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      DOCUMENT_KEYS.has(key) ? (item === null ? null : maskDocumentValue(item)) : maskDeep(item),
+      isDocumentKey(key) ? (item === null ? null : maskDocumentValue(item)) : maskDeep(item),
     ]),
   );
 }
@@ -42,9 +44,10 @@ function formatString(value: string): string {
 
 // A regra de documento vem antes de todas as outras, inclusive para números.
 export function formatScalar(key: string, value: unknown): string {
-  if (DOCUMENT_KEYS.has(key)) return value === null || value === undefined ? EMPTY : maskDocumentValue(value);
+  if (isDocumentKey(key)) return value === null || value === undefined ? EMPTY : maskDocumentValue(value);
   if (value === null || value === undefined) return EMPTY;
   if (typeof value === "boolean") return value ? "Sim" : "Não";
+  if (typeof value === "number" && PLAIN_NUMBER_KEY.test(key)) return String(value);
   if (typeof value === "number") return CURRENCY_KEY.test(key) ? formatCurrency(value) : NUMBER_FORMAT.format(value);
   if (typeof value === "string") return formatString(value);
   return JSON.stringify(maskDeep(value));
@@ -74,10 +77,21 @@ function arrayValue(items: unknown[], key: string): GenericValue {
   return json(items);
 }
 
+// Envelope aninhado com `info` não vazio: dados e uma linha "Nota" (a nota não se perde).
+function withNote(inner: GenericValue, info: string): GenericValue {
+  const note: GenericField = { key: "info", label: "Nota", value: text(info) };
+  if (inner.kind === "fields") return { kind: "fields", fields: [...inner.fields, note] };
+  return { kind: "fields", fields: [{ key: "dados", label: "Dados", value: inner }, note] };
+}
+
 export function toGenericValue(value: unknown, key = "", depth = 1): GenericValue {
   if (isEnvelope(value)) {
-    if (value.data !== null && value.data !== undefined) return toGenericValue(value.data, key, depth);
-    return text(typeof value.message === "string" && value.message.trim() ? value.message : EMPTY);
+    const hasData = value.data !== null && value.data !== undefined;
+    const inner = hasData
+      ? toGenericValue(value.data, key, depth)
+      : text(typeof value.message === "string" && value.message.trim() ? value.message : EMPTY);
+    const info = formatScalar("info", value.info);
+    return info === EMPTY ? inner : withNote(inner, info);
   }
   const isContainer = Array.isArray(value) || isRecord(value);
   if (isContainer && depth > MAX_FIELDS_DEPTH) return json(value);
@@ -101,6 +115,7 @@ export function toGenericBlock(key: string, moduleValue: unknown): GenericBlock 
     key,
     title: labelFor(key),
     note: info === EMPTY ? null : info,
-    value: toGenericValue(moduleValue, key),
+    // A nota do módulo já vai em `note`; o envelope sem `info` evita repeti-la no valor.
+    value: toGenericValue(isEnvelope(moduleValue) ? { ...moduleValue, info: null } : moduleValue, key),
   };
 }

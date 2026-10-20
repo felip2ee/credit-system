@@ -40,10 +40,11 @@ export async function GET(
   if (stored.status !== "completed") return new Response("Consulta sem resultado disponível.", { status: 409 });
   const query: QueryRow = stored;
 
-  const content = toConsultationContent(
-    await loadLatestPayload(session, params.id),
-    await loadCanonicalResult(session, params.id),
-  );
+  const [payload, canonical] = await Promise.all([
+    loadLatestPayload(session, params.id),
+    loadCanonicalResult(session, params.id),
+  ]);
+  const content = toConsultationContent(payload, canonical);
   if (!content.full && !content.view) {
     // payload_incompatible, or a historical consultation not yet backfilled.
     return new Response(

@@ -43,8 +43,6 @@ export const META_KEYS: readonly string[] = [
   "linkCompartilhamento",
 ];
 
-export const DOCUMENT_KEYS: ReadonlySet<string> = new Set(["cpf", "cnpj", "documento"]);
-
 // Chave que pode carregar um documento (`cpf`, `cnpjEmpresa`, `documentoSocio`…): sempre mascarar o valor.
 const DOCUMENT_KEY = /cpf|cnpj|documento/i;
 export const isDocumentKey = (key: string): boolean => DOCUMENT_KEY.test(key);

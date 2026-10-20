@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-  Document,
   Page,
   View,
   Text,
@@ -8,7 +7,6 @@ import {
   Svg,
   Polygon,
   StyleSheet,
-  renderToBuffer,
 } from "@react-pdf/renderer";
 
 import type { ConsultationView } from "@/lib/consultations/view-model";
@@ -441,24 +439,5 @@ export function FullConsultationPage({
         Documento gerado automaticamente · Reino do Crédito
       </Text>
     </Page>
-  );
-}
-
-function FullDocument(props: FullConsultationPageProps) {
-  return (
-    <Document>
-      <FullConsultationPage {...props} />
-    </Document>
-  );
-}
-
-export function renderFullConsultationPdf(
-  view: ConsultationView,
-  header: FullPdfHeader,
-  letterhead: string,
-  opinion?: OpinionForPdf | null
-): Promise<Buffer> {
-  return renderToBuffer(
-    <FullDocument view={view} header={header} letterhead={letterhead} opinion={opinion} />
   );
 }
