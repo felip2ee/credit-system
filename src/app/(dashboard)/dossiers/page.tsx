@@ -10,7 +10,7 @@ import {
 } from "@/components/dossiers/dossier-badges";
 import { dossierFilterParam, parseDossierFilter } from "@/components/dossiers/filters";
 import { OrderStateBadge } from "@/components/dossiers/order-state-badge";
-import { maskDocument } from "@/components/dossiers/mask-document";
+import { maskDocument } from "@/lib/mask-document";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
