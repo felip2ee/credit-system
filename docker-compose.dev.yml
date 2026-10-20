@@ -15,6 +15,7 @@ services:
       - postgres_data:/var/lib/postgresql
       - ./docker/postgres/init/001-users.sh:/docker-entrypoint-initdb.d/001-users.sh:ro
       - ./docker/postgres/dev-init/002-dev-marker.sh:/docker-entrypoint-initdb.d/002-dev-marker.sh:ro
+      - ./docker/postgres/dev-init/003-test-database.sh:/docker-entrypoint-initdb.d/003-test-database.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d credit_system"]
       interval: 5s

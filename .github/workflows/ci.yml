@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_OWNER_URL: postgres://postgres:test@localhost:54329/credit_system
-      TEST_DATABASE_URL: postgres://app_runtime:test@localhost:54329/credit_system
-      TEST_DATABASE_OWNER_URL: postgres://postgres:test@localhost:54329/credit_system
-      TEST_DATABASE_DISPATCH_URL: postgres://app_dispatch:test@localhost:54329/credit_system
+      TEST_DATABASE_URL: postgres://app_runtime:test@localhost:54329/credit_system_test
+      TEST_DATABASE_OWNER_URL: postgres://postgres:test@localhost:54329/credit_system_test
+      TEST_DATABASE_DISPATCH_URL: postgres://app_dispatch:test@localhost:54329/credit_system_test
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +34,7 @@ jobs:
       - run: npm run ops:test
       - name: Migrate (twice - second run must be a no-op)
         run: npm run db:migrate && npm run db:migrate | tee /tmp/m2 && grep -q "database schema is current" /tmp/m2
+      - run: npm run db:test:migrate
       - run: npx vitest run integration.test
       - name: Build
         env:

@@ -87,3 +87,14 @@ Contagem bruta (com brancos e comentários): 27 arquivos acima de 350 linhas, 7 
 3. Compare `AGENTS.md` com `templates/AGENTS.md.template` e os 9 docs com `templates/project-docs/manifest.json`. Edite só o que mudou.
 4. Atualize skills: `npx --yes skills@latest update --project --yes`.
 5. Rode `npm run check` de novo e atualize as tabelas deste arquivo.
+
+## Banco de testes
+
+Os testes de integração usam o banco `credit_system_test`, nunca o `credit_system` de dev. Um volume novo já cria o banco (`docker/postgres/dev-init/003-test-database.sh`). Num volume antigo, crie o banco uma vez:
+
+```bash
+docker compose -f docker-compose.dev.yml exec -T postgres sh < docker/postgres/dev-init/003-test-database.sh
+npm run db:test:migrate
+```
+
+`npm test` roda `db:test:migrate` antes (`pretest`). O guard de `src/test/db-env.ts` recusa nomes sem `_test`; `TEST_DATABASE_ALLOW_ANY_NAME=1` desliga a recusa.

@@ -37,7 +37,7 @@ Quando rodar:
 ## Estratégia de testes
 
 - **Unitários:** Vitest, colocados ao lado do código (`src/**/*.test.ts`). Cobrem regras de negócio, ramificações, dinheiro, segurança e regressões.
-- **Integração:** `*.integration.test.ts`, com Postgres real. Em dev: `127.0.0.1:54329`. Roles: `app_runtime` (`TEST_DATABASE_URL`) e dono (`TEST_DATABASE_OWNER_URL`). Algumas suítes que disputam o mesmo lock rodam em série.
+- **Integração:** `*.integration.test.ts`, com Postgres real. Em dev: `127.0.0.1:54329`. Banco dedicado `credit_system_test` (nunca o `credit_system` de dev; o guard recusa nomes sem `_test`; `npm test` migra antes via `pretest`). Roles: `app_runtime` (`TEST_DATABASE_URL`) e dono (`TEST_DATABASE_OWNER_URL`). Algumas suítes que disputam o mesmo lock rodam em série.
 - **Scripts:** `node --test` (migrate, reset, cron de notificações) e `python -m unittest` (setup de produção).
 - **E2E:** Playwright em `e2e/`: `login`, `portal-order`, `counter-order` e `auth`. `npm run test:e2e` sobe o app pelo `webServer` e semeia o banco (`e2e/global-setup.ts`). A CI roda depois de `npm run db:reset`. Os fluxos param em `ready`: o e2e não chama a DEPS nem a OpenAI (D8 do spec do M7). A execução da consulta fica nos testes de integração, com cliente falso.
 - Teste componentes só para renderização condicional, validação de formulário, estado ou acessibilidade. UI apenas visual não recebe teste.
