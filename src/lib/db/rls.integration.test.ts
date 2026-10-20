@@ -2192,10 +2192,11 @@ describe("orders and delivery (022)", () => {
 					consultations: await count("select count(*) as n from consultations where id = $1", rows.consultation),
 					results: await count("select count(*) as n from bureau_results where consultation_id = $1", rows.consultation),
 					reports: await count("select count(*) as n from ai_reports where consultation_id = $1", rows.consultation),
+					payloads: await count("select count(*) as n from bureau_payloads where consultation_id = $1", rows.consultation),
 				};
 			});
-		const none = { dossiers: 0, consultations: 0, results: 0, reports: 0 };
-		const all = { dossiers: 1, consultations: 1, results: 1, reports: 1 };
+		const none = { dossiers: 0, consultations: 0, results: 0, reports: 0, payloads: 0 };
+		const all = { dossiers: 1, consultations: 1, results: 1, reports: 1, payloads: 1 };
 
 		await setState(ownOrder, "completed");
 		expect(await deliveries(ctxOf(T.client))).toEqual(none);
@@ -2210,12 +2211,12 @@ describe("orders and delivery (022)", () => {
 		expect(await deliveries(ctxOf(T.client))).toEqual(none);
 	});
 
-	it("client reads zero third party holders, payloads, scr rows and costs", async () => {
+	it("client reads zero third party holders, other payloads, scr rows and costs", async () => {
 		await setState(ownOrder, "released");
 		try {
 			expect(await countAs(ctxOf(T.client), "select count(*) as n from holders where id = $1", [thirdPartyHolder])).toBe(0);
 			expect(await countAs(ctxOf(T.client), "select count(*) as n from holders where id = $1", [T.holder.id])).toBe(1);
-			expect(await countAs(ctxOf(T.client), "select count(*) as n from bureau_payloads")).toBe(0);
+			expect(await countAs(ctxOf(T.client), "select count(*) as n from bureau_payloads where consultation_id not in (select id from consultations where dossier_id = $1)", [ownOrder])).toBe(0);
 			expect(await countAs(ctxOf(T.client), "select count(*) as n from scr_authorizations")).toBe(0);
 			expect(await countAs(ctxOf(T.client), "select count(*) as n from order_settlement_cost($1)", [ownOrder])).toBe(0);
 		} finally {

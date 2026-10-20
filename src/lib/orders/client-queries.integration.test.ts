@@ -221,7 +221,7 @@ describe("getMyDelivery", () => {
 			kind: "PF",
 			order: { dossierId: id, state: "released", price: "50.00" },
 			dossierOpinion: null,
-			members: [{ type: "PF", status: "completed", canonical: { marker: "canonical" }, opinion: null }],
+			members: [{ type: "PF", status: "completed", canonical: { marker: "canonical" }, payload: {}, opinion: null }],
 		});
 		expect(delivery?.members).toHaveLength(1);
 		expect(await mine(other)).toBeNull();

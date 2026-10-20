@@ -269,9 +269,15 @@ export async function dossierCanonicalResults(
 		const { rows } = await client.query<{
 			type: EntityKind;
 			canonical_result: CanonicalBureauResult;
+			payload: unknown;
 		}>(
-			`select c.type, r.canonical_result
+			`select c.type, r.canonical_result, p.payload
          from consultations c join bureau_results r on r.consultation_id = c.id
+         left join lateral (
+           select bp.payload from bureau_payloads bp
+            where bp.consultation_id = c.id
+            order by bp.received_at desc limit 1
+         ) p on true
         where c.dossier_id = $1 and c.status = 'completed' order by c.created_at`,
 			[dossierId],
 		);

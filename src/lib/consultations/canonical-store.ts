@@ -21,3 +21,17 @@ export async function loadCanonicalResult(
       : null;
   });
 }
+
+// Payload bruto mais recente da consulta, sob RLS; null se não houver (purgado ou nunca recebido).
+export async function loadLatestPayload(
+  identity: DbIdentity,
+  consultationId: string,
+): Promise<unknown> {
+  return withUserTransaction(identity, async (client: PoolClient) => {
+    const { rows } = await client.query<{ payload: unknown }>(
+      "select payload from bureau_payloads where consultation_id = $1 order by received_at desc limit 1",
+      [consultationId],
+    );
+    return rows[0]?.payload ?? null;
+  });
+}

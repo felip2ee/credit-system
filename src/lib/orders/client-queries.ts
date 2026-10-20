@@ -91,6 +91,7 @@ export type ClientDelivery = {
 		product: string | null;
 		status: string;
 		canonical: CanonicalBureauResult | null;
+		payload: unknown; // null quando não há linha em bureau_payloads
 		opinion: Parecer | null;
 	}[];
 	dossierOpinion: Parecer | null;
@@ -116,13 +117,19 @@ export async function getMyDelivery(client: PoolClient, dossierId: string): Prom
 		product: string | null;
 		status: string;
 		canonical_result: CanonicalBureauResult | null;
+		payload: unknown;
 		full_report: Parecer | null;
 	}>(
 		`select c.id, c.type::text as type, c.document_name, c.product, c.status::text as status,
-		        r.canonical_result, a.full_report
+		        r.canonical_result, p.payload, a.full_report
 		   from consultations c
 		   join dossiers d on d.id = c.dossier_id
 		   left join bureau_results r on r.consultation_id = c.id
+		   left join lateral (
+		     select bp.payload from bureau_payloads bp
+		      where bp.consultation_id = c.id
+		      order by bp.received_at desc limit 1
+		   ) p on true
 		   left join ai_reports a on a.consultation_id = c.id
 		  where c.dossier_id = $1
 		  order by (c.holder_id = d.holder_id) desc, c.created_at, c.id`,
@@ -138,6 +145,7 @@ export async function getMyDelivery(client: PoolClient, dossierId: string): Prom
 			product: m.product,
 			status: m.status,
 			canonical: m.canonical_result,
+			payload: m.payload ?? null,
 			opinion: head.with_ai ? m.full_report : null,
 		})),
 		dossierOpinion: head.with_ai ? head.dossier_opinion : null,
