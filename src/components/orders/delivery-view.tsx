@@ -1,11 +1,12 @@
 import { Download } from "lucide-react";
 
 import { ConsultationResult, ConsultationUnavailable } from "@/components/consultations/consultation-result";
+import { FullConsultationResult } from "@/components/consultations/full-consultation-result";
 import { MarkdownReport } from "@/components/shared/markdown-report";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { toConsultationView } from "@/lib/consultations/view-model";
+import { FULL_DATA_UNAVAILABLE, toConsultationContent } from "@/lib/consultations/full-view";
 import type { ClientDelivery } from "@/lib/orders/client-queries";
 import type { Parecer } from "@/types/ai";
 
@@ -41,6 +42,20 @@ function OpinionReadOnly({ title, parecer }: { title: string; parecer: Parecer }
 	);
 }
 
+function MemberResult({ member }: { member: ClientDelivery["members"][number] }) {
+	const content = toConsultationContent(member.payload, member.canonical);
+	if (content.full) return <FullConsultationResult view={content.full} />;
+	if (content.view) {
+		return (
+			<>
+				<p className="text-sm text-muted-foreground">{FULL_DATA_UNAVAILABLE}</p>
+				<ConsultationResult view={content.view} />
+			</>
+		);
+	}
+	return <ConsultationUnavailable consultationId={member.consultationId} message="Resultado indisponível para esta consulta." />;
+}
+
 export function DeliveryView({ delivery }: { delivery: ClientDelivery }) {
 	const { order, members, dossierOpinion } = delivery;
 	return (
@@ -58,11 +73,7 @@ export function DeliveryView({ delivery }: { delivery: ClientDelivery }) {
 					<h2 className="text-lg font-semibold">
 						{m.name ?? "Consulta"} <span className="text-sm font-normal text-muted-foreground">({m.type})</span>
 					</h2>
-					{m.canonical ? (
-						<ConsultationResult view={toConsultationView(m.canonical)} />
-					) : (
-						<ConsultationUnavailable consultationId={m.consultationId} message="Resultado indisponível para esta consulta." />
-					)}
+					<MemberResult member={m} />
 					{m.opinion && <OpinionReadOnly title="Parecer de IA" parecer={m.opinion} />}
 				</section>
 			))}

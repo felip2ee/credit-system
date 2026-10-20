@@ -8,6 +8,7 @@ import {
   ConsultationResult,
   ConsultationUnavailable,
 } from "@/components/consultations/consultation-result";
+import { FullConsultationResult } from "@/components/consultations/full-consultation-result";
 import {
   ConsultationOpinion,
   type OpinionData,
@@ -17,14 +18,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
-import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { getConsultation, getConsultationReport } from "@/lib/consultations/queries";
-import {
-  toConsultationView,
-  incompatibleView,
-  type ConsultationView,
-  type IncompatibleView,
-} from "@/lib/consultations/view-model";
+import { FULL_DATA_UNAVAILABLE, toConsultationContent, type ConsultationContent } from "@/lib/consultations/full-view";
+import { incompatibleView } from "@/lib/consultations/view-model";
 import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
 
 export default async function ConsultationDetailPage({
@@ -41,16 +38,14 @@ export default async function ConsultationDetailPage({
     query.type === "PJ" ? formatCNPJ(query.document) : formatCPF(query.document);
 
   // `payload_incompatible` não faz parte do enum tipado de `queries` (Tasks 9/11).
-  let view: ConsultationView | IncompatibleView | null = null;
+  let content: ConsultationContent | null = null;
   let opinion: OpinionData | null = null;
   if (query.status === "completed" || query.status === "payload_incompatible") {
-    const canonical = await loadCanonicalResult(session, query.id);
-    if (canonical) {
-      view = toConsultationView(canonical);
-    } else {
-      // payload_incompatible, ou consulta histórica ainda não migrada (Task 14).
-      view = incompatibleView(query.id);
-    }
+    // payload_incompatible, ou consulta histórica sem payload nem canônico, cai em incompatibleView.
+    content = toConsultationContent(
+      await loadLatestPayload(session, query.id),
+      await loadCanonicalResult(session, query.id),
+    );
 
     const reportRow = await getConsultationReport(session, query.id);
     if (reportRow) {
@@ -115,14 +110,16 @@ export default async function ConsultationDetailPage({
         </Card>
       )}
 
-      {view &&
-        (view.incompatible ? (
-          <ConsultationUnavailable
-            consultationId={view.consultationId}
-            message={view.message}
-          />
+      {content &&
+        (content.full ? (
+          <FullConsultationResult view={content.full} />
+        ) : content.view ? (
+          <>
+            <p className="text-sm text-muted-foreground">{FULL_DATA_UNAVAILABLE}</p>
+            <ConsultationResult view={content.view} />
+          </>
         ) : (
-          <ConsultationResult view={view} />
+          <ConsultationUnavailable {...incompatibleView(query.id)} />
         ))}
 
       {query.status === "completed" && (
