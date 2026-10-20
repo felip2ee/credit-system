@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { generateParecer } from "@/lib/ai/opinion";
 import { saveConsultationOpinion } from "@/lib/ai/persist";
 import { getAiPrompt } from "@/actions/settings";
-import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { getRequiredSession } from "@/lib/auth/session";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { hasPermission } from "@/lib/db/permissions";
@@ -30,8 +30,9 @@ export async function generateOpinion(queryId: string, force = false): Promise<G
   const canonical = await loadCanonicalResult(identity, queryId);
   if (!canonical) return { error: "Resultado can\u00f4nico da consulta n\u00e3o encontrado." };
   try {
+    const payload = await loadLatestPayload(identity, queryId);
     const prompt = await getAiPrompt(query.type === "PJ" ? "pj" : "pf");
-    const { parecer, model } = await generateParecer({ type: query.type, dataAnalise: new Date().toISOString().slice(0, 10), canonical }, prompt);
+    const { parecer, model } = await generateParecer({ type: query.type, dataAnalise: new Date().toISOString().slice(0, 10), canonical, payload }, prompt);
     await withUserTransaction(identity, (client) =>
       saveConsultationOpinion(client, identity, queryId, query.holder_id, { status: "completed", parecer, model, documentName: query.document_name }));
   } catch (error) {
