@@ -98,7 +98,7 @@ describe("toFullConsultationView", () => {
   it("prefixes the detail rows of a modality", () => {
     const scr = toFullConsultationView(fixture)!.sections.find((s) => s.id === "scr")!;
     const loans = scr.parts.find((p) => p.title === "Empréstimos")!.value;
-    expect(loans.kind === "table" && loans.rows.filter((r) => r[0]?.startsWith("  — ")).length).toBe(5);
+    expect(loans.kind === "table" && loans.rows.filter((r) => r.cells[0]?.startsWith("  — ")).length).toBe(5);
   });
 
   it("shows restrictions with the deps message when there is no data", () => {
@@ -130,6 +130,22 @@ describe("toFullConsultationView", () => {
     expect(smart).toContain("r1");
     expect(scr).toContain("Campo novo");
     expect(scr).toContain('"5"');
+  });
+
+  it("never renders identifiers, JSON cells or empty leftovers in the Smart card", () => {
+    const smart = toFullConsultationView(fixture)!.sections.find((s) => s.id === "smart")!;
+    const parecer = smart.parts.find((p) => p.title === "Resultado do parecer")!.value;
+    if (parecer.kind !== "table") throw new Error("expected table");
+    const labels = parecer.columns.map((c) => c.label);
+    expect(labels).not.toContain("ID");
+    expect(labels).not.toContain("Regras");
+    expect(parecer.rows.some((r) => r.nested.some((n) => n.label === "Regras" && n.value.kind === "table"))).toBe(true);
+    const history = smart.parts.find((p) => p.title === "Histórico de classificação")!.value;
+    const cells = [parecer, history].flatMap((t) => (t.kind === "table" ? t.rows.flatMap((r) => r.cells) : []));
+    expect(cells.filter((c) => /^(\[\{|\{")/.test(c) || c.includes("[{"))).toEqual([]);
+    const others = smart.parts.find((p) => p.title === "Outros campos");
+    const keys = others?.value.kind === "fields" ? others.value.fields.map((f) => f.key) : [];
+    for (const noise of ["success", "message", "errosMetricas", "dadosComplementares"]) expect(keys).not.toContain(noise);
   });
 
   it("shows the info of a typed module as a Nota part", () => {

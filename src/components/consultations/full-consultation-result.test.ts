@@ -10,9 +10,12 @@ describe("FullConsultationResult", () => {
   it("shows the known cards", () => {
     for (const t of ["Parecer Smart", "SCR (Banco Central)", "Renda presumida", "Contatos e endereços"]) expect(html).toContain(t);
   });
-  it("collapses the Smart history and lists missing modules", () => {
+  it("collapses the Smart history", () => {
     expect(html).toContain("<details");
-    expect(html).toContain("Sem informação:");
+  });
+  it("never shows bureau metadata, missing modules or identifiers", () => {
+    for (const leak of ["Dados da consulta", "Sem informação", "deps.com.br", "Smart PF 002"]) expect(html).not.toContain(leak);
+    expect(html).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/i);
   });
   it("never renders the full CPF", () => {
     expect(html).not.toContain("52998224725");

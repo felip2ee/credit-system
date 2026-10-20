@@ -3,7 +3,7 @@
 
 import { isEnvelope, isMissingModule, isRecord } from "@/lib/deps/payload-shape";
 import type { FullSection, FullSectionId, GenericField, GenericValue, SectionPart } from "@/types/consultation-view";
-import { formatScalar, toGenericTable, toGenericValue } from "./generic-block";
+import { formatScalar, toGenericTable, toGenericValue, visibleEntries } from "./generic-block";
 import { labelFor } from "./labels";
 
 type Rec = Record<string, unknown>;
@@ -85,15 +85,17 @@ const genericPart = (title: string, items: unknown[] | null, collapsed: boolean)
   items ? { title, value: toGenericValue(items, title, 2), collapsed } : null;
 
 function restFields(rest: Rec, depth = 2): GenericField[] {
-  return Object.entries(rest).map(([key, item]) => ({ key, label: labelFor(key), value: toGenericValue(item, key, depth) }));
+  return visibleEntries(rest).map(([key, item]) => ({ key, label: labelFor(key), value: toGenericValue(item, key, depth) }));
 }
 
 // "Outros campos": o resto do objeto raiz mais o resto de cada objeto interno já lido (agrupado pelo nome dele).
+// Vazios, identificadores e sobras de envelope ficam de fora; sem campos, a parte some.
 function othersPart(rest: Rec, nested: Record<string, Rec> = {}): SectionPart | null {
   const fields = restFields(rest);
   for (const [name, innerRest] of Object.entries(nested)) {
-    if (Object.keys(innerRest).length === 0) continue;
-    fields.push({ key: name, label: labelFor(name), value: { kind: "fields", fields: restFields(innerRest, 3) } });
+    const innerFields = restFields(innerRest, 3);
+    if (innerFields.length === 0) continue;
+    fields.push({ key: name, label: labelFor(name), value: { kind: "fields", fields: innerFields } });
   }
   return fieldsPart(OTHER_FIELDS, fields);
 }

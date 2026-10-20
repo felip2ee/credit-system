@@ -41,7 +41,7 @@ export function FullConsultationResult({ view }: { view: FullConsultationView })
       {view.generic.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Outros dados da deps</CardTitle>
+            <CardTitle className="text-lg">Outros dados</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {view.generic.map((block) => (
@@ -53,15 +53,6 @@ export function FullConsultationResult({ view }: { view: FullConsultationView })
             ))}
           </CardContent>
         </Card>
-      )}
-      {view.missing.length > 0 && (
-        <p className="text-sm text-muted-foreground">Sem informação: {view.missing.map((m) => m.label).join(", ")}</p>
-      )}
-      {view.meta.length > 0 && (
-        <div className="space-y-1 text-xs text-muted-foreground">
-          <h3 className="font-medium">Dados da consulta</h3>
-          <GenericValueView value={{ kind: "fields", fields: view.meta }} />
-        </div>
       )}
     </div>
   );

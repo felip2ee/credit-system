@@ -58,21 +58,64 @@ const json = (value: unknown): GenericValue => ({ kind: "json", text: JSON.strin
 const isPrimitive = (value: unknown): boolean =>
   value === null || ["string", "number", "boolean"].includes(typeof value);
 
-// Colunas nomeadas primeiro, na ordem dada; depois toda outra chave das linhas (união, ordem da primeira aparição).
-export function toGenericTable(rows: Row[], columns: readonly string[] = []): GenericValue {
+// Chave de identificador interno da deps (`id`, `politicaId`, `historicoConsultaId`…): nunca é exibida.
+export const isIdentifierKey = (key: string): boolean => key === "id" || /Id$/.test(key);
+
+// Vazio = null/undefined/"", array sem conteúdo ou registro sem entradas visíveis.
+export function isEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.every(isEmptyValue);
+  if (isRecord(value)) return visibleEntries(value).length === 0;
+  return false;
+}
+
+// Entradas de um registro que merecem exibição: sem identificadores, sem vazios e sem o resto do
+// envelope (`success`/`message`) quando a mensagem é vazia.
+export function visibleEntries(record: Row): [string, unknown][] {
+  const dropSuccess = isEmptyValue(record.message);
+  return Object.entries(record).filter(
+    ([key, item]) => !isIdentifierKey(key) && !(key === "success" && dropSuccess) && !isEmptyValue(item),
+  );
+}
+
+// Registro ou array com registros: não cabe numa célula, vira sub-bloco sob a linha.
+const isNested = (value: unknown): boolean =>
+  isRecord(value) ? !isEmptyValue(value) : Array.isArray(value) && !isEmptyValue(value) && !value.every(isPrimitive);
+
+function cellText(key: string, value: unknown): string {
+  if (isEmptyValue(value) || isNested(value)) return EMPTY;
+  return Array.isArray(value) ? value.map((item) => formatScalar(key, item)).join(", ") : formatScalar(key, value);
+}
+
+// Colunas nomeadas primeiro, na ordem dada; depois toda outra chave escalar das linhas (união, ordem da primeira aparição).
+// Valores aninhados vão para `nested`; a coluna some quando todas as linhas estão aninhadas ou vazias
+// (coluna nomeada só some se tiver aninhados).
+export function toGenericTable(rows: Row[], columns: readonly string[] = [], depth = 2): GenericValue {
+  const valueOf = (row: Row, key: string): unknown => (Object.hasOwn(row, key) ? row[key] : undefined);
   const union = rows.flatMap((row) => Object.keys(row)).filter((key, index, all) => all.indexOf(key) === index);
-  const keys = [...columns, ...union.filter((key) => !columns.includes(key))];
+  const named = columns.filter((key) => !isIdentifierKey(key));
+  const keys = [...named, ...union.filter((key) => !named.includes(key) && !isIdentifierKey(key))].filter((key) => {
+    const values = rows.map((row) => valueOf(row, key));
+    const hidden = values.every((value) => isNested(value) || isEmptyValue(value));
+    return !(hidden && (values.some(isNested) || !named.includes(key)));
+  });
   return {
     kind: "table",
     columns: keys.map((key) => ({ key, label: labelFor(key) })),
-    rows: rows.map((row) => keys.map((key) => formatScalar(key, Object.hasOwn(row, key) ? row[key] : undefined))),
+    rows: rows.map((row) => ({
+      cells: keys.map((key) => cellText(key, valueOf(row, key))),
+      nested: Object.entries(row)
+        .filter(([key, item]) => !isIdentifierKey(key) && isNested(item))
+        .map(([key, item]) => ({ label: labelFor(key), value: toGenericValue(item, key, depth + 1) })),
+    })),
   };
 }
 
-function arrayValue(items: unknown[], key: string): GenericValue {
+function arrayValue(items: unknown[], key: string, depth: number): GenericValue {
   if (items.length === 0) return text("Nenhum");
   const rows = items.filter(isRecord);
-  if (rows.length === items.length) return toGenericTable(rows);
+  if (rows.length === items.length) return toGenericTable(rows, [], depth);
   if (items.every(isPrimitive)) return text(items.map((item) => formatScalar(key, item)).join(", "));
   return json(items);
 }
@@ -95,11 +138,13 @@ export function toGenericValue(value: unknown, key = "", depth = 1): GenericValu
   }
   const isContainer = Array.isArray(value) || isRecord(value);
   if (isContainer && depth > MAX_FIELDS_DEPTH) return json(value);
-  if (Array.isArray(value)) return arrayValue(value, key);
+  if (Array.isArray(value)) return arrayValue(value, key, depth);
   if (isRecord(value)) {
+    const entries = visibleEntries(value);
+    if (entries.length === 0) return text(EMPTY);
     return {
       kind: "fields",
-      fields: Object.entries(value).map(([name, item]) => ({
+      fields: entries.map(([name, item]) => ({
         key: name,
         label: labelFor(name),
         value: toGenericValue(item, name, depth + 1),

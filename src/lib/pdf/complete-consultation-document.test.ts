@@ -43,6 +43,18 @@ describe("renderCompleteConsultationPdf", () => {
       expect(text, title).toContain(title);
     }
   }, 30_000);
+  it("prints no bureau metadata and no missing-modules line", async () => {
+    const pdf = await renderCompleteConsultationPdf(toConsultationContent(fixture, null), header, LETTERHEAD);
+    const text = pdfText(pdf);
+    for (const leak of ["deps.com.br", "Smart PF 002", "Dados da consulta", "Sem informa"]) expect(text, leak).not.toContain(leak);
+    expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/i);
+  }, 30_000);
+  it("prints nested records as sub-tables under their row", async () => {
+    const pdf = await renderCompleteConsultationPdf(toConsultationContent(fixture, null), header, LETTERHEAD);
+    const text = pdfText(pdf);
+    for (const label of ["Regras", "Positivas", "Negativas"]) expect(text, label).toContain(label);
+    expect(text).not.toContain("[{");
+  }, 30_000);
   it("renders the full payload view", async () => {
     const pdf = await renderCompleteConsultationPdf(toConsultationContent(fixture, null), header, LETTERHEAD);
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");

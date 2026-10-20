@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fixture from "@/lib/deps/__fixtures__/smart-pf-002.json";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
-import { formatScalar, toGenericBlock, toGenericValue } from "./generic-block";
+import { formatScalar, isIdentifierKey, toGenericBlock, toGenericTable, toGenericValue } from "./generic-block";
 import { labelFor } from "./labels";
 
 describe("labelFor", () => {
@@ -143,14 +143,14 @@ describe("toGenericValue", () => {
         { key: "b", label: "B" },
       ],
       rows: [
-        ["1", "—"],
-        ["3", "2"],
+        { cells: ["1", "—"], nested: [] },
+        { cells: ["3", "2"], nested: [] },
       ],
     });
   });
   it("masks a document column inside a table", () => {
     const v = toGenericValue([{ documento: "52998224725", nome: "X" }]);
-    expect(v).toMatchObject({ kind: "table", rows: [["***.982.247-**", "X"]] });
+    expect(v).toMatchObject({ kind: "table", rows: [{ cells: ["***.982.247-**", "X"], nested: [] }] });
   });
   it("joins primitives and says Nenhum for an empty array", () => {
     expect(toGenericValue(["a", "b"])).toEqual({ kind: "text", text: "a, b" });
@@ -173,5 +173,86 @@ describe("toGenericValue", () => {
     const v = toGenericValue([{ cpf: "52998224725" }, "x"]);
     expect(v.kind).toBe("json");
     expect(JSON.stringify(v)).not.toContain("52998224725");
+  });
+});
+
+describe("identifier keys (R2)", () => {
+  it.each([
+    ["id", true],
+    ["politicaId", true],
+    ["historicoConsultaId", true],
+    ["pontuacaoId", true],
+    ["valid", false],
+    ["identidade", false],
+    ["nome", false],
+  ])("isIdentifierKey(%s) is %s", (key, expected) => expect(isIdentifierKey(key)).toBe(expected));
+
+  it("omits identifiers from fields, table columns and nested values", () => {
+    const value = { id: "u1", nome: "X", politicaId: "u2", filhos: [{ id: "u3", historicoConsultaId: "u4", nome: "Y" }] };
+    const text = JSON.stringify(toGenericValue(value));
+    for (const leak of ["u1", "u2", "u3", "u4"]) expect(text).not.toContain(leak);
+    expect(text).toContain('"X"');
+    expect(text).toContain('"Y"');
+  });
+});
+
+describe("empty entries and envelope leftovers (R3)", () => {
+  it("omits null, blank and empty entries from generic fields", () => {
+    const v = toGenericValue({ a: 1, b: null, c: "", d: [], e: {}, f: [null], g: { h: null } });
+    expect(v).toEqual({ kind: "fields", fields: [{ key: "a", label: "A", value: { kind: "text", text: "1" } }] });
+  });
+  it("keeps false and 0", () => {
+    const v = toGenericValue({ a: false, b: 0 });
+    expect(v.kind === "fields" && v.fields.map((f) => f.key)).toEqual(["a", "b"]);
+  });
+  it("drops success and an empty message, keeps a filled one", () => {
+    const empty = toGenericValue({ success: true, message: null, valor: 1 });
+    expect(empty.kind === "fields" && empty.fields.map((f) => f.key)).toEqual(["valor"]);
+    const filled = toGenericValue({ success: false, message: "Falhou", valor: 1 });
+    expect(filled.kind === "fields" && filled.fields.map((f) => f.key)).toEqual(["success", "message", "valor"]);
+  });
+  it("says — for a record with nothing to show", () => {
+    expect(toGenericValue({ a: null, id: "x" })).toEqual({ kind: "text", text: "—" });
+  });
+});
+
+describe("table cells never hold JSON (R4/R5)", () => {
+  const rows = [
+    { nome: "A", regras: [{ id: "r1", descricao: "d1", atendido: true, motivo: "", formula: null }], extra: 1 },
+    { nome: "B", regras: [{ id: "r2", descricao: "d2", atendido: false, motivo: "", formula: null }], extra: 2 },
+  ];
+  const table = toGenericTable(rows, ["nome"]);
+
+  it("moves arrays of records to nested sub-tables and drops the column", () => {
+    expect(table.kind === "table" && table.columns.map((c) => c.key)).toEqual(["nome", "extra"]);
+    if (table.kind !== "table") throw new Error("expected table");
+    expect(table.rows[0].cells).toEqual(["A", "1"]);
+    const [nested] = table.rows[0].nested;
+    expect(nested.label).toBe("Regras");
+    expect(nested.value).toEqual({
+      kind: "table",
+      columns: [
+        { key: "descricao", label: "Descrição" },
+        { key: "atendido", label: "Atendido" },
+      ],
+      rows: [{ cells: ["d1", "Sim"], nested: [] }],
+    });
+  });
+  it("nests a plain record as fields and keeps arrays of primitives inline", () => {
+    const t = toGenericTable([{ nome: "A", dados: { x: 1 }, tags: ["a", "b"] }]);
+    if (t.kind !== "table") throw new Error("expected table");
+    expect(t.columns.map((c) => c.key)).toEqual(["nome", "tags"]);
+    expect(t.rows[0].cells).toEqual(["A", "a, b"]);
+    expect(t.rows[0].nested[0].value.kind).toBe("fields");
+  });
+  it("drops an extra column that is empty in every row but keeps a named one", () => {
+    const t = toGenericTable([{ nome: "A", descricao: null, valor: null }], ["nome", "valor"]);
+    expect(t.kind === "table" && t.columns.map((c) => c.key)).toEqual(["nome", "valor"]);
+  });
+  it("never puts JSON in a cell and masks documents in nested values", () => {
+    const t = toGenericTable([{ nome: "A", socios: [{ cpf: "52998224725", nome: "S" }] }]);
+    if (t.kind !== "table") throw new Error("expected table");
+    expect(t.rows.flatMap((r) => r.cells).filter((c) => /^(\[\{|\{")/.test(c))).toEqual([]);
+    expect(JSON.stringify(t)).not.toContain("52998224725");
   });
 });

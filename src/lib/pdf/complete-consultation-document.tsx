@@ -48,7 +48,7 @@ export function CompleteConsultationPage({ full, header, letterhead, opinion }: 
       ))}
 
       {full.generic.length > 0 && (
-        <Section title="Outros dados da deps">
+        <Section title="Outros dados">
           {full.generic.map((block) => (
             <View key={block.key}>
               <Text style={s.sh}>{block.title}</Text>
@@ -56,18 +56,6 @@ export function CompleteConsultationPage({ full, header, letterhead, opinion }: 
               <PdfGenericValue value={block.value} />
             </View>
           ))}
-        </Section>
-      )}
-
-      {full.missing.length > 0 && (
-        <Text style={[s.li, { marginTop: 10, color: MUTED }]}>
-          Sem informação: {full.missing.map((m) => m.label).join(", ")}
-        </Text>
-      )}
-
-      {full.meta.length > 0 && (
-        <Section title="Dados da consulta">
-          <PdfGenericValue value={{ kind: "fields", fields: full.meta }} />
         </Section>
       )}
 

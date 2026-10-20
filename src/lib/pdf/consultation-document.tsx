@@ -474,7 +474,7 @@ function ConsultationDocument({
         )}
 
         <Text style={{ fontSize: 7, color: muted, marginTop: 16 }} fixed>
-          Documento gerado automaticamente · Reino do Crédito · Dados do bureau deps.com.br
+          Documento gerado automaticamente · Reino do Crédito
         </Text>
       </Page>
     </Document>

@@ -2,7 +2,7 @@ import { View, Text } from "@react-pdf/renderer";
 
 import type { GenericField, GenericValue } from "@/types/consultation-view";
 
-import { Field, Table, pdfStyles as s } from "./consultation-full-document";
+import { Field, pdfStyles as s } from "./consultation-full-document";
 
 function isInline(field: GenericField): boolean {
   return field.value.kind === "text";
@@ -48,6 +48,41 @@ export function columnWidths(columns: { label: string }[], rows: string[][]): nu
   return weights.map((weight) => weight / total);
 }
 
+type TableValue = Extract<GenericValue, { kind: "table" }>;
+
+// Larguras em % do contêiner (a tabela aninhada cabe no recuo); registros aninhados saem como sub-bloco sob a linha.
+function PdfTable({ value }: { value: TableValue }) {
+  const widths = columnWidths(value.columns, value.rows.map((row) => row.cells));
+  return (
+    <View style={{ marginTop: 2 }} minPresenceAhead={24}>
+      {value.columns.length > 0 && (
+        <View style={[s.tr, { backgroundColor: "#fff" }]} fixed>
+          {value.columns.map((c, i) => (
+            <Text key={c.key} style={[s.th, { width: `${widths[i] * 100}%` }]}>{c.label}</Text>
+          ))}
+        </View>
+      )}
+      {value.rows.map((row, ri) => (
+        <View key={ri}>
+          {value.columns.length > 0 && (
+            <View style={s.tr} wrap={false}>
+              {row.cells.map((cell, ci) => (
+                <Text key={ci} style={[s.td, { width: `${widths[ci] * 100}%` }]}>{cell}</Text>
+              ))}
+            </View>
+          )}
+          {row.nested.map((n, ni) => (
+            <View key={ni} style={{ marginLeft: 10, marginBottom: 3 }}>
+              <Text style={s.ssh}>{n.label}</Text>
+              <PdfGenericValue value={n.value} />
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // Renderiza qualquer valor genérico da deps; partes recolhidas na tela saem por inteiro no PDF.
 export function PdfGenericValue({ value }: { value: GenericValue }) {
   switch (value.kind) {
@@ -55,15 +90,8 @@ export function PdfGenericValue({ value }: { value: GenericValue }) {
       return <Text style={s.li}>{value.text || "—"}</Text>;
     case "fields":
       return <PdfFields fields={value.fields} />;
-    case "table": {
-      return (
-        <Table
-          cols={value.columns.map((c) => c.label)}
-          widths={columnWidths(value.columns, value.rows)}
-          rows={value.rows}
-        />
-      );
-    }
+    case "table":
+      return <PdfTable value={value} />;
     case "json":
       return (
         <View>

@@ -52,9 +52,9 @@ Ordem na tela e no PDF:
 6. **Pessoa**: `mix.pessoa.data` completo (nome, cpf mascarado, idade, dataNascimento, situacaoCadastral, nomeMae, obito, politicamenteExposta, …).
 7. **Contatos e endereços**: `mix.contatosPreferenciais.data[]`, `mix.emails.data[]`, `mix.outrosEnderecos.data[]` como tabelas.
 8. **Consultas**: `mix.consultas.data` (contagens por período).
-9. **Outros dados da deps**: todo módulo de `mix` que não está na lista acima e tem conteúdo, pelo renderizador genérico (3.3), na ordem do payload.
-10. **Sem informação**: uma linha com os nomes dos módulos nulos ou com `data: null` (ex.: "Sem informação: balanço, empresa, quadro societário, …").
-11. **Dados da consulta** (rodapé pequeno): `versao, produto, dataConsulta, consultante, usuario, historicoConsultaId, isParcial, isGrupo, centroCusto, blocosComErros, linkCompartilhamento` e `consultasComplementares` (fora de `mix`).
+9. **Outros dados**: todo módulo de `mix` que não está na lista acima e tem conteúdo, pelo renderizador genérico (3.3), na ordem do payload.
+10. **Sem informação** (só calculado, nunca exibido): `view.missing` lista os módulos nulos ou com `data: null`. Serve de prova de que toda chave de `mix` tem destino.
+11. **Dados da consulta** (só calculado, nunca exibido): `view.meta` guarda `versao, produto, dataConsulta, consultante, usuario, historicoConsultaId, isParcial, isGrupo, centroCusto, blocosComErros, linkCompartilhamento` e `consultasComplementares` (fora de `mix`). Nada do bureau (produto, links, ids, módulos ausentes) aparece na tela nem no PDF, para equipe ou cliente.
 
 Dados de `mix.pessoa.data.rendaPresumida` e `mensagemErroRendaPresumida` vão para o card Renda presumida quando preenchidos.
 
@@ -64,11 +64,14 @@ Regras, aplicadas a qualquer valor do payload:
 
 - Envelope de módulo `{success, message, data, info}`: usa `data`; `message` vira a linha de texto quando `data` é nulo; `info` aparece como nota quando não nulo.
 - Objeto: pares rótulo/valor. Objeto aninhado: sub-bloco com título, até profundidade 4; além disso, JSON formatado.
-- Array de objetos: tabela, colunas = união das chaves, na ordem da primeira ocorrência. Array de primitivos: lista separada por vírgula. Array vazio: "Nenhum".
+- Array de objetos: tabela, colunas = união das chaves escalares, na ordem da primeira ocorrência. Array de primitivos: lista separada por vírgula. Array vazio: "Nenhum".
+- Célula de tabela nunca tem JSON. Valor que é registro ou array de registros vai para `nested` da linha e sai sob ela como sub-tabela (ou campos). A coluna some quando todas as linhas têm esse valor aninhado ou vazio. As regras R2 e R3 valem dentro do aninhado.
 - Chaves `camelCase` viram rótulo legível ("rendaPresumida" → "Renda presumida"). Um dicionário em `src/lib/consultations/labels.ts` corrige rótulos conhecidos ("scr" → "SCR", "cpf" → "CPF", "uf" → "UF", …).
 - Formatação: número cuja chave contém `valor`, `total`, `limite`, `ticket`, `renda`, `gasto` → BRL; string ISO 8601 → `dd/mm/aaaa` (ou com hora); boolean → "Sim"/"Não"; `null` → "—"; string com `%` fica como está.
 - Chaves `cpf`, `cnpj`, `documento`: mascaradas com o utilitário já usado pela tela (`formatCPF`/`formatCNPJ`; a regra de máscara é a mesma da tela atual). Nunca aparecem completas no genérico.
-- Nada é omitido. Em caso de dúvida, mostra como texto.
+- Identificadores nunca aparecem: chave `id` ou terminada em `Id` (`politicaId`, `historicoConsultaId`, `pontuacaoId`…), em campos, colunas e valores aninhados.
+- Omite entradas com valor nulo, `""`, array ou objeto vazio, e as sobras de envelope `success` e `message` quando `message` é vazia. Campos nomeados dos cards tipados mantêm "—". Uma parte "Outros campos" sem campos some.
+- Fora isso, nada é omitido. Em caso de dúvida, mostra como texto.
 
 ### 3.4 View-model
 

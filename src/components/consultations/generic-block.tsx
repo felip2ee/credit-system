@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { GenericValue } from "@/types/consultation-view";
 
@@ -35,11 +37,25 @@ export function GenericValueView({ value }: { value: GenericValue }) {
             <TableBody>
               {value.rows.map((row, i) => (
                 // linhas estáticas, sem id próprio: índice é estável
-                <TableRow key={i}>
-                  {row.map((cell, j) => (
-                    <TableCell key={value.columns[j]?.key ?? j}>{cell}</TableCell>
-                  ))}
-                </TableRow>
+                <Fragment key={i}>
+                  <TableRow>
+                    {row.cells.map((cell, j) => (
+                      <TableCell key={value.columns[j]?.key ?? j}>{cell}</TableCell>
+                    ))}
+                  </TableRow>
+                  {row.nested.length > 0 && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={Math.max(value.columns.length, 1)} className="space-y-3 border-l pl-4">
+                        {row.nested.map((n) => (
+                          <div key={n.label} className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">{n.label}</p>
+                            <GenericValueView value={n.value} />
+                          </div>
+                        ))}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
               ))}
             </TableBody>
           </Table>

@@ -3,8 +3,14 @@
 export type GenericValue =
   | { kind: "text"; text: string }
   | { kind: "fields"; fields: GenericField[] }
-  | { kind: "table"; columns: { key: string; label: string }[]; rows: string[][] }
+  | { kind: "table"; columns: { key: string; label: string }[]; rows: GenericRow[] }
   | { kind: "json"; text: string };
+
+// Célula só com texto; arrays de registros e registros ficam em `nested`, renderizados sob a linha.
+export interface GenericRow {
+  cells: string[];
+  nested: { label: string; value: GenericValue }[];
+}
 
 export interface GenericField {
   key: string;
@@ -46,7 +52,7 @@ export interface FullSection {
 export interface FullConsultationView {
   sections: FullSection[]; // itens 1-8 da spec §3.2, na ordem, só os presentes
   generic: GenericBlock[]; // item 9, na ordem do payload
-  missing: { key: string; label: string }[]; // item 10
-  meta: GenericField[]; // item 11 (META_KEYS + chaves da raiz fora de mix)
+  missing: { key: string; label: string }[]; // item 10 (calculado, nunca exibido)
+  meta: GenericField[]; // item 11 (META_KEYS + chaves da raiz fora de mix; calculado, nunca exibido)
   scoreValue: number | null; // barra de score do PDF
 }
