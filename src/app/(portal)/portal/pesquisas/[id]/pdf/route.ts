@@ -1,5 +1,6 @@
 import { getRequiredSession } from "@/lib/auth/session";
-import { toConsultationView, formatSubjectDocument } from "@/lib/consultations/view-model";
+import { toConsultationContent } from "@/lib/consultations/full-view";
+import { formatSubjectDocument } from "@/lib/consultations/view-model";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
@@ -51,19 +52,19 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 	const ordered = [...members].sort((a, b) => (a.type === b.type ? 0 : a.type === "PJ" ? -1 : 1));
 	const entries: DossierEntry[] = [];
 	for (const m of ordered) {
-		if (!m.canonical) continue;
-		const view = toConsultationView(m.canonical);
+		const content = toConsultationContent(m.payload, m.canonical);
+		if (!content.full && !content.view) continue;
 		const header: FullPdfHeader = {
-			name: m.name ?? (view.subject.name || "—"),
-			cpf: formatSubjectDocument(m.canonical),
-			docLabel: view.subject.documentLabel,
+			name: m.name ?? content.view?.subject.name ?? "—",
+			cpf: m.canonical ? formatSubjectDocument(m.canonical) : "—",
+			docLabel: content.view?.subject.documentLabel ?? (m.type === "PJ" ? "CNPJ" : "CPF"),
 			produto: m.product ?? (m.type === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
 			data: (order.releasedAt ?? order.createdAt).toLocaleString("pt-BR"),
 			consultante: "Reino do Crédito",
 			usuario: session.userId,
-			endereco: view.subject.location ?? undefined,
+			endereco: content.view?.subject.location ?? undefined,
 		};
-		entries.push({ view, header, role: m.type === "PJ" ? "Empresa" : kind === "PF" ? "Titular" : "Sócio" });
+		entries.push({ content, header, role: m.type === "PJ" ? "Empresa" : kind === "PF" ? "Titular" : "Sócio" });
 	}
 	if (entries.length === 0) return new Response("A entrega ainda não tem resultado para gerar o PDF.", {
 			status: 409,

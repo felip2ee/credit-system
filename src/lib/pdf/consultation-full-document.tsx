@@ -106,7 +106,7 @@ function Marker({ x, top = -9 }: { x: number; top?: number }) {
   );
 }
 
-function ScoreBar({ valor }: { valor: number }) {
+export function ScoreBar({ valor }: { valor: number }) {
   const x = clamp((valor - 300) / 700, 0, 1) * CONTENT_W;
   return (
     <View style={{ marginTop: 14 }}>
@@ -140,7 +140,7 @@ function ScoreBar({ valor }: { valor: number }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <View style={s.section} minPresenceAhead={72}>
       <Text style={s.h} wrap={false}>{title}</Text>
@@ -148,7 +148,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
     </View>
   );
 }
-function Field({ label, value }: { label: string; value: string }) {
+export function Field({ label, value }: { label: string; value: string }) {
   return (
     <View style={s.gItem}>
       <Text style={s.label}>{label}</Text>
@@ -169,7 +169,7 @@ function Cards({ items }: { items: { label: string; value: string }[] }) {
     </View>
   );
 }
-function Table({ cols, widths, rows }: { cols: string[]; widths: number[]; rows: (string | number)[][] }) {
+export function Table({ cols, widths, rows }: { cols: string[]; widths: number[]; rows: (string | number)[][] }) {
   const Header = (
     <View style={[s.tr, { backgroundColor: "#fff" }]} fixed>
       {cols.map((c, i) => (

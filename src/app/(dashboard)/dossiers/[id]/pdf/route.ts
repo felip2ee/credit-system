@@ -1,11 +1,8 @@
 import { getRequiredSession } from "@/lib/auth/session";
 import { getDossierPdfDetail } from "@/lib/dossiers/queries";
 import { hasPermission } from "@/lib/db/permissions";
-import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
-import {
-  toConsultationView,
-  formatSubjectDocument,
-} from "@/lib/consultations/view-model";
+import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
+import { toConsultationContent } from "@/lib/consultations/full-view";
 import { letterheadDataUri } from "@/lib/pdf/letterhead";
 import {
   renderDossierPdf,
@@ -49,21 +46,23 @@ export async function GET(
 
   const entries: DossierEntry[] = [];
   for (const m of ordered) {
-    const canonical = await loadCanonicalResult(session, m.id);
-    if (!canonical) continue;
+    const content = toConsultationContent(
+      await loadLatestPayload(session, m.id),
+      await loadCanonicalResult(session, m.id),
+    );
+    if (!content.full && !content.view) continue;
 
-    const view = toConsultationView(canonical);
     const header: FullPdfHeader = {
-      name: m.document_name ?? (view.subject.name || "—"),
-      cpf: formatSubjectDocument(canonical),
-      docLabel: view.subject.documentLabel,
+      name: m.document_name ?? content.view?.subject.name ?? "—",
+      cpf: m.type === "PJ" ? formatCNPJ(m.document) : formatCPF(m.document),
+      docLabel: m.type === "PJ" ? "CNPJ" : "CPF",
       produto: m.product ?? (m.type === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
       data: new Date(m.consulted_at ?? m.created_at).toLocaleString("pt-BR"),
       consultante: "Reino do Crédito",
       usuario: session.userId,
-      endereco: view.subject.location ?? undefined,
+      endereco: content.view?.subject.location ?? undefined,
     };
-    entries.push({ view, header, role: m.type === "PJ" ? "Empresa" : dossier.kind === "PF" ? "Titular" : "Sócio" });
+    entries.push({ content, header, role: m.type === "PJ" ? "Empresa" : dossier.kind === "PF" ? "Titular" : "Sócio" });
   }
 
   if (entries.length === 0) {

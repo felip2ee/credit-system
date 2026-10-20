@@ -1,18 +1,13 @@
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
-import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { getConsultation, getConsultationReport } from "@/lib/consultations/queries";
-import {
-  toConsultationView,
-  formatSubjectDocument,
-} from "@/lib/consultations/view-model";
+import { toConsultationContent } from "@/lib/consultations/full-view";
 import { letterheadDataUri } from "@/lib/pdf/letterhead";
-import {
-  renderFullConsultationPdf,
-  type FullPdfHeader,
-  type OpinionForPdf,
-} from "@/lib/pdf/consultation-full-document";
+import { renderCompleteConsultationPdf } from "@/lib/pdf/complete-consultation-document";
+import type { FullPdfHeader, OpinionForPdf } from "@/lib/pdf/consultation-full-document";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
+import { formatCNPJ, formatCPF } from "@/lib/utils";
 import type { QueryStatus } from "@/types/app";
 
 export const runtime = "nodejs";
@@ -45,16 +40,17 @@ export async function GET(
   if (stored.status !== "completed") return new Response("Consulta sem resultado disponível.", { status: 409 });
   const query: QueryRow = stored;
 
-  const canonical = await loadCanonicalResult(session, params.id);
-  if (!canonical) {
+  const content = toConsultationContent(
+    await loadLatestPayload(session, params.id),
+    await loadCanonicalResult(session, params.id),
+  );
+  if (!content.full && !content.view) {
     // payload_incompatible, or a historical consultation not yet backfilled.
     return new Response(
       `Resultado não disponível no formato atual. Código da consulta: ${params.id}`,
       { status: 409 }
     );
   }
-
-  const view = toConsultationView(canonical);
 
   const reportRow = await getConsultationReport(session, query.id);
 
@@ -77,19 +73,18 @@ export async function GET(
   }
 
   const header: FullPdfHeader = {
-    name: query.document_name ?? (view.subject.name || "—"),
-    cpf: formatSubjectDocument(canonical),
-    docLabel: view.subject.documentLabel,
-    produto:
-      query.product ?? (view.kind === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
+    name: query.document_name ?? content.view?.subject.name ?? "—",
+    cpf: query.type === "PJ" ? formatCNPJ(query.document) : formatCPF(query.document),
+    docLabel: query.type === "PJ" ? "CNPJ" : "CPF",
+    produto: query.product ?? (query.type === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
     data: new Date(query.consulted_at ?? query.created_at).toLocaleString("pt-BR"),
     consultante: "Reino do Crédito",
     usuario: session.userId,
-    endereco: view.subject.location ?? undefined,
+    endereco: content.view?.subject.location ?? undefined,
   };
 
-  const pdf = await renderFullConsultationPdf(
-    view,
+  const pdf = await renderCompleteConsultationPdf(
+    content,
     header,
     letterheadDataUri(),
     opinion

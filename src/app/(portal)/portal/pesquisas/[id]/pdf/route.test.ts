@@ -24,9 +24,12 @@ vi.mock("@/lib/db/transaction", () => ({
 vi.mock("@/lib/orders/client-queries", () => ({ getMyDelivery: state.getMyDelivery }));
 vi.mock("@/lib/pdf/letterhead", () => ({ letterheadDataUri: () => "data:image/png;base64,AAAA" }));
 vi.mock("@/lib/pdf/dossier-document", () => ({ renderDossierPdf: state.render }));
-vi.mock("@/lib/consultations/view-model", () => ({
-	toConsultationView: (c: { name: string }) => ({ subject: { name: c.name, documentLabel: "CPF", location: null } }),
-	formatSubjectDocument: () => "390.533.447-05",
+vi.mock("@/lib/consultations/view-model", () => ({ formatSubjectDocument: () => "390.533.447-05" }));
+vi.mock("@/lib/consultations/full-view", () => ({
+	toConsultationContent: (payload: unknown, canonical: { name: string } | null) => ({
+		full: payload ? { marker: "full" } : null,
+		view: canonical ? { subject: { name: canonical.name, documentLabel: "CPF", location: null } } : null,
+	}),
 }));
 
 import { GET } from "./route";
@@ -43,9 +46,9 @@ const delivery = (overrides: Record<string, unknown> = {}) => ({
 	},
 	kind: "PJ_FULL",
 	members: [
-		{ consultationId: "c2", type: "PF", name: "Sócio Um", product: null, status: "completed", canonical: { name: "Sócio Um" }, opinion: null },
-		{ consultationId: "c1", type: "PJ", name: "Empresa X", product: "Dossiê PJ", status: "completed", canonical: { name: "Empresa X" }, opinion: null },
-		{ consultationId: "c3", type: "PF", name: "Sem dado", product: null, status: "error", canonical: null, opinion: null },
+		{ consultationId: "c2", type: "PF", name: "Sócio Um", product: null, status: "completed", canonical: { name: "Sócio Um" }, payload: null, opinion: null },
+		{ consultationId: "c1", type: "PJ", name: "Empresa X", product: "Dossiê PJ", status: "completed", canonical: { name: "Empresa X" }, payload: null, opinion: null },
+		{ consultationId: "c3", type: "PF", name: "Sem dado", product: null, status: "error", canonical: null, payload: null, opinion: null },
 	],
 	dossierOpinion: null,
 	...overrides,
@@ -118,6 +121,21 @@ describe("client pdf route", () => {
 		expect(data.subtitle).toBe("***.533.447-** · 2 consulta(s)");
 		expect(data.entries.map((e: { role: string }) => e.role)).toEqual(["Empresa", "Sócio"]);
 		expect(data.report).toBeNull();
+	});
+
+	it("renders a member that has a payload but no canonical result", async () => {
+		state.getMyDelivery.mockResolvedValue(
+			delivery({
+				members: [
+					{ consultationId: "c4", type: "PF", name: "Só payload", product: null, status: "payload_incompatible", canonical: null, payload: { mix: {} }, opinion: null },
+				],
+			}),
+		);
+		await call();
+		const [data] = state.render.mock.calls[0];
+		expect(data.entries).toHaveLength(1);
+		expect(data.entries[0].content).toEqual({ full: { marker: "full" }, view: null });
+		expect(data.entries[0].header.cpf).toBe("—");
 	});
 
 	it("passes the dossier opinion to the report block", async () => {

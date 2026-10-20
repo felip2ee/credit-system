@@ -1,12 +1,8 @@
 import { Document, Page, View, Text, renderToBuffer } from "@react-pdf/renderer";
 
-import {
-  Bg,
-  FullConsultationPage,
-  pdfStyles as s,
-  type FullPdfHeader,
-} from "./consultation-full-document";
-import type { ConsultationView } from "@/lib/consultations/view-model";
+import { Bg, pdfStyles as s, type FullPdfHeader } from "./consultation-full-document";
+import { ConsultationPdfPage } from "./complete-consultation-document";
+import type { ConsultationContent } from "@/lib/consultations/full-view";
 import { OpinionBlock, type OpinionForPdf } from "./markdown-pdf";
 
 // PDF único do Dossiê: uma página por consulta (empresa
@@ -15,7 +11,7 @@ import { OpinionBlock, type OpinionForPdf } from "./markdown-pdf";
 // e todas repetem o timbrado — pronto para impressão.
 
 export interface DossierEntry {
-  view: ConsultationView;
+  content: ConsultationContent;
   header: FullPdfHeader;
   // "Empresa", "Titular" ou "Sócio" — exibido na abertura da página.
   role: string;
@@ -40,9 +36,9 @@ function DossierDocument({
   return (
     <Document>
       {data.entries.map((e, i) => (
-        <FullConsultationPage
+        <ConsultationPdfPage
           key={i}
-          view={e.view}
+          {...e.content}
           header={{ ...e.header, produto: `${e.role} · ${e.header.produto}` }}
           letterhead={letterhead}
         />
