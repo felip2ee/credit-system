@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { ClientOrderForm } from "@/components/orders/client-order-form";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { getClientAccountStatus } from "@/lib/account/queries";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { getPublicCatalog } from "@/lib/bureaus/public";
@@ -37,7 +38,7 @@ export default async function NewClientOrderPage() {
 		<div className="space-y-6">
 			<PageHeader title="Nova pesquisa" description="Escolha o dossiê e informe os dados do pedido" />
 			{products.length === 0 ? (
-				<p className="text-sm text-muted-foreground">Nenhum produto à venda no momento. Tente novamente mais tarde.</p>
+				<StatusBanner tone="neutral" title="Nenhum produto à venda no momento." description="Tente novamente mais tarde." />
 			) : (
 				<ClientOrderForm
 					products={products}

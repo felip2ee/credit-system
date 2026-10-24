@@ -9,11 +9,11 @@ export interface LegalDocumentViewProps {
 export function LegalDocumentView({ document }: LegalDocumentViewProps) {
   return (
     <article className="space-y-2">
-      <h1 className="text-2xl font-semibold">{document.title}</h1>
-      <p className="text-sm text-muted-foreground">
+      <h1 className="text-2xl font-bold">{document.title}</h1>
+      <p className="text-base text-muted-foreground">
         Versão {document.version} · publicada em {formatDate(document.publishedAt)}
       </p>
-      <div className="text-sm">
+      <div>
         <MarkdownReport>{document.bodyMd}</MarkdownReport>
       </div>
     </article>

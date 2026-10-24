@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ReceiptText } from "lucide-react";
 
 import { loadMoreClientLedgerAction, type ClientLedgerRow } from "@/actions/credits-ledger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CLIENT_KIND_LABEL, clientLedgerAmount } from "@/components/credits/client-ledger-labels";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { clientLedgerAmount } from "@/components/credits/client-ledger-labels";
+import { statusInfo } from "@/lib/ui/status";
 import { formatCurrency } from "@/lib/utils";
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
@@ -40,44 +44,34 @@ export function ClientLedgerTable({ initialRows, initialCursor }: ClientLedgerTa
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Extrato</CardTitle>
+        <CardTitle className="text-xl">Extrato</CardTitle>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhum lançamento ainda.</p>
+          <EmptyState icon={ReceiptText} title="Nenhum lançamento ainda" description="Suas recargas e cobranças aparecem aqui." />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Data</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Valor</TableHead>
-                <TableHead>Disponível após</TableHead>
-                <TableHead>Reservado após</TableHead>
-                <TableHead>Motivo</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{dateFormat.format(new Date(row.createdAt))}</TableCell>
-                  <TableCell>{CLIENT_KIND_LABEL[row.kind]}</TableCell>
-                  <TableCell>{clientLedgerAmount(row.kind, row.amount)}</TableCell>
-                  <TableCell>{formatCurrency(Number(row.availableAfter))}</TableCell>
-                  <TableCell>{formatCurrency(Number(row.reservedAfter))}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.reason ?? "—"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <ul className="divide-y">
+            {rows.map((row) => {
+              const { tone, label } = statusInfo("walletEntry", row.kind, "client");
+              return (
+                <li key={row.id} className="space-y-1 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <StatusBadge tone={tone} label={label} />
+                    <span className="text-lg font-bold">{clientLedgerAmount(row.kind, row.amount)}</span>
+                  </div>
+                  <p className="text-muted-foreground">{dateFormat.format(new Date(row.createdAt))}</p>
+                  <p className="text-muted-foreground">
+                    Disponível: {formatCurrency(Number(row.availableAfter))} · Reservado: {formatCurrency(Number(row.reservedAfter))}
+                  </p>
+                  {row.reason && <p>{row.reason}</p>}
+                </li>
+              );
+            })}
+          </ul>
         )}
-        {error && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <StatusBanner tone="attention" title={error} className="mt-3" />}
         {cursor && (
-          <Button variant="outline" className="mt-4" onClick={loadMore} disabled={isPending}>
+          <Button variant="outline" className="mt-4 w-full sm:w-auto" onClick={loadMore} disabled={isPending}>
             {isPending ? "Carregando..." : "Carregar mais"}
           </Button>
         )}

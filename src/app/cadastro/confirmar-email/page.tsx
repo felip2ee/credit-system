@@ -1,7 +1,10 @@
 import Link from "next/link";
 
+import { PublicShell } from "@/components/portal/public-shell";
 import { ConfirmEmailButton } from "@/components/register/confirm-email-button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { EMAIL_TOKEN_PATTERN } from "@/lib/validators/account";
 
 export const dynamic = "force-dynamic";
@@ -20,8 +23,8 @@ export default function ConfirmEmailPage({
   const valid = EMAIL_TOKEN_PATTERN.test(token);
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-10">
-      <Card className="w-full max-w-sm text-center">
+    <PublicShell>
+      <Card className="w-full text-center">
         <CardHeader>
           <CardTitle className="text-2xl">Confirmar e-mail</CardTitle>
         </CardHeader>
@@ -30,14 +33,14 @@ export default function ConfirmEmailPage({
             <ConfirmEmailButton token={token} />
           ) : (
             <div className="space-y-3">
-              <p role="alert" className="text-sm text-destructive">Link inválido.</p>
-              <Link href="/login" className="inline-block font-medium underline underline-offset-4">
-                Entrar
-              </Link>
+              <StatusBanner tone="attention" title="Link inválido." description="Entre na sua conta para pedir um novo link." />
+              <Button asChild size="lg" className="w-full">
+                <Link href="/login">Entrar</Link>
+              </Button>
             </div>
           )}
         </CardContent>
       </Card>
-    </main>
+    </PublicShell>
   );
 }

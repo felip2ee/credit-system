@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const schema = newPasswordSchema.and(
   z.object({ currentPassword: z.string().min(1, "Informe a senha atual.") }),
@@ -64,7 +65,7 @@ export default function ChangePasswordPage() {
   };
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-md">
       <CardHeader className="space-y-1 text-center">
         <CardTitle className="text-2xl">Defina uma nova senha</CardTitle>
         <CardDescription>
@@ -82,7 +83,7 @@ export default function ChangePasswordPage() {
               {...register("currentPassword")}
             />
             {errors.currentPassword && (
-              <p className="text-sm text-destructive">{errors.currentPassword.message}</p>
+              <p className="text-base text-destructive">{errors.currentPassword.message}</p>
             )}
           </div>
           <div className="space-y-2">
@@ -94,7 +95,7 @@ export default function ChangePasswordPage() {
               {...register("password")}
             />
             {errors.password && (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
+              <p className="text-base text-destructive">{errors.password.message}</p>
             )}
           </div>
           <div className="space-y-2">
@@ -106,16 +107,16 @@ export default function ChangePasswordPage() {
               {...register("confirm")}
             />
             {errors.confirm && (
-              <p className="text-sm text-destructive">{errors.confirm.message}</p>
+              <p className="text-base text-destructive">{errors.confirm.message}</p>
             )}
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <StatusBanner tone="attention" title={error} />}
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? "Salvando..." : "Salvar nova senha"}
           </Button>
         </form>
         <form action={signOut}>
-          <Button type="submit" variant="ghost" size="sm" className="w-full">
+          <Button type="submit" variant="outline" className="w-full">
             Sair
           </Button>
         </form>

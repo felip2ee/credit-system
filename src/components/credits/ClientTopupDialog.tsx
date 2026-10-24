@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { CLIENT_TOPUP_SUGGESTIONS } from "@/lib/validators/wallet";
 import { parseTopupInput } from "@/lib/wallet/topup-input";
 import { formatCurrency } from "@/lib/utils";
@@ -136,7 +137,6 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
                     key={s}
                     type="button"
                     variant="outline"
-                    size="sm"
                     disabled={isPending}
                     onClick={() => setValue(s.replace(".", ","))}
                   >
@@ -159,16 +159,12 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
                 aria-describedby={error ? "topup-error" : undefined}
               />
               {error && (
-                <p
-                  id="topup-error"
-                  role="alert"
-                  className="text-sm text-destructive"
-                >
+                <p id="topup-error" role="alert" className="text-base text-destructive">
                   {error}
                 </p>
               )}
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
@@ -191,7 +187,7 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
                   <img
                     src={`data:image/png;base64,${charge.qrImageBase64}`}
                     alt="QR Code do PIX"
-                    className="mx-auto h-48 w-48"
+                    className="mx-auto size-52"
                   />
                 )}
                 <div className="space-y-2">
@@ -205,27 +201,21 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
                     onClick={copy}
                   >
                     {copied ? "Copiado" : "Copiar código"}
                   </Button>
-                  {error && (
-                    <p role="alert" className="text-sm text-destructive">
-                      {error}
-                    </p>
-                  )}
+                  {error && <StatusBanner tone="attention" title={error} />}
                 </div>
-                <p role="status" className="text-sm text-muted-foreground">
-                  {pollExpired
-                    ? "Atualização automática pausada."
-                    : "Aguardando pagamento..."}
-                </p>
+                <StatusBanner
+                  tone={pollExpired ? "neutral" : "waiting"}
+                  title={pollExpired ? "Atualização automática pausada." : "Aguardando pagamento..."}
+                  description={pollExpired ? undefined : "Assim que o PIX for pago, seu saldo é atualizado."}
+                />
                 {pollExpired && (
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
                     onClick={() => {
                       setPollExpired(false);
                       router.refresh();
@@ -236,14 +226,11 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
                 )}
               </>
             ) : (
-              <div role="status" className="space-y-1 text-center">
-                <p className="text-lg font-semibold">{STATUS_LABEL[status]}</p>
-                {status === "expired" && (
-                  <p className="text-sm text-muted-foreground">
-                    Se o PIX for pago depois, o valor ainda será creditado.
-                  </p>
-                )}
-              </div>
+              <StatusBanner
+                tone={status === "paid" ? "success" : status === "refunded" ? "attention" : "neutral"}
+                title={STATUS_LABEL[status]}
+                description={status === "expired" ? "Se o PIX for pago depois, o valor ainda será creditado." : undefined}
+              />
             )}
             <div className="flex justify-end">
               <Button type="button" variant="outline" onClick={close}>

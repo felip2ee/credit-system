@@ -24,7 +24,7 @@ test("client buys a Dossiê Empresarial with 1 partner, sees each member and can
   await expect(page.getByRole("heading", { name: "Autorizações" })).toBeVisible();
   await expect(page.getByText("Empresa · ")).toBeVisible();
   await expect(page.getByText("Sócio · ")).toBeVisible();
-  await expect(page.getByText("Pendente")).toHaveCount(2);
+  await expect(page.getByText("Aguardando autorização", { exact: true })).toHaveCount(2);
 
   await page.getByRole("button", { name: "Cancelar pedido" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancelar pedido" }).click();

@@ -45,32 +45,32 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
       <Card>
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
           <div>
-            <p className="text-sm text-muted-foreground">Valor</p>
-            <p className="text-2xl font-semibold">{formatCurrency(Number(receipt.amount))}</p>
+            <p className="text-muted-foreground">Valor</p>
+            <p className="text-3xl font-bold">{formatCurrency(Number(receipt.amount))}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Data da cobrança</p>
+            <p className="text-muted-foreground">Data da cobrança</p>
             <p className="text-lg">{formatDateTime(receipt.createdAt)}</p>
           </div>
           <div className="sm:col-span-2">
-            <p className="text-sm text-muted-foreground">Identificador da cobrança</p>
-            <p className="break-all font-mono text-sm">{receipt.id}</p>
+            <p className="text-muted-foreground">Identificador da cobrança</p>
+            <p className="break-all font-mono">{receipt.id}</p>
           </div>
           {note && (
             <div className="sm:col-span-2">
-              <p className="text-sm text-muted-foreground">Nota fiscal (NFS-e)</p>
+              <p className="text-muted-foreground">Nota fiscal (NFS-e)</p>
               {note.kind === "link" ? (
-                <a href={note.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">
+                <a href={note.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center underline">
                   Abrir nota fiscal
                 </a>
               ) : (
-                <p className="text-sm">{note.text}</p>
+                <p>{note.text}</p>
               )}
             </div>
           )}
         </CardContent>
       </Card>
-      <Link href="/portal/credits" className="inline-block text-sm underline">
+      <Link href="/portal/credits" className="inline-flex min-h-12 items-center underline">
         Voltar para créditos
       </Link>
     </div>

@@ -1,16 +1,14 @@
-import { Badge } from "@/components/ui/badge";
+import { Coins, Users } from "lucide-react";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { AffiliateCommissionRow, AffiliateReferralRow, CommissionStatus } from "@/lib/affiliates/types";
+import type { AffiliateCommissionRow, AffiliateReferralRow } from "@/lib/affiliates/types";
+import { statusInfo } from "@/lib/ui/status";
 import { formatCurrency, formatDateSP } from "@/lib/utils";
 
 import { commissionStatusLabel } from "./affiliate-rules";
-
-const STATUS_VARIANT: Record<CommissionStatus, "secondary" | "default" | "destructive"> = {
-  pending: "secondary",
-  released: "default",
-  reversed: "destructive",
-};
 
 interface CommissionTablesProps {
   referrals: AffiliateReferralRow[];
@@ -22,11 +20,11 @@ export function CommissionTables({ referrals, commissions }: CommissionTablesPro
     <>
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Indicados</CardTitle>
+          <CardTitle className="text-xl">Indicados</CardTitle>
         </CardHeader>
         <CardContent>
           {referrals.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Ninguém se cadastrou pelo seu link ainda.</p>
+            <EmptyState icon={Users} title="Ninguém se cadastrou pelo seu link ainda" description="Envie seu link de indicação para começar." />
           ) : (
             <Table>
               <TableHeader>
@@ -51,11 +49,11 @@ export function CommissionTables({ referrals, commissions }: CommissionTablesPro
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Comissões</CardTitle>
+          <CardTitle className="text-xl">Comissões</CardTitle>
         </CardHeader>
         <CardContent>
           {commissions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Você ainda não tem comissões.</p>
+            <EmptyState icon={Coins} title="Você ainda não tem comissões" description="Elas aparecem quando um indicado fizer um pedido." />
           ) : (
             <Table>
               <TableHeader>
@@ -77,7 +75,7 @@ export function CommissionTables({ referrals, commissions }: CommissionTablesPro
                     <TableCell className="text-right">{formatCurrency(Number(c.orderValue))}</TableCell>
                     <TableCell className="text-right">{formatCurrency(Number(c.amount))}</TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANT[c.status]}>{commissionStatusLabel(c.status, c.releaseAt)}</Badge>
+                      <StatusBadge tone={statusInfo("commission", c.status, "client").tone} label={commissionStatusLabel(c.status, c.releaseAt)} />
                     </TableCell>
                   </TableRow>
                 ))}

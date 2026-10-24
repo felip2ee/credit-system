@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
 
+import { PublicShell } from "@/components/portal/public-shell";
 import { ScrSelfAuthorizeForm } from "@/components/scr/scr-self-authorize-form";
 import { getScrSelfAuthorizationByToken } from "@/actions/scr-self";
+import { Card, CardContent } from "@/components/ui/card";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { formatDate } from "@/lib/utils";
 
 export const metadata = {
@@ -25,44 +28,32 @@ export default async function ScrAuthorizationPage({
   const refused = data.status === "not_authorized";
 
   return (
-    <main className="min-h-screen bg-[#0B5F59] px-4 py-10">
-      <div className="mx-auto max-w-3xl overflow-hidden rounded-xl bg-white shadow-lg">
-        <div className="bg-[#0B5F59] px-8 py-7 text-center">
-          <div className="text-2xl font-bold tracking-wide text-white">
-            Rainha Cred
-          </div>
-        </div>
-        <div className="bg-[#0E8C84] px-8 py-3.5 text-center">
-          <h1 className="text-sm font-semibold uppercase tracking-wide text-white">
-            Autorização de consulta SCR
-          </h1>
-        </div>
-
-        <div className="space-y-4 px-8 py-6 text-sm leading-relaxed text-foreground">
-          {paragraphs.map((p, i) => (
-            <p key={i} className={i === 0 ? "" : "text-[13px]"}>
-              {p}
-            </p>
-          ))}
-        </div>
-
-        <div className="border-t px-8 py-6">
-          {alreadyAuthorized ? (
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-              Esta autorização já foi concedida
-              {data.expiresAt
-                ? ` e é válida até ${formatDate(data.expiresAt)}.`
-                : "."}
-            </div>
-          ) : refused ? (
-            <div className="rounded-md border bg-muted p-4 text-sm text-muted-foreground">
-              Esta autorização foi recusada.
-            </div>
-          ) : (
-            <ScrSelfAuthorizeForm token={params.token} />
-          )}
-        </div>
+    <PublicShell width="3xl">
+      <div className="space-y-6">
+        <h1 className="text-center text-2xl font-bold">Autorização de consulta SCR</h1>
+        <Card>
+          <CardContent className="space-y-4 p-6 leading-relaxed">
+            {paragraphs.map((p, i) => (
+              <p key={i}>{p}</p>
+            ))}
+          </CardContent>
+        </Card>
+        {alreadyAuthorized ? (
+          <StatusBanner
+            tone="success"
+            title="Esta autorização já foi concedida"
+            description={data.expiresAt ? `Ela é válida até ${formatDate(data.expiresAt)}.` : undefined}
+          />
+        ) : refused ? (
+          <StatusBanner tone="neutral" title="Esta autorização foi recusada." description="Nenhuma consulta será realizada." />
+        ) : (
+          <Card>
+            <CardContent className="p-6">
+              <ScrSelfAuthorizeForm token={params.token} />
+            </CardContent>
+          </Card>
+        )}
       </div>
-    </main>
+    </PublicShell>
   );
 }

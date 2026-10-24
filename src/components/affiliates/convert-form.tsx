@@ -7,6 +7,7 @@ import { convertCommissionAction } from "@/actions/affiliate-withdrawals";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 interface ConvertFormProps {
   available: string;
@@ -49,9 +50,9 @@ export function ConvertForm({ available }: ConvertFormProps) {
           disabled={pending}
         />
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      {done && <p className="text-sm text-green-700">Valor convertido em créditos.</p>}
-      <Button type="submit" disabled={pending}>
+      {error && <StatusBanner tone="attention" title={error} />}
+      {done && <StatusBanner tone="success" title="Valor convertido em créditos." />}
+      <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={pending}>
         {pending ? "Convertendo..." : "Usar como crédito"}
       </Button>
     </form>

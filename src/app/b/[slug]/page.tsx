@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PackageOpen } from "lucide-react";
 
+import { PublicShell } from "@/components/portal/public-shell";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getPublicBureau, getPublicCatalog } from "@/lib/bureaus/public";
 import { formatCurrency } from "@/lib/utils";
 
@@ -22,17 +26,16 @@ export default async function PublicBureauPage({
   const catalog = await getPublicCatalog(params.slug);
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md space-y-4 text-center">
-        <h1 className="text-2xl font-semibold">{bureau.name}</h1>
+    <PublicShell bureauName={bureau.name}>
+      <div className="space-y-6">
         {catalog.length === 0 ? (
-          <p className="text-muted-foreground">Catálogo em breve</p>
+          <EmptyState icon={PackageOpen} title="Catálogo em breve" description="Este Bureau ainda não colocou pesquisas à venda." />
         ) : (
-          <ul className="divide-y rounded-md border text-left">
+          <ul className="divide-y rounded-md border-2 bg-background text-left">
             {catalog.map((item) => (
-              <li key={item.code} className="flex justify-between gap-4 px-4 py-3">
-                <span>{item.name}</span>
-                <span className="text-right font-medium">
+              <li key={item.code} className="flex flex-col gap-1 px-4 py-4">
+                <span className="font-bold">{item.name}</span>
+                <span>
                   {Number(item.salePricePerPartner) > 0
                     ? `a partir de ${formatCurrency(Number(item.salePrice))} + ${formatCurrency(Number(item.salePricePerPartner))} por sócio`
                     : formatCurrency(Number(item.salePrice))}
@@ -41,18 +44,15 @@ export default async function PublicBureauPage({
             ))}
           </ul>
         )}
-        <div className="flex justify-center gap-6">
-          <Link
-            href={`/b/${bureau.slug}/cadastro`}
-            className="inline-block font-medium underline underline-offset-4"
-          >
-            Criar conta
-          </Link>
-          <Link href="/login" className="inline-block font-medium underline underline-offset-4">
-            Entrar
-          </Link>
+        <div className="flex flex-col gap-3">
+          <Button asChild size="lg">
+            <Link href={`/b/${bureau.slug}/cadastro`}>Criar conta</Link>
+          </Button>
+          <Button asChild size="lg" variant="outline">
+            <Link href="/login">Já tenho conta: entrar</Link>
+          </Button>
         </div>
       </div>
-    </main>
+    </PublicShell>
   );
 }

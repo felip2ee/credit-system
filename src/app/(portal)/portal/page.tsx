@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, HandCoins } from "lucide-react";
 
 import { ClientOrderList } from "@/components/orders/client-order-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getCurrentProfile } from "@/lib/auth";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
@@ -40,27 +41,38 @@ export default async function PortalHomePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Olá{firstName ? `, ${firstName}` : ""}</h1>
+        <h1 className="text-2xl font-bold">Olá{firstName ? `, ${firstName}` : ""}</h1>
       </div>
+      <Button asChild size="lg" className="w-full sm:w-auto">
+        <Link href="/portal/pesquisas/nova">Nova pesquisa</Link>
+      </Button>
       {balances.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-3">
           {balances.map((b) => (
-            <Link key={b.label} href={b.href}>
-              <Card className="h-full transition-colors hover:bg-muted/50">
+            <Link key={b.label} href={b.href} className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Card className="h-full transition-colors hover:bg-muted/50 focus-within:ring-2">
                 <CardHeader>
-                  <CardTitle className="text-sm font-medium text-muted-foreground">{b.label}</CardTitle>
+                  <CardTitle className="text-base font-normal text-muted-foreground">{b.label}</CardTitle>
                 </CardHeader>
-                <CardContent className="text-2xl font-semibold">{formatCurrency(Number(b.value))}</CardContent>
+                <CardContent className="text-3xl font-bold">{formatCurrency(Number(b.value))}</CardContent>
               </Card>
             </Link>
           ))}
         </div>
       )}
+      {affiliate && (
+        <Button asChild variant="outline" size="lg" className="w-full justify-start">
+          <Link href="/portal/afiliacao">
+            <HandCoins aria-hidden />
+            Afiliação: seu link e suas comissões
+          </Link>
+        </Button>
+      )}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-lg">Suas pesquisas</CardTitle>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+          <CardTitle className="text-xl">Suas pesquisas</CardTitle>
           {orders.length > 0 && (
-            <Link href="/portal/pesquisas" className="text-sm underline">
+            <Link href="/portal/pesquisas" className="inline-flex min-h-12 items-center underline">
               Ver todas
             </Link>
           )}
@@ -69,13 +81,11 @@ export default async function PortalHomePage() {
           {orders.length > 0 ? (
             <ClientOrderList orders={orders} />
           ) : (
-            <div className="flex flex-col items-center gap-3 py-8 text-center">
-              <FolderOpen className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Assim que uma pesquisa for liberada para você, ela aparecerá aqui.</p>
-              <Button asChild>
-                <Link href="/portal/pesquisas/nova">Nova pesquisa</Link>
-              </Button>
-            </div>
+            <EmptyState
+              icon={FolderOpen}
+              title="Você ainda não fez nenhuma pesquisa"
+              description="Quando você fizer uma pesquisa, ela aparece aqui."
+            />
           )}
         </CardContent>
       </Card>

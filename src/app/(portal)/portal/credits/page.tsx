@@ -6,6 +6,9 @@ import { ClientLedgerTable } from "@/components/credits/ClientLedgerTable";
 import { ClientTopupDialog } from "@/components/credits/ClientTopupDialog";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBanner } from "@/components/ui/status-banner";
+import type { StateTone } from "@/components/ui/state-tone";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { getClientAccountStatus } from "@/lib/account/queries";
 import { hasPermission } from "@/lib/db/permissions";
@@ -16,12 +19,12 @@ import { listClientPixCharges, type PixChargeStatus } from "@/lib/wallet/pix-cha
 
 export const metadata = { title: "Créditos" };
 
-const STATUS_LABEL: Record<PixChargeStatus, string> = {
-  pending: "Aguardando pagamento",
-  paid: "Pago",
-  expired: "Expirado",
-  cancelled: "Cancelado",
-  refunded: "Estornado",
+const CHARGE_STATUS: Record<PixChargeStatus, { tone: StateTone; label: string }> = {
+  pending: { tone: "waiting", label: "Aguardando pagamento" },
+  paid: { tone: "success", label: "Pago" },
+  expired: { tone: "neutral", label: "Expirado" },
+  cancelled: { tone: "neutral", label: "Cancelado" },
+  refunded: { tone: "attention", label: "Estornado" },
 };
 
 const RECENT_CHARGES = 5;
@@ -56,28 +59,28 @@ export default async function ClientCreditsPage() {
             (data.status.emailVerified ? (
               <ClientTopupDialog charges={data.charges.map(({ id, status }) => ({ id, status }))} />
             ) : (
-              <p className="text-sm text-muted-foreground">Confirme seu e-mail para comprar créditos.</p>
+              <p className="text-muted-foreground">Confirme seu e-mail para comprar créditos.</p>
             ))}
         </ClientBalance>
       ) : (
-        <p className="text-sm text-muted-foreground">Carteira não encontrada. Contate o suporte.</p>
+        <StatusBanner tone="attention" title="Não encontramos sua carteira." description="Fale com o suporte para resolver." />
       )}
       {data.charges.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Recargas recentes</CardTitle>
+            <CardTitle className="text-xl">Recargas recentes</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="divide-y">
               {data.charges.slice(0, RECENT_CHARGES).map((c) => (
-                <li key={c.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <span>
                     {formatCurrency(Number(c.amount))} · {formatDateTime(c.createdAt)}
                   </span>
                   <span className="flex items-center gap-3">
-                    <span className="text-muted-foreground">{STATUS_LABEL[c.status]}</span>
+                    <StatusBadge tone={CHARGE_STATUS[c.status].tone} label={CHARGE_STATUS[c.status].label} />
                     {c.status === "paid" && (
-                      <Link href={`/portal/credits/receipts/${c.id}`} className="underline">
+                      <Link href={`/portal/credits/receipts/${c.id}`} className="inline-flex min-h-12 items-center underline">
                         Recibo
                       </Link>
                     )}

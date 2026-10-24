@@ -6,6 +6,7 @@ import { confirmScrSelfAuthorization } from "@/actions/scr-self";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 type Done = "authorized" | "refused";
 
@@ -33,25 +34,13 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
   };
 
   if (done === "authorized") {
-    return (
-      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-        Autorização concedida com sucesso. Você já pode fechar esta página.
-      </div>
-    );
+    return <StatusBanner tone="success" title="Autorização concedida com sucesso." description="Você já pode fechar esta página." />;
   }
   if (expired) {
-    return (
-      <div className="rounded-md border bg-muted p-4 text-sm text-muted-foreground" role="alert">
-        {expired}
-      </div>
-    );
+    return <StatusBanner tone="attention" title={expired} />;
   }
   if (done === "refused") {
-    return (
-      <div className="rounded-md border bg-muted p-4 text-sm text-muted-foreground">
-        Autorização recusada. Nenhuma consulta será realizada.
-      </div>
-    );
+    return <StatusBanner tone="neutral" title="Autorização recusada." description="Nenhuma consulta será realizada." />;
   }
 
   return (
@@ -64,23 +53,15 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
           onChange={(e) => setCode(e.target.value.toUpperCase())}
           placeholder="Código recebido por e-mail"
           autoComplete="off"
-          className="max-w-xs font-mono tracking-widest"
+          className="font-mono tracking-widest sm:max-w-xs"
         />
-        {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
-      <div className="flex gap-2">
-        <Button
-          onClick={() => submit("authorize")}
-          disabled={isPending}
-          className="bg-[#0E8C84] text-white hover:bg-[#0B5F59]"
-        >
+      {error && <StatusBanner tone="attention" title={error} />}
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <Button size="lg" onClick={() => submit("authorize")} disabled={isPending}>
           {isPending ? "Enviando..." : "Autorizar"}
         </Button>
-        <Button
-          variant="outline"
-          onClick={() => submit("refuse")}
-          disabled={isPending}
-        >
+        <Button size="lg" variant="outline" onClick={() => submit("refuse")} disabled={isPending}>
           Recusar
         </Button>
       </div>

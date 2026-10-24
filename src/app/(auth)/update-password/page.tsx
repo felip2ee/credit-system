@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 type FormValues = z.infer<typeof newPasswordSchema>;
 
@@ -52,7 +53,7 @@ function UpdatePasswordForm() {
   };
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-md">
       <CardHeader className="space-y-1 text-center">
         <CardTitle className="text-2xl">Definir nova senha</CardTitle>
         <CardDescription>Escolha uma senha forte</CardDescription>
@@ -68,7 +69,7 @@ function UpdatePasswordForm() {
               {...register("password")}
             />
             {errors.password && (
-              <p className="text-sm text-destructive">
+              <p className="text-base text-destructive">
                 {errors.password.message}
               </p>
             )}
@@ -82,12 +83,12 @@ function UpdatePasswordForm() {
               {...register("confirm")}
             />
             {errors.confirm && (
-              <p className="text-sm text-destructive">
+              <p className="text-base text-destructive">
                 {errors.confirm.message}
               </p>
             )}
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <StatusBanner tone="attention" title={error} />}
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? "Salvando..." : "Salvar nova senha"}
           </Button>

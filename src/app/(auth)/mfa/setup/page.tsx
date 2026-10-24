@@ -13,7 +13,7 @@ import {
 
 export default function MfaSetupPage() {
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-md">
       <CardHeader className="space-y-1 text-center">
         <CardTitle className="text-2xl">Configurar dois fatores</CardTitle>
         <CardDescription>
@@ -23,7 +23,7 @@ export default function MfaSetupPage() {
       <CardContent className="space-y-4">
         <MfaEnrollment onComplete={() => (window.location.href = "/")} />
         <form action={signOut}>
-          <Button type="submit" variant="ghost" size="sm" className="w-full">
+          <Button type="submit" variant="outline" className="w-full">
             Sair
           </Button>
         </form>

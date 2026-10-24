@@ -66,13 +66,6 @@ export function canCancelOrder(state: OrderState, mode: OrderMode): boolean {
 	return mode === "online" && CANCELLABLE_STATES.includes(state);
 }
 
-export const MEMBER_STATUS_LABEL: Record<OrderMemberScrStatus, string> = {
-	pending: "Pendente",
-	authorized: "Autorizado",
-	refused: "Recusado",
-	expired: "Vencido",
-};
-
 // Um membro recusou ou venceu: o pedido não roda mais.
 export function orderIsBlocked(statuses: OrderMemberScrStatus[]): boolean {
 	return statuses.some((s) => s === "refused" || s === "expired");

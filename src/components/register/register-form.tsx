@@ -3,21 +3,23 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { registerClientAction } from "@/actions/register";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { authClient } from "@/lib/auth/client";
 import { registerFormSchema, type RegisterFormValues } from "@/lib/validators/register";
 
 export interface RegisterFormProps {
   slug: string;
-  bureauName: string;
   termsVersion: number;
   privacyVersion: number;
   referralCode?: string;
@@ -25,11 +27,12 @@ export interface RegisterFormProps {
 
 const linkClass = "underline underline-offset-4 hover:text-foreground";
 
-export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion, referralCode }: RegisterFormProps) {
+export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode }: RegisterFormProps) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const {
     register,
+    control,
     handleSubmit,
     watch,
     formState: { errors, isSubmitting },
@@ -79,7 +82,7 @@ export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion, r
   const fieldError = (name: keyof RegisterFormValues) => {
     const message = errors[name]?.message;
     return message ? (
-      <p id={`${name}-error`} className="text-sm text-destructive">
+      <p id={`${name}-error`} className="text-base text-destructive">
         {message}
       </p>
     ) : null;
@@ -90,21 +93,27 @@ export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion, r
     <Card className="w-full max-w-md">
       <CardHeader className="space-y-1 text-center">
         <CardTitle className="text-2xl">Criar conta</CardTitle>
-        <CardDescription>{bureauName}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <input type="hidden" {...register("referralCode")} />
           <div className="space-y-2">
             <Label htmlFor="type">Tipo de pessoa</Label>
-            <select
-              id="type"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              {...register("type")}
-            >
-              <option value="PF">Pessoa física</option>
-              <option value="PJ">Pessoa jurídica</option>
-            </select>
+            <Controller
+              control={control}
+              name="type"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PF">Pessoa física</SelectItem>
+                    <SelectItem value="PJ">Pessoa jurídica</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="name">{isPJ ? "Razão social" : "Nome completo"}</Label>
@@ -137,15 +146,21 @@ export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion, r
             {fieldError("confirm")}
           </div>
           <div className="space-y-2">
-            <div className="flex items-start gap-2">
-              <input
-                id="acceptedTerms"
-                type="checkbox"
-                className="mt-1 h-4 w-4"
-                aria-describedby={describedBy("acceptedTerms")}
-                {...register("acceptedTerms")}
+            <div className="flex items-start gap-3">
+              <Controller
+                control={control}
+                name="acceptedTerms"
+                render={({ field }) => (
+                  <Checkbox
+                    id="acceptedTerms"
+                    className="mt-1"
+                    aria-describedby={describedBy("acceptedTerms")}
+                    checked={field.value}
+                    onCheckedChange={(checked) => field.onChange(checked === true)}
+                  />
+                )}
               />
-              <Label htmlFor="acceptedTerms" className="font-normal leading-snug">
+              <Label htmlFor="acceptedTerms" className="text-base font-normal leading-snug">
                 Li e aceito os{" "}
                 <Link href="/termos" target="_blank" rel="noopener noreferrer" className={linkClass}>
                   Termos de Uso
@@ -158,16 +173,12 @@ export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion, r
             </div>
             {fieldError("acceptedTerms")}
           </div>
-          {serverError && (
-            <p role="alert" className="text-sm text-destructive">
-              {serverError}
-            </p>
-          )}
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
+          {serverError && <StatusBanner tone="attention" title={serverError} />}
+          <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? "Criando conta..." : "Criar conta"}
           </Button>
           <div className="text-center">
-            <Link href="/login" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+            <Link href="/login" className="inline-flex min-h-12 items-center underline underline-offset-4">
               Já tenho conta
             </Link>
           </div>

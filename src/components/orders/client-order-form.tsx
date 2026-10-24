@@ -3,9 +3,9 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useFieldArray, useForm, type Resolver } from "react-hook-form";
+import { Controller, useFieldArray, useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 
 import { openClientOrderAction } from "@/actions/orders-client";
 import {
@@ -20,8 +20,11 @@ import {
 } from "@/components/orders/order-rules";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { toCents } from "@/lib/catalog/money";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { clientOrderSchema, MAX_PARTNERS } from "@/lib/validators/order";
@@ -61,6 +64,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 		register,
 		handleSubmit,
 		watch,
+		setValue,
 		getValues,
 		control,
 		reset,
@@ -129,35 +133,35 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 					<CardTitle className="text-lg">Produto</CardTitle>
 				</CardHeader>
 				<CardContent>
-					<fieldset className="space-y-2">
-						<legend className="sr-only">Produto</legend>
+					<RadioGroup
+						aria-label="Produto"
+						value={productCode}
+						onValueChange={(value) => setValue("productCode", value as OrderProductCode)}
+					>
 						{products.map((p) => (
 							<label
 								key={p.code}
-								className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-md border p-3 text-sm has-[:checked]:border-foreground"
+								htmlFor={`product-${p.code}`}
+								className="flex min-h-12 cursor-pointer flex-col gap-1 rounded-md border-2 p-3 has-[[data-state=checked]]:border-primary sm:flex-row sm:items-center sm:justify-between sm:gap-3"
 							>
-								<span className="flex items-center gap-2">
-									<input
-										type="radio"
-										value={p.code}
-										{...register("productCode")}
-									/>
+								<span className="flex items-center gap-3">
+									<RadioGroupItem id={`product-${p.code}`} value={p.code} />
 									{productLabel(p.name, p.code, holderType)}
 								</span>
-								<span className="text-right font-medium">
+								<span className="pl-9 font-bold sm:pl-0 sm:text-right">
 									{p.code === "dossie_empresarial"
 										? `${formatCurrency(Number(p.price))} + ${formatCurrency(Number(p.pricePerPartner))} por sócio`
 										: formatCurrency(Number(p.price))}
 								</span>
 							</label>
 						))}
-					</fieldset>
+					</RadioGroup>
 				</CardContent>
 			</Card>
 
 			{isSelf ? (
 				selfDocumentMasked !== null && (
-					<p className="text-sm text-muted-foreground">A pesquisa é sobre você ({selfDocumentMasked}). Você recebe um pedido de autorização por e-mail.</p>
+					<p className="text-base text-muted-foreground">A pesquisa é sobre você ({selfDocumentMasked}). Você recebe um pedido de autorização por e-mail.</p>
 				)
 			) : (
 				<Card>
@@ -165,7 +169,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 						<CardTitle className="text-lg">{isEmpresarial ? "Empresa" : "Responsável pela empresa"}</CardTitle>
 					</CardHeader>
 					<CardContent className="space-y-4">
-						<p className="text-sm text-muted-foreground">
+						<p className="text-base text-muted-foreground">
 							Cada pessoa informada recebe um pedido de autorização por e-mail. A consulta só roda depois da autorização de todas.
 						</p>
 						<div className="space-y-2">
@@ -177,12 +181,12 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 								aria-invalid={Boolean(errors.subject?.document)}
 								{...register("subject.document")}
 							/>
-							{errors.subject?.document && <p className="text-sm text-destructive">{errors.subject.document.message}</p>}
+							{errors.subject?.document && <p className="text-base text-destructive">{errors.subject.document.message}</p>}
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="subject-name">{nameLabel}</Label>
 							<Input id="subject-name" autoComplete="off" aria-invalid={Boolean(errors.subject?.name)} {...register("subject.name")} />
-							{errors.subject?.name && <p className="text-sm text-destructive">{errors.subject.name.message}</p>}
+							{errors.subject?.name && <p className="text-base text-destructive">{errors.subject.name.message}</p>}
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="contact-email">E-mail do responsável</Label>
@@ -193,7 +197,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 								aria-invalid={Boolean(errors.contactEmail)}
 								{...register("contactEmail")}
 							/>
-							{errors.contactEmail && <p className="text-sm text-destructive">{errors.contactEmail.message}</p>}
+							{errors.contactEmail && <p className="text-base text-destructive">{errors.contactEmail.message}</p>}
 						</div>
 					</CardContent>
 				</Card>
@@ -206,7 +210,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 					</CardHeader>
 					<CardContent className="space-y-4">
 						{fields.map((field, i) => (
-							<div key={field.id} className="space-y-3 rounded-md border p-3">
+							<div key={field.id} className="space-y-3 rounded-md border-2 p-3">
 								<div className="space-y-1">
 									<Label htmlFor={`partner-name-${i}`}>Nome do sócio {i + 1}</Label>
 									<Input
@@ -215,7 +219,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 										aria-invalid={Boolean(errors.partners?.[i]?.name)}
 										{...register(`partners.${i}.name`)}
 									/>
-									{errors.partners?.[i]?.name && <p className="text-sm text-destructive">{errors.partners[i]?.name?.message}</p>}
+									{errors.partners?.[i]?.name && <p className="text-base text-destructive">{errors.partners[i]?.name?.message}</p>}
 								</div>
 								<div className="space-y-1">
 									<Label htmlFor={`partner-doc-${i}`}>CPF do sócio {i + 1}</Label>
@@ -227,7 +231,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 										{...register(`partners.${i}.document`)}
 									/>
 									{errors.partners?.[i]?.document && (
-										<p className="text-sm text-destructive">{errors.partners[i]?.document?.message}</p>
+										<p className="text-base text-destructive">{errors.partners[i]?.document?.message}</p>
 									)}
 								</div>
 								<div className="space-y-1">
@@ -239,25 +243,25 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 										aria-invalid={Boolean(errors.partners?.[i]?.email)}
 										{...register(`partners.${i}.email`)}
 									/>
-									{errors.partners?.[i]?.email && <p className="text-sm text-destructive">{errors.partners[i]?.email?.message}</p>}
+									{errors.partners?.[i]?.email && <p className="text-base text-destructive">{errors.partners[i]?.email?.message}</p>}
 								</div>
-								<Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} aria-label={`Remover sócio ${i + 1}`}>
-									<Trash2 className="h-4 w-4" />
+								<Button type="button" variant="outline" onClick={() => remove(i)} aria-label={`Remover sócio ${i + 1}`}>
+									<Trash2 aria-hidden />
 									Remover
 								</Button>
 							</div>
 						))}
-						{errors.partners?.message && <p className="text-sm text-destructive">{errors.partners.message}</p>}
+						{errors.partners?.message && <p className="text-base text-destructive">{errors.partners.message}</p>}
 						<Button
 							type="button"
 							variant="outline"
 							disabled={fields.length >= MAX_PARTNERS}
 							onClick={() => append({ name: "", document: "", email: "" })}
 						>
-							<Plus className="h-4 w-4" />
+							<Plus aria-hidden />
 							Adicionar sócio
 						</Button>
-						<p className="text-xs text-muted-foreground">Até {MAX_PARTNERS} sócios. Cada sócio autoriza a consulta pelo próprio e-mail.</p>
+						<p className="text-base text-muted-foreground">Até {MAX_PARTNERS} sócios. Cada sócio autoriza a consulta pelo próprio e-mail.</p>
 					</CardContent>
 				</Card>
 			)}
@@ -266,53 +270,63 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 				<CardContent className="space-y-4 p-6">
 					{hasMembers && (
 						<div className="space-y-2">
-							<p className="whitespace-pre-line rounded-md border bg-muted/40 p-3 text-sm" id="declaration-text">
+							<p className="whitespace-pre-line rounded-md border-2 bg-muted/40 p-3 text-base" id="declaration-text">
 								{declaration.bodyMd}
 							</p>
-							<label className="flex min-h-11 cursor-pointer items-start gap-2 text-sm">
-								<input
-									type="checkbox"
-									className="mt-1"
-									aria-describedby="declaration-text"
-									{...register("declarationAccepted")}
+							<div className="flex min-h-12 items-start gap-3">
+								<Controller
+									control={control}
+									name="declarationAccepted"
+									render={({ field }) => (
+										<Checkbox
+											id="declaration-accepted"
+											className="mt-1"
+											aria-describedby="declaration-text"
+											checked={field.value}
+											onCheckedChange={(checked) => field.onChange(checked === true)}
+										/>
+									)}
 								/>
-								Li e concordo com a declaração acima.
-							</label>
+								<Label htmlFor="declaration-accepted" className="cursor-pointer text-base font-normal">
+									Li e concordo com a declaração acima.
+								</Label>
+							</div>
 						</div>
 					)}
-					<dl className="grid grid-cols-2 gap-4 text-sm">
+					<dl className="grid grid-cols-2 gap-4">
 						<div>
 							<dt className="text-muted-foreground">Total</dt>
-							<dd className="text-2xl font-semibold" aria-live="polite">
+							<dd className="text-2xl font-bold" aria-live="polite">
 								{formatCurrency(totalCents / 100)}
 							</dd>
 						</div>
 						<div>
 							<dt className="text-muted-foreground">Saldo disponível</dt>
-							<dd className="text-2xl font-semibold">{formatCurrency(Number(available))}</dd>
+							<dd className="text-2xl font-bold">{formatCurrency(Number(available))}</dd>
 						</div>
 					</dl>
-					{insufficient ? (
-						<div className="space-y-3">
-							<p className="flex items-center gap-2 text-sm text-destructive" role="alert">
-								<TriangleAlert className="h-4 w-4 shrink-0" />
-								Saldo insuficiente para este pedido.
-							</p>
-							<Button asChild>
-								<Link href="/portal/credits">Comprar créditos</Link>
-							</Button>
-						</div>
-					) : (
-						<Button type="submit" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
-							{isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-							{isPending ? "Enviando..." : "Confirmar pedido"}
-						</Button>
+					{insufficient && (
+						<StatusBanner
+							tone="attention"
+							title="Saldo insuficiente para este pedido."
+							description="Nada foi cobrado. Compre créditos e volte para confirmar."
+						/>
 					)}
-					<p aria-live="polite" className="text-sm text-destructive">
-						{serverError}
-					</p>
+					{serverError && <StatusBanner tone="attention" title="Não foi possível abrir o pedido" description={serverError} />}
 				</CardContent>
 			</Card>
+			<div className="sticky bottom-20 z-30 md:bottom-4">
+				{insufficient ? (
+					<Button asChild size="lg" className="w-full">
+						<Link href="/portal/credits">Comprar créditos</Link>
+					</Button>
+				) : (
+					<Button type="submit" size="lg" className="w-full" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
+						{isPending && <Loader2 aria-hidden className="animate-spin" />}
+						{isPending ? "Enviando..." : "Confirmar pedido"}
+					</Button>
+				)}
+			</div>
 		</form>
 	);
 }

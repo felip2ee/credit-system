@@ -1,16 +1,22 @@
+import { statusInfo } from "@/lib/ui/status";
 import { formatCurrency } from "@/lib/utils";
 import type { ClientLedgerEntry } from "@/lib/wallet/client-queries";
 
-export const CLIENT_KIND_LABEL: Record<ClientLedgerEntry["kind"], string> = {
-  topup: "Recarga",
-  reserve: "Reserva",
-  capture: "Cobrança",
-  release: "Liberação",
-  reversal: "Estorno",
-  commission_credit: "Comissão convertida",
-  adjustment_credit: "Ajuste do Bureau (crédito)",
-  adjustment_debit: "Ajuste do Bureau (débito)",
-};
+const KINDS: ClientLedgerEntry["kind"][] = [
+  "topup",
+  "reserve",
+  "capture",
+  "release",
+  "reversal",
+  "commission_credit",
+  "adjustment_credit",
+  "adjustment_debit",
+];
+
+// Rótulos vêm do vocabulário único (`@/lib/ui/status`).
+export const CLIENT_KIND_LABEL = Object.fromEntries(
+  KINDS.map((k) => [k, statusInfo("walletEntry", k, "client").label]),
+) as Record<ClientLedgerEntry["kind"], string>;
 
 // Só o ajuste mostra sinal: nos outros tipos o rótulo já diz o sentido do valor.
 export function clientLedgerAmount(kind: ClientLedgerEntry["kind"], amount: string): string {

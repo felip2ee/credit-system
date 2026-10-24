@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 
 import { acceptLegalDocumentsAction } from "@/actions/account";
 import { Button } from "@/components/ui/button";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export interface AcceptLegalFormProps {
   termsVersion: number;
@@ -32,12 +33,8 @@ export function AcceptLegalForm({ termsVersion, privacyVersion }: AcceptLegalFor
 
   return (
     <div className="space-y-3 border-t pt-6">
-      {serverError && (
-        <p role="alert" className="text-sm text-destructive">
-          {serverError}
-        </p>
-      )}
-      <Button type="button" onClick={accept} disabled={isPending}>
+      {serverError && <StatusBanner tone="attention" title={serverError} />}
+      <Button type="button" size="lg" className="w-full sm:w-auto" onClick={accept} disabled={isPending}>
         {isPending ? "Aceitando..." : "Aceitar e continuar"}
       </Button>
     </div>

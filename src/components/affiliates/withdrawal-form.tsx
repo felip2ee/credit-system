@@ -5,8 +5,11 @@ import { useRouter } from "next/navigation";
 
 import { requestWithdrawalAction } from "@/actions/affiliate-withdrawals";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { formatCurrency } from "@/lib/utils";
 
 import { withdrawalPreview, type WithdrawalFee } from "./affiliate-rules";
@@ -55,14 +58,14 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      <p className="text-sm text-muted-foreground">
+      <p className="text-base text-muted-foreground">
         Taxa de saque: {formatCurrency(Number(fee.fixed))} + {fee.percent}%
       </p>
       <div className="space-y-1">
         <Label htmlFor="withdraw-amount">Valor (R$)</Label>
         <Input id="withdraw-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={pending} />
         {amount !== "" && (
-          <p className={preview.valid ? "text-sm" : "text-sm text-destructive"}>
+          <p className={preview.valid ? undefined : "text-destructive"}>
             {preview.valid
               ? `Taxa ${formatCurrency(Number(preview.fee))}. Você recebe ${formatCurrency(Number(preview.net))}.`
               : "Informe um valor maior que a taxa de saque."}
@@ -71,31 +74,32 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
       </div>
       <div className="space-y-1">
         <Label htmlFor="withdraw-key-type">Tipo da chave PIX</Label>
-        <select
-          id="withdraw-key-type"
-          value={pixKeyType}
-          onChange={(e) => setPixKeyType(e.target.value as KeyType)}
-          disabled={pending}
-          className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-        >
-          {KEY_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+        <Select value={pixKeyType} onValueChange={(v) => setPixKeyType(v as KeyType)} disabled={pending}>
+          <SelectTrigger id="withdraw-key-type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {KEY_TYPES.map((t) => (
+              <SelectItem key={t.value} value={t.value}>
+                {t.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-1">
         <Label htmlFor="withdraw-key">Chave PIX</Label>
         <Input id="withdraw-key" value={pixKey} onChange={(e) => setPixKey(e.target.value)} disabled={pending} autoComplete="off" />
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={ownKey} onChange={(e) => setOwnKey(e.target.checked)} disabled={pending} />
-        A chave PIX está no meu nome
-      </label>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      {done && <p className="text-sm text-green-700">Saque solicitado. Você será avisado quando o pagamento sair.</p>}
-      <Button type="submit" disabled={pending || !ownKey || !preview.valid}>
+      <div className="flex min-h-12 items-center gap-3">
+        <Checkbox id="withdraw-own-key" checked={ownKey} onCheckedChange={(checked) => setOwnKey(checked === true)} disabled={pending} />
+        <Label htmlFor="withdraw-own-key" className="cursor-pointer text-base font-normal">
+          A chave PIX está no meu nome
+        </Label>
+      </div>
+      {error && <StatusBanner tone="attention" title={error} />}
+      {done && <StatusBanner tone="success" title="Saque solicitado." description="Você será avisado quando o pagamento sair." />}
+      <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={pending || !ownKey || !preview.valid}>
         {pending ? "Enviando..." : "Solicitar saque"}
       </Button>
     </form>

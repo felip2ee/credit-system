@@ -3,17 +3,19 @@ import { Download } from "lucide-react";
 import { ConsultationResult, ConsultationUnavailable } from "@/components/consultations/consultation-result";
 import { FullConsultationResult } from "@/components/consultations/full-consultation-result";
 import { MarkdownReport } from "@/components/shared/markdown-report";
-import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusBadge } from "@/components/ui/status-badge";
+import type { StateTone } from "@/components/ui/state-tone";
 import { FULL_DATA_UNAVAILABLE, toConsultationContent } from "@/lib/consultations/full-view";
 import type { ClientDelivery } from "@/lib/orders/client-queries";
 import type { Parecer } from "@/types/ai";
 
-const APTITUDE: Record<Parecer["apto"], { label: string; variant: BadgeProps["variant"] }> = {
-	apto: { label: "Apto", variant: "success" },
-	apto_com_ressalvas: { label: "Apto com ressalvas", variant: "secondary" },
-	inapto: { label: "Inapto", variant: "destructive" },
+const APTITUDE: Record<Parecer["apto"], { label: string; tone: StateTone }> = {
+	apto: { label: "Apto", tone: "success" },
+	apto_com_ressalvas: { label: "Apto com ressalvas", tone: "attention" },
+	inapto: { label: "Inapto", tone: "danger" },
 };
 
 // Parecer só para leitura: sem botões de gerar ou regenerar.
@@ -22,21 +24,21 @@ function OpinionReadOnly({ title, parecer }: { title: string; parecer: Parecer }
 	return (
 		<Card>
 			<CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-				<CardTitle className="text-lg">{title}</CardTitle>
+				<CardTitle className="text-xl">{title}</CardTitle>
 				<div className="flex flex-wrap items-center gap-2">
-					<Badge variant={apt.variant}>{apt.label}</Badge>
+					<StatusBadge tone={apt.tone} label={apt.label} />
 					<Badge variant="outline">{parecer.classificacao_perfil}</Badge>
 				</div>
 			</CardHeader>
 			<CardContent className="space-y-4">
-				<p className="text-sm text-muted-foreground">{parecer.resumo_executivo}</p>
+				<p className="text-base text-muted-foreground">{parecer.resumo_executivo}</p>
 				<details className="rounded-md border">
-					<summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium">Ver parecer técnico completo</summary>
-					<div className="border-t px-4 py-3 text-sm text-muted-foreground">
+					<summary className="cursor-pointer select-none px-4 py-2 text-base font-medium">Ver parecer técnico completo</summary>
+					<div className="border-t px-4 py-3 text-base text-muted-foreground">
 						<MarkdownReport>{parecer.relatorio_markdown}</MarkdownReport>
 					</div>
 				</details>
-				<p className="border-t pt-3 text-[11px] text-muted-foreground">{parecer.disclaimer}</p>
+				<p className="border-t pt-3 text-base text-muted-foreground">{parecer.disclaimer}</p>
 			</CardContent>
 		</Card>
 	);
@@ -55,7 +57,7 @@ function MemberResult({ member }: { member: ClientDelivery["members"][number] })
 	if (content.view) {
 		return (
 			<>
-				<p className="text-sm text-muted-foreground">{FULL_DATA_UNAVAILABLE}</p>
+				<p className="text-base text-muted-foreground">{FULL_DATA_UNAVAILABLE}</p>
 				<ConsultationResult view={content.view} />
 			</>
 		);
@@ -67,18 +69,18 @@ export function DeliveryView({ delivery }: { delivery: ClientDelivery }) {
 	const { order, members, dossierOpinion } = delivery;
 	return (
 		<div className="space-y-6">
-			<div className="flex justify-end">
-				<Button asChild variant="outline">
+			<div className="flex sm:justify-end">
+				<Button asChild className="w-full sm:w-auto">
 					<a href={`/portal/pesquisas/${order.dossierId}/pdf`}>
-						<Download className="h-4 w-4" />
+						<Download aria-hidden />
 						Baixar PDF
 					</a>
 				</Button>
 			</div>
 			{members.map((m) => (
 				<section key={m.consultationId} aria-label={m.name ?? "Consulta"} className="space-y-4">
-					<h2 className="text-lg font-semibold">
-						{m.name ?? "Consulta"} <span className="text-sm font-normal text-muted-foreground">({m.type})</span>
+					<h2 className="text-xl font-semibold">
+						{m.name ?? "Consulta"} <span className="text-base font-normal text-muted-foreground">({m.type})</span>
 					</h2>
 					<MemberResult member={m} />
 					{m.opinion && <OpinionReadOnly title="Parecer de IA" parecer={m.opinion} />}

@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 
 import { confirmEmailAction } from "@/actions/register";
 import { Button } from "@/components/ui/button";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export interface ConfirmEmailButtonProps {
   token: string;
@@ -24,27 +25,23 @@ export function ConfirmEmailButton({ token }: ConfirmEmailButtonProps) {
   if (outcome && !outcome.error) {
     return (
       <div className="space-y-3">
-        <p role="status" className="font-medium">E-mail confirmado.</p>
-        <Link href="/portal" className="inline-block font-medium underline underline-offset-4">
-          Ir para o portal
-        </Link>
+        <StatusBanner tone="success" title="E-mail confirmado." />
+        <Button asChild size="lg" className="w-full">
+          <Link href="/portal">Ir para o portal</Link>
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      {outcome?.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {outcome.error}
-        </p>
-      )}
+      {outcome?.error && <StatusBanner tone="attention" title={outcome.error} />}
       {outcome?.error ? (
-        <Link href="/login" className="inline-block font-medium underline underline-offset-4">
-          Entrar
-        </Link>
+        <Button asChild size="lg" className="w-full">
+          <Link href="/login">Entrar</Link>
+        </Button>
       ) : (
-        <Button type="button" onClick={confirm} disabled={isPending}>
+        <Button type="button" size="lg" className="w-full" onClick={confirm} disabled={isPending}>
           {isPending ? "Confirmando..." : "Confirmar e-mail"}
         </Button>
       )}

@@ -10,6 +10,7 @@ import { newPasswordSchema } from "@/lib/validators/password";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const schema = newPasswordSchema.and(
   z.object({ currentPassword: z.string().min(1, "Informe a senha atual.") }),
@@ -55,28 +56,20 @@ export function ChangePasswordForm() {
       <div className="space-y-2">
         <Label htmlFor="currentPassword">Senha atual</Label>
         <Input id="currentPassword" type="password" autoComplete="current-password" {...register("currentPassword")} />
-        {errors.currentPassword && <p className="text-sm text-destructive">{errors.currentPassword.message}</p>}
+        {errors.currentPassword && <p className="text-base text-destructive">{errors.currentPassword.message}</p>}
       </div>
       <div className="space-y-2">
         <Label htmlFor="password">Nova senha</Label>
         <Input id="password" type="password" autoComplete="new-password" {...register("password")} />
-        {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
+        {errors.password && <p className="text-base text-destructive">{errors.password.message}</p>}
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirm">Confirmar nova senha</Label>
         <Input id="confirm" type="password" autoComplete="new-password" {...register("confirm")} />
-        {errors.confirm && <p className="text-sm text-destructive">{errors.confirm.message}</p>}
+        {errors.confirm && <p className="text-base text-destructive">{errors.confirm.message}</p>}
       </div>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      {done && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Senha alterada. Os outros dispositivos foram desconectados.
-        </p>
-      )}
+      {error && <StatusBanner tone="attention" title={error} />}
+      {done && <StatusBanner tone="success" title="Senha alterada." description="Os outros dispositivos foram desconectados." />}
       <Button type="submit" disabled={isSubmitting}>
         {isSubmitting ? "Salvando..." : "Alterar senha"}
       </Button>

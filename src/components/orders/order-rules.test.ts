@@ -6,7 +6,6 @@ import {
 	countBillablePartners,
 	canConfirmOrder,
 	isSelfOrder,
-	MEMBER_STATUS_LABEL,
 	orderHasMembers,
 	orderIsBlocked,
 	orderTotalCents,
@@ -74,9 +73,6 @@ describe("cancelamento", () => {
 	it("pedido de balcão bloqueado manda falar com o Bureau, sem falar de cancelar", () => {
 		expect(blockedOrderMessage("online")).toBe("Este pedido não vai rodar. Cancele para receber o valor de volta.");
 		expect(blockedOrderMessage("counter")).toBe("Este pedido não vai rodar. Fale com o Bureau.");
-	});
-	it("rotula os 4 estados", () => {
-		expect(Object.values(MEMBER_STATUS_LABEL)).toEqual(["Pendente", "Autorizado", "Recusado", "Vencido"]);
 	});
 });
 

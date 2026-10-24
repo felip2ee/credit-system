@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const schema = z.object({
   email: z.string().email("Informe um e-mail válido."),
@@ -41,7 +42,7 @@ export default function ResetPasswordPage() {
     setSent(true);
   };
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-md">
       <CardHeader className="space-y-1 text-center">
         <CardTitle className="text-2xl">Recuperar senha</CardTitle>
         <CardDescription>
@@ -51,7 +52,7 @@ export default function ResetPasswordPage() {
       <CardContent>
         {sent ? (
           <div className="space-y-4 text-center">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Se houver uma conta com esse e-mail, um link de redefinição foi
               enviado. Verifique sua caixa de entrada.
             </p>
@@ -70,12 +71,12 @@ export default function ResetPasswordPage() {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="text-sm text-destructive">
+                <p className="text-base text-destructive">
                   {errors.email.message}
                 </p>
               )}
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <StatusBanner tone="attention" title={error} />}
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Enviando..." : "Enviar link"}
             </Button>

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const loginSchema = z.object({
   email: z.string().email("Informe um e-mail válido."),
@@ -53,10 +54,10 @@ function LoginForm() {
     if (result.error) setServerError("E-mail ou senha inválidos.");
   };
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-md">
       <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl">Rainha Cred</CardTitle>
-        <CardDescription>Acesse o painel do consultor</CardDescription>
+        <CardTitle className="text-2xl">Entrar</CardTitle>
+        <CardDescription>Use o e-mail e a senha da sua conta</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -69,7 +70,7 @@ function LoginForm() {
               {...register("email")}
             />
             {errors.email && (
-              <p className="text-sm text-destructive">{errors.email.message}</p>
+              <p className="text-base text-destructive">{errors.email.message}</p>
             )}
           </div>
           <div className="space-y-2">
@@ -81,13 +82,13 @@ function LoginForm() {
               {...register("password")}
             />
             {errors.password && (
-              <p className="text-sm text-destructive">
+              <p className="text-base text-destructive">
                 {errors.password.message}
               </p>
             )}
           </div>
           {serverError && (
-            <p className="text-sm text-destructive">{serverError}</p>
+            <StatusBanner tone="attention" title={serverError} description="Confira os dados e tente de novo." />
           )}
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? "Entrando..." : "Entrar"}
@@ -95,7 +96,7 @@ function LoginForm() {
           <div className="text-center">
             <Link
               href="/reset-password"
-              className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+              className="inline-flex min-h-12 items-center text-base underline underline-offset-4"
             >
               Esqueci minha senha
             </Link>
