@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
@@ -19,6 +20,7 @@ import {
 } from "@/lib/ai/prompt";
 import { SCR_SETTING_KEYS } from "@/lib/scr/consent-term";
 import {
+  AFFILIATE_SETTING_KEYS,
   asString,
   readAiPrompt,
   readScrTermSettings,
@@ -172,5 +174,45 @@ export async function saveScrTermSettings(
   }
 
   revalidatePath("/superadmin/settings/scr");
+  return { error: null };
+}
+
+// ── Afiliados (carência da comissão e taxa de saque) ──────────────────────
+
+const MAX_HOLD_DAYS = 365;
+const moneyField = z
+  .string()
+  .trim()
+  .regex(/^\d{1,9}(\.\d{1,2})?$/, "Valor inválido.")
+  .transform(Number);
+const affiliateSettingsSchema = z.object({
+  holdDays: z.number().int("Informe dias inteiros.").min(0, "Dias inválidos.").max(MAX_HOLD_DAYS, "Use no máximo 365 dias."),
+  fixed: moneyField,
+  percent: moneyField.refine((v) => v <= 100, "A taxa percentual vai de 0 a 100."),
+});
+
+export async function saveAffiliateSettings(values: unknown): Promise<SaveResult> {
+  const parsed = affiliateSettingsSchema.safeParse(values);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  const identity = await adminIdentity();
+  if (!identity) return { error: "Apenas o superadmin pode editar as regras de afiliados." };
+
+  try {
+    await upsertSettings(
+      identity,
+      [
+        { key: AFFILIATE_SETTING_KEYS.holdDays, value: parsed.data.holdDays },
+        {
+          key: AFFILIATE_SETTING_KEYS.withdrawalFee,
+          value: { fixed: parsed.data.fixed, percent: parsed.data.percent },
+        },
+      ],
+      "settings.affiliates",
+    );
+  } catch {
+    return { error: "Falha ao salvar as regras de afiliados." };
+  }
+
+  revalidatePath("/superadmin/settings/afiliados");
   return { error: null };
 }

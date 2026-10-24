@@ -38,6 +38,11 @@ export default async function PortalLayout({ children }: { children: React.React
                 Créditos
               </Link>
             )}
+            {hasPermission(session, "affiliates:read") && (
+              <Link href="/portal/afiliacao" className="text-sm font-medium hover:underline">
+                Afiliação
+              </Link>
+            )}
             <Link href="/portal/perfil" className="text-sm font-medium hover:underline">
               Perfil
             </Link>

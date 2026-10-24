@@ -11,7 +11,13 @@ export const metadata = {
   title: "Reino do Crédito",
 };
 
-export default async function RegisterPage({ params }: { params: { slug: string } }) {
+export default async function RegisterPage({
+  params,
+  searchParams,
+}: {
+  params: { slug: string };
+  searchParams: { ref?: string | string[] };
+}) {
   const bureau = await getPublicBureau(params.slug);
   if (!bureau) notFound();
   const legal = await getCurrentLegalDocuments();
@@ -23,6 +29,7 @@ export default async function RegisterPage({ params }: { params: { slug: string 
         bureauName={bureau.name}
         termsVersion={legal.terms.version}
         privacyVersion={legal.privacy.version}
+        referralCode={typeof searchParams.ref === "string" ? searchParams.ref : undefined}
       />
     </main>
   );

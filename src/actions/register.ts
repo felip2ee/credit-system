@@ -69,6 +69,7 @@ export async function registerClientAction(values: unknown): Promise<RegisterAct
 			...meta,
 			emailToken: generateEmailToken(),
 			siteUrl: config.betterAuthUrl,
+			referralCode: input.referralCode,
 		});
 		return { error: result.ok ? null : REGISTER_MESSAGES[result.reason] };
 	} catch (error) {

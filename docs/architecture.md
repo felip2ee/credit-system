@@ -83,12 +83,15 @@ Webhooks e worker:
 
 ## Dados e migrations
 
-- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `025`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
+- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `028`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
 - A 021 cria as contas de cliente: `legal_documents`, `legal_acceptances`, `verification_challenges`, `client_register_attempts`, e as funções `register_client` e de verificação (`request_*` e `confirm_*` de e-mail e de telefone).
 - A 023 cria a retenção LGPD: anonimização do titular e da conta do cliente, varredura técnica e do Bureau. Veja [operations/lgpd.md](operations/lgpd.md).
 - A 022 cria os pedidos de pesquisa (`dossier_orders`, com estado protegido por trigger), a função `open_order` (única porta de criação de Dossiê), o perfil de sistema por Bureau (`profiles.is_system`) e a RLS de entrega do cliente. Veja [operations/orders.md](operations/orders.md).
 - A 024 dá ao cliente leitura de `bureau_payloads` só de pedido próprio em `released` (`bureau_payloads_client_released`).
 - A 025 cria as operações do cliente sobre o próprio pedido: `cancel_client_order` (cancela em `awaiting_authorization` ou `ready` e libera a reserva; motivo `cancelled_by_client`), `client_order_members` (membros do pedido com o estado do aceite SCR e documento mascarado) e `record_order_declaration`. Cria a tabela imutável `order_declarations` (um aceite por pedido, com versão, IP e user agent) e o tipo `buyer_declaration` em `legal_documents`.
+- A 026 cria o núcleo de afiliados: `affiliate_codes` (um código de 8 caracteres por cliente, criado pelo trigger de `profiles`), `affiliate_referrals` (vínculo imutável, criado só no cadastro), `bureau_affiliate_settings` (% padrão do Bureau), `affiliate_rates` (% por afiliado), `affiliate_wallets`, `affiliate_ledger_entries` (imutável) e `affiliate_commissions`. `register_client` recebe o código de indicação.
+- A 027 põe a comissão em `capture_order` (só com `profiles.phone_verified_at` do indicado) e cria `release_due_commissions()`, que o tick de pedidos chama para encerrar a carência (`affiliate_commissions.release_at`). A configuração `affiliate_commission_hold_days` guarda os dias de carência.
+- A 028 cria os saques (`affiliate_withdrawals`, com a taxa de `affiliate_withdrawal_fee`), a conversão do saldo em créditos e as funções de pagar (com comprovante) e cancelar. Veja [operations/affiliates.md](operations/affiliates.md).
 - O catálogo guarda custo e venda por sócio ao lado do valor base: `product_versions.base_cost_per_partner`, `bureau_product_costs.cost_per_partner` e `bureau_catalog_items.sale_price_per_partner`. Só o Dossiê Empresarial usa o valor por sócio.
 - Aplicar: `npm run db:migrate`. O runner grava checksums. Não edite uma migration já aplicada.
 - A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. A partir do primeiro deploy de produção, só migrations novas (forward-only, com checksum).

@@ -4,10 +4,12 @@ const ITEMS = [
   { href: "/superadmin", label: "Bureaus" },
   { href: "/superadmin/products", label: "Produtos" },
   { href: "/superadmin/payouts", label: "Repasses" },
+  { href: "/superadmin/saques", label: "Saques" },
   { href: "/superadmin/nfse", label: "NFS-e" },
   { href: "/superadmin/notifications", label: "Notificações" },
   { href: "/superadmin/settings/prompts", label: "Prompts da IA" },
   { href: "/superadmin/settings/scr", label: "Termo SCR" },
+  { href: "/superadmin/settings/afiliados", label: "Afiliados" },
 ];
 
 export function SuperadminNav() {

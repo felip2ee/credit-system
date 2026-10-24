@@ -46,7 +46,7 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 
 ## Fora de escopo
 
-- CRM de oportunidades, financiamento imobiliário e comissão.
+- CRM de oportunidades e financiamento imobiliário.
 - White-label.
 - Cliente PJ com vários usuários.
 - Repasse automático: o superadmin paga fora do sistema e marca como pago.
@@ -65,7 +65,7 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - **Preço:** total = valor base + valor por sócio × sócios distintos (por CPF, de 0 a 20). O valor por sócio só vale no Dossiê Empresarial. O preço de venda de cada campo não pode ficar abaixo do custo do mesmo campo.
 - **Parecer IA:** todo pedido inclui o parecer, gerado pela OpenAI. Não há adicional nem preço próprio. O custo fica no valor base.
 - **Portal:** a conta PF compra o Dossiê Pessoa Física só para si. A conta PJ informa CPF, nome e e-mail do responsável. O Dossiê Empresarial vale para qualquer CNPJ, com sócios. Pedido com membros exige a declaração do comprador. A página do pedido mostra o estado do aceite SCR de cada membro. O cliente cancela antes da execução e o valor volta ao saldo.
-- **Próxima entrega:** programa de afiliados (link, comissão, saque). "Comissão" continua fora de escopo até a spec de afiliados.
+- **Afiliados:** todo cliente tem um link de indicação (`/b/<slug>/cadastro?ref=<código>`). O vínculo nasce só no cadastro. A comissão é uma % da margem do Bureau (preço menos custo), definida pelo Bureau por afiliado ou como padrão. Ela nasce na captura de um pedido online. O indicado precisa ter o celular verificado. A comissão fica em carência (dias definidos pelo superadmin) e depois fica disponível. A afiliada converte o saldo em créditos ou pede saque por PIX com taxa. O superadmin paga fora do sistema e anexa o comprovante. O estorno do pedido reverte a comissão. Runbook: [docs/operations/affiliates.md](docs/operations/affiliates.md). Spec: [docs/superpowers/specs/2026-10-24-programa-de-afiliados-design.md](docs/superpowers/specs/2026-10-24-programa-de-afiliados-design.md).
 - **SCR:** consulta de terceiros exige autorização do próprio titular, com trilha auditável.
 - **Auditoria:** eventos append-only, na mesma transação da mutação. Nunca grave CPF/CNPJ completo.
 - **Segurança:** isolamento por Bureau com RLS no Postgres. Autorização é checada no servidor.

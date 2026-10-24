@@ -24,6 +24,7 @@ import path from "node:path";
 
 import {
   ASAAS_WEBHOOK_TOKEN_EXAMPLE,
+  readAffiliateWithdrawalsEnabled,
   readAsaasConfig,
   readConfig,
   NOTIFICATIONS_DISPATCH_SECRET_EXAMPLE,
@@ -282,6 +283,19 @@ describe("readDispatchDatabaseUrl", () => {
     expect(readDispatchDatabaseUrl({ DISPATCH_DATABASE_URL: "postgres://app_dispatch:x@db/app" })).toBe(
       "postgres://app_dispatch:x@db/app",
     );
+  });
+});
+
+describe("readAffiliateWithdrawalsEnabled", () => {
+  it("is off when absent, empty or anything but true (fail closed)", () => {
+    expect(readAffiliateWithdrawalsEnabled({})).toBe(false);
+    expect(readAffiliateWithdrawalsEnabled({ AFFILIATE_WITHDRAWALS_ENABLED: "" })).toBe(false);
+    expect(readAffiliateWithdrawalsEnabled({ AFFILIATE_WITHDRAWALS_ENABLED: "false" })).toBe(false);
+    expect(readAffiliateWithdrawalsEnabled({ AFFILIATE_WITHDRAWALS_ENABLED: "yes" })).toBe(false);
+  });
+
+  it("is on only for true", () => {
+    expect(readAffiliateWithdrawalsEnabled({ AFFILIATE_WITHDRAWALS_ENABLED: " true " })).toBe(true);
   });
 });
 

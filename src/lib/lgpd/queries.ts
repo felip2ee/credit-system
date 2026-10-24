@@ -14,7 +14,7 @@ import type {
 } from "./types";
 
 const HOLDER_FAILURES: readonly AnonymizeHolderFailure[] = ["not_found", "already_anonymized", "client_active", "open_orders"];
-const CLIENT_FAILURES: readonly AnonymizeClientFailure[] = ["not_found", "already_anonymized", "balance", "open_orders"];
+const CLIENT_FAILURES: readonly AnonymizeClientFailure[] = ["not_found", "already_anonymized", "balance", "commission", "open_orders"];
 
 export async function anonymizeHolder(
 	identity: DbIdentity,

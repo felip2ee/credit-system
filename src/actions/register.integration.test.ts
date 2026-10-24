@@ -139,4 +139,40 @@ describe("registerClientAction + confirmEmailAction", () => {
 			error: "E-mail já cadastrado. Entre com sua senha ou recupere o acesso.",
 		});
 	});
+
+	it("links the new account to the affiliate of a valid referral code", async () => {
+		requestIp.current = `10.${randomInt(0, 256)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
+		const affiliateEmail = `${randomUUID()}@Example.test`;
+		await expect(registerClientAction(formValues({ email: affiliateEmail }))).resolves.toEqual({ error: null });
+		const affiliate = await owner.query<{ id: string; code: string }>(
+			`select c.profile_id as id, c.code from affiliate_codes c join "user" u on u.id = c.profile_id::text where u.email = $1`,
+			[affiliateEmail.toLowerCase()],
+		);
+		expect(affiliate.rows).toHaveLength(1);
+
+		requestIp.current = `10.${randomInt(0, 256)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
+		const referred = formValues({ referralCode: affiliate.rows[0].code });
+		await expect(registerClientAction(referred)).resolves.toEqual({ error: null });
+
+		const link = await owner.query<{ affiliate_profile_id: string }>(
+			`select r.affiliate_profile_id from affiliate_referrals r join "user" u on u.id = r.referred_profile_id::text where u.email = $1`,
+			[referred.email.toLowerCase()],
+		);
+		expect(link.rows).toEqual([{ affiliate_profile_id: affiliate.rows[0].id }]);
+	});
+
+	it("completes the registration without a link when the ref is malformed", async () => {
+		requestIp.current = `10.${randomInt(0, 256)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
+		const values = formValues({ referralCode: "NÃO-É-CÓDIGO" });
+
+		await expect(registerClientAction(values)).resolves.toEqual({ error: null });
+
+		const link = await owner.query(
+			`select 1 from affiliate_referrals r join "user" u on u.id = r.referred_profile_id::text where u.email = $1`,
+			[values.email.toLowerCase()],
+		);
+		expect(link.rows).toHaveLength(0);
+		const user = await owner.query('select 1 from "user" where email = $1', [values.email.toLowerCase()]);
+		expect(user.rows).toHaveLength(1);
+	});
 });

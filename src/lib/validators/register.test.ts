@@ -76,4 +76,12 @@ describe("registerFormSchema", () => {
     const short = "a".repeat(11);
     expect(documentIssue({ password: short, confirm: short })?.some((i) => i.path[0] === "password")).toBe(true);
   });
+
+  it("keeps a well-formed referral code and drops a malformed one without an error", () => {
+    expect(registerSchema.parse({ ...base, referralCode: "ab12cd34" }).referralCode).toBe("ab12cd34");
+    for (const bad of ["AB12CD34", "ab12", "ab12cd34x", "ab 12cd3", ""]) {
+      expect(registerSchema.parse({ ...base, referralCode: bad }).referralCode).toBeUndefined();
+    }
+    expect(registerSchema.parse(base).referralCode).toBeUndefined();
+  });
 });

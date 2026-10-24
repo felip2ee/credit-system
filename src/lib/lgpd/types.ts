@@ -1,5 +1,5 @@
 export type AnonymizeHolderFailure = "not_found" | "already_anonymized" | "client_active" | "open_orders";
-export type AnonymizeClientFailure = "not_found" | "already_anonymized" | "balance" | "open_orders";
+export type AnonymizeClientFailure = "not_found" | "already_anonymized" | "balance" | "commission" | "open_orders";
 
 export type AnonymizeHolderResult = { ok: true } | { ok: false; reason: AnonymizeHolderFailure };
 export type AnonymizeClientResult = { ok: true } | { ok: false; reason: AnonymizeClientFailure };

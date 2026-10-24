@@ -31,6 +31,8 @@ services:
       DEPS_PRODUTO_PJ: ${DEPS_PRODUTO_PJ:-Smart PJ 010}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
       WHATSAPP_DRIVER: ${WHATSAPP_DRIVER:-}
+      # Affiliate withdrawals stay off until the accountant validates them (docs/operations/affiliates.md).
+      AFFILIATE_WITHDRAWALS_ENABLED: ${AFFILIATE_WITHDRAWALS_ENABLED:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       WHATSAPP_GRAPH_VERSION: ${WHATSAPP_GRAPH_VERSION:-v21.0}
       DATABASE_URL_FILE: /run/secrets/database_url

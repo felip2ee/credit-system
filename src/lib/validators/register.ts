@@ -5,6 +5,7 @@ import { passwordSchema } from "@/lib/validators/password";
 
 // Sem dependência de servidor: o formulário importa este arquivo.
 export const SLUG_PATTERN = /^[a-z0-9-]{3,40}$/;
+export const REFERRAL_CODE_PATTERN = /^[a-z0-9]{8}$/;
 
 export const registerFormSchema = z
   .object({
@@ -20,6 +21,11 @@ export const registerFormSchema = z
     acceptedTerms: z.boolean().refine((v) => v, "Aceite os termos de uso e a política de privacidade."),
     termsVersion: z.number().int().positive(),
     privacyVersion: z.number().int().positive(),
+    // Código do link de afiliado (?ref=). Valor malformado vira undefined: o cadastro segue sem vínculo.
+    referralCode: z
+      .string()
+      .optional()
+      .transform((v) => (v && REFERRAL_CODE_PATTERN.test(v) ? v : undefined)),
   })
   .superRefine((v, ctx) => {
     // Mesma regra de holderSchema: PF = nome 3+ e CPF válido; PJ = razão social 2+ e CNPJ válido.

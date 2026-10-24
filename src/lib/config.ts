@@ -97,6 +97,12 @@ export function readConfig(env: Environment) {
   });
 }
 
+// Saque de comissão de afiliado. Fica desligado até o contador validar o tratamento fiscal (docs/operations/affiliates.md).
+// Lida sob demanda: só o portal e a action de saque precisam dela. Fail closed: só "true" liga.
+export function readAffiliateWithdrawalsEnabled(env: Environment): boolean {
+  return env.AFFILIATE_WITHDRAWALS_ENABLED?.trim() === "true";
+}
+
 export type AsaasConfig =
   | { driver: "fake"; webhookToken: string }
   | { driver: "asaas"; apiKey: string; baseUrl: string; customerId: string; webhookToken: string };

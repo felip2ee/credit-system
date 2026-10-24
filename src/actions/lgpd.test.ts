@@ -139,6 +139,14 @@ describe("anonymizeClientAccountAction", () => {
 		});
 	});
 
+	it("commission maps to a message addressed to the staff about the client", async () => {
+		state.anonymizeClientAccount.mockResolvedValue({ ok: false, reason: "commission" });
+
+		expect(await anonymizeClientAccountAction({ profileId: PROFILE_ID, reason: REASON })).toEqual({
+			error: "O cliente tem saldo de comissão disponível ou saque em aberto. Ele precisa sacar antes da anonimização.",
+		});
+	});
+
 	it("success revalidates the holder page", async () => {
 		expect(await anonymizeClientAccountAction({ profileId: PROFILE_ID, reason: REASON })).toEqual({ error: null });
 
