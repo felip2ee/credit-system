@@ -54,12 +54,16 @@ describe("campos do Dossiê Pessoa Física", () => {
 });
 
 describe("cancelamento", () => {
-	it("só cancela em awaiting_authorization e ready", () => {
-		expect(canCancelOrder("awaiting_authorization")).toBe(true);
-		expect(canCancelOrder("ready")).toBe(true);
-		expect(canCancelOrder("executing")).toBe(false);
-		expect(canCancelOrder("completed")).toBe(false);
-		expect(canCancelOrder("cancelled")).toBe(false);
+	it("só cancela pedido online em awaiting_authorization e ready", () => {
+		expect(canCancelOrder("awaiting_authorization", "online")).toBe(true);
+		expect(canCancelOrder("ready", "online")).toBe(true);
+		expect(canCancelOrder("executing", "online")).toBe(false);
+		expect(canCancelOrder("completed", "online")).toBe(false);
+		expect(canCancelOrder("cancelled", "online")).toBe(false);
+	});
+	it("pedido de balcão nunca é cancelado pelo cliente", () => {
+		expect(canCancelOrder("awaiting_authorization", "counter")).toBe(false);
+		expect(canCancelOrder("ready", "counter")).toBe(false);
 	});
 	it("recusado ou vencido bloqueia o pedido", () => {
 		expect(orderIsBlocked(["authorized", "refused"])).toBe(true);

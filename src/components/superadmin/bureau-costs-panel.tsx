@@ -8,14 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { listBureauCosts } from "@/lib/catalog/queries";
-import { normalizeMoney } from "@/lib/catalog/money-input";
-import { nonNegativeMoneySchema } from "@/lib/validators/catalog";
+import { nonNegativeMoneyError, normalizeMoney } from "@/lib/catalog/money-input";
 import { formatBRL } from "./money";
-
-function nonNegativeMoneyError(value: string): string | null {
-  const parsed = nonNegativeMoneySchema.safeParse(normalizeMoney(value));
-  return parsed.success ? null : parsed.error.issues[0].message;
-}
 
 type BureauCost = Awaited<ReturnType<typeof listBureauCosts>>[number];
 

@@ -14,7 +14,6 @@ const state = vi.hoisted(() => ({
 	query: vi.fn(),
 	accountStatus: vi.fn(),
 	holderType: vi.fn(),
-	declarationVersion: vi.fn(),
 	cancelMyOrder: vi.fn(),
 }));
 
@@ -37,7 +36,6 @@ vi.mock("@/lib/orders/queries", () => ({ placeOrder: state.placeOrder }));
 vi.mock("@/lib/account/queries", () => ({ getClientAccountStatus: state.accountStatus }));
 vi.mock("@/lib/orders/client-queries", () => ({ getMyHolderType: state.holderType }));
 vi.mock("@/lib/orders/client-ops", () => ({
-	currentDeclarationVersion: state.declarationVersion,
 	cancelMyOrder: state.cancelMyOrder,
 }));
 
@@ -71,7 +69,6 @@ beforeEach(() => {
 	state.placeOrder.mockResolvedValue({ ok: true, dossierId: DOSSIER_ID, state: "awaiting_authorization" });
 	state.accountStatus.mockResolvedValue({ termsAccepted: true, emailVerified: true });
 	state.holderType.mockResolvedValue("PF");
-	state.declarationVersion.mockResolvedValue(3);
 	state.cancelMyOrder.mockResolvedValue({ ok: true });
 });
 
@@ -143,6 +140,7 @@ describe("openClientOrderAction", () => {
 			contactEmail: "resp@example.test",
 			partners: [partner(CPF), partner("529.982.247-25")],
 			declarationAccepted: true,
+			declarationVersion: 3,
 		});
 
 		const [, input, quote] = state.placeOrder.mock.calls[0];
@@ -234,6 +232,7 @@ describe("declaration for orders with members", () => {
 		contactEmail: "resp@example.test",
 		partners: [{ document: CPF, name: "Sócio", email: "socio@example.test" }],
 	};
+	const SEEN_VERSION = 3;
 	const pfOfCompanyAccount = { ...thirdOrder, subject: { name: "Responsável", document: CPF } };
 
 	it.each([
@@ -252,14 +251,33 @@ describe("declaration for orders with members", () => {
 	it.each([
 		["dossie_empresarial", company],
 		["dossie_pf of a PJ account", pfOfCompanyAccount],
-	])("%s with the declaration passes the current version, IP and user agent", async (name, order) => {
+	])("%s with the declaration passes the version the client saw, IP and user agent", async (name, order) => {
 		state.holderType.mockResolvedValue("PJ");
 
-		await expect(openClientOrderAction({ ...order, declarationAccepted: true })).resolves.toEqual({ error: null, id: DOSSIER_ID });
+		await expect(openClientOrderAction({ ...order, declarationAccepted: true, declarationVersion: SEEN_VERSION })).resolves.toEqual({
+			error: null,
+			id: DOSSIER_ID,
+		});
 
 		expect(state.placeOrder.mock.calls[0][3]).toEqual({
-			declaration: { version: 3, ip: "203.0.113.9", userAgent: "vitest-agent" },
+			declaration: { version: SEEN_VERSION, ip: "203.0.113.9", userAgent: "vitest-agent" },
 		});
+	});
+
+	it("a stale version goes to the database as sent and comes back as declaration_outdated", async () => {
+		state.placeOrder.mockResolvedValue({ ok: false, reason: "declaration_outdated" });
+
+		await expect(openClientOrderAction({ ...company, declarationAccepted: true, declarationVersion: 2 })).resolves.toEqual({
+			error: "A declaração mudou. Leia e confirme de novo.",
+		});
+		expect(state.placeOrder.mock.calls[0][3]).toMatchObject({ declaration: { version: 2 } });
+	});
+
+	it("an order with members and no declaration version opens nothing", async () => {
+		await expect(openClientOrderAction({ ...company, declarationAccepted: true })).resolves.toEqual({
+			error: "A declaração mudou. Leia e confirme de novo.",
+		});
+		expect(state.placeOrder).not.toHaveBeenCalled();
 	});
 
 	it("dossie_pf of a PF account does not need the declaration and sends none", async () => {

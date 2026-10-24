@@ -92,6 +92,8 @@ export const clientOrderSchema = z
 		contactPhone: optionalPhone,
 		partners: z.array(partnerSchema).max(MAX_PARTNERS, `No máximo ${MAX_PARTNERS} sócios.`).default([]),
 		declarationAccepted: z.boolean().default(false),
+		// A versão do texto que o formulário mostrou. O banco recusa se já não for a vigente.
+		declarationVersion: z.number().int().positive().nullish().transform((v) => v ?? null),
 		}),
 	)
 	.superRefine((v, ctx) => {
@@ -116,6 +118,7 @@ export const clientOrderSchema = z
 		contactPhone: v.self || !v.subject ? null : v.contactPhone,
 		partners: toPartners(v.partners),
 		declarationAccepted: v.declarationAccepted,
+		declarationVersion: v.declarationVersion,
 	}));
 
 // Pedido de balcão (equipe). Sócios só no Dossiê Empresarial.

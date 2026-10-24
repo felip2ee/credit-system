@@ -29,7 +29,7 @@ import { quoteOrder } from "@/lib/catalog/quote";
 import { pool } from "@/lib/db/pool";
 import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { randomCpf, seedBureauCost, seedCatalogItem, seedTenant, seedWalletTopup, type SeededTenant } from "@/test/seed";
+import { randomCpf, seedBureauCost, seedCatalogItem, seedClientWalletTopup, seedTenant, seedWalletTopup, type SeededTenant } from "@/test/seed";
 
 import { placeOrder } from "./queries";
 
@@ -99,5 +99,39 @@ describe("confirm_public_scr_authorization e o estado da consulta", () => {
 		const order = await counterOrder();
 		expect(await confirm(order.token, "refuse")).toBe("refused");
 		expect(await consultationStatus(order.dossierId)).toEqual(["pending_authorization"]);
+	});
+});
+
+describe("confirm_public_scr_authorization: trilha com self_member", () => {
+	async function onlineOrder(input: Record<string, unknown>) {
+		const buyer = { ...tenant.client };
+		const quote = await quoteOrder({ ...tenant.operator }, "dossie_pf", { partnerCount: 0 });
+		if (!quote.ok) throw new Error(`quote failed: ${quote.reason}`);
+		const placed = await placeOrder(buyer, { productCode: "dossie_pf", self: false, subject: null, partners: [], contact: { email: null, phoneE164: null }, buyerProfileId: null, ...input }, quote);
+		if (!placed.ok) throw new Error(`placeOrder failed: ${placed.reason}`);
+		const { rows } = await owner.query<{ id: string; public_token: string; holder_id: string }>(
+			`select s.id, s.public_token::text, s.holder_id from scr_authorizations s
+			  where s.id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[placed.dossierId],
+		);
+		await owner.query("update scr_authorizations set auth_code = $2 where id = $1", [rows[0].id, CODE]);
+		return rows[0];
+	}
+	const metadataOf = async (holderId: string, eventType: string) =>
+		(await owner.query<{ metadata: Record<string, unknown> }>("select metadata from timeline_events where entity_id = $1 and event_type = $2", [holderId, eventType]))
+			.rows.map((r) => r.metadata);
+
+	it("marks self_member when the authorization e-mail is the buyer's account e-mail", async () => {
+		await seedClientWalletTopup(owner, { clientProfileId: tenant.client.userId, amount: "100.00", createdBy: tenant.bureauAdmin.userId });
+		const own = await onlineOrder({ self: true });
+		expect(await confirm(own.public_token, "authorize")).toBe("authorized");
+		expect(await metadataOf(own.holder_id, "scr.self_authorized")).toEqual([{ self_member: true }]);
+	});
+
+	it("does not mark self_member when the order has no buyer (counter) or the member is another person", async () => {
+		const counter = await counterOrder();
+		const { rows } = await owner.query<{ holder_id: string }>("select holder_id from scr_authorizations where public_token = $1", [counter.token]);
+		expect(await confirm(counter.token, "refuse")).toBe("refused");
+		expect(await metadataOf(rows[0].holder_id, "scr.self_refused")).toEqual([{ self_member: false }]);
 	});
 });

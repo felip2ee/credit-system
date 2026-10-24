@@ -37,7 +37,7 @@ create table if not exists dossier_orders (
     'completed', 'released', 'failed', 'cancelled')),
   state_reason text check (state_reason is null or state_reason in ('scr_refused', 'scr_expired', 'payment_timeout',
     'cancelled_by_staff', 'deps_no_data', 'deps_incompatible', 'deps_unavailable', 'reservation_clawed_back')),
-  ai_status text not null default 'pending' check (ai_status in ('none', 'pending', 'done', 'failed')),
+  ai_status text not null default 'pending' check (ai_status in ('pending', 'done', 'failed')),
   ai_attempts integer not null default 0 check (ai_attempts between 0 and 10),
   attempts integer not null default 0 check (attempts between 0 and 20),
   next_attempt_at timestamptz,
@@ -426,9 +426,12 @@ declare
   v_holder_id uuid;
   v_authorized boolean;
   v_request_expires_at timestamptz;
+  v_buyer uuid;
+  v_auth_email text;
+  v_self_member boolean;
 begin
-  select s.id, s.status::text, s.auth_code, s.bureau_id, s.holder_id, s.request_expires_at
-    into v_id, v_status, v_auth_code, v_bureau_id, v_holder_id, v_request_expires_at
+  select s.id, s.status::text, s.auth_code, s.bureau_id, s.holder_id, s.request_expires_at, s.client_profile_id, s.email
+    into v_id, v_status, v_auth_code, v_bureau_id, v_holder_id, v_request_expires_at, v_buyer, v_auth_email
     from public.scr_authorizations s
    where s.public_token = case when p_token ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then p_token::uuid end
      and s.channel = p_channel
@@ -471,13 +474,17 @@ begin
      where scr_authorization_id = v_id and status = 'pending_authorization';
   end if;
 
-  insert into public.timeline_events (bureau_id, entity_type, entity_id, event_type, title)
+  -- self_member: o membro é o próprio comprador (o e-mail da autorização é o da conta dele). Sem documento na trilha.
+  v_self_member := v_buyer is not null and exists (
+    select 1 from public.profiles p where p.id = v_buyer and lower(p.email) = lower(v_auth_email));
+  insert into public.timeline_events (bureau_id, entity_type, entity_id, event_type, title, metadata)
   values (
     v_bureau_id,
     'holder',
     v_holder_id,
     case when v_authorized then 'scr.self_authorized' else 'scr.self_refused' end,
-    case when v_authorized then 'Autorização SCR concedida pelo titular' else 'Autorização SCR recusada pelo titular' end
+    case when v_authorized then 'Autorização SCR concedida pelo titular' else 'Autorização SCR recusada pelo titular' end,
+    jsonb_build_object('self_member', v_self_member)
   );
 
   return case when v_authorized then 'authorized' else 'refused' end;
@@ -597,6 +604,8 @@ declare
   -- Mesma forma de isValidEmail (src/lib/utils.ts): sem , ; ( ) < > " para o endereço não virar lista no nodemailer.
   c_email_re constant text := '^[^\s@,;()<>"]+@[^\s@,;()<>"]+\.[^\s@,;()<>"]+$';
   c_max_recent_requests constant integer := 3;
+  -- Teto de pedidos online do mesmo cliente em 24 h: o teto por destinatário não segura quem abre, deixa o convite sair e cancela.
+  c_max_online_orders_per_day constant integer := 5;
   v_bureau uuid := public.app_bureau_id();
   v_user uuid := public.app_user_id();
   v_role text := public.app_user_role();
@@ -632,6 +641,7 @@ declare
   v_mtype text;
   v_memail text;
   v_recent integer;
+  v_orders_today integer;
   v_pdigits text;
   v_pname text;
   v_pemail text;
@@ -687,6 +697,15 @@ begin
      where p.id = v_buyer and p.role = 'client' and p.is_active and p.bureau_id = v_bureau;
     if not found then
       return query select false, 'buyer_not_found'::text, null::uuid, null::text;
+      return;
+    end if;
+  end if;
+
+  if v_mode = 'online' then
+    select count(*) into v_orders_today from public.dossier_orders o
+     where o.client_profile_id = v_user and o.mode = 'online' and o.created_at > now() - interval '24 hours';
+    if v_orders_today >= c_max_online_orders_per_day then
+      return query select false, 'too_many_orders'::text, null::uuid, null::text;
       return;
     end if;
   end if;
@@ -888,10 +907,12 @@ begin
             select h.id into v_h from public.holders h where h.bureau_id = v_bureau and h.document_digits = v_mdigits;
           end if;
         end if;
-        insert into public.holder_partnerships (bureau_id, company_id, partner_id, percentage, role, source, created_by)
-        values (v_bureau, v_holder, v_h, (v_member ->> 'percentage')::numeric, v_member ->> 'role',
-                case v_mode when 'online' then 'client' else 'operator' end, v_user)
-        on conflict (company_id, partner_id) do nothing;
+        -- Só o balcão grava o vínculo: os sócios do pedido online vivem nas consultas do pedido, nunca na empresa.
+        if v_mode = 'counter' then
+          insert into public.holder_partnerships (bureau_id, company_id, partner_id, percentage, role, source, created_by)
+          values (v_bureau, v_holder, v_h, (v_member ->> 'percentage')::numeric, v_member ->> 'role', 'operator', v_user)
+          on conflict (company_id, partner_id) do nothing;
+        end if;
       end if;
 
       -- Autorização utilizável (ou pedido ainda no prazo) do mesmo Bureau, Titular e comprador (D10).
@@ -1096,8 +1117,7 @@ create policy holder_partnerships_gateway_select on holder_partnerships for sele
   using (true);
 drop policy if exists holder_partnerships_gateway_order_insert on holder_partnerships;
 create policy holder_partnerships_gateway_order_insert on holder_partnerships for insert to auth_profile_lookup
-  with check (bureau_id = app_bureau_id() and created_by = app_user_id()
-         and source = case when app_user_role() = 'client' then 'client' else 'operator' end);
+  with check (bureau_id = app_bureau_id() and created_by = app_user_id() and source = 'operator');
 drop policy if exists dossiers_gateway_order_insert on dossiers;
 create policy dossiers_gateway_order_insert on dossiers for insert to auth_profile_lookup
   with check (bureau_id = app_bureau_id() and created_by = app_user_id() and status = 'pending');

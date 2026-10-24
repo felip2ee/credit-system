@@ -16,7 +16,7 @@ export const ORDER_REASON_LABEL: Record<OrderStateReason, string> = {
 	scr_expired: "Autorização expirada",
 	payment_timeout: "Pagamento não recebido no prazo",
 	cancelled_by_staff: "Cancelada pela equipe",
-	cancelled_by_client: "Cancelada por você",
+	cancelled_by_client: "Cancelada pelo cliente",
 	deps_no_data: "Sem dados na consulta",
 	deps_incompatible: "Resposta incompatível",
 	deps_unavailable: "Serviço indisponível",

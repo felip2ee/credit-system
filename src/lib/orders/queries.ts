@@ -34,6 +34,7 @@ const OPEN_FAILURES: readonly string[] = [
 	"contact_is_buyer",
 	"buyer_not_found",
 	"too_many_requests",
+	"too_many_orders",
 ];
 const MAX_REVOKE_REASON = 500;
 
@@ -349,7 +350,18 @@ export async function cancelOrder(
 	);
 	await client.query("update dossiers set status = 'cancelled' where id = $1", [dossierId]);
 	await client.query(
-		"update consultations set status = 'rejected' where dossier_id = $1 and status = 'pending_authorization'",
+		"update consultations set status = 'rejected' where dossier_id = $1 and status in ('pending_authorization', 'processing')",
+		[dossierId],
+	);
+	// Links já enviados deixam de valer: autorização pendente que nenhuma outra consulta viva usa passa a 'expired'.
+	await client.query(
+		`update scr_authorizations s
+		    set status = 'expired', auth_code = null, last_checked_at = now()
+		  where s.status = 'pending'
+		    and s.id in (select c.scr_authorization_id from consultations c where c.dossier_id = $1)
+		    and not exists (select 1 from consultations c2
+		                     where c2.scr_authorization_id = s.id and c2.dossier_id <> $1
+		                       and c2.status in ('pending_authorization', 'authorized', 'processing'))`,
 		[dossierId],
 	);
 	await recordTransition(client, identity, dossierId, {

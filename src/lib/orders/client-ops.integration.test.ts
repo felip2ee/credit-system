@@ -26,6 +26,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { quoteOrder } from "@/lib/catalog/quote";
+import { registerCounterPayment } from "@/lib/counter-payments/queries";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
@@ -37,11 +38,12 @@ import {
 	seedClientProfile,
 	seedClientWalletTopup,
 	seedTenant,
+	seedWalletTopup,
 	type SeededTenant,
 } from "@/test/seed";
 
-import { cancelMyOrder, currentDeclarationVersion, listMyOrderMembers, recordOrderDeclaration } from "./client-ops";
-import { claimOrders, placeOrder, refreshOrderState } from "./queries";
+import { cancelMyOrder, getCurrentDeclaration, listMyOrderMembers, recordOrderDeclaration } from "./client-ops";
+import { cancelOrder, claimOrders, placeOrder, refreshOrderState } from "./queries";
 import type { OpenOrderInput } from "./types";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
@@ -68,6 +70,7 @@ async function newTenant(label: string): Promise<SeededTenant> {
 		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: rows[0].id, salePrice: "50.00", updatedBy: t.bureauAdmin.userId });
 	}
 	await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: WALLET_START, createdBy: t.bureauAdmin.userId });
+	await seedWalletTopup(owner, { bureauId: t.bureau.id, amount: "200.00", createdBy: t.bureauAdmin.userId });
 	return t;
 }
 
@@ -284,7 +287,7 @@ describe("recordOrderDeclaration", () => {
 	it("records the declaration with the current version and audits it", async () => {
 		const t = await newTenant("co decl ok");
 		const id = await place(t, t.client, companyInput(["Sócio A"]));
-		const version = await withUserTransaction(t.client, (c) => currentDeclarationVersion(c));
+		const { version } = await withUserTransaction(t.client, (c) => getCurrentDeclaration(c));
 		expect(version).toBeGreaterThanOrEqual(1);
 
 		const result = await withUserTransaction(t.client, (c) =>
@@ -310,7 +313,7 @@ describe("recordOrderDeclaration", () => {
 	it("refuses an outdated version and writes nothing", async () => {
 		const t = await newTenant("co decl old");
 		const id = await place(t, t.client, companyInput(["Sócio A"]));
-		const version = await withUserTransaction(t.client, (c) => currentDeclarationVersion(c));
+		const { version } = await withUserTransaction(t.client, (c) => getCurrentDeclaration(c));
 
 		const result = await withUserTransaction(t.client, (c) =>
 			recordOrderDeclaration(c, { dossierId: id, version: version - 1, ip: null, userAgent: null }),
@@ -323,7 +326,7 @@ describe("recordOrderDeclaration", () => {
 	it("fails on a second record for the same order", async () => {
 		const t = await newTenant("co decl twice");
 		const id = await place(t, t.client, companyInput(["Sócio A"]));
-		const version = await withUserTransaction(t.client, (c) => currentDeclarationVersion(c));
+		const { version } = await withUserTransaction(t.client, (c) => getCurrentDeclaration(c));
 		const input = { dossierId: id, version, ip: null, userAgent: null };
 		expect(await withUserTransaction(t.client, (c) => recordOrderDeclaration(c, input))).toEqual({ ok: true });
 
@@ -337,12 +340,155 @@ describe("recordOrderDeclaration", () => {
 		const foreign = await newTenant("co decl foreign");
 		const other = await seedClientProfile(owner, t.bureau.id);
 		const id = await place(t, t.client, companyInput(["Sócio A"]));
-		const version = await withUserTransaction(t.client, (c) => currentDeclarationVersion(c));
+		const { version } = await withUserTransaction(t.client, (c) => getCurrentDeclaration(c));
 		const input = { dossierId: id, version, ip: null, userAgent: null };
 
 		for (const who of [other, foreign.client, staff(t)]) {
 			expect(await withUserTransaction(who, (c) => recordOrderDeclaration(c, input))).toEqual({ ok: false, reason: "not_found" });
 		}
 		expect((await owner.query("select 1 from order_declarations where dossier_id = $1", [id])).rowCount).toBe(0);
+	});
+});
+
+// Autoriza um membro como a confirmação pública faz: a autorização vira 'authorized' e a consulta, 'processing'.
+async function authorizeMember(dossierId: string, name: string) {
+	const { rows } = await owner.query<{ id: string }>(
+		`select c.scr_authorization_id as id from consultations c where c.dossier_id = $1 and c.document_name = $2`,
+		[dossierId, name],
+	);
+	await owner.query(
+		`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days'
+		  where id = $1`,
+		[rows[0].id],
+	);
+	await owner.query("update consultations set status = 'processing' where scr_authorization_id = $1", [rows[0].id]);
+}
+
+const consultationStatuses = async (dossierId: string) =>
+	(await owner.query<{ status: string }>("select status from consultations where dossier_id = $1 order by document_name", [dossierId])).rows.map(
+		(r) => r.status,
+	);
+
+const authStatusesOf = async (dossierId: string) =>
+	(
+		await owner.query<{ status: string }>(
+			`select s.status from scr_authorizations s
+			  where s.id in (select scr_authorization_id from consultations where dossier_id = $1) order by s.name`,
+			[dossierId],
+		)
+	).rows.map((r) => r.status);
+
+describe("final review fixes (025)", () => {
+	it("F1: the client cannot cancel a counter order, and nothing is released", async () => {
+		const t = await newTenant("fr counter");
+		const input: OpenOrderInput = {
+			productCode: "dossie_pf",
+			self: false,
+			subject: { type: "PF", name: "Titular Balcão", documentDigits: onlyDigits(randomCpf()) },
+			partners: [],
+			contact: { email: mail(), phoneE164: null },
+			buyerProfileId: t.client.userId,
+		};
+		const q = await quoteOrder(staff(t), input.productCode, { partnerCount: 0 });
+		if (!q.ok) throw new Error(q.reason);
+		const placed = await placeOrder(staff(t), input, q);
+		if (!placed.ok) throw new Error(placed.reason);
+		await registerCounterPayment(staff(t), {
+			dossierId: placed.dossierId,
+			method: "cash",
+			amount: "50.00",
+			note: null,
+			receivedAt: new Date("2026-10-14T12:00:00Z"),
+		});
+		expect((await orderRow(placed.dossierId)).state).toBe("awaiting_authorization");
+		const bureauWallet = () =>
+			owner.query("select available::text, reserved::text from wallets where bureau_id = $1", [t.bureau.id]).then((r) => r.rows[0]);
+		const before = await bureauWallet();
+
+		expect(await withUserTransaction(t.client, (c) => cancelMyOrder(c, placed.dossierId))).toEqual({ ok: false, reason: "not_found" });
+
+		expect((await orderRow(placed.dossierId)).state).toBe("awaiting_authorization");
+		expect(await bureauWallet()).toEqual(before);
+	});
+
+	it("F2: the member list shows the name typed in this order, not the one the Bureau already has", async () => {
+		const t = await newTenant("fr names");
+		const partnerDigits = onlyDigits(randomCpf());
+		await owner.query("insert into holders (bureau_id, type, name, document, created_by) values ($1, 'PF', 'Nome Real Guardado', $2, $3)",
+			[t.bureau.id, partnerDigits, t.bureauAdmin.userId],
+		);
+		const input = companyInput(["x"]);
+		input.partners[0] = { ...input.partners[0], documentDigits: partnerDigits, name: "Nome Inventado" };
+		const id = await place(t, t.client, input);
+
+		const members = await withUserTransaction(t.client, (c) => listMyOrderMembers(c, id));
+
+		expect(members.map((m) => m.name)).toEqual(["Empresa Teste", "Nome Inventado"]);
+		expect(JSON.stringify(members)).not.toContain("Nome Real Guardado");
+	});
+
+	it("F3: an order with an authorized member (consultation processing) is cancelled by the client and by staff", async () => {
+		const t = await newTenant("fr processing");
+		const byClient = await place(t, t.client, companyInput(["Sócio A"]));
+		await authorizeMember(byClient, "Sócio A");
+		expect(await consultationStatuses(byClient)).toEqual(["pending_authorization", "processing"]);
+		expect(await withUserTransaction(t.client, (c) => cancelMyOrder(c, byClient))).toEqual({ ok: true });
+		expect(await consultationStatuses(byClient)).toEqual(["rejected", "rejected"]);
+
+		const byStaff = await place(t, t.client, companyInput(["Sócio B"]));
+		await authorizeMember(byStaff, "Sócio B");
+		expect(await withUserTransaction(staff(t), (c) => cancelOrder(c, staff(t), byStaff, "cancelled_by_staff"))).toEqual({ ok: true });
+		expect(await consultationStatuses(byStaff)).toEqual(["rejected", "rejected"]);
+	});
+
+	it("F4: more than 5 online orders in 24 h are refused with too_many_orders", async () => {
+		const t = await newTenant("fr cap");
+		for (let i = 0; i < 5; i++) await place(t, t.client, ownInput);
+		const q = await quoteOrder(staff(t), ownInput.productCode, { partnerCount: 0 });
+		if (!q.ok) throw new Error(q.reason);
+
+		expect(await placeOrder(t.client, ownInput, q)).toEqual({ ok: false, reason: "too_many_orders" });
+		expect((await owner.query("select 1 from dossier_orders where client_profile_id = $1", [t.client.userId])).rowCount).toBe(5);
+	});
+
+	it("F4: a cancel expires the pending links of the order, so a sent link stops working", async () => {
+		const t = await newTenant("fr links");
+		const id = await place(t, t.client, companyInput(["Sócio A"]));
+		await owner.query(
+			`update scr_authorizations set auth_code = 'ABC123'
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
+			[id],
+		);
+		const { rows: tokens } = await owner.query<{ public_token: string }>(
+			`select public_token::text from scr_authorizations
+			  where id in (select scr_authorization_id from consultations where dossier_id = $1) limit 1`,
+			[id],
+		);
+		await withUserTransaction(t.client, (c) => cancelMyOrder(c, id));
+		expect(await authStatusesOf(id)).toEqual(["expired", "expired"]);
+		const confirm = await pool.query<{ r: string }>("select confirm_public_scr_authorization($1, 'internal', 'ABC123', 'authorize', '203.0.113.9') as r", [
+			tokens[0].public_token,
+		]);
+		expect(confirm.rows[0].r).toBe("expired");
+
+		const staffOrder = await place(t, t.client, companyInput(["Sócio B"]));
+		await withUserTransaction(staff(t), (c) => cancelOrder(c, staff(t), staffOrder, "cancelled_by_staff"));
+		expect(await authStatusesOf(staffOrder)).toEqual(["expired", "expired"]);
+	});
+
+	it("F4: a link shared with another live order stays valid; an authorized one is kept", async () => {
+		const t = await newTenant("fr shared");
+		const first = await place(t, t.client, ownInput);
+		const second = await place(t, t.client, ownInput);
+		expect(await authStatusesOf(first)).toEqual(["pending"]);
+		await withUserTransaction(t.client, (c) => cancelMyOrder(c, first));
+		expect(await authStatusesOf(second)).toEqual(["pending"]);
+		await withUserTransaction(t.client, (c) => cancelMyOrder(c, second));
+		expect(await authStatusesOf(second)).toEqual(["expired"]);
+
+		const company = await place(t, t.client, companyInput(["Sócio C"]));
+		await authorizeMember(company, "Sócio C");
+		await withUserTransaction(t.client, (c) => cancelMyOrder(c, company));
+		expect((await authStatusesOf(company)).sort()).toEqual(["authorized", "expired"]);
 	});
 });

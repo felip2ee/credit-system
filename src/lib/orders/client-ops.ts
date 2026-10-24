@@ -48,15 +48,6 @@ export async function recordOrderDeclaration(
 	return { ok: false, reason: rows[0].reason as "not_found" | "outdated" };
 }
 
-// Versão vigente do texto da declaração (legal_documents é público para leitura).
-export async function currentDeclarationVersion(client: PoolClient): Promise<number> {
-	const { rows } = await client.query<{ version: number | null }>(
-		"select max(version) as version from legal_documents where kind = 'buyer_declaration' and published_at <= now()",
-	);
-	if (rows[0].version === null) throw new Error("buyer_declaration has no published version");
-	return rows[0].version;
-}
-
 // Texto vigente da declaração do comprador, para mostrar ao lado do checkbox.
 export async function getCurrentDeclaration(client: PoolClient): Promise<{ version: number; title: string; bodyMd: string }> {
 	const { rows } = await client.query<{ version: number; title: string; body_md: string }>(

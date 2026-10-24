@@ -660,7 +660,7 @@ describe("open_order", () => {
 		expect(await rows("select 1 from consultations where dossier_id = $1", [result.dossier_id])).toHaveLength(3);
 	});
 
-	it("partnerships are stored as client data online and as operator data at the counter", async () => {
+	it("online writes no partnership at all; the counter writes it as operator data", async () => {
 		const sourcesOf = (dossierId: string | null) =>
 			rows<{ source: string }>(
 				"select p.source from holder_partnerships p join dossiers d on d.holder_id = p.company_id where d.id = $1",
@@ -677,7 +677,7 @@ describe("open_order", () => {
 			}),
 		);
 		expect(online.ok).toBe(true);
-		expect(await sourcesOf(online.dossier_id)).toEqual([{ source: "client" }]);
+		expect(await sourcesOf(online.dossier_id)).toEqual([]);
 		const counter = await committed(staff(T), (c) =>
 			openOrder(c, {
 				product: "dossie_empresarial",
@@ -1225,8 +1225,8 @@ describe("due_order_bureaus", () => {
 			["completed", "ai_status = 'done'", "online", true],
 			["completed", "ai_status = 'done'", "counter", false],
 			["released", "ai_status = 'done'", "online", false],
-			["failed", "ai_status = 'none'", "online", false],
-			["cancelled", "ai_status = 'none'", "counter", false],
+			["failed", "ai_status = 'failed'", "online", false],
+			["cancelled", "ai_status = 'done'", "counter", false],
 		];
 		for (const [state, set, mode, expected] of cases) {
 			const t = await newTenant(`due ${state}`);

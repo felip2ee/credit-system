@@ -1,5 +1,5 @@
 -- Operações do cliente sobre o próprio pedido (Dossiês PF e Empresarial).
--- 1) cancel_client_order: o cliente cancela o pedido em 'awaiting_authorization' ou 'ready'; a reserva volta ao saldo.
+-- 1) cancel_client_order: o cliente cancela o pedido online em 'awaiting_authorization' ou 'ready'; a reserva volta ao saldo.
 -- 2) client_order_members: lista os membros do pedido (empresa, sócios) com o estado da autorização, documento mascarado.
 -- 3) Declaração do comprador: texto versionado em legal_documents, aceite por pedido em order_declarations (imutável),
 --    gravado por record_order_declaration.
@@ -108,6 +108,7 @@ begin
 
   select * into v_o from public.dossier_orders o
    where o.dossier_id = p_dossier_id and o.bureau_id = v_bureau and o.client_profile_id = v_user
+     and o.mode = 'online'
    for update;
   if not found then
     return query select false, 'not_found'::text;
@@ -129,7 +130,15 @@ begin
    where dossier_id = p_dossier_id;
   update public.dossiers set status = 'cancelled' where id = p_dossier_id and bureau_id = v_bureau;
   update public.consultations set status = 'rejected'
-   where dossier_id = p_dossier_id and bureau_id = v_bureau and status = 'pending_authorization';
+   where dossier_id = p_dossier_id and bureau_id = v_bureau and status in ('pending_authorization', 'processing');
+  -- Links já enviados deixam de valer: autorização pendente que nenhuma outra consulta viva usa passa a 'expired'.
+  update public.scr_authorizations s
+     set status = 'expired'::public.scr_status, auth_code = null, last_checked_at = now()
+   where s.bureau_id = v_bureau and s.status = 'pending'
+     and s.id in (select c.scr_authorization_id from public.consultations c where c.dossier_id = p_dossier_id)
+     and not exists (select 1 from public.consultations c2
+                      where c2.scr_authorization_id = s.id and c2.dossier_id <> p_dossier_id
+                        and c2.status in ('pending_authorization', 'authorized', 'processing'));
 
   select d.holder_id into v_holder from public.dossiers d where d.id = p_dossier_id;
   if v_holder is not null then
@@ -146,7 +155,8 @@ end
 $$;
 
 -- Membros do pedido próprio. Pedido de outro cliente, de outro Bureau ou chamada de equipe devolvem zero linhas.
--- Documento sempre mascarado; o completo nunca sai.
+-- Documento sempre mascarado; o completo nunca sai. O nome é o digitado neste pedido (consultations.document_name), nunca
+-- o que o Bureau já guarda para o CPF: senão o cliente descobriria nomes reais com nomes inventados.
 create function client_order_members(p_dossier_id uuid)
 returns table (role text, name text, document_masked text, scr_status text)
 language plpgsql
@@ -165,7 +175,7 @@ begin
       (case when c.holder_id = d.holder_id
             then case when o.product_code = 'dossie_empresarial' then 'company' else 'subject' end
             else 'partner' end)::text,
-      h.name::text,
+      c.document_name::text,
       coalesce(public.order_mask_document(h.document_digits), '—')::text,
       (case
          when s.id is null then 'pending'
@@ -184,7 +194,7 @@ begin
      where o.dossier_id = p_dossier_id
        and o.bureau_id = public.app_bureau_id()
        and o.client_profile_id = public.app_user_id()
-     order by (c.holder_id <> d.holder_id), h.name, c.id;
+     order by (c.holder_id <> d.holder_id), c.document_name, c.id;
 end
 $$;
 
@@ -241,14 +251,15 @@ grant execute on function record_order_declaration(uuid, integer, inet, text) to
 -- Dono das funções: só o que elas fazem, e só sob as políticas abaixo.
 grant update (state_reason, lease_until) on public.dossier_orders to auth_profile_lookup;
 grant update (status) on public.dossiers to auth_profile_lookup;
-grant select (holder_id) on public.consultations to auth_profile_lookup;
+grant select (holder_id, document_name) on public.consultations to auth_profile_lookup;
 
--- Só o cancelamento: dossiê do Bureau da sessão para 'cancelled'; consulta aguardando autorização para 'rejected'.
+-- Só o cancelamento: dossiê do Bureau da sessão para 'cancelled'; consulta aguardando autorização ou já autorizada
+-- ('processing') para 'rejected'.
 create policy dossiers_gateway_client_cancel on dossiers for update to auth_profile_lookup
   using (bureau_id = app_bureau_id())
   with check (bureau_id = app_bureau_id() and status = 'cancelled');
 create policy consultations_gateway_client_cancel on consultations for update to auth_profile_lookup
-  using (bureau_id = app_bureau_id() and status = 'pending_authorization')
+  using (bureau_id = app_bureau_id() and status in ('pending_authorization', 'processing'))
   with check (bureau_id = app_bureau_id() and status = 'rejected');
 create policy timeline_events_order_cancelled_gateway_insert on timeline_events for insert to auth_profile_lookup
   with check (

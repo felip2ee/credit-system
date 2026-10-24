@@ -50,7 +50,7 @@ const member = (over: Record<string, unknown>) => ({
 });
 const partner = member({ consultationId: "c-p1", type: "PF", document: PARTNER_DOC, name: "Socio", product: "Smart PF 002", holderId: "h-p1", isMain: false });
 
-const plan = (members: unknown[]) => ({ order: { dossierId: DOSSIER, mode: "online", withAi: false, attempts: 1, kind: "PJ_FULL" }, members });
+const plan = (members: unknown[]) => ({ order: { dossierId: DOSSIER, mode: "online", attempts: 1, kind: "PJ_FULL" }, members });
 
 let logs: string;
 

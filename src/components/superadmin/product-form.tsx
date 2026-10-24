@@ -7,7 +7,7 @@ import { createProduct, updateProduct } from "@/actions/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
+import { nonNegativeMoneyError, normalizeMoney } from "@/lib/catalog/money-input";
 
 const PARTNER_CODE = "dossie_empresarial";
 
@@ -26,8 +26,8 @@ export function ProductForm() {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const invalid = moneyError(baseCost);
-    const partnerInvalid = hasPartner ? moneyError(baseCostPerPartner) : null;
+    const invalid = nonNegativeMoneyError(baseCost);
+    const partnerInvalid = hasPartner ? nonNegativeMoneyError(baseCostPerPartner) : null;
     setCostError(invalid);
     setPartnerCostError(partnerInvalid);
     if (invalid || partnerInvalid) return;

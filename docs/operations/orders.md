@@ -43,6 +43,7 @@ A página do pedido lista cada membro com o estado: pendente, autorizado, recusa
 - Erro transitório da DEPS: o pedido volta para `ready` com espera de `2^(tentativa-1)` minutos, no máximo 60. Na 5ª falha, o pedido vai para `failed` e libera a reserva.
 - Parecer IA: 3 tentativas. A tentativa é contada antes da chamada ao modelo, com lease de 5 minutos. Depois, `ai_status = failed`. A entrega sai sem parecer.
 - Pedidos de autorização por destinatário: no máximo 3 pedidos pendentes por e-mail ou celular em 24 h por Bureau. O 4º pedido é recusado (`too_many_requests`).
+- Pedidos online por cliente: no máximo 5 em 24 h. O 6º é recusado (`too_many_orders`). Ao cancelar um pedido, os links de autorização pendentes dele passam a `expired`.
 
 ## 3. Cron
 

@@ -255,6 +255,7 @@ describe("client orders through the portal actions", () => {
     contactEmail: `r${randomUUID()}@example.test`,
     partners: [partner(), partner()],
     declarationAccepted,
+    declarationVersion: 1,
   });
 
   it("opens an empresarial order with 2 partners and the declaration, then 3 authorizations make it ready", async () => {

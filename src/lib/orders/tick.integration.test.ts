@@ -132,6 +132,23 @@ async function newTenant(label: string): Promise<SeededTenant> {
 }
 
 const staff = (t: SeededTenant): DbIdentity => ({ ...t.operator });
+
+// O teto de 5 pedidos online por cliente em 24 h vale: os pedidos de carga saem da janela, em ordem de criação.
+// created_at é imutável sob o gatilho do pedido: o teste o desliga só nesta transação.
+async function outOfDailyWindow(t: SeededTenant) {
+	const c = await owner.connect();
+	try {
+		await c.query("begin");
+		await c.query("set local session_replication_role = replica");
+		await c.query("update dossier_orders set created_at = created_at - interval '2 days' where client_profile_id = $1", [t.client.userId]);
+		await c.query("commit");
+	} catch (error) {
+		await c.query("rollback");
+		throw error;
+	} finally {
+		c.release();
+	}
+}
 const buyerOf = (t: SeededTenant): DbIdentity => ({ ...t.client });
 
 const thirdInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
@@ -413,7 +430,10 @@ describe("runOrdersTick", () => {
 		const t = await newTenant("tick limit");
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "1000.00", createdBy: t.bureauAdmin.userId });
 		const ids: string[] = [];
-		for (let i = 0; i < TICK_EXECUTION_LIMIT + 1; i += 1) ids.push(await place(buyerOf(t), t, thirdInput()));
+		for (let i = 0; i < TICK_EXECUTION_LIMIT + 1; i += 1) {
+			ids.push(await place(buyerOf(t), t, thirdInput()));
+			await outOfDailyWindow(t);
+		}
 		await owner.query(
 			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null
 			  where id in (select scr_authorization_id from consultations where dossier_id = any($1::uuid[]))`,
@@ -451,7 +471,10 @@ describe("runOrdersTick", () => {
 	it("an authorized order is promoted on the first tick even behind 25 older waiting orders", async () => {
 		const t = await newTenant("tick starve");
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "2000.00", createdBy: t.bureauAdmin.userId });
-		for (let i = 0; i < 25; i += 1) await place(buyerOf(t), t, thirdInput());
+		for (let i = 0; i < 25; i += 1) {
+			await place(buyerOf(t), t, thirdInput());
+			await outOfDailyWindow(t);
+		}
 		const newest = await place(buyerOf(t), t, thirdInput());
 		await owner.query(
 			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null

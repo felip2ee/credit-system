@@ -13,7 +13,7 @@ import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { toE164 } from "@/lib/notifications/recipient";
 import { CLIENT_ORDER_MESSAGES, ORDER_FAILED } from "@/lib/orders/failure-messages";
-import { cancelMyOrder, currentDeclarationVersion } from "@/lib/orders/client-ops";
+import { cancelMyOrder } from "@/lib/orders/client-ops";
 import { getMyHolderType } from "@/lib/orders/client-queries";
 import { placeOrder, type PlaceOrderOptions } from "@/lib/orders/queries";
 import type { OpenOrderInput } from "@/lib/orders/types";
@@ -95,8 +95,8 @@ async function hasMembers(
 	return holderType === "PJ";
 }
 
-async function declarationOptions(session: RequiredSession): Promise<PlaceOrderOptions> {
-	const version = await withUserTransaction(session, (client) => currentDeclarationVersion(client));
+// A versão é a que o cliente viu no formulário: o banco recusa (declaration_outdated) se o texto mudou depois.
+async function declarationOptions(version: number): Promise<PlaceOrderOptions> {
 	const { ip, userAgent } = requestMeta(await headers());
 	return { declaration: { version, ip, userAgent } };
 }
@@ -117,6 +117,7 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 		if (!status.emailVerified) return { error: EMAIL_NOT_VERIFIED };
 		const withMembers = await hasMembers(session, parsed.data);
 		if (withMembers && !parsed.data.declarationAccepted) return { error: DECLARATION_REQUIRED };
+		if (withMembers && parsed.data.declarationVersion === null) return { error: CLIENT_ORDER_MESSAGES.declaration_outdated };
 		const quote = await quoteFromPublicCatalog(session, parsed.data.productCode, parsed.data.partners.length);
 		if (!quote.ok) return { error: CLIENT_ORDER_MESSAGES[quote.reason] };
 		const input: OpenOrderInput = {
@@ -127,7 +128,7 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 			contact: { email: parsed.data.contactEmail, phoneE164 },
 			buyerProfileId: null,
 		};
-		const result = await placeOrder(session, input, quote, withMembers ? await declarationOptions(session) : undefined);
+		const result = await placeOrder(session, input, quote, withMembers && parsed.data.declarationVersion !== null ? await declarationOptions(parsed.data.declarationVersion) : undefined);
 		if (!result.ok) {
 			const message = CLIENT_ORDER_MESSAGES[result.reason];
 			if (!message) logFailure("openClientOrderAction", result.reason);

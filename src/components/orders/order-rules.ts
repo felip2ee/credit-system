@@ -2,7 +2,7 @@
 import { buildQuote } from "@/lib/catalog/build-quote";
 import { toCents } from "@/lib/catalog/money";
 import type { OrderMemberScrStatus } from "@/lib/orders/client-ops";
-import type { OrderProductCode, OrderState } from "@/lib/orders/types";
+import type { OrderMode, OrderProductCode, OrderState } from "@/lib/orders/types";
 
 export type HolderType = "PF" | "PJ" | null;
 
@@ -61,8 +61,9 @@ export function productLabel(name: string, productCode: OrderProductCode, holder
 
 const CANCELLABLE_STATES: OrderState[] = ["awaiting_authorization", "ready"];
 
-export function canCancelOrder(state: OrderState): boolean {
-	return CANCELLABLE_STATES.includes(state);
+// Só o pedido online: no balcão o cliente pagou à parte e quem cancela é a equipe.
+export function canCancelOrder(state: OrderState, mode: OrderMode): boolean {
+	return mode === "online" && CANCELLABLE_STATES.includes(state);
 }
 
 export const MEMBER_STATUS_LABEL: Record<OrderMemberScrStatus, string> = {

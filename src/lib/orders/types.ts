@@ -19,7 +19,7 @@ export type OrderStateReason =
 	| "deps_incompatible"
 	| "deps_unavailable"
 	| "reservation_clawed_back";
-export type AiStatus = "none" | "pending" | "done" | "failed";
+export type AiStatus = "pending" | "done" | "failed";
 export type OrderProductCode = "dossie_pf" | "dossie_empresarial";
 export type OrderKind = "PF" | "PJ" | "PJ_FULL";
 export type OpenOrderFailure =
@@ -31,7 +31,8 @@ export type OpenOrderFailure =
 	| "self_holder_missing"
 	| "contact_is_buyer"
 	| "buyer_not_found"
-	| "too_many_requests";
+	| "too_many_requests"
+	| "too_many_orders";
 export type OpenOrderInput = {
 	productCode: OrderProductCode;
 	self: boolean;

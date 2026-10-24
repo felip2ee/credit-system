@@ -796,7 +796,11 @@ describe("tick candidates and AI claim", () => {
 
 	it("listOrdersToPromote is not starved by older orders that cannot change state", async () => {
 		const t = await newTenant("ord starve", { client: "2000.00" });
-		for (let i = 0; i < 25; i += 1) await placeOnline(t, companyInput());
+		for (let i = 0; i < 25; i += 1) {
+			await placeOnline(t, companyInput());
+			// O teto de 5 pedidos online por cliente em 24 h vale: os pedidos de carga saem da janela.
+			await asReplica("update dossier_orders set created_at = created_at - interval '2 days' where client_profile_id = $1", [t.client.userId]);
+		}
 		const newest = await placeOnline(t, companyInput());
 		await authorizeAll(newest);
 

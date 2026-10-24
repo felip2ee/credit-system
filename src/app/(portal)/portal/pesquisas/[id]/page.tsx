@@ -54,7 +54,7 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 				</CardContent>
 			</Card>
 			<OrderMembers members={members} />
-			{canCancelOrder(order.state) && <CancelOrderButton dossierId={order.dossierId} />}
+			{canCancelOrder(order.state, order.mode) && <CancelOrderButton dossierId={order.dossierId} />}
 			{order.state === "released" &&
 				(delivery ? (
 					<DeliveryView delivery={delivery} />

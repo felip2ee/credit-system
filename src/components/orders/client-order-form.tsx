@@ -37,7 +37,7 @@ interface ClientOrderFormProps {
 	// Documento mascarado da própria conta; nulo quando a conta não tem titular próprio.
 	selfDocumentMasked: string | null;
 	available: string;
-	declaration: { title: string; bodyMd: string };
+	declaration: { version: number; title: string; bodyMd: string };
 }
 
 // Valores como o usuário digita: o schema transforma na saída, e a action valida de novo com a entrada crua.
@@ -110,7 +110,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const onSubmit = () => {
 		setServerError(null);
 		startTransition(async () => {
-			const result = await openClientOrderAction(getValues());
+			const result = await openClientOrderAction({ ...getValues(), declarationVersion: declaration.version });
 			if (result.error || !result.id) {
 				setServerError(result.error ?? "Não foi possível abrir o pedido.");
 				return;

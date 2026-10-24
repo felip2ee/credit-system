@@ -36,6 +36,14 @@ describe("clientOrderSchema", () => {
 		expect(clientOrderSchema.safeParse(third({ productCode: "dossie_empresarial", subject: { name: "Empresa", document: CNPJ } })).success).toBe(true);
 	});
 
+	it("takes the declaration version the form showed: a positive integer, or none", () => {
+		const parsed = clientOrderSchema.safeParse(third({ declarationVersion: 4 }));
+		expect(parsed.success && parsed.data.declarationVersion).toBe(4);
+		const none = clientOrderSchema.safeParse(third());
+		expect(none.success && none.data.declarationVersion).toBeNull();
+		for (const bad of [0, -1, 1.5, "3"]) expect(clientOrderSchema.safeParse(third({ declarationVersion: bad })).success).toBe(false);
+	});
+
 	it("requires the contact e-mail for a third party", () => {
 		expect(clientOrderSchema.safeParse(third({ contactEmail: undefined })).success).toBe(false);
 		expect(clientOrderSchema.safeParse(third({ contactEmail: "sem-arroba" })).success).toBe(false);
