@@ -1,3 +1,6 @@
+import { getOwnBureauName } from "@/lib/bureaus/queries";
+import { BRAND_NAME } from "@/lib/brand/brand";
+import { config } from "@/lib/config";
 import { getRequiredSession } from "@/lib/auth/session";
 import { toConsultationContent } from "@/lib/consultations/full-view";
 import { hasPermission } from "@/lib/db/permissions";
@@ -6,7 +9,6 @@ import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
 import { maskDocument } from "@/lib/mask-document";
 import { getMyDelivery } from "@/lib/orders/client-queries";
 import { renderDossierPdf, type DossierEntry } from "@/lib/pdf/dossier-document";
-import { letterheadDataUri } from "@/lib/pdf/letterhead";
 import type { FullPdfHeader } from "@/lib/pdf/consultation-full-document";
 import type { OpinionForPdf } from "@/lib/pdf/markdown-pdf";
 import { isUuid } from "@/lib/validators/id";
@@ -63,7 +65,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 			docLabel: content.view?.subject.documentLabel ?? (m.type === "PJ" ? "CNPJ" : "CPF"),
 			produto: m.product ?? (m.type === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
 			data: (order.releasedAt ?? order.createdAt).toLocaleString("pt-BR"),
-			consultante: "Reino do Crédito",
+			consultante: BRAND_NAME,
 			usuario: session.userId,
 			endereco: content.view?.subject.location ?? undefined,
 		};
@@ -76,6 +78,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
 	// PJ_FULL leva o parecer consolidado; PF e PJ levam o parecer da própria consulta.
 	const parecer = delivery.dossierOpinion ?? members.find((m) => m.opinion)?.opinion ?? null;
+	const frame = { bureauName: (await getOwnBureauName(session)) ?? BRAND_NAME, supportEmail: config.supportEmail, issuedAt: new Date() };
 	const pdf = await renderDossierPdf(
 		{
 			title: order.subjectName,
@@ -83,7 +86,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 			entries,
 			report: parecer ? toOpinion(parecer) : null,
 		},
-		letterheadDataUri(),
+		frame,
 	);
 
 	return new Response(new Uint8Array(pdf), {

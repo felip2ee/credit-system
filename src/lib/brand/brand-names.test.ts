@@ -4,9 +4,8 @@ import { describe, expect, it } from "vitest";
 
 const SRC = path.join(process.cwd(), "src");
 const OLD_NAMES = /Reino do Crédito|Rainha do Crédito|Beabá do Crédito|Eliane Moreira/;
-// Razão social do termo SCR é texto legal; PDF e rotas de PDF são cobertos na Tarefa 6.
+// Razão social do termo SCR é texto legal.
 const ALLOWED = ["lib/scr/consent-term.ts"];
-const SKIPPED_DIRS = ["lib/pdf"];
 
 function listFiles(dir: string): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -19,8 +18,7 @@ function isScanned(rel: string): boolean {
 	if (!/\.(ts|tsx|md)$/.test(rel)) return false;
 	if (/\.(test|spec)\.(ts|tsx)$/.test(rel)) return false;
 	if (ALLOWED.includes(rel)) return false;
-	if (SKIPPED_DIRS.some((d) => rel.startsWith(`${d}/`))) return false;
-	return !/(^|\/)pdf\/route\.ts$/.test(rel);
+	return true;
 }
 
 describe("brand name", () => {

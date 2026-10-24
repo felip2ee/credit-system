@@ -1,16 +1,16 @@
 # pdf — @react-pdf/renderer documents for consultations and dossiers
 
-Server-side rendering of A4 PDFs (single consultation, full consultation, dossier) with a letterhead background. Handles personal and credit data, so output must stay on the authorized request path.
+Server-side rendering of A4 PDFs (single consultation, full consultation, dossier) with a code-drawn Rainha Cred header and footer. Handles personal and credit data, so output must stay on the authorized request path.
 
 ## Responsibility
 
-Belongs here: react-pdf document components and `render*Pdf` functions (`consultation-document.tsx`, `consultation-full-document.tsx`, `dossier-document.tsx`), the markdown-to-PDF renderer (`markdown-pdf.tsx`) and the letterhead loader (`letterhead.ts`). Does NOT belong here: data loading or permission checks (route handlers under `src/app/(dashboard)/` and `src/lib/*/queries`), the view model (`@/lib/consultations/view-model`), and web UI (`src/components/`).
+Belongs here: react-pdf document components and `render*Pdf` functions (`consultation-document.tsx`, `consultation-full-document.tsx`, `dossier-document.tsx`), the markdown-to-PDF renderer (`markdown-pdf.tsx`), the brand header/footer (`brand-frame.tsx`) and font registration (`fonts.ts`). Does NOT belong here: data loading or permission checks (route handlers under `src/app/(dashboard)/` and `src/lib/*/queries`), the view model (`@/lib/consultations/view-model`), and web UI (`src/components/`).
 
 ## Key patterns
 
-- Each document exposes a `render…Pdf(data, letterhead): Promise<Buffer>` built on `renderToBuffer` (e.g. `renderDossierPdf`, `renderConsultationPdf`).
-- Callers pass `letterheadDataUri()` from `letterhead.ts`; it reads `public/letterhead.png` once and caches the base64 data URI.
-- `FullConsultationPage`, `Bg` and `pdfStyles` are exported from `consultation-full-document.tsx` and reused by `dossier-document.tsx`; each consultation is its own `<Page>`, so every page repeats the letterhead.
+- Each document exposes a `render…Pdf(data, frame): Promise<Buffer>` built on `renderToBuffer` (e.g. `renderDossierPdf`, `renderConsultationPdf`).
+- Callers pass a `PdfFrame` (`bureauName`, `supportEmail`, `issuedAt`); `PdfBrandFrame` draws the fixed header (logo, Bureau name, date) and footer (support e-mail, page X of Y) on every page.
+- `FullConsultationPage` and `pdfStyles` are exported from `consultation-full-document.tsx` and reused by `dossier-document.tsx`; each consultation is its own `<Page>`, so every page repeats the frame.
 - `markdown-pdf.tsx` provides `MarkdownPdf` and `OpinionBlock` (shared by the PF and PJ PDFs) and the `OpinionForPdf` type.
 - Styling uses `StyleSheet.create` with local colour constants; currency uses `Intl.NumberFormat("pt-BR", { currency: "BRL" })`.
 
@@ -28,7 +28,7 @@ Rules active in this directory — read them before touching code here:
 ## Local conventions
 
 - Documents are rendered on the server only; they return a `Buffer`, not JSX, to callers.
-- Fonts are built-in Helvetica / Helvetica-Bold; no font registration exists.
+- Font is Atkinson Hyperlegible (400/700), TTF in `fonts/`, registered by `registerPdfFonts()` (OFL.txt beside). Body ≥ 10 pt, tables ≥ 9 pt.
 - Page size is A4; `markdown-pdf.tsx` holds the width constants (`A4_W`, `PAD_X`).
 - Visible text is pt-BR.
 
