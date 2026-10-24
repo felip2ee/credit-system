@@ -16,8 +16,8 @@ export async function getPublicBureau(
 export type PublicCatalogItem = {
   code: string;
   name: string;
-  kind: "main" | "addon";
   salePrice: string;
+  salePricePerPartner: string;
 };
 
 export async function getPublicCatalog(slug: string): Promise<PublicCatalogItem[]> {
@@ -25,8 +25,13 @@ export async function getPublicCatalog(slug: string): Promise<PublicCatalogItem[
   const { rows } = await pool.query<{
     code: string;
     name: string;
-    kind: "main" | "addon";
     sale_price: string;
-  }>("select code, name, kind, sale_price from public_bureau_catalog($1)", [slug]);
-  return rows.map((r) => ({ code: r.code, name: r.name, kind: r.kind, salePrice: r.sale_price }));
+    sale_price_per_partner: string;
+  }>("select code, name, sale_price, sale_price_per_partner from public_bureau_catalog($1)", [slug]);
+  return rows.map((r) => ({
+    code: r.code,
+    name: r.name,
+    salePrice: r.sale_price,
+    salePricePerPartner: r.sale_price_per_partner,
+  }));
 }

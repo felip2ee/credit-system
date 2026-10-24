@@ -5,68 +5,81 @@ import type { DbIdentity } from "@/lib/db/transaction";
 const state = vi.hoisted(() => ({ listCatalog: vi.fn() }));
 vi.mock("./queries", () => ({ listCatalog: state.listCatalog }));
 
-import { quoteOrder } from "./quote";
+import { buildQuote, quoteOrder } from "./quote";
 
 const identity: DbIdentity = { userId: "u", role: "bureau_admin", bureauId: "b" };
 
-function entry(code: string, kind: "main" | "addon", onSale: boolean, extra = {}) {
-	return {
-		productId: `p-${code}`,
-		productVersionId: `v-${code}`,
-		code,
-		name: code,
-		kind,
-		addonFor: kind === "addon" ? ["consulta_pf"] : null,
-		effectiveCost: "3.00",
-		item: { active: true, salePrice: "10.00" },
-		sellable: true,
-		onSale,
-		...extra,
-	};
-}
+const terms = {
+	productVersionId: "v-dossie_empresarial",
+	code: "dossie_empresarial",
+	salePriceCents: 10000,
+	salePricePerPartnerCents: 3000,
+	costCents: 6000,
+	costPerPartnerCents: 2000,
+};
 
-beforeEach(() => vi.clearAllMocks());
+describe("buildQuote", () => {
+	it("charges only the base value without partners", () => {
+		const quote = buildQuote(terms, 0);
 
-describe("quoteOrder failures", () => {
-	it("fails when the product is off sale, unknown or an addon", async () => {
-		state.listCatalog.mockResolvedValue([entry("consulta_pf", "main", false), entry("parecer_ia", "addon", true)]);
-
-		expect(await quoteOrder(identity, "consulta_pf", { withAi: false })).toEqual({
-			ok: false,
-			reason: "product_not_for_sale",
-		});
-		expect(await quoteOrder(identity, "nope", { withAi: false })).toMatchObject({ ok: false });
-		expect(await quoteOrder(identity, "parecer_ia", { withAi: false })).toMatchObject({ ok: false });
+		expect(quote).toMatchObject({ totalPriceCents: 10000, totalCostCents: 6000 });
+		expect(quote.lines).toHaveLength(1);
+		expect(quote.lines[0]).toMatchObject({ part: "base", quantity: 1, priceCents: 10000, costCents: 6000 });
 	});
 
-	it("fails with addon_not_for_sale when the addon is off sale or not compatible", async () => {
-		state.listCatalog.mockResolvedValue([
-			entry("consulta_pf", "main", true),
-			entry("parecer_ia", "addon", false),
-		]);
-		expect(await quoteOrder(identity, "consulta_pf", { withAi: true })).toEqual({
-			ok: false,
-			reason: "addon_not_for_sale",
+	it("adds one partner line with the quantity", () => {
+		const one = buildQuote(terms, 1);
+		expect(one).toMatchObject({ totalPriceCents: 13000, totalCostCents: 8000 });
+		expect(one.lines).toHaveLength(2);
+		expect(one.lines[1]).toMatchObject({
+			part: "partner",
+			quantity: 1,
+			unitPriceCents: 3000,
+			unitCostCents: 2000,
 		});
 
-		state.listCatalog.mockResolvedValue([
-			entry("consulta_pf", "main", true),
-			entry("parecer_ia", "addon", true, { addonFor: ["consulta_pj"] }),
-		]);
-		expect(await quoteOrder(identity, "consulta_pf", { withAi: true })).toMatchObject({
-			ok: false,
-			reason: "addon_not_for_sale",
-		});
+		const three = buildQuote(terms, 3);
+		expect(three).toMatchObject({ totalPriceCents: 19000, totalCostCents: 12000 });
+		expect(three.lines[1]).toMatchObject({ quantity: 3, priceCents: 9000, costCents: 6000 });
 	});
 
-	it("ignores the addon when withAi is false", async () => {
-		state.listCatalog.mockResolvedValue([
-			entry("consulta_pf", "main", true),
-			entry("parecer_ia", "addon", false),
-		]);
+	it("ignores partners when the per-partner value is zero", () => {
+		const quote = buildQuote({ ...terms, salePricePerPartnerCents: 0, costPerPartnerCents: 0 }, 3);
 
-		const quote = await quoteOrder(identity, "consulta_pf", { withAi: false });
+		expect(quote).toMatchObject({ totalPriceCents: 10000, totalCostCents: 6000 });
+	});
+});
 
-		expect(quote).toMatchObject({ ok: true, totalCostCents: 300, totalPriceCents: 1000 });
+describe("quoteOrder", () => {
+	beforeEach(() => vi.clearAllMocks());
+
+	function entry(code: string, onSale: boolean) {
+		return {
+			productId: `p-${code}`,
+			productVersionId: `v-${code}`,
+			code,
+			name: code,
+			effectiveCost: "60.00",
+			effectiveCostPerPartner: "20.00",
+			item: { active: true, salePrice: "100.00", salePricePerPartner: "30.00" },
+			sellable: true,
+			onSale,
+		};
+	}
+
+	it("fails when the product is off sale or unknown", async () => {
+		state.listCatalog.mockResolvedValue([entry("dossie_pf", false)]);
+
+		const failure = { ok: false, reason: "product_not_for_sale" };
+		expect(await quoteOrder(identity, "dossie_pf", { partnerCount: 0 })).toEqual(failure);
+		expect(await quoteOrder(identity, "dossie_empresarial", { partnerCount: 2 })).toEqual(failure);
+	});
+
+	it("quotes the catalog values with the partner count", async () => {
+		state.listCatalog.mockResolvedValue([entry("dossie_empresarial", true)]);
+
+		const quote = await quoteOrder(identity, "dossie_empresarial", { partnerCount: 2 });
+
+		expect(quote).toMatchObject({ ok: true, totalPriceCents: 16000, totalCostCents: 10000 });
 	});
 });

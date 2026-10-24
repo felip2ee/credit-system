@@ -91,7 +91,7 @@ async function reserve(
 	o: { orderRef: string; mode: "online" | "counter"; clientId: string | null; price: string; cost: string },
 ) {
 	await seedOrderDossierForSession(owner, c, { orderRef: o.orderRef, clientProfileId: o.clientId });
-	return reserveRaw(c, { ...o, quote: await seedOrderCatalog(owner, c, o) });
+	return reserveRaw(c, { ...o, quote: await seedOrderCatalog(owner, c, { ...o, productCode: "dossie_pf" }) });
 }
 const capture = (c: PoolClient, ref: string) =>
 	c.query<SettleRow>("select * from capture_order($1)", [ref]).then((r) => r.rows[0]);
@@ -463,7 +463,7 @@ describe("A2: a reserva restante é por pedido", () => {
 
 describe("A3: reserve_order confere preço e custo no catálogo", () => {
 	// Produto principal à venda por 50, custo 30, no Bureau da sessão.
-	const catalogFor = (_t: SeededTenant, c: PoolClient) => seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
+	const catalogFor = (_t: SeededTenant, c: PoolClient) => seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: "50.00", cost: "30.00" });
 	const orderOf = (t: SeededTenant, price: string, cost: string) => onlineOrder(t, price, cost);
 
 	async function newDossier(t: SeededTenant, c: PoolClient, o: { orderRef: string; clientId: string | null }) {
@@ -556,7 +556,7 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 		// O custo sobe acima do preço depois da ativação: o item deixa de estar à venda.
 		await seedProductVersion(owner, { productId: unsellable.id, version: 2, baseCost: "25.00" });
 		const results = await committed(clientCtx(t), async (c) => {
-			const ok = await seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
+			const ok = await seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: "50.00", cost: "30.00" });
 			const code = ok.lines[0].code;
 			const out: SettleRow[] = [];
 			const cases: Array<[string, Quote | unknown]> = [
@@ -596,7 +596,7 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "500.00", createdBy: t.client.userId });
 		const main = await seedProduct(owner, { baseCost: "30.00" });
 		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: main.id, salePrice: "50.00", updatedBy: t.bureauAdmin.userId });
-		const addon = await seedProduct(owner, { kind: "addon", addonFor: [main.code], baseCost: "5.00" });
+		const addon = await seedProduct(owner, { baseCost: "5.00" });
 		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: addon.id, salePrice: "12.00", updatedBy: t.bureauAdmin.userId });
 		const other = await seedProduct(owner, { baseCost: "5.00" });
 		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: other.id, salePrice: "12.00", updatedBy: t.bureauAdmin.userId });

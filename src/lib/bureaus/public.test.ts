@@ -11,12 +11,24 @@ describe("getPublicCatalog", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it("maps sale_price to salePrice", async () => {
+  it("maps sale_price and sale_price_per_partner to camelCase", async () => {
     query.mockResolvedValueOnce({
-      rows: [{ code: "consulta_pf", name: "Consulta PF", kind: "main", sale_price: "12.50" }],
+      rows: [
+        {
+          code: "dossie_empresarial",
+          name: "Dossiê Empresarial Estruturado",
+          sale_price: "100.00",
+          sale_price_per_partner: "30.00",
+        },
+      ],
     });
     expect(await getPublicCatalog("meu-bureau")).toEqual([
-      { code: "consulta_pf", name: "Consulta PF", kind: "main", salePrice: "12.50" },
+      {
+        code: "dossie_empresarial",
+        name: "Dossiê Empresarial Estruturado",
+        salePrice: "100.00",
+        salePricePerPartner: "30.00",
+      },
     ]);
   });
 });

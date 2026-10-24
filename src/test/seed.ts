@@ -190,26 +190,29 @@ export type SeededProduct = { id: string; code: string; versionId: string };
 export async function seedProduct(
 	owner: Pool,
 	input: {
-		kind?: "main" | "addon";
-		addonFor?: string[];
+		code?: string;
 		baseCost?: string;
+		baseCostPerPartner?: string;
 		depsProduct?: string | null;
 	} = {},
 ): Promise<SeededProduct> {
-	const kind = input.kind ?? "main";
-	const code = `${kind}_${randomBytes(6).toString("hex")}`;
+	const code = input.code ?? `prod_${randomBytes(6).toString("hex")}`;
 	const client = await owner.connect();
 	try {
 		await client.query("begin");
 		const product = await client.query<{ id: string }>(
-			`insert into products (code, name, kind, addon_for)
-       values ($1, $2, $3, $4) returning id`,
-			[code, `Produto ${code}`, kind, kind === "addon" ? input.addonFor : null],
+			`insert into products (code, name) values ($1, $2) returning id`,
+			[code, `Produto ${code}`],
 		);
 		const version = await client.query<{ id: string }>(
-			`insert into product_versions (product_id, version, deps_product, base_cost)
-       values ($1, 1, $2, $3) returning id`,
-			[product.rows[0].id, input.depsProduct ?? null, input.baseCost ?? "0.00"],
+			`insert into product_versions (product_id, version, deps_product, base_cost, base_cost_per_partner)
+       values ($1, 1, $2, $3, $4) returning id`,
+			[
+				product.rows[0].id,
+				input.depsProduct ?? null,
+				input.baseCost ?? "0.00",
+				input.baseCostPerPartner ?? "0.00",
+			],
 		);
 		await client.query("commit");
 		return { id: product.rows[0].id, code, versionId: version.rows[0].id };
@@ -223,24 +226,24 @@ export async function seedProduct(
 
 export async function seedProductVersion(
 	owner: Pool,
-	input: { productId: string; version: number; baseCost: string },
+	input: { productId: string; version: number; baseCost: string; baseCostPerPartner?: string },
 ): Promise<string> {
 	const { rows } = await owner.query<{ id: string }>(
-		`insert into product_versions (product_id, version, base_cost)
-     values ($1, $2, $3) returning id`,
-		[input.productId, input.version, input.baseCost],
+		`insert into product_versions (product_id, version, base_cost, base_cost_per_partner)
+     values ($1, $2, $3, $4) returning id`,
+		[input.productId, input.version, input.baseCost, input.baseCostPerPartner ?? "0.00"],
 	);
 	return rows[0].id;
 }
 
 export async function seedBureauCost(
 	owner: Pool,
-	input: { bureauId: string; productId: string; cost: string; setBy: string },
+	input: { bureauId: string; productId: string; cost: string; costPerPartner?: string; setBy: string },
 ): Promise<void> {
 	await owner.query(
-		`insert into bureau_product_costs (bureau_id, product_id, cost, set_by)
-     values ($1, $2, $3, $4)`,
-		[input.bureauId, input.productId, input.cost, input.setBy],
+		`insert into bureau_product_costs (bureau_id, product_id, cost, cost_per_partner, set_by)
+     values ($1, $2, $3, $4, $5)`,
+		[input.bureauId, input.productId, input.cost, input.costPerPartner ?? "0.00", input.setBy],
 	);
 }
 
@@ -250,18 +253,20 @@ export async function seedCatalogItem(
 		bureauId: string;
 		productId: string;
 		salePrice: string;
+		salePricePerPartner?: string;
 		updatedBy: string;
 		active?: boolean;
 	},
 ): Promise<void> {
 	await owner.query(
-		`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, updated_by)
-     values ($1, $2, $3, $4, $5)`,
+		`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, sale_price_per_partner, updated_by)
+     values ($1, $2, $3, $4, $5, $6)`,
 		[
 			input.bureauId,
 			input.productId,
 			input.active ?? true,
 			input.salePrice,
+			input.salePricePerPartner ?? "0.00",
 			input.updatedBy,
 		],
 	);
@@ -403,35 +408,50 @@ export async function seedOrderDossierForSession(
 	if (rows[0].id) await seedOrderDossier(owner, { ...input, bureauId: rows[0].id });
 }
 
-// reserve_order confere preço e custo no catálogo do Bureau da sessão (a que vai chamar reserve_order): cria um
-// produto principal à venda por `price`, com custo efetivo `cost`, e devolve a cotação que o aponta. Valores que
-// reserve_order recusa antes do catálogo (preço <= 0, custo negativo, preço abaixo do custo, mais de duas casas)
-// não criam produto: a cotação volta vazia.
+// reserve_order confere preço e custo no catálogo do Bureau da sessão (a que vai chamar reserve_order): põe o produto
+// do seed `productCode` à venda por `price` (+ `pricePerPartner`), com custo efetivo `cost` (+ `costPerPartner`), e
+// devolve a cotação que o aponta. Valores que reserve_order recusa antes do catálogo (preço <= 0, custo negativo,
+// preço abaixo do custo, mais de duas casas) não mexem no catálogo: a cotação volta vazia.
 export async function seedOrderCatalog(
 	owner: Pool,
 	session: PoolClient,
-	input: { price: string; cost: string },
+	input: { productCode: string; price: string; cost: string; pricePerPartner?: string; costPerPartner?: string },
 ): Promise<{ lines: { code: string }[] }> {
-	const price = Number(input.price);
-	const cost = Number(input.cost);
+	const pricePerPartner = input.pricePerPartner ?? "0.00";
+	const costPerPartner = input.costPerPartner ?? "0.00";
 	const twoDecimals = (v: string) => /^\d+(\.\d{1,2})?$/.test(v);
-	if (!twoDecimals(input.price) || !twoDecimals(input.cost) || price <= 0 || price < cost || price > 99999999.99) {
+	const values = [input.price, input.cost, pricePerPartner, costPerPartner];
+	if (
+		!values.every(twoDecimals) ||
+		Number(input.price) <= 0 ||
+		Number(input.price) < Number(input.cost) ||
+		Number(pricePerPartner) < Number(costPerPartner) ||
+		values.some((v) => Number(v) > 99999999.99)
+	) {
 		return { lines: [] };
 	}
 	const { rows } = await session.query<{ bureau_id: string; user_id: string }>(
 		"select nullif(current_setting('app.bureau_id', true), '') as bureau_id, current_setting('app.user_id', true) as user_id",
 	);
 	if (!rows[0].bureau_id) return { lines: [] };
-	// O catálogo só ativa item com custo > 0: o custo zero entra como segunda versão do produto.
-	const product = await seedProduct(owner, { baseCost: cost > 0 ? input.cost : "0.01" });
-	await seedCatalogItem(owner, {
+	const product = await owner.query<{ id: string }>("select id from products where code = $1", [input.productCode]);
+	const productId = product.rows[0].id;
+	await seedBureauCost(owner, {
 		bureauId: rows[0].bureau_id,
-		productId: product.id,
-		salePrice: input.price,
-		updatedBy: rows[0].user_id,
+		productId,
+		cost: input.cost,
+		costPerPartner,
+		setBy: rows[0].user_id,
 	});
-	if (cost === 0) await seedProductVersion(owner, { productId: product.id, version: 2, baseCost: "0.00" });
-	return { lines: [{ code: product.code }] };
+	// O custo entra antes do preço: a trigger do item confere o preço contra o custo vigente.
+	await owner.query(
+		`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, sale_price_per_partner, updated_by)
+     values ($1, $2, true, $3, $4, $5)
+     on conflict (bureau_id, product_id)
+     do update set active = true, sale_price = $3, sale_price_per_partner = $4, updated_by = $5`,
+		[rows[0].bureau_id, productId, input.price, pricePerPartner, rows[0].user_id],
+	);
+	return { lines: [{ code: input.productCode }] };
 }
 
 // Lançamento de valor a repassar já assinado (acréscimo +, estorno −). O acréscimo exige order_ref (FK para

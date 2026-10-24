@@ -2,7 +2,7 @@
 const MAX_CENTS = 9_999_999_999; // 99999999.99
 const DECIMAL = /^\d{1,8}(\.\d{1,2})?$/;
 
-// Aceita 0 porque o banco guarda "0.00" para custo não definido; os validadores exigem > 0.
+// Aceita 0: custo e valor por sócio podem ser 0.00; o preço de venda base é validado > 0 nos validadores.
 export function toCents(value: string): number {
   if (!DECIMAL.test(value)) throw new RangeError("Valor monetário inválido.");
   const [reais, fraction = ""] = value.split(".");
@@ -18,7 +18,7 @@ export function fromCents(cents: number): string {
   return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
 }
 
-// Custo zero = custo não definido: o item não entra à venda.
+// Regra de preço de um campo: o preço não pode ficar abaixo do custo (custo 0 é válido).
 export function isPriceSellable(priceCents: number, costCents: number): boolean {
-  return costCents > 0 && priceCents >= costCents;
+  return priceCents >= costCents;
 }

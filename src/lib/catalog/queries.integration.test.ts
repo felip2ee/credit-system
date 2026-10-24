@@ -83,6 +83,9 @@ afterAll(async () => {
 const entryOf = async (identity: DbIdentity, productId: string) =>
 	(await listCatalog(identity)).find((e) => e.productId === productId);
 
+const productByCode = async (code: string) =>
+	(await owner.query<{ id: string }>("select id from products where code = $1", [code])).rows[0];
+
 const publicCodes = async (slug: string) =>
 	(await pool.query<{ code: string }>("select code from public_bureau_catalog($1)", [slug])).rows.map(
 		(r) => r.code,
@@ -102,53 +105,42 @@ describe("produtos e versões (superadmin)", () => {
 		const created = await createProduct(sa, {
 			code,
 			name: "Produto Teste",
-			kind: "main",
-			addonFor: [],
 			depsProduct: "Smart PF 002",
 			baseCost: "5.00",
+			baseCostPerPartner: "1.50",
 		});
 		if (!created.ok) throw new Error("createProduct failed");
 
-		expect(await createProduct(sa, { code, name: "Dup", kind: "main", addonFor: [], depsProduct: null, baseCost: "1.00" }))
+		expect(await createProduct(sa, { code, name: "Dup", depsProduct: null, baseCost: "1.00", baseCostPerPartner: "0.00" }))
 			.toEqual({ ok: false, reason: "code_taken" });
 
 		expect(await updateProduct(sa, { id: created.id, name: "Produto Renomeado", active: false })).toEqual({ ok: true });
-		const v2 = await createProductVersion(sa, { productId: created.id, depsProduct: null, baseCost: "6.50" });
+		const v2 = await createProductVersion(sa, {
+			productId: created.id,
+			depsProduct: null,
+			baseCost: "6.50",
+			baseCostPerPartner: "2.25",
+		});
 		expect(v2).toMatchObject({ ok: true, version: 2 });
 
 		const listed = (await listProducts(sa)).find((p) => p.id === created.id);
-		expect(listed).toMatchObject({ name: "Produto Renomeado", active: false, version: 2, baseCost: "6.50", depsProduct: null });
+		expect(listed).toMatchObject({ name: "Produto Renomeado", active: false, version: 2, baseCost: "6.50", baseCostPerPartner: "2.25", depsProduct: null });
 		const versions = await listProductVersions(sa, created.id);
-		expect(versions.map((v) => [v.version, v.baseCost, v.depsProduct])).toEqual([
-			[2, "6.50", null],
-			[1, "5.00", "Smart PF 002"],
+		expect(versions.map((v) => [v.version, v.baseCost, v.baseCostPerPartner, v.depsProduct])).toEqual([
+			[2, "6.50", "2.25", null],
+			[1, "5.00", "1.50", "Smart PF 002"],
 		]);
 		expect(await auditRows("catalog.product.create", created.id)).toHaveLength(1);
 		const [updateEvent] = await auditRows("catalog.product.update", created.id);
 		expect(updateEvent.metadata).toMatchObject({ old_name: "Produto Teste", name: "Produto Renomeado", old_active: true, active: false });
 		const [versionEvent] = await auditRows("catalog.product.version", v2.ok ? v2.versionId : "");
-		expect(versionEvent.metadata).toMatchObject({ old_deps_product: "Smart PF 002", deps_product: null, base_cost: "6.50" });
-	});
-
-	it("rejects an addon whose compatible products do not exist as main products", async () => {
-		const main = await seedProduct(owner, { baseCost: "1.00" });
-		const addon = await seedProduct(owner, { kind: "addon", addonFor: [main.code], baseCost: "1.00" });
-		const base = { name: "Adicional", kind: "addon" as const, depsProduct: null, baseCost: "1.00" };
-		const code = () => `add_${Math.random().toString(36).slice(2, 10)}`;
-
-		for (const addonFor of [["inexistente_xyz"], [main.code, "inexistente_xyz"], [addon.code]]) {
-			expect(await createProduct(sa, { ...base, code: code(), addonFor })).toEqual({
-				ok: false,
-				reason: "addon_for_unknown",
-			});
-		}
-		expect(await createProduct(sa, { ...base, code: code(), addonFor: [main.code] })).toMatchObject({ ok: true });
+		expect(versionEvent.metadata).toMatchObject({ old_deps_product: "Smart PF 002", deps_product: null, base_cost: "6.50", base_cost_per_partner: "2.25" });
 	});
 
 	it("returns not_found for an unknown product", async () => {
 		const ghost = "00000000-0000-4000-8000-00000000dead";
 		expect(await updateProduct(sa, { id: ghost, name: "X", active: true })).toEqual({ ok: false, reason: "not_found" });
-		expect(await createProductVersion(sa, { productId: ghost, depsProduct: null, baseCost: "1.00" })).toEqual({
+		expect(await createProductVersion(sa, { productId: ghost, depsProduct: null, baseCost: "1.00", baseCostPerPartner: "0.00" })).toEqual({
 			ok: false,
 			reason: "not_found",
 		});
@@ -162,12 +154,12 @@ describe("custo efetivo e override", () => {
 
 		expect(await entryOf(admin, product.id)).toMatchObject({ effectiveCost: "6.00" });
 
-		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "9.50")).toEqual({ ok: true });
+		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "9.50", "0.00")).toEqual({ ok: true });
 		expect(await entryOf(admin, product.id)).toMatchObject({ effectiveCost: "9.50" });
 		// Outro Bureau não é afetado.
 		expect(await entryOf(other.bureauAdmin, product.id)).toMatchObject({ effectiveCost: "6.00" });
 
-		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "7.25")).toEqual({ ok: true });
+		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "7.25", "0.00")).toEqual({ ok: true });
 		const costs = (await listBureauCosts(sa, tenant.bureau.id)).find((c) => c.productId === product.id);
 		expect(costs).toMatchObject({ effectiveCost: "7.25", source: "override" });
 		expect(costs?.history.map((h) => h.cost)).toEqual(["7.25", "9.50"]);
@@ -185,10 +177,27 @@ describe("custo efetivo e override", () => {
 		expect(read.filter((r) => r.action === "catalog.cost.set" && r.metadata?.new_cost === "7.25")).not.toHaveLength(0);
 	});
 
+	it("stores the per-partner cost with the override and audits it", async () => {
+		const product = await seedProduct(owner, { baseCost: "5.00", baseCostPerPartner: "2.00" });
+
+		expect(await entryOf(admin, product.id)).toMatchObject({ effectiveCost: "5.00", effectiveCostPerPartner: "2.00" });
+		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "0.00", "3.25")).toEqual({ ok: true });
+
+		// Custo base 0 é válido; o por sócio vem do mesmo override.
+		expect(await entryOf(admin, product.id)).toMatchObject({ effectiveCost: "0.00", effectiveCostPerPartner: "3.25" });
+		const [event] = await auditRows("catalog.cost.set", product.id);
+		expect(event.metadata).toMatchObject({
+			old_cost: "5.00",
+			new_cost: "0.00",
+			old_cost_per_partner: "2.00",
+			new_cost_per_partner: "3.25",
+		});
+	});
+
 	it("caps the cost history at 20 rows per product", async () => {
 		const product = await seedProduct(owner, { baseCost: "1.00" });
 		for (let i = 1; i <= 22; i++) {
-			await setBureauProductCost(sa, tenant.bureau.id, product.id, `${i}.00`);
+			await setBureauProductCost(sa, tenant.bureau.id, product.id, `${i}.00`, "0.00");
 		}
 
 		const row = (await listBureauCosts(sa, tenant.bureau.id)).find((c) => c.productId === product.id);
@@ -200,7 +209,7 @@ describe("custo efetivo e override", () => {
 	it("returns not_found for an unknown bureau", async () => {
 		const product = await seedProduct(owner, { baseCost: "5.00" });
 
-		expect(await setBureauProductCost(sa, "00000000-0000-4000-8000-00000000dead", product.id, "1.00")).toEqual({
+		expect(await setBureauProductCost(sa, "00000000-0000-4000-8000-00000000dead", product.id, "1.00", "0.00")).toEqual({
 			ok: false,
 			reason: "not_found",
 		});
@@ -230,7 +239,7 @@ describe("auditoria: bureauId explícito", () => {
 		await expect(writeAs(sa, "catalog.cost.set", tenant.bureau.id, targetId)).rejects.toThrow(/row-level security/);
 		expect(await auditRows("catalog.cost.set", targetId)).toHaveLength(0);
 
-		expect(await setBureauProductCost(sa, tenant.bureau.id, targetId, "2.00")).toEqual({ ok: true });
+		expect(await setBureauProductCost(sa, tenant.bureau.id, targetId, "2.00", "0.00")).toEqual({ ok: true });
 		const [row] = await auditRows("catalog.cost.set", targetId);
 		expect(row.bureau_id).toBe(tenant.bureau.id);
 	});
@@ -266,18 +275,19 @@ describe("auditoria de custo: valor ligado à linha de custo", () => {
 	it("writes new_cost as a plain decimal string in the real flow", async () => {
 		const product = await seedProduct(owner, { baseCost: "1.00" });
 
-		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "4.5")).toEqual({ ok: true });
+		expect(await setBureauProductCost(sa, tenant.bureau.id, product.id, "4.5", "0.00")).toEqual({ ok: true });
 		const [row] = await auditRows("catalog.cost.set", product.id);
 		expect(row.metadata.new_cost).toBe("4.50");
 	});
 });
 
 describe("triggerConflict: mensagens reais da trigger", () => {
-	const insertItem = (productId: string, active: boolean, price: string) =>
+	const insertItem = (productId: string, active: boolean, price: string, perPartner = "0.00") =>
 		withUserTransaction(admin, (client) =>
 			client.query(
-				"insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, updated_by) values ($1, $2, $3, $4, $5)",
-				[tenant.bureau.id, productId, active, price, admin.userId],
+				`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, sale_price_per_partner, updated_by)
+         values ($1, $2, $3, $4, $5, $6)`,
+				[tenant.bureau.id, productId, active, price, perPartner, admin.userId],
 			),
 		);
 	const conflictOf = async (work: Promise<unknown>) => {
@@ -291,54 +301,73 @@ describe("triggerConflict: mensagens reais da trigger", () => {
 
 	it("maps each trigger rejection to its CatalogConflict", async () => {
 		const priced = await seedProduct(owner, { baseCost: "5.00" });
-		const free = await seedProduct(owner, { baseCost: "0.00" });
+		const partnerPriced = await seedProduct(owner, { baseCost: "5.00", baseCostPerPartner: "2.00" });
 		const inactive = await seedProduct(owner, { baseCost: "1.00" });
 		await owner.query("update products set active = false where id = $1", [inactive.id]);
-		const main = await seedProduct(owner, { baseCost: "1.00" });
-		const addon = await seedProduct(owner, { kind: "addon", addonFor: [main.code], baseCost: "1.00" });
+		const pf = await productByCode("dossie_pf");
 
 		expect(await conflictOf(insertItem(priced.id, true, "4.99"))).toBe("price_below_cost");
-		expect(await conflictOf(insertItem(free.id, true, "10.00"))).toBe("cost_not_set");
+		expect(await conflictOf(insertItem(partnerPriced.id, true, "5.00", "1.99"))).toBe("partner_price_below_cost");
 		expect(await conflictOf(insertItem(inactive.id, true, "10.00"))).toBe("product_inactive");
-		expect(await conflictOf(insertItem(addon.id, true, "3.00"))).toBe("addon_requires_main");
+		expect(await conflictOf(insertItem(pf.id, true, "10.00", "1.00"))).toBe("per_partner_not_allowed");
 	});
 
 	it("ignores errors that are not trigger rejections", () => {
 		expect(triggerConflict({ code: "23514", message: "outra" })).toBeNull();
-		expect(triggerConflict({ code: "23505", message: "catalog: cost not set" })).toBeNull();
+		expect(triggerConflict({ code: "23505", message: "catalog: product is inactive" })).toBeNull();
 	});
 });
 
 describe("itens de catálogo (bureau_admin)", () => {
-	it("rejects a price below cost, activating without cost and an inactive product", async () => {
+	it("rejects a price below cost, a partner price below cost, an inactive product and a per-partner price on dossie_pf", async () => {
 		const priced = await seedProduct(owner, { baseCost: "5.00" });
-		const free = await seedProduct(owner, { baseCost: "0.00" });
+		const partnerPriced = await seedProduct(owner, { baseCost: "5.00", baseCostPerPartner: "2.00" });
+		const pf = await productByCode("dossie_pf");
 		const inactive = await seedProduct(owner, { baseCost: "1.00" });
 		await owner.query("update products set active = false where id = $1", [inactive.id]);
 
-		expect(await upsertCatalogItem(admin, priced.id, { active: true, salePrice: "4.99" })).toEqual({
+		expect(await upsertCatalogItem(admin, priced.id, { active: true, salePrice: "4.99", salePricePerPartner: "0.00" })).toEqual({
 			ok: false,
 			reason: "price_below_cost",
 		});
-		expect(await upsertCatalogItem(admin, free.id, { active: true, salePrice: "10.00" })).toEqual({
-			ok: false,
-			reason: "cost_not_set",
-		});
-		expect(await upsertCatalogItem(admin, inactive.id, { active: true, salePrice: "10.00" })).toEqual({
+		expect(
+			await upsertCatalogItem(admin, partnerPriced.id, { active: true, salePrice: "5.00", salePricePerPartner: "1.99" }),
+		).toEqual({ ok: false, reason: "partner_price_below_cost" });
+		expect(await upsertCatalogItem(admin, inactive.id, { active: true, salePrice: "10.00", salePricePerPartner: "0.00" })).toEqual({
 			ok: false,
 			reason: "product_inactive",
 		});
+		expect(await upsertCatalogItem(admin, pf.id, { active: true, salePrice: "10.00", salePricePerPartner: "1.00" })).toEqual({
+			ok: false,
+			reason: "per_partner_not_allowed",
+		});
 		expect(await entryOf(admin, priced.id)).toMatchObject({ item: null, onSale: false });
+	});
+
+	it("accepts cost 0 and a per-partner price at the per-partner cost", async () => {
+		const free = await seedProduct(owner, { baseCost: "0.00" });
+		const partnerPriced = await seedProduct(owner, { baseCost: "5.00", baseCostPerPartner: "2.00" });
+
+		expect(await upsertCatalogItem(admin, free.id, { active: true, salePrice: "0.01", salePricePerPartner: "0.00" })).toEqual({ ok: true });
+		expect(
+			await upsertCatalogItem(admin, partnerPriced.id, { active: true, salePrice: "5.00", salePricePerPartner: "2.00" }),
+		).toEqual({ ok: true });
+
+		expect(await entryOf(admin, free.id)).toMatchObject({ sellable: true, onSale: true });
+		expect(await entryOf(admin, partnerPriced.id)).toMatchObject({
+			item: { active: true, salePrice: "5.00", salePricePerPartner: "2.00" },
+			onSale: true,
+		});
 	});
 
 	it("saves price and audits old and new price", async () => {
 		const product = await seedProduct(owner, { baseCost: "5.00" });
 
-		expect(await upsertCatalogItem(admin, product.id, { active: true, salePrice: "10.00" })).toEqual({ ok: true });
-		expect(await upsertCatalogItem(admin, product.id, { active: true, salePrice: "12.50" })).toEqual({ ok: true });
+		expect(await upsertCatalogItem(admin, product.id, { active: true, salePrice: "10.00", salePricePerPartner: "0.00" })).toEqual({ ok: true });
+		expect(await upsertCatalogItem(admin, product.id, { active: true, salePrice: "12.50", salePricePerPartner: "0.00" })).toEqual({ ok: true });
 
 		expect(await entryOf(admin, product.id)).toMatchObject({
-			item: { active: true, salePrice: "12.50" },
+			item: { active: true, salePrice: "12.50", salePricePerPartner: "0.00" },
 			sellable: true,
 			onSale: true,
 		});
@@ -359,50 +388,31 @@ describe("itens de catálogo (bureau_admin)", () => {
 		});
 		expect(await publicCodes(tenant.bureau.slug)).toContain(product.code);
 
-		await setBureauProductCost(sa, tenant.bureau.id, product.id, "12.00");
+		await setBureauProductCost(sa, tenant.bureau.id, product.id, "12.00", "0.00");
 
 		expect(await entryOf(admin, product.id)).toMatchObject({
-			item: { active: true, salePrice: "10.00" },
+			item: { active: true, salePrice: "10.00", salePricePerPartner: "0.00" },
 			sellable: false,
 			onSale: false,
 		});
 		expect(await publicCodes(tenant.bureau.slug)).not.toContain(product.code);
 
 		// Com o custo acima do preço o admin ainda desativa o item sem mexer no preço.
-		expect(await upsertCatalogItem(admin, product.id, { active: false, salePrice: "10.00" })).toEqual({ ok: true });
-		expect(await upsertCatalogItem(admin, product.id, { active: true, salePrice: "10.00" })).toEqual({
+		expect(await upsertCatalogItem(admin, product.id, { active: false, salePrice: "10.00", salePricePerPartner: "0.00" })).toEqual({ ok: true });
+		expect(await upsertCatalogItem(admin, product.id, { active: true, salePrice: "10.00", salePricePerPartner: "0.00" })).toEqual({
 			ok: false,
 			reason: "price_below_cost",
 		});
 		// Reajustar o preço devolve o item à venda.
-		expect(await upsertCatalogItem(admin, product.id, { active: true, salePrice: "12.00" })).toEqual({ ok: true });
+		expect(await upsertCatalogItem(admin, product.id, { active: true, salePrice: "12.00", salePricePerPartner: "0.00" })).toEqual({ ok: true });
 		expect(await publicCodes(tenant.bureau.slug)).toContain(product.code);
-	});
-
-	it("addon leaves sale when last compatible main leaves", async () => {
-		const main = await seedProduct(owner, { baseCost: "1.00" });
-		const addon = await seedProduct(owner, { kind: "addon", addonFor: [main.code], baseCost: "1.00" });
-
-		expect(await upsertCatalogItem(admin, addon.id, { active: true, salePrice: "3.00" })).toEqual({
-			ok: false,
-			reason: "addon_requires_main",
-		});
-		expect(await upsertCatalogItem(admin, main.id, { active: true, salePrice: "5.00" })).toEqual({ ok: true });
-		expect(await upsertCatalogItem(admin, addon.id, { active: true, salePrice: "3.00" })).toEqual({ ok: true });
-		expect(await entryOf(admin, addon.id)).toMatchObject({ onSale: true });
-		expect(await publicCodes(tenant.bureau.slug)).toEqual(expect.arrayContaining([main.code, addon.code]));
-
-		await upsertCatalogItem(admin, main.id, { active: false, salePrice: "5.00" });
-
-		expect(await entryOf(admin, addon.id)).toMatchObject({ item: { active: true }, onSale: false });
-		expect(await publicCodes(tenant.bureau.slug)).not.toContain(addon.code);
 	});
 
 	it("operator reads the catalog and cannot write", async () => {
 		const product = await seedProduct(owner, { baseCost: "1.00" });
 
 		expect(await entryOf(operator, product.id)).toMatchObject({ item: null });
-		await expect(upsertCatalogItem(operator, product.id, { active: true, salePrice: "5.00" })).rejects.toThrow();
+		await expect(upsertCatalogItem(operator, product.id, { active: true, salePrice: "5.00", salePricePerPartner: "0.00" })).rejects.toThrow();
 	});
 
 	it("returns not_found for an unknown product and ignores items of other bureaus", async () => {
@@ -415,13 +425,13 @@ describe("itens de catálogo (bureau_admin)", () => {
 		});
 
 		expect(await entryOf(admin, product.id)).toMatchObject({ item: null });
-		expect(await upsertCatalogItem(admin, "00000000-0000-4000-8000-00000000dead", { active: true, salePrice: "5.00" }))
+		expect(await upsertCatalogItem(admin, "00000000-0000-4000-8000-00000000dead", { active: true, salePrice: "5.00", salePricePerPartner: "0.00" }))
 			.toEqual({ ok: false, reason: "not_found" });
 	});
 });
 
 describe("quoteOrder", () => {
-	it("quoteOrder sums product and addon with current versions", async () => {
+	it("quotes base plus per-partner value with the current version", async () => {
 		const buyer = await seedTenant(owner, "Catalogo Quote");
 		const buyerAdmin: DbIdentity = { ...buyer.bureauAdmin };
 		const { rows } = await owner.query<{ product_id: string; code: string; version_id: string }>(
@@ -429,45 +439,55 @@ describe("quoteOrder", () => {
          from products p
          join lateral (select id from product_versions where product_id = p.id
                         order by version desc limit 1) v on true
-        where p.code in ('consulta_pf', 'parecer_ia')`,
+        where p.code in ('dossie_pf', 'dossie_empresarial')`,
 		);
 		const byCode = Object.fromEntries(rows.map((r) => [r.code, r]));
 		// Custo por Bureau (os produtos do seed têm custo padrão 0.00).
-		for (const [code, cost, price] of [
-			["consulta_pf", "3.00", "10.00"],
-			["parecer_ia", "1.50", "4.00"],
-		]) {
-			await seedBureauCost(owner, {
-				bureauId: buyer.bureau.id,
-				productId: byCode[code].product_id,
-				cost,
-				setBy: superadmin.userId,
-			});
-			await seedCatalogItem(owner, {
-				bureauId: buyer.bureau.id,
-				productId: byCode[code].product_id,
-				salePrice: price,
-				updatedBy: buyerAdmin.userId,
-			});
-		}
-
-		expect(await quoteOrder(buyerAdmin, "consulta_pf", { withAi: false })).toEqual({
-			ok: true,
-			lines: [{ productVersionId: byCode.consulta_pf.version_id, code: "consulta_pf", costCents: 300, priceCents: 1000 }],
-			totalCostCents: 300,
-			totalPriceCents: 1000,
+		await seedBureauCost(owner, {
+			bureauId: buyer.bureau.id,
+			productId: byCode.dossie_empresarial.product_id,
+			cost: "60.00",
+			costPerPartner: "20.00",
+			setBy: superadmin.userId,
 		});
-		expect(await quoteOrder(buyerAdmin, "consulta_pf", { withAi: true })).toEqual({
+		await seedCatalogItem(owner, {
+			bureauId: buyer.bureau.id,
+			productId: byCode.dossie_empresarial.product_id,
+			salePrice: "100.00",
+			salePricePerPartner: "30.00",
+			updatedBy: buyerAdmin.userId,
+		});
+
+		const quote = await quoteOrder(buyerAdmin, "dossie_empresarial", { partnerCount: 2 });
+		expect(quote).toEqual({
 			ok: true,
 			lines: [
-				{ productVersionId: byCode.consulta_pf.version_id, code: "consulta_pf", costCents: 300, priceCents: 1000 },
-				{ productVersionId: byCode.parecer_ia.version_id, code: "parecer_ia", costCents: 150, priceCents: 400 },
+				{
+					productVersionId: byCode.dossie_empresarial.version_id,
+					code: "dossie_empresarial",
+					part: "base",
+					quantity: 1,
+					unitPriceCents: 10000,
+					unitCostCents: 6000,
+					priceCents: 10000,
+					costCents: 6000,
+				},
+				{
+					productVersionId: byCode.dossie_empresarial.version_id,
+					code: "dossie_empresarial",
+					part: "partner",
+					quantity: 2,
+					unitPriceCents: 3000,
+					unitCostCents: 2000,
+					priceCents: 6000,
+					costCents: 4000,
+				},
 			],
-			totalCostCents: 450,
-			totalPriceCents: 1400,
+			totalCostCents: 10000,
+			totalPriceCents: 16000,
 		});
-		// Outro produto main sem item no Bureau não está à venda.
-		expect(await quoteOrder(buyerAdmin, "consulta_pj", { withAi: false })).toEqual({
+		// O outro produto sem item no Bureau não está à venda.
+		expect(await quoteOrder(buyerAdmin, "dossie_pf", { partnerCount: 0 })).toEqual({
 			ok: false,
 			reason: "product_not_for_sale",
 		});
