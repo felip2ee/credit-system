@@ -60,13 +60,13 @@ export function Dialog({
         else ref.current?.showModal();
       }}
       className={cn(
-        "m-auto w-full max-w-md rounded-lg bg-background p-6 text-foreground shadow-lg backdrop:bg-black/50",
+        "m-auto w-full max-w-md rounded-lg border-2 bg-background p-6 text-foreground shadow-lg backdrop:bg-black/50",
         className,
       )}
     >
       {open && (
         <div className="space-y-4">
-          <h2 id={titleId} className="text-lg font-semibold">
+          <h2 id={titleId} className="text-xl font-bold">
             {title}
           </h2>
           {children}
