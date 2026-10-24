@@ -56,3 +56,14 @@ export async function currentDeclarationVersion(client: PoolClient): Promise<num
 	if (rows[0].version === null) throw new Error("buyer_declaration has no published version");
 	return rows[0].version;
 }
+
+// Texto vigente da declaração do comprador, para mostrar ao lado do checkbox.
+export async function getCurrentDeclaration(client: PoolClient): Promise<{ version: number; title: string; bodyMd: string }> {
+	const { rows } = await client.query<{ version: number; title: string; body_md: string }>(
+		`select version, title, body_md from legal_documents
+      where kind = 'buyer_declaration' and published_at <= now()
+      order by version desc limit 1`,
+	);
+	if (!rows[0]) throw new Error("buyer_declaration has no published version");
+	return { version: rows[0].version, title: rows[0].title, bodyMd: rows[0].body_md };
+}

@@ -3,11 +3,15 @@ import { notFound, redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { OrderStateBadge } from "@/components/orders/client-order-list";
+import { CancelOrderButton } from "@/components/orders/cancel-order-button";
 import { DeliveryView } from "@/components/orders/delivery-view";
+import { OrderMembers } from "@/components/orders/order-members";
+import { canCancelOrder } from "@/components/orders/order-rules";
 import { Card, CardContent } from "@/components/ui/card";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { listMyOrderMembers } from "@/lib/orders/client-ops";
 import { getMyDelivery, getMyOrder } from "@/lib/orders/client-queries";
 import { orderStepLines } from "@/lib/orders/labels";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
@@ -23,10 +27,14 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 	const found = await withUserTransaction(session, async (client) => {
 		const order = await getMyOrder(client, params.id);
 		if (!order) return null;
-		return { order, delivery: order.state === "released" ? await getMyDelivery(client, params.id) : null };
+		return {
+			order,
+			members: await listMyOrderMembers(client, params.id),
+			delivery: order.state === "released" ? await getMyDelivery(client, params.id) : null,
+		};
 	});
 	if (!found) notFound();
-	const { order, delivery } = found;
+	const { order, members, delivery } = found;
 
 	return (
 		<div className="space-y-6">
@@ -45,6 +53,8 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 					<OrderStateBadge state={order.state} reason={order.reason} />
 				</CardContent>
 			</Card>
+			<OrderMembers members={members} />
+			{canCancelOrder(order.state) && <CancelOrderButton dossierId={order.dossierId} />}
 			{order.state === "released" &&
 				(delivery ? (
 					<DeliveryView delivery={delivery} />

@@ -16,7 +16,7 @@ export default async function NewDossierPage() {
     code: e.code,
     name: e.name,
     price: e.item?.salePrice ?? "0.00",
-    addonFor: e.addonFor,
+    pricePerPartner: e.item?.salePricePerPartner ?? "0.00",
   });
 
   return (
@@ -25,10 +25,7 @@ export default async function NewDossierPage() {
         title="Novo pedido de balcão"
         description="Escolha o produto e informe o titular. A consulta roda depois do pagamento e da autorização do titular"
       />
-      <DossierForm
-        products={onSale.filter((e) => e.kind === "main").map(toOption)}
-        addons={onSale.filter((e) => e.kind === "addon").map(toOption)}
-      />
+      <DossierForm products={onSale.map(toOption)} />
     </div>
   );
 }

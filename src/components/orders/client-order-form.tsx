@@ -1,89 +1,108 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm, type Resolver } from "react-hook-form";
+import { useFieldArray, useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, TriangleAlert } from "lucide-react";
+import { Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 
 import { openClientOrderAction } from "@/actions/orders-client";
+import {
+	canConfirmOrder,
+	countBillablePartners,
+	isSelfOrder,
+	orderHasMembers,
+	orderTotalCents,
+	productLabel,
+	type HolderType,
+	type ProductPrices,
+} from "@/components/orders/order-rules";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toCents } from "@/lib/catalog/money";
-import { clientOrderSchema } from "@/lib/validators/order";
+import type { OrderProductCode } from "@/lib/orders/types";
+import { clientOrderSchema, MAX_PARTNERS } from "@/lib/validators/order";
 import { formatCurrency } from "@/lib/utils";
 
-export interface ClientOrderProduct {
-	code: "consulta_pf" | "consulta_pj";
+export interface ClientOrderProduct extends ProductPrices {
 	name: string;
-	price: string;
 }
 
 interface ClientOrderFormProps {
 	products: ClientOrderProduct[];
-	// Preço do parecer IA; nulo quando não está à venda.
-	aiPrice: string | null;
+	holderType: HolderType;
 	// Documento mascarado da própria conta; nulo quando a conta não tem titular próprio.
 	selfDocumentMasked: string | null;
 	available: string;
+	declaration: { title: string; bodyMd: string };
 }
 
 // Valores como o usuário digita: o schema transforma na saída, e a action valida de novo com a entrada crua.
 interface FormValues {
-	productCode: "consulta_pf" | "consulta_pj";
-	withAi: boolean;
+	productCode: OrderProductCode;
 	self: boolean;
 	subject: { name: string; document: string };
 	contactEmail: string;
 	contactPhone: string;
+	partners: { name: string; document: string; email: string }[];
+	declarationAccepted: boolean;
 }
 
-export function ClientOrderForm({ products, aiPrice, selfDocumentMasked, available }: ClientOrderFormProps) {
+export function ClientOrderForm({ products, holderType, selfDocumentMasked, available, declaration }: ClientOrderFormProps) {
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
 	const [serverError, setServerError] = useState<string | null>(null);
+	const firstCode = products[0]?.code ?? "dossie_pf";
 
 	const {
 		register,
 		handleSubmit,
 		watch,
-		setValue,
 		getValues,
-		resetField,
-		clearErrors,
+		control,
+		reset,
 		formState: { errors },
 	} = useForm<FormValues>({
 		// O schema transforma a saída; a validação roda no valor cru e a action recebe a entrada crua.
 		resolver: zodResolver(clientOrderSchema) as unknown as Resolver<FormValues>,
 		defaultValues: {
-			productCode: products[0]?.code ?? "consulta_pf",
-			withAi: false,
-			self: selfDocumentMasked !== null,
+			productCode: firstCode,
+			self: isSelfOrder(firstCode, holderType),
 			subject: { name: "", document: "" },
 			contactEmail: "",
 			contactPhone: "",
+			partners: [],
+			declarationAccepted: false,
 		},
 	});
+	const { fields, append, remove } = useFieldArray({ control, name: "partners" });
 
 	const productCode = watch("productCode");
-	const withAi = watch("withAi");
-	const isSelf = watch("self");
+	const declarationAccepted = watch("declarationAccepted");
+	const partnerCount = countBillablePartners(watch("partners") ?? [], watch("subject.document"));
 	const product = products.find((p) => p.code === productCode);
-	const totalCents = toCents(product?.price ?? "0") + (withAi && aiPrice ? toCents(aiPrice) : 0);
+	const isSelf = isSelfOrder(productCode, holderType);
+	const isEmpresarial = productCode === "dossie_empresarial";
+	const hasMembers = orderHasMembers(productCode, holderType);
+	const totalCents = product ? orderTotalCents(product, partnerCount) : 0;
 	const insufficient = toCents(available) < totalCents;
-	const documentLabel = productCode === "consulta_pf" ? "CPF" : "CNPJ";
 
-	const chooseSelf = () => {
-		setValue("self", true);
-		resetField("subject");
-		resetField("contactEmail");
-		resetField("contactPhone");
-		clearErrors();
+	// Trocar de produto descarta o que não vale mais: dados de outra pessoa, sócios e a declaração.
+	useEffect(() => {
+		reset({
+			productCode,
+			self: isSelfOrder(productCode, holderType),
+			subject: { name: "", document: "" },
+			contactEmail: "",
+			contactPhone: "",
+			partners: [],
+			declarationAccepted: false,
+		});
 		setServerError(null);
-	};
+	}, [productCode, holderType, reset]);
 
 	// Erro em campo que não está na tela nunca pode ser silencioso: o usuário vê o aviso na região aria-live.
 	const onInvalid = () => setServerError("Revise os dados do pedido e tente novamente.");
@@ -100,13 +119,16 @@ export function ClientOrderForm({ products, aiPrice, selfDocumentMasked, availab
 		});
 	};
 
+	const documentLabel = isEmpresarial ? "CNPJ da empresa" : "CPF do responsável";
+	const nameLabel = isEmpresarial ? "Razão social" : "Nome do responsável";
+
 	return (
 		<form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6" noValidate>
 			<Card>
 				<CardHeader>
 					<CardTitle className="text-lg">Produto</CardTitle>
 				</CardHeader>
-				<CardContent className="space-y-4">
+				<CardContent>
 					<fieldset className="space-y-2">
 						<legend className="sr-only">Produto</legend>
 						{products.map((p) => (
@@ -115,101 +137,155 @@ export function ClientOrderForm({ products, aiPrice, selfDocumentMasked, availab
 								className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-md border p-3 text-sm has-[:checked]:border-foreground"
 							>
 								<span className="flex items-center gap-2">
-									<input type="radio" value={p.code} {...register("productCode")} />
-									{p.name}
+									<input
+										type="radio"
+										value={p.code}
+										{...register("productCode")}
+									/>
+									{productLabel(p.name, p.code, holderType)}
 								</span>
-								<span className="font-medium">{formatCurrency(Number(p.price))}</span>
+								<span className="text-right font-medium">
+									{p.code === "dossie_empresarial"
+										? `${formatCurrency(Number(p.price))} + ${formatCurrency(Number(p.pricePerPartner))} por sócio`
+										: formatCurrency(Number(p.price))}
+								</span>
 							</label>
 						))}
 					</fieldset>
-					{aiPrice !== null && (
-						<label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-							<input type="checkbox" {...register("withAi")} />
-							Incluir parecer IA (+ {formatCurrency(Number(aiPrice))})
-						</label>
-					)}
 				</CardContent>
 			</Card>
 
-			<Card>
-				<CardHeader>
-					<CardTitle className="text-lg">Para quem é a pesquisa?</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-4">
-					<fieldset className="space-y-2">
-						<legend className="sr-only">Para quem é a pesquisa?</legend>
-						{selfDocumentMasked !== null && (
-							<label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-								<input type="radio" name="whom" checked={isSelf} onChange={chooseSelf} />
-								Para mim ({selfDocumentMasked})
-							</label>
-						)}
-						<label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-							<input type="radio" name="whom" checked={!isSelf} onChange={() => setValue("self", false)} />
-							Para outra pessoa
-						</label>
-					</fieldset>
-
-					{!isSelf && (
-						<div className="space-y-4">
-							<p className="text-sm text-muted-foreground">
-								O titular recebe um pedido de autorização por e-mail e, se informado, por WhatsApp. A consulta só roda depois da
-								autorização.
-							</p>
-							<div className="space-y-2">
-								<Label htmlFor="subject-name">Nome do titular</Label>
-								<Input
-									id="subject-name"
-									autoComplete="off"
-									aria-invalid={Boolean(errors.subject?.name)}
-									{...register("subject.name")}
-								/>
-								{errors.subject?.name && <p className="text-sm text-destructive">{errors.subject.name.message}</p>}
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="subject-document">{documentLabel} do titular</Label>
-								<Input
-									id="subject-document"
-									inputMode="numeric"
-									autoComplete="off"
-									aria-invalid={Boolean(errors.subject?.document)}
-									{...register("subject.document")}
-								/>
-								{errors.subject?.document && <p className="text-sm text-destructive">{errors.subject.document.message}</p>}
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="contact-email">E-mail do titular</Label>
-								<Input
-									id="contact-email"
-									type="email"
-									autoComplete="off"
-									aria-invalid={Boolean(errors.contactEmail)}
-									{...register("contactEmail")}
-								/>
-								{errors.contactEmail && <p className="text-sm text-destructive">{errors.contactEmail.message}</p>}
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="contact-phone">Celular do titular (opcional)</Label>
-								<Input
-									id="contact-phone"
-									type="tel"
-									autoComplete="off"
-									aria-invalid={Boolean(errors.contactPhone)}
-									{...register("contactPhone")}
-								/>
-								{errors.contactPhone && <p className="text-sm text-destructive">{errors.contactPhone.message}</p>}
-							</div>
+			{isSelf ? (
+				selfDocumentMasked !== null && (
+					<p className="text-sm text-muted-foreground">A pesquisa é sobre você ({selfDocumentMasked}). Você recebe um pedido de autorização por e-mail.</p>
+				)
+			) : (
+				<Card>
+					<CardHeader>
+						<CardTitle className="text-lg">{isEmpresarial ? "Empresa" : "Responsável pela empresa"}</CardTitle>
+					</CardHeader>
+					<CardContent className="space-y-4">
+						<p className="text-sm text-muted-foreground">
+							Cada pessoa informada recebe um pedido de autorização por e-mail. A consulta só roda depois da autorização de todas.
+						</p>
+						<div className="space-y-2">
+							<Label htmlFor="subject-document">{documentLabel}</Label>
+							<Input
+								id="subject-document"
+								inputMode="numeric"
+								autoComplete="off"
+								aria-invalid={Boolean(errors.subject?.document)}
+								{...register("subject.document")}
+							/>
+							{errors.subject?.document && <p className="text-sm text-destructive">{errors.subject.document.message}</p>}
 						</div>
-					)}
-				</CardContent>
-			</Card>
+						<div className="space-y-2">
+							<Label htmlFor="subject-name">{nameLabel}</Label>
+							<Input id="subject-name" autoComplete="off" aria-invalid={Boolean(errors.subject?.name)} {...register("subject.name")} />
+							{errors.subject?.name && <p className="text-sm text-destructive">{errors.subject.name.message}</p>}
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="contact-email">E-mail do responsável</Label>
+							<Input
+								id="contact-email"
+								type="email"
+								autoComplete="off"
+								aria-invalid={Boolean(errors.contactEmail)}
+								{...register("contactEmail")}
+							/>
+							{errors.contactEmail && <p className="text-sm text-destructive">{errors.contactEmail.message}</p>}
+						</div>
+					</CardContent>
+				</Card>
+			)}
+
+			{isEmpresarial && (
+				<Card>
+					<CardHeader>
+						<CardTitle className="text-lg">Sócios</CardTitle>
+					</CardHeader>
+					<CardContent className="space-y-4">
+						{fields.map((field, i) => (
+							<div key={field.id} className="space-y-3 rounded-md border p-3">
+								<div className="space-y-1">
+									<Label htmlFor={`partner-name-${i}`}>Nome do sócio {i + 1}</Label>
+									<Input
+										id={`partner-name-${i}`}
+										autoComplete="off"
+										aria-invalid={Boolean(errors.partners?.[i]?.name)}
+										{...register(`partners.${i}.name`)}
+									/>
+									{errors.partners?.[i]?.name && <p className="text-sm text-destructive">{errors.partners[i]?.name?.message}</p>}
+								</div>
+								<div className="space-y-1">
+									<Label htmlFor={`partner-doc-${i}`}>CPF do sócio {i + 1}</Label>
+									<Input
+										id={`partner-doc-${i}`}
+										inputMode="numeric"
+										autoComplete="off"
+										aria-invalid={Boolean(errors.partners?.[i]?.document)}
+										{...register(`partners.${i}.document`)}
+									/>
+									{errors.partners?.[i]?.document && (
+										<p className="text-sm text-destructive">{errors.partners[i]?.document?.message}</p>
+									)}
+								</div>
+								<div className="space-y-1">
+									<Label htmlFor={`partner-email-${i}`}>E-mail do sócio {i + 1}</Label>
+									<Input
+										id={`partner-email-${i}`}
+										type="email"
+										autoComplete="off"
+										aria-invalid={Boolean(errors.partners?.[i]?.email)}
+										{...register(`partners.${i}.email`)}
+									/>
+									{errors.partners?.[i]?.email && <p className="text-sm text-destructive">{errors.partners[i]?.email?.message}</p>}
+								</div>
+								<Button type="button" variant="ghost" size="sm" onClick={() => remove(i)} aria-label={`Remover sócio ${i + 1}`}>
+									<Trash2 className="h-4 w-4" />
+									Remover
+								</Button>
+							</div>
+						))}
+						{errors.partners?.message && <p className="text-sm text-destructive">{errors.partners.message}</p>}
+						<Button
+							type="button"
+							variant="outline"
+							disabled={fields.length >= MAX_PARTNERS}
+							onClick={() => append({ name: "", document: "", email: "" })}
+						>
+							<Plus className="h-4 w-4" />
+							Adicionar sócio
+						</Button>
+						<p className="text-xs text-muted-foreground">Até {MAX_PARTNERS} sócios. Cada sócio autoriza a consulta pelo próprio e-mail.</p>
+					</CardContent>
+				</Card>
+			)}
 
 			<Card>
 				<CardContent className="space-y-4 p-6">
+					{hasMembers && (
+						<div className="space-y-2">
+							<p className="whitespace-pre-line rounded-md border bg-muted/40 p-3 text-sm" id="declaration-text">
+								{declaration.bodyMd}
+							</p>
+							<label className="flex min-h-11 cursor-pointer items-start gap-2 text-sm">
+								<input
+									type="checkbox"
+									className="mt-1"
+									aria-describedby="declaration-text"
+									{...register("declarationAccepted")}
+								/>
+								Li e concordo com a declaração acima.
+							</label>
+						</div>
+					)}
 					<dl className="grid grid-cols-2 gap-4 text-sm">
 						<div>
 							<dt className="text-muted-foreground">Total</dt>
-							<dd className="text-2xl font-semibold">{formatCurrency(totalCents / 100)}</dd>
+							<dd className="text-2xl font-semibold" aria-live="polite">
+								{formatCurrency(totalCents / 100)}
+							</dd>
 						</div>
 						<div>
 							<dt className="text-muted-foreground">Saldo disponível</dt>
@@ -227,7 +303,7 @@ export function ClientOrderForm({ products, aiPrice, selfDocumentMasked, availab
 							</Button>
 						</div>
 					) : (
-						<Button type="submit" disabled={isPending}>
+						<Button type="submit" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
 							{isPending && <Loader2 className="h-4 w-4 animate-spin" />}
 							{isPending ? "Enviando..." : "Confirmar pedido"}
 						</Button>
