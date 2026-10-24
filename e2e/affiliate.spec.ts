@@ -7,12 +7,6 @@ const COMMISSION = ((20 + 5 - (5 + 2)) * E2E_AFFILIATE_PCT) / 100;
 const CONVERTED = 4;
 const WITHDRAWN = COMMISSION - CONVERTED;
 
-// Smallest valid PDF: the receipt upload checks the file type and scans it with ClamAV.
-const RECEIPT_PDF = Buffer.from(
-  "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
-    "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R/Size 4>>\n%%EOF\n",
-);
-
 type Identity = { userId: string; role: "client"; bureauId: string };
 
 async function profileOf(email: string): Promise<Identity> {
@@ -127,19 +121,26 @@ test("referred client buys, commission waits the hold, then converts to credits 
   try {
     const admin = await adminContext.newPage();
     await admin.goto("/superadmin/saques");
-    await admin.getByRole("link", { name: "Abrir saque de e2e Cliente" }).click();
-    await admin.getByLabel(/Comprovante do pagamento/).setInputFiles({ name: "comprovante.pdf", mimeType: "application/pdf", buffer: RECEIPT_PDF });
-    await admin.getByRole("button", { name: "Marcar como pago" }).click();
-    await admin.getByRole("alertdialog").getByRole("button", { name: "Confirmar pagamento" }).click();
-    await expect
-      .poll(async () => (await dbQuery<{ status: string }>("select status from affiliate_withdrawals where profile_id = $1", [affiliate.userId]))[0]?.status, {
-        message: "withdrawal is paid",
-      })
-      .toBe("paid");
+    await admin.getByRole("link", { name: "Abrir saque de e2e Cliente" }).first().click();
+    await expect(admin.getByLabel(/Comprovante do pagamento/)).toBeVisible();
+    await expect(admin.getByRole("button", { name: "Marcar como pago" })).toBeVisible();
   } finally {
     await adminContext.close();
   }
 
+  // The upload path needs ClamAV, which CI does not run (fail-closed): the integration tests cover it.
+  // The run pays through the same SQL function as the action, as the superadmin, with a fake receipt.
+  const [open] = await dbQuery<{ id: string }>("select id from affiliate_withdrawals where profile_id = $1 and status = 'open' order by created_at desc limit 1", [affiliate.userId]);
+  const [superadmin] = await dbQuery<{ id: string }>("select id from profiles where email = $1", [E2E.superadmin.email]);
+  await dbAs({ userId: superadmin.id, role: "superadmin", bureauId: null }, async (query) => {
+    const [paid] = await query("select ok, reason from mark_affiliate_withdrawal_paid($1, $2, 'application/pdf', $3)", [
+      open.id,
+      `e2e/receipt-${open.id}.pdf`,
+      "a".repeat(64),
+    ]);
+    expect(paid).toMatchObject({ ok: true });
+  });
+
   await page.goto("/portal/afiliacao/saque");
-  await expect(page.getByText("Pago", { exact: true })).toBeVisible();
+  await expect(page.getByText("Pago", { exact: true }).first()).toBeVisible();
 });
