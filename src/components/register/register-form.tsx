@@ -20,11 +20,12 @@ export interface RegisterFormProps {
   bureauName: string;
   termsVersion: number;
   privacyVersion: number;
+  referralCode?: string;
 }
 
 const linkClass = "underline underline-offset-4 hover:text-foreground";
 
-export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion }: RegisterFormProps) {
+export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion, referralCode }: RegisterFormProps) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const {
@@ -46,6 +47,7 @@ export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion }:
       acceptedTerms: false,
       termsVersion,
       privacyVersion,
+      referralCode,
     },
   });
   const isPJ = watch("type") === "PJ";
@@ -92,6 +94,7 @@ export function RegisterForm({ slug, bureauName, termsVersion, privacyVersion }:
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          <input type="hidden" {...register("referralCode")} />
           <div className="space-y-2">
             <Label htmlFor="type">Tipo de pessoa</Label>
             <select

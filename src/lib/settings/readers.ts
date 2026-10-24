@@ -35,3 +35,29 @@ export async function readScrTermSettings(identity: DbIdentity): Promise<ScrTerm
 		city: pick(SCR_SETTING_KEYS.city, SCR_TERM_DEFAULTS.city),
 	};
 }
+
+export const AFFILIATE_SETTING_KEYS = {
+	holdDays: "affiliate_commission_hold_days",
+	withdrawalFee: "affiliate_withdrawal_fee",
+} as const;
+
+export interface AffiliateSettings {
+	holdDays: number;
+	withdrawalFee: { fixed: string; percent: string };
+}
+
+const DEFAULT_AFFILIATE_HOLD_DAYS = 30;
+
+function nonNegativeMoney(value: unknown): string {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value.toFixed(2) : "0.00";
+}
+
+export async function readAffiliateSettings(identity: DbIdentity): Promise<AffiliateSettings> {
+	const stored = await readSettings(identity, Object.values(AFFILIATE_SETTING_KEYS));
+	const days = stored.get(AFFILIATE_SETTING_KEYS.holdDays);
+	const fee = stored.get(AFFILIATE_SETTING_KEYS.withdrawalFee) as { fixed?: unknown; percent?: unknown } | null | undefined;
+	return {
+		holdDays: typeof days === "number" && Number.isInteger(days) && days >= 0 ? days : DEFAULT_AFFILIATE_HOLD_DAYS,
+		withdrawalFee: { fixed: nonNegativeMoney(fee?.fixed), percent: nonNegativeMoney(fee?.percent) },
+	};
+}
