@@ -9,7 +9,6 @@ export type StaffOrderView = {
 	state: OrderState;
 	reason: OrderStateReason | null;
 	productCode: OrderProductCode;
-	withAi: boolean;
 	aiStatus: AiStatus;
 	buyerName: string | null;
 	price: string;
@@ -27,7 +26,6 @@ export async function getStaffOrder(client: PoolClient, dossierId: string): Prom
 		state: OrderState;
 		state_reason: OrderStateReason | null;
 		product_code: OrderProductCode;
-		with_ai: boolean;
 		ai_status: AiStatus;
 		buyer_name: string | null;
 		price: string | null;
@@ -37,7 +35,7 @@ export async function getStaffOrder(client: PoolClient, dossierId: string): Prom
 		revoke_reason: string | null;
 		created_at: Date;
 	}>(
-		`select o.dossier_id, o.mode, o.state, o.state_reason, o.product_code, o.with_ai, o.ai_status,
+		`select o.dossier_id, o.mode, o.state, o.state_reason, o.product_code, o.ai_status,
 		        p.full_name as buyer_name, s.price::text as price,
 		        case when o.mode = 'counter' then
 		          (select coalesce(sum(cp.amount), 0)::text from counter_payments cp
@@ -57,7 +55,6 @@ export async function getStaffOrder(client: PoolClient, dossierId: string): Prom
 		state: r.state,
 		reason: r.state_reason,
 		productCode: r.product_code,
-		withAi: r.with_ai,
 		aiStatus: r.ai_status,
 		buyerName: r.buyer_name,
 		price: r.price ?? "0.00",

@@ -14,7 +14,10 @@ export type SettlementFailure =
 	| "price_below_cost"
 	| "invalid_amount"
 	| "reservation_exceeded"
-	| "already_exists";
+	| "already_exists"
+	| "quote_mismatch"
+	| "price_mismatch"
+	| "cost_mismatch";
 
 // clawedBack: capture_order não capturou. Um estorno de PIX retomou a reserva e o pedido foi fechado como "released"
 // com o que sobrou devolvido. É um sucesso: o fechamento está gravado e o chamador deve confirmar a transação.

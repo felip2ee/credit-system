@@ -6,7 +6,7 @@ import { getClientAccountStatus } from "@/lib/account/queries";
 import { getRequiredSession, type RequiredSession } from "@/lib/auth/session";
 import { getPublicCatalog } from "@/lib/bureaus/public";
 import { toCents } from "@/lib/catalog/money";
-import { AI_ADDON_CODE } from "@/lib/catalog/quote";
+import { buildQuote } from "@/lib/catalog/quote";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { toE164 } from "@/lib/notifications/recipient";
@@ -48,32 +48,34 @@ async function requireClient(): Promise<RequiredSession | null> {
 	}
 }
 
-// D26: o cliente não lê a tabela do catálogo. Preço de venda vem do catálogo público do Bureau; o custo é do banco.
+// D26: o cliente não lê a tabela do catálogo. Preço de venda vem do catálogo público do Bureau; o custo é do banco
+// (reserve_order recalcula preço e custo pelo pedido e confere o total).
 async function quoteFromPublicCatalog(
 	session: RequiredSession,
 	productCode: string,
-	withAi: boolean,
-): Promise<OrderQuote | { ok: false; reason: "product_not_for_sale" | "addon_not_for_sale" }> {
+	partnerCount: number,
+): Promise<OrderQuote | { ok: false; reason: "product_not_for_sale" }> {
 	const { rows } = await withUserTransaction(session, (client) =>
 		client.query<{ slug: string }>("select slug from bureaus where id = app_bureau_id()"),
 	);
 	if (!rows[0]) throw new Error("bureau slug not found");
 	const catalog = await getPublicCatalog(rows[0].slug);
-	const main = catalog.find((item) => item.code === productCode && item.kind === "main");
-	if (!main) return { ok: false, reason: "product_not_for_sale" };
-	const items = [main];
-	if (withAi) {
-		const addon = catalog.find((item) => item.code === AI_ADDON_CODE && item.kind === "addon");
-		if (!addon) return { ok: false, reason: "addon_not_for_sale" };
-		items.push(addon);
-	}
-	const lines = items.map((item) => ({
-		code: item.code,
-		priceCents: toCents(item.salePrice),
-		costCents: 0,
-		productVersionId: "",
-	}));
-	return { ok: true, lines, totalCostCents: 0, totalPriceCents: lines.reduce((sum, l) => sum + l.priceCents, 0) };
+	const product = catalog.find((item) => item.code === productCode);
+	if (!product) return { ok: false, reason: "product_not_for_sale" };
+	return {
+		ok: true,
+		...buildQuote(
+			{
+				productVersionId: "",
+				code: product.code,
+				salePriceCents: toCents(product.salePrice),
+				salePricePerPartnerCents: toCents(product.salePricePerPartner),
+				costCents: 0,
+				costPerPartnerCents: 0,
+			},
+			partnerCount,
+		),
+	};
 }
 
 export async function openClientOrderAction(values: unknown): Promise<ActionResult> {
@@ -90,14 +92,13 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 		const status = await withUserTransaction(session, (client) => getClientAccountStatus(client, session.userId));
 		if (!status.termsAccepted) return { error: TERMS_NOT_ACCEPTED };
 		if (!status.emailVerified) return { error: EMAIL_NOT_VERIFIED };
-		const quote = await quoteFromPublicCatalog(session, parsed.data.productCode, parsed.data.withAi);
+		const quote = await quoteFromPublicCatalog(session, parsed.data.productCode, parsed.data.partners.length);
 		if (!quote.ok) return { error: CLIENT_ORDER_MESSAGES[quote.reason] };
 		const input: OpenOrderInput = {
 			productCode: parsed.data.productCode,
-			withAi: parsed.data.withAi,
 			self: parsed.data.self,
 			subject: parsed.data.subject,
-			partners: [],
+			partners: parsed.data.partners,
 			contact: { email: parsed.data.contactEmail, phoneE164 },
 			buyerProfileId: null,
 		};

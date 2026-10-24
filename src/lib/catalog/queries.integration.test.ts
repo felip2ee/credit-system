@@ -431,6 +431,9 @@ describe("itens de catálogo (bureau_admin)", () => {
 });
 
 describe("quoteOrder", () => {
+	// O seed deixa os dossiês inativos: ativa para cotar.
+	beforeAll(() => owner.query("update products set active = true where code in ('dossie_pf', 'dossie_empresarial')"));
+
 	it("quotes base plus per-partner value with the current version", async () => {
 		const buyer = await seedTenant(owner, "Catalogo Quote");
 		const buyerAdmin: DbIdentity = { ...buyer.bureauAdmin };

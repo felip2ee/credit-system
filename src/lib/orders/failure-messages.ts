@@ -3,7 +3,6 @@ export const ORDER_FAILED = "Não foi possível concluir. Tente novamente.";
 
 const SHARED_MESSAGES: Record<string, string> = {
 	product_not_for_sale: "Produto indisponível neste Bureau.",
-	addon_not_for_sale: "Parecer IA indisponível para este produto.",
 	kind_mismatch: "O documento não combina com o produto.",
 	self_holder_missing: "Sua conta não tem Titular. Fale com o Bureau.",
 	contact_is_buyer: "Informe o e-mail e o celular do titular, não os seus.",

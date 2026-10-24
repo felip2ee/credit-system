@@ -13,7 +13,6 @@ export type ClientOrderListItem = {
 	dossierId: string;
 	mode: OrderMode;
 	productCode: OrderProductCode;
-	withAi: boolean;
 	selfResearch: boolean;
 	subjectName: string;
 	subjectDocumentMasked: string;
@@ -29,7 +28,6 @@ type OrderRow = {
 	dossier_id: string;
 	mode: OrderMode;
 	product_code: OrderProductCode;
-	with_ai: boolean;
 	self_research: boolean;
 	subject_name: string;
 	subject_document_masked: string;
@@ -40,14 +38,13 @@ type OrderRow = {
 	released_at: Date | null;
 };
 
-const ORDER_COLUMNS = `o.dossier_id, o.mode, o.product_code, o.with_ai, o.self_research, o.subject_name, o.subject_document_masked, o.state,
+const ORDER_COLUMNS = `o.dossier_id, o.mode, o.product_code, o.self_research, o.subject_name, o.subject_document_masked, o.state,
 	o.state_reason, s.price::text as price, o.created_at, o.released_at`;
 
 const toItem = (r: OrderRow): ClientOrderListItem => ({
 	dossierId: r.dossier_id,
 	mode: r.mode,
 	productCode: r.product_code,
-	withAi: r.with_ai,
 	selfResearch: r.self_research,
 	subjectName: r.subject_name,
 	subjectDocumentMasked: r.subject_document_masked,
@@ -97,7 +94,7 @@ export type ClientDelivery = {
 	dossierOpinion: Parecer | null;
 };
 
-// O parecer só sai com o adicional comprado (with_ai): a política RLS libera a linha, a regra de venda é daqui.
+// O parecer vai em todo pedido (embutido no preço); fica nulo enquanto o tick não o gerou.
 // Nulo fora de 'released': pedido em andamento, revogado, de outro cliente ou inexistente.
 export async function getMyDelivery(client: PoolClient, dossierId: string): Promise<ClientDelivery | null> {
 	const order = await client.query<OrderRow & { kind: OrderKind; dossier_opinion: Parecer | null }>(
@@ -146,8 +143,8 @@ export async function getMyDelivery(client: PoolClient, dossierId: string): Prom
 			status: m.status,
 			canonical: m.canonical_result,
 			payload: m.payload ?? null,
-			opinion: head.with_ai ? m.full_report : null,
+			opinion: m.full_report,
 		})),
-		dossierOpinion: head.with_ai ? head.dossier_opinion : null,
+		dossierOpinion: head.dossier_opinion,
 	};
 }

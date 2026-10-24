@@ -27,8 +27,8 @@ const OPEN_FAILURES: readonly string[] = [
 	"not_allowed",
 	"invalid_input",
 	"product_not_for_sale",
-	"addon_not_for_sale",
 	"kind_mismatch",
+	"third_party_not_allowed",
 	"self_holder_missing",
 	"contact_is_buyer",
 	"buyer_not_found",
@@ -47,10 +47,9 @@ export async function openOrder(client: PoolClient, input: OpenOrderInput): Prom
 		role: p.role,
 	}));
 	const { rows } = await client.query<{ ok: boolean; reason: string | null; dossier_id: string | null; state: OrderState | null }>(
-		"select ok, reason, dossier_id, state from open_order($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)",
+		"select ok, reason, dossier_id, state from open_order($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)",
 		[
 			input.productCode,
-			input.withAi,
 			input.self,
 			input.subject?.type ?? null,
 			input.subject?.name ?? null,
@@ -151,11 +150,11 @@ export async function getExecutionPlan(
 	client: PoolClient,
 	dossierId: string,
 ): Promise<{
-	order: { dossierId: string; mode: OrderMode; withAi: boolean; attempts: number; kind: OrderKind };
+	order: { dossierId: string; mode: OrderMode; attempts: number; kind: OrderKind };
 	members: ExecutionMember[];
 } | null> {
-	const order = await client.query<{ mode: OrderMode; with_ai: boolean; attempts: number; kind: OrderKind }>(
-		`select o.mode, o.with_ai, o.attempts, d.kind::text as kind
+	const order = await client.query<{ mode: OrderMode; attempts: number; kind: OrderKind }>(
+		`select o.mode, o.attempts, d.kind::text as kind
 		   from dossier_orders o join dossiers d on d.id = o.dossier_id
 		  where o.dossier_id = $1`,
 		[dossierId],
@@ -181,7 +180,7 @@ export async function getExecutionPlan(
 	);
 	const o = order.rows[0];
 	return {
-		order: { dossierId, mode: o.mode, withAi: o.with_ai, attempts: o.attempts, kind: o.kind },
+		order: { dossierId, mode: o.mode, attempts: o.attempts, kind: o.kind },
 		members: members.rows.map((m) => ({
 			consultationId: m.id,
 			type: m.type,
@@ -266,8 +265,7 @@ export async function completeOrder(
 	}
 	const { rowCount } = await client.query(
 		`update dossier_orders
-		    set state = 'completed', lease_until = null, ai_status = case when with_ai then 'pending' else 'none' end,
-		        updated_at = now()
+		    set state = 'completed', lease_until = null, updated_at = now()
 		  where dossier_id = $1 and state = 'executing'`,
 		[dossierId],
 	);

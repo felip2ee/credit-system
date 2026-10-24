@@ -19,21 +19,20 @@ export type OrderStateReason =
 	| "deps_unavailable"
 	| "reservation_clawed_back";
 export type AiStatus = "none" | "pending" | "done" | "failed";
-export type OrderProductCode = "consulta_pf" | "consulta_pj" | "dossie_pj_completo";
+export type OrderProductCode = "dossie_pf" | "dossie_empresarial";
 export type OrderKind = "PF" | "PJ" | "PJ_FULL";
 export type OpenOrderFailure =
 	| "not_allowed"
 	| "invalid_input"
 	| "product_not_for_sale"
-	| "addon_not_for_sale"
 	| "kind_mismatch"
+	| "third_party_not_allowed"
 	| "self_holder_missing"
 	| "contact_is_buyer"
 	| "buyer_not_found"
 	| "too_many_requests";
 export type OpenOrderInput = {
 	productCode: OrderProductCode;
-	withAi: boolean;
 	self: boolean;
 	subject: { type: "PF" | "PJ"; name: string; documentDigits: string } | null;
 	partners: {

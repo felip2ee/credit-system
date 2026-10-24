@@ -42,7 +42,9 @@ let tenant: SeededTenant;
 beforeAll(async () => {
 	await acquireClaimLock();
 	tenant = await seedTenant(owner, "scr confirm");
-	const { rows } = await owner.query<{ id: string }>("select id from products where code = 'consulta_pf'");
+	// O seed do catálogo deixa o produto inativo.
+	await owner.query("update products set active = true where code = 'dossie_pf'");
+	const { rows } = await owner.query<{ id: string }>("select id from products where code = 'dossie_pf'");
 	await seedBureauCost(owner, { bureauId: tenant.bureau.id, productId: rows[0].id, cost: "1.00", setBy: tenant.bureauAdmin.userId });
 	await seedCatalogItem(owner, { bureauId: tenant.bureau.id, productId: rows[0].id, salePrice: "50.00", updatedBy: tenant.bureauAdmin.userId });
 	await seedWalletTopup(owner, { bureauId: tenant.bureau.id, amount: "200.00", createdBy: tenant.bureauAdmin.userId });
@@ -57,15 +59,14 @@ afterAll(async () => {
 async function counterOrder() {
 	const operator = { ...tenant.operator };
 	const input = {
-		productCode: "consulta_pf" as const,
-		withAi: false,
+		productCode: "dossie_pf" as const,
 		self: false,
 		subject: { type: "PF" as const, name: "Fulano de Tal", documentDigits: onlyDigits(randomCpf()) },
 		partners: [],
 		contact: { email: `titular-${crypto.randomUUID()}@example.com`, phoneE164: null },
 		buyerProfileId: null,
 	};
-	const quote = await quoteOrder(operator, input.productCode, { withAi: false });
+	const quote = await quoteOrder(operator, input.productCode, { partnerCount: 0 });
 	if (!quote.ok) throw new Error(`quote failed: ${quote.reason}`);
 	const placed = await placeOrder(operator, input, quote);
 	if (!placed.ok) throw new Error(`placeOrder failed: ${placed.reason}`);

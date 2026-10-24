@@ -301,8 +301,12 @@ describe("reserve_order / capture_order / release_order (online)", () => {
 				{
 					productVersionId: expect.any(String),
 					code,
-					costCents: 3000,
+					part: "base",
+					quantity: 1,
+					unitPriceCents: 5000,
+					unitCostCents: 3000,
 					priceCents: 5000,
+					costCents: 3000,
 				},
 			],
 		});

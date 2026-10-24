@@ -2114,7 +2114,7 @@ describe("client accounts (021)", () => {
 
 describe("orders and delivery (022)", () => {
 	const PUBLIC_FUNCTIONS = [
-		"open_order(text, boolean, boolean, text, text, text, jsonb, text, text, uuid)",
+		"open_order(text, boolean, text, text, text, jsonb, text, text, uuid)",
 		"refresh_order_state(uuid)",
 		"due_order_bureaus()",
 		"reserve_order(uuid, text, uuid, numeric, numeric, jsonb)",
@@ -2134,7 +2134,7 @@ describe("orders and delivery (022)", () => {
 		owner.query(
 			`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
          subject_document_masked, state, released_at, created_by)
-       values ($1, $2, $3, $4, 'consulta_pf', 'Titular', '***.000.000-**', $5, case when $5 = 'released' then now() end, $6)`,
+       values ($1, $2, $3, $4, 'dossie_pf', 'Titular', '***.000.000-**', $5, case when $5 = 'released' then now() end, $6)`,
 			[dossier, T.bureau.id, clientId ? "online" : "counter", clientId, state, T.bureauAdmin.userId],
 		);
 	const setState = (dossier: string, state: string) =>
@@ -2235,7 +2235,7 @@ describe("orders and delivery (022)", () => {
 					client.query(
 						`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
                subject_document_masked, state, created_by)
-             values ($1, $2, 'online', $3, 'consulta_pf', 'X', '***.000.000-**', 'awaiting_authorization', $3)`,
+             values ($1, $2, 'online', $3, 'dossie_pf', 'X', '***.000.000-**', 'awaiting_authorization', $3)`,
 						[dossier, T.bureau.id, T.client.userId],
 					),
 				).rejects.toMatchObject({ code: "42501" });

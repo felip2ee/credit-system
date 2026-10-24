@@ -409,6 +409,8 @@ describe("catalogo (schema e RLS)", () => {
 				),
 			);
 
+		// O seed deixa dossie_pf inativo: o trigger do item exige produto ativo.
+		await owner.query("update products set active = true where code = 'dossie_pf'");
 		await expect(insertPf("1.00")).rejects.toThrow(/per-partner price only for dossie_empresarial/);
 		await insertPf("0.00");
 	});

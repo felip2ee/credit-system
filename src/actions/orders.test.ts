@@ -56,8 +56,7 @@ const SUPPORT = "Encerre a sessão de suporte para operar pedidos.";
 const GENERIC = "Não foi possível concluir. Tente novamente.";
 const QUOTE = { ok: true, lines: [], totalCostCents: 1000, totalPriceCents: 3000 };
 const counterOrder = {
-	productCode: "consulta_pf",
-	withAi: true,
+	productCode: "dossie_pf",
 	buyerProfileId: BUYER_ID,
 	subject: { name: "Maria Souza", document: "390.533.447-05" },
 	contactEmail: "maria@example.test",
@@ -116,16 +115,15 @@ describe("staff gate", () => {
 });
 
 describe("openCounterOrderAction", () => {
-	it("quotes with the AI flag, places the order and revalidates the list", async () => {
+	it("quotes by partner count, places the order and revalidates the list", async () => {
 		const result = await openCounterOrderAction(counterOrder);
 
 		expect(result).toEqual({ error: null, id: DOSSIER_ID });
-		expect(state.quoteOrder).toHaveBeenCalledWith(expect.objectContaining({ role: "operator" }), "consulta_pf", { withAi: true });
+		expect(state.quoteOrder).toHaveBeenCalledWith(expect.objectContaining({ role: "operator" }), "dossie_pf", { partnerCount: 0 });
 		const [identity, input, quote] = state.placeOrder.mock.calls[0];
 		expect(identity).toMatchObject({ userId: USER_ID });
 		expect(input).toMatchObject({
-			productCode: "consulta_pf",
-			withAi: true,
+			productCode: "dossie_pf",
 			self: false,
 			buyerProfileId: BUYER_ID,
 			subject: { type: "PF", name: "Maria Souza", documentDigits: "39053344705" },
@@ -133,6 +131,20 @@ describe("openCounterOrderAction", () => {
 		});
 		expect(quote).toBe(QUOTE);
 		expect(revalidatePath).toHaveBeenCalledWith("/dossiers");
+	});
+
+	it("quotes the partner count of a dossie_empresarial", async () => {
+		const partner = (document: string) => ({ document, name: "Sócio", email: `${document}@example.test` });
+		await openCounterOrderAction({
+			...counterOrder,
+			productCode: "dossie_empresarial",
+			subject: { name: "Empresa Ltda", document: "11.222.333/0001-81" },
+			partners: [partner("390.533.447-05"), partner("529.982.247-25"), partner("390.533.447-05")],
+		});
+
+		// O mesmo CPF duas vezes conta um sócio só: a cotação casa com o total do banco.
+		expect(state.quoteOrder).toHaveBeenCalledWith(expect.anything(), "dossie_empresarial", { partnerCount: 2 });
+		expect(state.placeOrder.mock.calls[0][1].partners).toHaveLength(2);
 	});
 
 	it("zod refuses a bad payload before the gate", async () => {
@@ -157,7 +169,6 @@ describe("openCounterOrderAction", () => {
 
 	it.each([
 		["product_not_for_sale", "Produto indisponível neste Bureau."],
-		["addon_not_for_sale", "Parecer IA indisponível para este produto."],
 	])("maps the quote failure %s", async (reason, message) => {
 		state.quoteOrder.mockResolvedValue({ ok: false, reason });
 

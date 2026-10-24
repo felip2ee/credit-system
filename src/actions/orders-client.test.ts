@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
 	role: "client" as string,
 	sessionError: null as Error | null,
 	slugRows: [{ slug: "bureau-teste" }] as { slug: string }[],
-	catalog: [] as { code: string; name: string; kind: "main" | "addon"; salePrice: string }[],
+	catalog: [] as { code: string; name: string; salePrice: string; salePricePerPartner: string }[],
 	placeOrder: vi.fn(),
 	query: vi.fn(),
 	accountStatus: vi.fn(),
@@ -38,10 +38,9 @@ import { openClientOrderAction } from "./orders-client";
 
 const NOT_ALLOWED = "Ação não permitida.";
 const GENERIC = "Não foi possível concluir. Tente novamente.";
-const ownOrder = { productCode: "consulta_pf", withAi: false, self: true };
+const ownOrder = { productCode: "dossie_pf", self: true };
 const thirdOrder = {
-	productCode: "consulta_pf",
-	withAi: false,
+	productCode: "dossie_pf",
 	self: false,
 	subject: { name: "Maria Souza", document: CPF },
 	contactEmail: "maria@example.test",
@@ -54,8 +53,8 @@ beforeEach(() => {
 	state.sessionError = null;
 	state.slugRows = [{ slug: "bureau-teste" }];
 	state.catalog = [
-		{ code: "consulta_pf", name: "Consulta PF", kind: "main", salePrice: "50.00" },
-		{ code: "parecer_ia", name: "Parecer IA", kind: "addon", salePrice: "12.50" },
+		{ code: "dossie_pf", name: "Dossiê Pessoa Física", salePrice: "50.00", salePricePerPartner: "0.00" },
+		{ code: "dossie_empresarial", name: "Dossiê Empresarial", salePrice: "80.00", salePricePerPartner: "30.00" },
 	];
 	state.query.mockImplementation(async () => ({ rows: state.slugRows }));
 	state.placeOrder.mockResolvedValue({ ok: true, dossierId: DOSSIER_ID, state: "awaiting_authorization" });
@@ -103,23 +102,42 @@ describe("openClientOrderAction", () => {
 	});
 
 	it("the price comes from the public catalog, never from the form", async () => {
-		const result = await openClientOrderAction({ ...ownOrder, withAi: true, price: "0.01", totalPriceCents: 1 });
+		const result = await openClientOrderAction({ ...ownOrder, price: "0.01", totalPriceCents: 1 });
 
 		expect(result).toEqual({ error: null, id: DOSSIER_ID });
 		expect(getPublicCatalog).toHaveBeenCalledWith("bureau-teste");
 		const [identity, input, quote] = state.placeOrder.mock.calls[0];
 		expect(identity).toMatchObject({ userId: USER_ID, role: "client" });
-		expect(input).toMatchObject({ productCode: "consulta_pf", withAi: true, self: true, buyerProfileId: null });
+		expect(input).toMatchObject({ productCode: "dossie_pf", self: true, partners: [], buyerProfileId: null });
 		expect(quote).toEqual({
 			ok: true,
 			lines: [
-				{ code: "consulta_pf", priceCents: 5000, costCents: 0, productVersionId: "" },
-				{ code: "parecer_ia", priceCents: 1250, costCents: 0, productVersionId: "" },
+				{ productVersionId: "", code: "dossie_pf", part: "base", quantity: 1, unitPriceCents: 5000, unitCostCents: 0, priceCents: 5000, costCents: 0 },
 			],
 			totalCostCents: 0,
-			totalPriceCents: 6250,
+			totalPriceCents: 5000,
 		});
 		expect(revalidatePath).toHaveBeenCalledWith("/portal/pesquisas");
+	});
+
+	it("quotes base plus the per-partner value and sends the partners", async () => {
+		const partner = (document: string) => ({ document, name: "Sócio", email: `${document}@example.test` });
+		await openClientOrderAction({
+			productCode: "dossie_empresarial",
+			self: false,
+			subject: { name: "Empresa Ltda", document: "11.222.333/0001-81" },
+			contactEmail: "resp@example.test",
+			partners: [partner(CPF), partner("529.982.247-25")],
+		});
+
+		const [, input, quote] = state.placeOrder.mock.calls[0];
+		expect(input.partners).toHaveLength(2);
+		expect(input.partners[0]).toMatchObject({ documentDigits: "39053344705", name: "Sócio" });
+		expect(quote.lines.map((l: { part: string; quantity: number; priceCents: number }) => [l.part, l.quantity, l.priceCents])).toEqual([
+			["base", 1, 8000],
+			["partner", 2, 6000],
+		]);
+		expect(quote.totalPriceCents).toBe(14000);
 	});
 
 	it("sends the third-party subject and the contact in E.164", async () => {
@@ -147,15 +165,6 @@ describe("openClientOrderAction", () => {
 		expect(state.placeOrder).not.toHaveBeenCalled();
 	});
 
-	it("refuses the AI add-on missing from the public catalog", async () => {
-		state.catalog = state.catalog.filter((item) => item.kind === "main");
-
-		await expect(openClientOrderAction({ ...ownOrder, withAi: true })).resolves.toEqual({
-			error: "Parecer IA indisponível para este produto.",
-		});
-		expect(state.placeOrder).not.toHaveBeenCalled();
-	});
-
 	it("fails closed when the Bureau has no slug", async () => {
 		state.slugRows = [];
 
@@ -166,7 +175,6 @@ describe("openClientOrderAction", () => {
 	it.each([
 		["insufficient_balance", "Saldo insuficiente. Compre créditos para continuar."],
 		["product_not_for_sale", "Produto indisponível neste Bureau."],
-		["addon_not_for_sale", "Parecer IA indisponível para este produto."],
 		["kind_mismatch", "O documento não combina com o produto."],
 		["self_holder_missing", "Sua conta não tem Titular. Fale com o Bureau."],
 		["contact_is_buyer", "Informe o e-mail e o celular do titular, não os seus."],

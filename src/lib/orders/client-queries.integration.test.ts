@@ -58,11 +58,14 @@ afterAll(async () => {
 });
 
 const onlyDigits = (value: string) => value.replace(/\D/g, "");
+const cnpjDigits = () => Array.from({ length: 14 }, () => Math.floor(Math.random() * 10)).join("");
 const maskCpf = (digits: string) => `***.${digits.slice(3, 6)}.${digits.slice(6, 9)}-**`;
 
 async function newTenant(label: string): Promise<SeededTenant> {
 	const t = await seedTenant(owner, label);
-	for (const [code, price] of [["consulta_pf", "50.00"], ["parecer_ia", "20.00"]]) {
+	for (const [code, price] of [["dossie_pf", "50.00"], ["dossie_empresarial", "50.00"]]) {
+		// O seed do catálogo deixa os produtos inativos.
+		await owner.query("update products set active = true where code = $1", [code]);
 		const { rows } = await owner.query<{ id: string }>("select id from products where code = $1", [code]);
 		await seedBureauCost(owner, { bureauId: t.bureau.id, productId: rows[0].id, cost: "1.00", setBy: t.bureauAdmin.userId });
 		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: rows[0].id, salePrice: price, updatedBy: t.bureauAdmin.userId });
@@ -74,8 +77,7 @@ async function newTenant(label: string): Promise<SeededTenant> {
 const staff = (t: SeededTenant): DbIdentity => ({ ...t.operator });
 
 const ownInput: OpenOrderInput = {
-	productCode: "consulta_pf",
-	withAi: false,
+	productCode: "dossie_pf",
 	self: true,
 	subject: null,
 	partners: [],
@@ -85,14 +87,14 @@ const ownInput: OpenOrderInput = {
 
 async function place(t: SeededTenant, buyer: DbIdentity, input: OpenOrderInput): Promise<string> {
 	// O cliente não lê o custo do catálogo: a cotação sai com a identidade da equipe.
-	const q = await quoteOrder(staff(t), input.productCode, { withAi: input.withAi });
+	const q = await quoteOrder(staff(t), input.productCode, { partnerCount: input.partners.length });
 	if (!q.ok) throw new Error(q.reason);
 	const result = await placeOrder(buyer, input, q);
 	if (!result.ok) throw new Error(result.reason);
 	return result.dossierId;
 }
 
-async function release(t: SeededTenant, id: string, withAi = false) {
+async function release(t: SeededTenant, id: string) {
 	await owner.query(
 		`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days'
 		  where id in (select scr_authorization_id from consultations where dossier_id = $1) and status = 'pending'`,
@@ -102,7 +104,7 @@ async function release(t: SeededTenant, id: string, withAi = false) {
 		await refreshOrderState(c, id);
 		await claimOrders(c, 10, id);
 		expect(await completeOrder(c, staff(t), id)).toBe("completed");
-		if (withAi) await setAiStatus(c, staff(t), id, "done", 1);
+		await setAiStatus(c, staff(t), id, "done", 1);
 		expect(await releaseDelivery(c, staff(t), id, "https://app.example.test")).toEqual({ ok: true });
 	});
 }
@@ -141,14 +143,16 @@ describe("listMyOrders", () => {
 		const mine = await place(t, t.client, ownInput);
 		const third = await place(t, t.client, {
 			...ownInput,
+			productCode: "dossie_empresarial",
 			self: false,
-			subject: { type: "PF", name: "Maria Souza", documentDigits: onlyDigits(randomCpf()) },
+			subject: { type: "PJ", name: "Maria Souza", documentDigits: cnpjDigits() },
 			contact: { email: "maria@example.com", phoneE164: null },
 		});
 		const theirs = await place(t, other, {
 			...ownInput,
+			productCode: "dossie_empresarial",
 			self: false,
-			subject: { type: "PF", name: "João Lima", documentDigits: onlyDigits(randomCpf()) },
+			subject: { type: "PJ", name: "João Lima", documentDigits: cnpjDigits() },
 			contact: { email: "joao@example.com", phoneE164: null },
 		});
 
@@ -157,8 +161,7 @@ describe("listMyOrders", () => {
 		expect(list[1]).toEqual({
 			dossierId: mine,
 			mode: "online",
-			productCode: "consulta_pf",
-			withAi: false,
+			productCode: "dossie_pf",
 			selfResearch: true,
 			subjectName: expect.stringContaining("Titular"),
 			subjectDocumentMasked: maskCpf(onlyDigits(t.holder.document)),
@@ -222,7 +225,7 @@ describe("getMyDelivery", () => {
 			kind: "PF",
 			order: { dossierId: id, state: "released", price: "50.00" },
 			dossierOpinion: null,
-			members: [{ type: "PF", status: "completed", canonical: { marker: "canonical" }, payload: {}, opinion: null }],
+			members: [{ type: "PF", status: "completed", canonical: { marker: "canonical" }, payload: {}, opinion: { apto: "apto" } }],
 		});
 		expect(delivery?.members).toHaveLength(1);
 		expect(await mine(other)).toBeNull();
@@ -249,19 +252,14 @@ describe("getMyDelivery", () => {
 		expect(await loadLatestPayload(staff(t), rows[0].id)).toEqual({});
 	});
 
-	it("exposes the opinion only for an order with the AI add-on", async () => {
+	it("exposes the opinion of every released order", async () => {
 		const t = await newTenant("cq ai scope");
-		const without = await place(t, t.client, ownInput);
-		const withAi = await place(t, t.client, { ...ownInput, withAi: true });
-		await release(t, without);
-		await release(t, withAi, true);
-		await seedResult(t, without);
-		await seedResult(t, withAi);
+		const id = await place(t, t.client, ownInput);
+		await release(t, id);
+		await seedResult(t, id);
 
-		const plain = await withUserTransaction(t.client, (c) => getMyDelivery(c, without));
-		const paid = await withUserTransaction(t.client, (c) => getMyDelivery(c, withAi));
+		const delivery = await withUserTransaction(t.client, (c) => getMyDelivery(c, id));
 
-		expect(plain?.members[0].opinion).toBeNull();
-		expect(paid?.members[0].opinion).toEqual({ apto: "apto" });
+		expect(delivery?.members[0].opinion).toEqual({ apto: "apto" });
 	});
 });

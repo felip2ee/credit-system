@@ -371,10 +371,11 @@ export async function seedDossier(
 
 // reserve_order exige que order_ref seja o pedido (dossier_orders) do Bureau. Cria o Dossiê com esse id sobre o titular
 // do cliente (ou sobre qualquer titular do Bureau, no balcão) e o pedido que o acompanha: online com o cliente, senão
-// balcão. Repetir não faz nada; sem titular elegível não cria nada.
+// balcão. Repetir não faz nada; sem titular elegível não cria nada. `members` cria essa quantidade de consultas no
+// Dossiê (reserve_order conta os sócios como membros menos o Titular principal); `productCode` troca o produto do pedido.
 export async function seedOrderDossier(
 	owner: Pool,
-	input: { orderRef: string; bureauId: string; clientProfileId: string | null },
+	input: { orderRef: string; bureauId: string; clientProfileId: string | null; productCode?: string; members?: number },
 ): Promise<void> {
 	await owner.query(
 		`insert into dossiers (id, bureau_id, kind, holder_id, product, created_by)
@@ -387,20 +388,29 @@ export async function seedOrderDossier(
 	await owner.query(
 		`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
          subject_document_masked, state, created_by)
-     select d.id, d.bureau_id, case when $3::uuid is null then 'counter' else 'online' end, $3::uuid, 'consulta_pf',
+     select d.id, d.bureau_id, case when $3::uuid is null then 'counter' else 'online' end, $3::uuid, $4,
             'Titular seed', '***.000.000-**', 'awaiting_authorization', h.created_by
        from dossiers d join holders h on h.bureau_id = d.bureau_id and h.id = d.holder_id
       where d.id = $1 and d.bureau_id = $2
      on conflict do nothing`,
-		[input.orderRef, input.bureauId, input.clientProfileId],
+		[input.orderRef, input.bureauId, input.clientProfileId, input.productCode ?? "dossie_pf"],
 	);
+	if (input.members) {
+		await owner.query(
+			`insert into consultations (bureau_id, type, document, product, holder_id, dossier_id, created_by)
+       select d.bureau_id, 'PF', lpad((random() * 99999999999)::bigint::text, 11, '0'), 'smart_pf', d.holder_id, d.id, d.created_by
+         from dossiers d, generate_series(1, $3::int)
+        where d.id = $1 and d.bureau_id = $2`,
+			[input.orderRef, input.bureauId, input.members],
+		);
+	}
 }
 
 // Como seedOrderDossier, com o Bureau lido do contexto da transação `session` (a que vai chamar reserve_order).
 export async function seedOrderDossierForSession(
 	owner: Pool,
 	session: PoolClient,
-	input: { orderRef: string; clientProfileId: string | null },
+	input: { orderRef: string; clientProfileId: string | null; productCode?: string; members?: number },
 ): Promise<void> {
 	const { rows } = await session.query<{ id: string | null }>(
 		"select nullif(current_setting('app.bureau_id', true), '') as id",
@@ -436,6 +446,8 @@ export async function seedOrderCatalog(
 	if (!rows[0].bureau_id) return { lines: [] };
 	const product = await owner.query<{ id: string }>("select id from products where code = $1", [input.productCode]);
 	const productId = product.rows[0].id;
+	// O catálogo semeia o produto inativo; o trigger do item exige produto ativo.
+	await owner.query("update products set active = true where id = $1", [productId]);
 	await seedBureauCost(owner, {
 		bureauId: rows[0].bureau_id,
 		productId,

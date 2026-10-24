@@ -75,7 +75,6 @@ export async function openCounterOrderAction(values: unknown): Promise<ActionRes
 			auth.session,
 			{
 				productCode: parsed.data.productCode,
-				withAi: parsed.data.withAi,
 				self: false,
 				subject: parsed.data.subject,
 				partners: parsed.data.partners,
