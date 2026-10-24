@@ -55,6 +55,15 @@ const toItem = (r: OrderRow): ClientOrderListItem => ({
 	releasedAt: r.released_at,
 });
 
+// Tipo do Titular da conta do cliente (o mais antigo). Define se o Dossiê Pessoa Física pesquisa outra pessoa.
+export async function getMyHolderType(client: PoolClient, userId: string): Promise<"PF" | "PJ" | null> {
+	const { rows } = await client.query<{ type: "PF" | "PJ" }>(
+		"select h.type::text as type from holders h where h.client_profile_id = $1 order by h.created_at, h.id limit 1",
+		[userId],
+	);
+	return rows[0]?.type ?? null;
+}
+
 export async function listMyOrders(client: PoolClient, limit: number = DEFAULT_LIMIT): Promise<ClientOrderListItem[]> {
 	const { rows } = await client.query<OrderRow>(
 		`select ${ORDER_COLUMNS}

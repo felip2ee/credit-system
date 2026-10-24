@@ -11,6 +11,7 @@ import { enqueueNotification } from "@/lib/notifications/queries";
 import { captureOrder, releaseOrder, reserveOrder } from "@/lib/settlement/queries";
 import type { OrderQuote, SettlementFailure } from "@/lib/settlement/types";
 
+import { recordOrderDeclaration } from "./client-ops";
 import {
 	LEASE_MINUTES,
 	MAX_EXECUTION_ATTEMPTS,
@@ -66,24 +67,33 @@ export async function openOrder(client: PoolClient, input: OpenOrderInput): Prom
 	throw new Error("unexpected openOrder reason");
 }
 
+export type PlaceOrderFailure = OpenOrderFailure | SettlementFailure | "declaration_outdated";
+export type PlaceOrderOptions = { declaration?: { version: number; ip: string | null; userAgent: string | null } };
+
 // Carrega o motivo da reserva recusada para fora da transação: lançar desfaz Titular, Dossiê, pedido e autorizações.
 class PlaceOrderAbort extends Error {
-	constructor(readonly reason: OpenOrderFailure | SettlementFailure) {
+	constructor(readonly reason: PlaceOrderFailure) {
 		super("placeOrder aborted");
 	}
 }
 
-// Uma transação: abre, reserva e (balcão) atualiza o estado. Saldo insuficiente não deixa Dossiê, pedido nem autorização.
+// Uma transação: abre, grava a declaração (portal), reserva e (balcão) atualiza o estado. Saldo insuficiente ou
+// declaração recusada não deixa Dossiê, pedido nem autorização.
 export async function placeOrder(
 	identity: DbIdentity,
 	input: OpenOrderInput,
 	quote: OrderQuote,
-): Promise<{ ok: true; dossierId: string; state: OrderState } | { ok: false; reason: OpenOrderFailure | SettlementFailure }> {
+	options: PlaceOrderOptions = {},
+): Promise<{ ok: true; dossierId: string; state: OrderState } | { ok: false; reason: PlaceOrderFailure }> {
 	const mode: OrderMode = identity.role === "client" ? "online" : "counter";
 	try {
 		return await withUserTransaction(identity, async (client) => {
 			const opened = await openOrder(client, input);
 			if (!opened.ok) throw new PlaceOrderAbort(opened.reason);
+			if (options.declaration) {
+				const declared = await recordOrderDeclaration(client, { dossierId: opened.dossierId, ...options.declaration });
+				if (!declared.ok) throw new PlaceOrderAbort(declared.reason === "outdated" ? "declaration_outdated" : "not_found");
+			}
 			const reserved = await reserveOrder(client, {
 				orderRef: opened.dossierId,
 				mode,

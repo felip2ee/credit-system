@@ -16,6 +16,10 @@ const SHARED_MESSAGES: Record<string, string> = {
 export const CLIENT_ORDER_MESSAGES: Record<string, string> = {
 	...SHARED_MESSAGES,
 	insufficient_balance: "Saldo insuficiente. Compre créditos para continuar.",
+	third_party_not_allowed:
+		"No portal, o Dossiê Pessoa Física é só para você. Envie seu link para a outra pessoa consultar na conta dela.",
+	price_mismatch: "O preço mudou. Revise e confirme de novo.",
+	declaration_outdated: "A declaração mudou. Leia e confirme de novo.",
 };
 
 export const STAFF_ORDER_MESSAGES: Record<string, string> = {
