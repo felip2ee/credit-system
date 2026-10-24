@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { addHolderNote } from "@/actions/holders";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 export function AddNote({ holderId }: { holderId: string }) {
   const router = useRouter();
@@ -22,12 +23,11 @@ export function AddNote({ holderId }: { holderId: string }) {
 
   return (
     <div className="space-y-2">
-      <textarea
+      <Textarea
         rows={2}
         value={content}
         onChange={(e) => setContent(e.target.value)}
         placeholder="Adicionar anotação..."
-        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       />
       <Button size="sm" onClick={submit} disabled={isPending || !content.trim()}>
         {isPending ? "Salvando..." : "Adicionar"}

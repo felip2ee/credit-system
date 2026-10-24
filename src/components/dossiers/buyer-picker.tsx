@@ -63,9 +63,9 @@ export function BuyerPicker({ value, onChange, disabled }: BuyerPickerProps) {
             aria-describedby="buyer-hint"
           />
           <div aria-live="polite">
-            {searching && <p className="text-xs text-muted-foreground">Buscando...</p>}
+            {searching && <p className="text-sm text-muted-foreground">Buscando...</p>}
             {!searching && term.trim().length >= 2 && results.length === 0 && (
-              <p className="text-xs text-muted-foreground">Nenhum titular com conta no portal encontrado.</p>
+              <p className="text-sm text-muted-foreground">Nenhum titular com conta no portal encontrado.</p>
             )}
           </div>
           {results.length > 0 && (
@@ -90,7 +90,7 @@ export function BuyerPicker({ value, onChange, disabled }: BuyerPickerProps) {
               ))}
             </ul>
           )}
-          <p id="buyer-hint" className="text-xs text-muted-foreground">
+          <p id="buyer-hint" className="text-sm text-muted-foreground">
             Sem comprador: a entrega fica com a equipe.
           </p>
         </>

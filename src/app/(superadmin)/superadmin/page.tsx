@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -11,10 +10,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { getRequiredSession } from "@/lib/auth/session";
 import { listBureauMetrics } from "@/lib/bureaus/queries";
 
 export const metadata = { title: "Bureaus" };
+
+function BureauStatus({ status }: { status: string }) {
+  return status === "active" ? (
+    <StatusBadge tone="success" label="Ativo" />
+  ) : (
+    <StatusBadge tone="neutral" label="Inativo" />
+  );
+}
 
 export default async function SuperadminPage() {
   const session = await getRequiredSession();
@@ -27,7 +35,35 @@ export default async function SuperadminPage() {
           <Link href="/superadmin/bureaus/new">Novo Bureau</Link>
         </Button>
       </PageHeader>
-      <Table>
+      {/* Celular: um cartão por Bureau, número grande + rótulo. */}
+      <ul className="space-y-4 md:hidden">
+        {bureaus.map((b) => (
+          <li key={b.bureauId} className="space-y-4 rounded-lg border-2 bg-card p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Link className="text-lg font-bold hover:underline" href={`/superadmin/bureaus/${b.bureauId}`}>
+                {b.name}
+              </Link>
+              <BureauStatus status={b.status} />
+            </div>
+            <dl className="grid grid-cols-2 gap-4">
+              {[
+                ["Equipe", b.staffCount],
+                ["Titulares", b.holderCount],
+                ["Dossiês", b.dossierCount],
+                ["Consultas", b.consultationCount],
+                ["Consultas (30d)", b.consultations30d],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dd className="text-3xl font-bold">{value}</dd>
+                  <dt className="text-sm text-muted-foreground">{label}</dt>
+                </div>
+              ))}
+            </dl>
+          </li>
+        ))}
+        {bureaus.length === 0 && <li className="text-center text-muted-foreground">Nenhum Bureau cadastrado.</li>}
+      </ul>
+      <Table className="hidden md:table">
         <TableHeader>
           <TableRow>
             <TableHead>Nome</TableHead>
@@ -50,9 +86,7 @@ export default async function SuperadminPage() {
               </TableCell>
               <TableCell>{b.slug}</TableCell>
               <TableCell>
-                <Badge variant={b.status === "active" ? "success" : "muted"}>
-                  {b.status === "active" ? "Ativo" : "Inativo"}
-                </Badge>
+                <BureauStatus status={b.status} />
               </TableCell>
               <TableCell className="text-right">{b.staffCount}</TableCell>
               <TableCell className="text-right">{b.holderCount}</TableCell>

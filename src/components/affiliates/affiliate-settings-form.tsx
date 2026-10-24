@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AffiliateSettings } from "@/lib/settings/readers";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function AffiliateSettingsForm({ initial }: { initial: AffiliateSettings }) {
   const router = useRouter();
@@ -42,7 +43,7 @@ export function AffiliateSettingsForm({ initial }: { initial: AffiliateSettings 
           <div className="space-y-2">
             <Label htmlFor="hold-days">Carência da comissão (dias)</Label>
             <Input id="hold-days" inputMode="numeric" value={holdDays} onChange={(e) => setHoldDays(e.target.value)} disabled={isPending} />
-            <p className="text-xs text-muted-foreground">Dias entre a captura do pedido e a liberação da comissão.</p>
+            <p className="text-sm text-muted-foreground">Dias entre a captura do pedido e a liberação da comissão.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="fee-fixed">Taxa fixa de saque (R$)</Label>
@@ -53,11 +54,9 @@ export function AffiliateSettingsForm({ initial }: { initial: AffiliateSettings 
             <Input id="fee-percent" inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} disabled={isPending} />
           </div>
           {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
+            <StatusBanner tone="danger" title={error} />
           )}
-          {saved && !error && <p className="text-sm text-emerald-600">Regras salvas.</p>}
+          {saved && !error && <StatusBanner tone="success" title="Regras salvas." />}
           <Button type="submit" disabled={isPending}>
             {isPending ? "Salvando..." : "Salvar"}
           </Button>

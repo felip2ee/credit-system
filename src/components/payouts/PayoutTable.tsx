@@ -1,7 +1,7 @@
 import { CancelPayoutButton } from "@/components/payouts/CancelPayoutButton";
 import { MarkPaidForm } from "@/components/payouts/MarkPaidForm";
-import { PAYOUT_STATUS_LABEL, PAYOUT_STATUS_VARIANT } from "@/components/payouts/payout-labels";
-import { Badge } from "@/components/ui/badge";
+import { PAYOUT_STATUS_LABEL, PAYOUT_STATUS_TONE } from "@/components/payouts/payout-labels";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Payout } from "@/lib/payouts/queries";
 import { formatCurrency, formatDateSP, formatDateTime } from "@/lib/utils";
@@ -35,7 +35,7 @@ export function PayoutTable({ payouts, bureauNames, canManage = false }: PayoutT
             <TableCell>{formatDateSP(payout.cutoffAt)}</TableCell>
             <TableCell>{formatCurrency(Number(payout.amount))}</TableCell>
             <TableCell>
-              <Badge variant={PAYOUT_STATUS_VARIANT[payout.status]}>{PAYOUT_STATUS_LABEL[payout.status]}</Badge>
+              <StatusBadge tone={PAYOUT_STATUS_TONE[payout.status]} label={PAYOUT_STATUS_LABEL[payout.status]} />
             </TableCell>
             <TableCell>{formatDateTime(payout.paidAt)}</TableCell>
             <TableCell>

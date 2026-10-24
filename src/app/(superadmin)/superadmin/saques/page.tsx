@@ -54,7 +54,7 @@ export default async function WithdrawalQueuePage() {
                 <TableCell>{formatCurrency(Number(w.amount))}</TableCell>
                 <TableCell>{formatCurrency(Number(w.fee))}</TableCell>
                 <TableCell className="font-semibold">{formatCurrency(Number(w.net))}</TableCell>
-                <TableCell className="font-mono text-xs">{w.pixKeyMasked}</TableCell>
+                <TableCell className="font-mono text-sm">{w.pixKeyMasked}</TableCell>
                 <TableCell>
                   <Button asChild size="sm" variant="outline">
                     <Link href={`/superadmin/saques/${w.id}`} aria-label={`Abrir saque de ${w.holderName}`}>

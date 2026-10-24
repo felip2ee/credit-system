@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { normalizeMoney } from "@/lib/catalog/money-input";
 import { signedMoneySchema } from "@/lib/validators/wallet";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function WalletAdjustForm({ bureauId }: { bureauId: string }) {
   const router = useRouter();
@@ -70,9 +71,7 @@ export function WalletAdjustForm({ bureauId }: { bureauId: string }) {
             />
           </div>
           {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
+            <StatusBanner tone="danger" title={error} />
           )}
           {done && (
             <p role="status" className="text-sm text-muted-foreground">

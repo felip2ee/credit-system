@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { BureauAffiliate } from "@/lib/affiliates/rates";
 import { formatCurrency } from "@/lib/utils";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 interface BureauAffiliatesTableProps {
   defaultPct: string;
@@ -53,11 +54,9 @@ function DefaultPctForm({ initial }: { initial: string }) {
         {isPending ? "Salvando..." : "Salvar"}
       </Button>
       {error && (
-        <p role="alert" className="w-full text-sm text-destructive">
-          {error}
-        </p>
+        <StatusBanner tone="danger" title={error} />
       )}
-      {saved && !error && <p className="w-full text-sm text-emerald-600">Porcentagem padrão salva.</p>}
+      {saved && !error && <StatusBanner tone="success" title="Porcentagem padrão salva." />}
     </form>
   );
 }
@@ -84,7 +83,7 @@ function AffiliateRow({ affiliate }: { affiliate: BureauAffiliate }) {
   return (
     <TableRow>
       <TableCell className="font-medium">{affiliate.name}</TableCell>
-      <TableCell className="font-mono text-xs">{affiliate.code}</TableCell>
+      <TableCell className="font-mono text-sm">{affiliate.code}</TableCell>
       <TableCell>{affiliate.referrals}</TableCell>
       <TableCell>{affiliate.pct === null ? "padrão" : `${affiliate.pct}%`}</TableCell>
       <TableCell>{formatCurrency(Number(affiliate.totalCommission))}</TableCell>
@@ -104,9 +103,7 @@ function AffiliateRow({ affiliate }: { affiliate: BureauAffiliate }) {
           </Button>
         </div>
         {error && (
-          <p role="alert" className="mt-1 text-xs text-destructive">
-            {error}
-          </p>
+          <StatusBanner tone="danger" title={error} />
         )}
       </TableCell>
     </TableRow>

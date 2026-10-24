@@ -3,22 +3,16 @@
 import { useState, useTransition } from "react";
 
 import { loadMoreLedgerAction } from "@/actions/wallet-ledger";
+import { ReceiptText } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { statusInfo } from "@/lib/ui/status";
 import type { LedgerEntry } from "@/lib/wallet/queries";
 import { formatCurrency } from "@/lib/utils";
-
-const KIND_LABEL: Record<LedgerEntry["kind"], string> = {
-  topup: "Recarga",
-  reserve: "Reserva",
-  capture: "Cobrança",
-  release: "Liberação",
-  adjustment: "Ajuste",
-  reversal: "Estorno",
-  client_adjustment_out: "Crédito a cliente",
-  client_adjustment_in: "Débito de cliente",
-};
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 
@@ -55,7 +49,7 @@ export function LedgerTable({ bureauId, initialRows, initialCursor }: LedgerTabl
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhum lançamento ainda.</p>
+          <EmptyState icon={ReceiptText} title="Nenhum lançamento ainda." />
         ) : (
           <Table>
             <TableHeader>
@@ -72,7 +66,7 @@ export function LedgerTable({ bureauId, initialRows, initialCursor }: LedgerTabl
               {rows.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell>{dateFormat.format(new Date(row.createdAt))}</TableCell>
-                  <TableCell>{KIND_LABEL[row.kind]}</TableCell>
+                  <TableCell>{statusInfo("walletEntry", row.kind, "staff").label}</TableCell>
                   <TableCell>{formatCurrency(Number(row.amount))}</TableCell>
                   <TableCell>{formatCurrency(Number(row.availableAfter))}</TableCell>
                   <TableCell>{formatCurrency(Number(row.reservedAfter))}</TableCell>
@@ -83,9 +77,7 @@ export function LedgerTable({ bureauId, initialRows, initialCursor }: LedgerTabl
           </Table>
         )}
         {error && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
-            {error}
-          </p>
+          <StatusBanner tone="attention" className="mt-3" title={error} />
         )}
         {cursor && (
           <Button variant="outline" className="mt-4" onClick={loadMore} disabled={isPending}>

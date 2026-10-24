@@ -7,6 +7,7 @@ import { retryNfseAction } from "@/actions/nfse";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export interface NfseFailureView {
   chargeId: string;
@@ -37,9 +38,7 @@ function RetryButton({ chargeId, label }: { chargeId: string; label: string }) {
         {isPending ? "Enviando..." : "Tentar de novo"}
       </Button>
       {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
+        <StatusBanner tone="danger" title={error} />
       )}
     </div>
   );
@@ -62,7 +61,7 @@ export function NfseFailuresTable({ rows, canRetry }: { rows: NfseFailureView[];
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.chargeId}>
-            <TableCell className="font-mono text-xs">{row.chargeId.slice(0, 8)}</TableCell>
+            <TableCell className="font-mono text-sm">{row.chargeId.slice(0, 8)}</TableCell>
             <TableCell>{row.bureauName}</TableCell>
             <TableCell>{formatCurrency(Number(row.amount))}</TableCell>
             <TableCell>{row.attempts}</TableCell>

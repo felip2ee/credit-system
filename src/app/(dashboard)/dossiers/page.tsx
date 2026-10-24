@@ -110,7 +110,7 @@ export default async function DossiersPage({
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{d.holder_name}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-sm text-muted-foreground">
                           {DOSSIER_KIND_LABEL[d.kind]} · {d.members.length}{" "}
                           {d.members.length === 1 ? "consulta" : "consultas"} · {formatDate(d.created_at)}
                         </p>
@@ -125,13 +125,13 @@ export default async function DossiersPage({
                       <ul className="space-y-2">
                         {d.members.map((m) => (
                           <li key={m.id} className="flex items-center gap-3 text-sm">
-                            <span className="w-24 shrink-0 text-xs text-muted-foreground">
+                            <span className="w-24 shrink-0 text-sm text-muted-foreground">
                               {m.type === "PJ" ? "Empresa" : d.kind === "PF" ? "Titular" : "Sócio"}
                             </span>
                             <Link href={`/consultations/${m.id}`} className="min-w-0 flex-1 truncate hover:underline">
                               {m.document_name ?? "—"}
                             </Link>
-                            <span className="font-mono text-xs text-muted-foreground">
+                            <span className="font-mono text-sm text-muted-foreground">
                               {maskDocument(m.type, m.document)}
                             </span>
                             <QueryStatusBadge status={m.status} />

@@ -37,7 +37,7 @@ const formatDocument = (type: EntityKind, document: string | null) =>
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dt className="text-sm text-muted-foreground">{label}</dt>
       <dd className="text-sm">{value || "—"}</dd>
     </div>
   );
@@ -220,7 +220,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                           <p className="truncate text-sm font-medium">
                             {isDossierKind(d.kind) ? DOSSIER_KIND_LABEL[d.kind] : d.kind}
                           </p>
-                          <p className="text-xs text-muted-foreground">{formatDate(d.created_at)}</p>
+                          <p className="text-sm text-muted-foreground">{formatDate(d.created_at)}</p>
                         </div>
                         {d.kind === "PJ_FULL" && d.report_status === "completed" && (
                           <AptitudeBadge status={d.aptitude_status} />
@@ -256,7 +256,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                           <p className="truncate text-sm font-medium">
                             {c.document_name || formatDocument(c.type, c.document)}
                           </p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm text-muted-foreground">
                             {[c.product, formatDate(c.consulted_at ?? c.created_at)]
                               .filter(Boolean)
                               .join(" · ")}
@@ -290,7 +290,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                   {notes.map((n) => (
                     <li key={n.id} className="rounded-md border p-3 text-sm">
                       <p className="whitespace-pre-wrap">{n.content}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{formatDate(n.created_at)}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{formatDate(n.created_at)}</p>
                     </li>
                   ))}
                 </ul>

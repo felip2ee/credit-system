@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { IdleTimeout } from "@/components/providers/idle-timeout";
+import { DASHBOARD_NAV_ITEMS } from "@/components/layout/nav-items";
+import { Toaster } from "@/components/ui/toaster";
 import { Sidebar } from "@/components/layout/sidebar";
 import { SupportBanner } from "@/components/layout/support-banner";
 import { Topbar } from "@/components/layout/topbar";
@@ -26,6 +28,7 @@ export default async function DashboardLayout({
     redirect("/superadmin");
   }
 
+  const permissions = permissionsFor(session);
   const email = await getTopbarEmail(session);
   const supportBureau = session.support
     ? await getBureau(session, session.support.bureauId)
@@ -34,16 +37,17 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-screen">
       <IdleTimeout />
-      <Sidebar permissions={permissionsFor(session)} />
-      <div className="flex flex-1 flex-col">
+      <Sidebar permissions={permissions} />
+      <div className="flex min-w-0 flex-1 flex-col">
         {session.support && (
           <SupportBanner
             bureauName={supportBureau?.name ?? "Bureau"}
             expiresAt={session.support.expiresAt.toISOString()}
           />
         )}
-        <Topbar email={email} />
-        <main className="flex-1 p-6">{children}</main>
+        <Topbar email={email} navItems={DASHBOARD_NAV_ITEMS} permissions={permissions} />
+        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <Toaster />
       </div>
     </div>
   );

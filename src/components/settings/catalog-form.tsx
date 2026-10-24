@@ -22,6 +22,7 @@ import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
 import type { CatalogEntry } from "@/lib/catalog/queries";
 import { formatCurrency } from "@/lib/utils";
 import { nonNegativeMoneySchema } from "@/lib/validators/catalog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // Máscara pt-BR só na exibição; o envio usa string decimal com ponto.
 const toDisplay = (decimal: string) => decimal.replace(".", ",");
@@ -101,7 +102,7 @@ function CatalogRow({ entry, canWrite }: { entry: CatalogEntry; canWrite: boolea
       <TableCell>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label htmlFor={`price-${entry.productId}`} className="text-xs">
+            <Label htmlFor={`price-${entry.productId}`} className="text-sm">
               {hasPartner ? "Valor da empresa" : "Valor"}
             </Label>
             <Input
@@ -119,11 +120,11 @@ function CatalogRow({ entry, canWrite }: { entry: CatalogEntry; canWrite: boolea
                 Preço abaixo do custo
               </Badge>
             )}
-            {error && <p className="text-xs text-destructive">{error}</p>}
+            {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
           {hasPartner && (
             <div className="space-y-1">
-              <Label htmlFor={`partner-price-${entry.productId}`} className="text-xs">
+              <Label htmlFor={`partner-price-${entry.productId}`} className="text-sm">
                 Valor por sócio
               </Label>
               <Input
@@ -141,20 +142,18 @@ function CatalogRow({ entry, canWrite }: { entry: CatalogEntry; canWrite: boolea
                   Valor por sócio abaixo do custo
                 </Badge>
               )}
-              {partnerError && <p className="text-xs text-destructive">{partnerError}</p>}
+              {partnerError && <p className="text-sm text-destructive">{partnerError}</p>}
             </div>
           )}
         </div>
       </TableCell>
       <TableCell>
-        <input
-          type="checkbox"
+        <Checkbox
           role="switch"
           aria-label={`Ativar ${entry.name}`}
           checked={active}
-          onChange={(e) => setActive(e.target.checked)}
+          onCheckedChange={(checked) => setActive(checked === true)}
           disabled={!canWrite || isPending}
-          className="h-4 w-4"
         />
       </TableCell>
       {canWrite && (

@@ -12,6 +12,8 @@ import { formatCurrency } from "@/lib/utils";
 import { normalizeMoney } from "@/lib/catalog/money-input";
 
 import { canSubmitAdjustment, REASON_MAX, type AdjustDirection } from "./adjust-balance-rules";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { Textarea } from "@/components/ui/textarea";
 
 interface AdjustBalanceDialogProps {
   holderId: string;
@@ -108,23 +110,20 @@ export function AdjustBalanceDialog({ holderId, bureauAvailable, maxDebit }: Adj
           </div>
           <div className="space-y-2">
             <Label htmlFor="adjust-reason">Motivo</Label>
-            <textarea
+            <Textarea
               id="adjust-reason"
               rows={3}
               maxLength={REASON_MAX}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               disabled={isPending}
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             />
-            <p className="text-right text-xs text-muted-foreground">
+            <p className="text-right text-sm text-muted-foreground">
               {reason.length}/{REASON_MAX}
             </p>
           </div>
           {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
+            <StatusBanner tone="danger" title={error} />
           )}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>

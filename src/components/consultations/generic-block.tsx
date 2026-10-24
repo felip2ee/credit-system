@@ -9,13 +9,13 @@ export function GenericValueView({ value }: { value: GenericValue }) {
     case "text":
       return <p className="text-sm">{value.text}</p>;
     case "json":
-      return <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs">{value.text}</pre>;
+      return <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-sm">{value.text}</pre>;
     case "fields":
       return (
         <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
           {value.fields.map((f) => (
             <div key={f.key} className="min-w-0">
-              <dt className="text-xs text-muted-foreground">{f.label}</dt>
+              <dt className="text-sm text-muted-foreground">{f.label}</dt>
               <dd className="break-words">
                 <GenericValueView value={f.value} />
               </dd>
@@ -48,7 +48,7 @@ export function GenericValueView({ value }: { value: GenericValue }) {
                       <TableCell colSpan={Math.max(value.columns.length, 1)} className="space-y-3 border-l pl-4">
                         {row.nested.map((n) => (
                           <div key={n.label} className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground">{n.label}</p>
+                            <p className="text-sm font-medium text-muted-foreground">{n.label}</p>
                             <GenericValueView value={n.value} />
                           </div>
                         ))}

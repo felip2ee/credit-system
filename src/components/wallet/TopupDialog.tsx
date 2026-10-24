@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { parseTopupInput } from "@/lib/wallet/topup-input";
 import type { PixChargeStatus } from "@/lib/wallet/pix-charges";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const POLL_MS = 5000;
 
@@ -165,9 +166,7 @@ export function TopupDialog({ charges }: TopupDialogProps) {
                         {copied ? "Copiado" : "Copiar código"}
                       </Button>
                       {error && (
-                        <p role="alert" className="text-sm text-destructive">
-                          {error}
-                        </p>
+                        <StatusBanner tone="danger" title={error} />
                       )}
                     </div>
                     <p role="status" className="text-sm text-muted-foreground">

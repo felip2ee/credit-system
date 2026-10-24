@@ -66,7 +66,7 @@ export function ClientBalanceCard({ holderId, wallet, rows, authors, bureauAvail
                     <TableCell>{formatCurrency(Number(row.availableAfter))}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {row.reason ?? "—"}
-                      {author && <span className="block text-xs">por {author}</span>}
+                      {author && <span className="block text-sm">por {author}</span>}
                     </TableCell>
                   </TableRow>
                 );

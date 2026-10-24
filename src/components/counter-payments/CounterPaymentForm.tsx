@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
 import { todayInSaoPaulo } from "@/lib/utils";
 import { COUNTER_METHODS } from "@/lib/validators/counter-payments";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const METHOD_LABEL: Record<(typeof COUNTER_METHODS)[number], string> = {
   cash: "Dinheiro",
@@ -72,19 +73,18 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
         <form onSubmit={submit} noValidate className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="cp-method">Forma de pagamento</Label>
-            <select
-              id="cp-method"
-              value={method}
-              onChange={(e) => setMethod(e.target.value as typeof method)}
-              disabled={isPending}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {COUNTER_METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {METHOD_LABEL[m]}
-                </option>
-              ))}
-            </select>
+            <Select value={method} onValueChange={(value) => setMethod(value as typeof method)} disabled={isPending}>
+              <SelectTrigger id="cp-method">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COUNTER_METHODS.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {METHOD_LABEL[m]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="cp-amount">Valor (R$)</Label>

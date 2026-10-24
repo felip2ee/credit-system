@@ -220,7 +220,7 @@ export default async function DashboardPage() {
               {
                 label: "A receber",
                 value: formatCurrency(Number(balances.payable)),
-                hint: "Repasse pendente do Reino",
+                hint: "Repasse pendente da Rainha Cred",
                 href: "/settings/payouts",
                 icon: HandCoins,
               },
@@ -271,12 +271,12 @@ export default async function DashboardPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardDescription>{m.label}</CardDescription>
-                  <m.icon className="h-4 w-4 text-muted-foreground" />
+                  <m.icon aria-hidden className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <CardTitle className="text-3xl">{m.value}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-xs text-muted-foreground">{m.hint}</p>
+                <p className="text-sm text-muted-foreground">{m.hint}</p>
               </CardContent>
             </Card>
           </Link>
@@ -291,12 +291,12 @@ export default async function DashboardPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardDescription>{m.label}</CardDescription>
-                    <m.icon className="h-4 w-4 text-muted-foreground" />
+                    <m.icon aria-hidden className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <CardTitle className="text-2xl">{m.value}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-muted-foreground">{m.hint}</p>
+                  <p className="text-sm text-muted-foreground">{m.hint}</p>
                 </CardContent>
               </Card>
             </Link>
@@ -312,12 +312,12 @@ export default async function DashboardPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardDescription>{m.label}</CardDescription>
-                  <m.icon className="h-4 w-4 text-muted-foreground" />
+                  <m.icon aria-hidden className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <CardTitle className="text-2xl">{m.value}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-xs text-muted-foreground">{m.hint}</p>
+                <p className="text-sm text-muted-foreground">{m.hint}</p>
               </CardContent>
             </Card>
           </Link>
@@ -332,7 +332,7 @@ export default async function DashboardPage() {
         </CardHeader>
         <CardContent>
           {totalPf + totalPj === 0 ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Nenhuma consulta no período.
             </p>
           ) : (

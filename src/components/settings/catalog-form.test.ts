@@ -43,7 +43,7 @@ describe("CatalogForm", () => {
   it("disables controls without catalog:write", () => {
     const html = render(false);
     expect(html).not.toContain("Salvar");
-    expect(html.match(/disabled=""/g)?.length).toBe(2); // price input + switch
+    expect(html.match(/\sdisabled=""/g)?.length).toBe(3); // price input + switch + the switch's hidden form mirror
   });
 
   it("does not warn when the cost is 0.00 (zero cost is valid)", () => {

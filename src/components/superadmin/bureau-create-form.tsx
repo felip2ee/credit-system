@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { bureauCreateSchema } from "@/lib/validators/bureau";
 import { refineOptionalNewPassword } from "@/lib/validators/password";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const formSchema = bureauCreateSchema
   .omit({ adminPassword: true })
@@ -86,7 +87,7 @@ export function BureauCreateForm() {
       <div className="space-y-2">
         <Label htmlFor="slug">Endereço (slug)</Label>
         <Input id="slug" placeholder="meu-bureau" {...register("slug")} />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Vira /b/slug e não muda depois de criado.
         </p>
         {errors.slug && <p className="text-sm text-destructive">{errors.slug.message}</p>}
@@ -108,7 +109,7 @@ export function BureauCreateForm() {
       <div className="space-y-2">
         <Label htmlFor="adminPassword">Senha do administrador</Label>
         <PasswordInput id="adminPassword" {...register("adminPassword")} />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Deixe em branco para enviar o convite por e-mail. Com senha, o administrador
           troca a senha no primeiro acesso.
         </p>
@@ -126,9 +127,7 @@ export function BureauCreateForm() {
 
       {serverError && <p className="text-sm text-destructive">{serverError}</p>}
       {createdWithPassword && (
-        <p className="text-sm text-emerald-600">
-          Bureau criado. Informe a senha ao administrador por um canal seguro.
-        </p>
+        <StatusBanner tone="success" title="Bureau criado. Informe a senha ao administrador por um canal seguro." />
       )}
       {createdId && (
         <Link className="text-sm underline" href={`/superadmin/bureaus/${createdId}`}>

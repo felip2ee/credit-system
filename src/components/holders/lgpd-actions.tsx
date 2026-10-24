@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 const MAX_REASON = 500;
 
@@ -48,10 +49,10 @@ function AnonymizeDialog({ open, onClose, title, warning, submitLabel, run }: An
         <p className="text-sm text-muted-foreground">{warning}</p>
         <div className="space-y-2">
           <Label htmlFor="lgpd-reason">Motivo (mínimo 10 caracteres)</Label>
-          <p id="lgpd-reason-hint" className="text-xs text-muted-foreground">
+          <p id="lgpd-reason-hint" className="text-sm text-muted-foreground">
             Não inclua documento ou dados pessoais no motivo.
           </p>
-          <textarea
+          <Textarea
             id="lgpd-reason"
             rows={3}
             autoFocus
@@ -61,7 +62,6 @@ function AnonymizeDialog({ open, onClose, title, warning, submitLabel, run }: An
             disabled={isPending}
             aria-invalid={error !== null}
             aria-describedby={error ? "lgpd-reason-hint lgpd-error" : "lgpd-reason-hint"}
-            className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           />
         </div>
         {error && (

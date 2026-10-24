@@ -2,13 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound, ShieldCheck, ShieldOff } from "lucide-react";
+import { KeyRound, ShieldOff } from "lucide-react";
 
 import {
   inviteHolderToPortal,
   revokeHolderPortalAccess,
 } from "@/actions/portal";
 import { Button } from "@/components/ui/button";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 interface PortalAccessButtonProps {
   holderId: string;
@@ -59,10 +61,7 @@ export function PortalAccessButton({
     <div className="flex flex-col items-end gap-1">
       {hasAccess ? (
         <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1 text-xs text-emerald-600">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Portal ativo
-          </span>
+          <StatusBadge tone="success" label="Portal ativo" />
           <Button
             variant="outline"
             size="sm"
@@ -86,12 +85,12 @@ export function PortalAccessButton({
         </Button>
       )}
       {!hasEmail && !hasAccess && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Cadastre um e-mail para liberar o acesso.
         </p>
       )}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      {ok && <p className="text-xs text-emerald-600">{ok}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {ok && <StatusBanner tone="success" title={ok} />}
     </div>
   );
 }

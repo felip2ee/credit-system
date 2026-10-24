@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { PayableEntry } from "@/lib/payables/queries";
 import { formatCurrency } from "@/lib/utils";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const KIND_LABEL: Record<PayableEntry["kind"], string> = {
   accrual: "Acréscimo",
@@ -72,9 +73,7 @@ export function PayableLedgerTable({ bureauId, initialRows, initialCursor }: Pay
           </Table>
         )}
         {error && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
-            {error}
-          </p>
+          <StatusBanner tone="danger" title={error} />
         )}
         {cursor && (
           <Button variant="outline" className="mt-4" onClick={loadMore} disabled={isPending}>

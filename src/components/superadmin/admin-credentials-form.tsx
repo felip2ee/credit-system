@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { firstPasswordError } from "@/lib/validators/password";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function AdminCredentialsForm({ bureauId }: { bureauId: string }) {
   const [email, setEmail] = useState("");
@@ -76,7 +77,7 @@ export function AdminCredentialsForm({ bureauId }: { bureauId: string }) {
         />
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {success && <p className="text-sm text-emerald-600">{success}</p>}
+      {success && <StatusBanner tone="success" title={success} />}
       <div className="flex flex-wrap gap-2">
         <Button type="button" disabled={isPending} onClick={() => submit(true)}>
           {isPending ? "Salvando..." : "Definir senha"}

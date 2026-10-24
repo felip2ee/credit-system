@@ -11,10 +11,13 @@ import { listBureauNames } from "@/lib/bureaus/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { isValidNotificationCursor, listNotifications, listTemplates } from "@/lib/notifications/queries";
 import type { NotificationChannel, NotificationStatus } from "@/lib/notifications/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const metadata = { title: "Notificações" };
 
 const PAGE_SIZE = 50;
+// Radix não aceita valor vazio; "todos" não está na lista permitida e vira "sem filtro" em pick().
+const ALL = "todos";
 
 function pick<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
   return allowed.find((a) => a === value);
@@ -30,7 +33,7 @@ export default async function SuperadminNotificationsPage({
     return (
       <div className="space-y-6">
         <PageHeader title="Notificações" />
-        <p className="text-sm text-muted-foreground">Você não tem permissão para ver as notificações.</p>
+        <p className="text-base text-muted-foreground">Você não tem permissão para ver as notificações.</p>
       </div>
     );
   }
@@ -82,37 +85,37 @@ export default async function SuperadminNotificationsPage({
             <label htmlFor="f-status" className="text-sm font-medium">
               Estado
             </label>
-            <select
-              id="f-status"
-              name="status"
-              defaultValue={status ?? ""}
-              className="flex h-10 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="">Todos</option>
-              {(Object.keys(NOTIFICATION_BADGE) as NotificationStatus[]).map((s) => (
-                <option key={s} value={s}>
-                  {s} ({NOTIFICATION_BADGE[s].label})
-                </option>
-              ))}
-            </select>
+            <Select name="status" defaultValue={status ?? ALL}>
+              <SelectTrigger id="f-status" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Todos</SelectItem>
+                {(Object.keys(NOTIFICATION_BADGE) as NotificationStatus[]).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s} ({NOTIFICATION_BADGE[s].label})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <label htmlFor="f-channel" className="text-sm font-medium">
               Canal
             </label>
-            <select
-              id="f-channel"
-              name="channel"
-              defaultValue={channel ?? ""}
-              className="flex h-10 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="">Todos</option>
-              {(Object.keys(CHANNEL_LABEL) as NotificationChannel[]).map((c) => (
-                <option key={c} value={c}>
-                  {CHANNEL_LABEL[c]}
-                </option>
-              ))}
-            </select>
+            <Select name="channel" defaultValue={channel ?? ALL}>
+              <SelectTrigger id="f-channel" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Todos</SelectItem>
+                {(Object.keys(CHANNEL_LABEL) as NotificationChannel[]).map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {CHANNEL_LABEL[c]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <Button type="submit" variant="outline">
             Filtrar

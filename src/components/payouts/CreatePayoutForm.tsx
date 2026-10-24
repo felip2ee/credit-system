@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, todayInSaoPaulo } from "@/lib/utils";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface CreatePayoutFormProps {
   bureaus: { id: string; name: string; payable: string }[];
@@ -48,22 +50,25 @@ export function CreatePayoutForm({ bureaus }: CreatePayoutFormProps) {
         <form onSubmit={submit} className="space-y-4" noValidate>
           <div className="space-y-2">
             <Label htmlFor="payout-bureau">Bureau</Label>
-            <select
-              id="payout-bureau"
+            <Select
               value={bureauId}
-              onChange={(e) => {
-                setBureauId(e.target.value);
+              onValueChange={(value) => {
+                setBureauId(value);
                 setDone(false);
               }}
               disabled={isPending}
-              className="flex h-10 w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {bureaus.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="payout-bureau" className="max-w-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {bureaus.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    {b.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="payout-cutoff">Data de corte</Label>
@@ -86,9 +91,7 @@ export function CreatePayoutForm({ bureaus }: CreatePayoutFormProps) {
             </p>
           )}
           {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
+            <StatusBanner tone="danger" title={error} />
           )}
           {done && (
             <p role="status" className="text-sm text-muted-foreground">

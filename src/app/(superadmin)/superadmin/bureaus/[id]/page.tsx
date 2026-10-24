@@ -18,6 +18,7 @@ import { formatCurrency } from "@/lib/utils";
 import { LedgerTable } from "@/components/wallet/LedgerTable";
 import { WalletBalance } from "@/components/wallet/WalletBalance";
 import { WalletAdjustForm } from "@/components/superadmin/WalletAdjustForm";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export const metadata = { title: "Bureau" };
 
@@ -58,15 +59,21 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Carteira</h2>
           {wallet.shortfalls.length > 0 && (
-            <div role="alert" className="space-y-1 rounded-md border border-destructive p-3 text-sm">
-              {wallet.shortfalls.map((s) => (
-                <p key={s.chargeId}>
-                  Estorno com saldo insuficiente: {formatCurrency(Number(s.shortfall))} a recuperar (recarga de{" "}
-                  {formatCurrency(Number(s.amount))} em {s.createdAt.toLocaleDateString("pt-BR")}).
-                </p>
-              ))}
-              <p>Recupere o valor com um ajuste manual.</p>
-            </div>
+            <StatusBanner
+              tone="attention"
+              title="Estorno com saldo insuficiente"
+              description={
+                <div className="space-y-1">
+                  {wallet.shortfalls.map((s) => (
+                    <p key={s.chargeId}>
+                      {formatCurrency(Number(s.shortfall))} a recuperar (recarga de {formatCurrency(Number(s.amount))} em{" "}
+                      {s.createdAt.toLocaleDateString("pt-BR")}).
+                    </p>
+                  ))}
+                  <p>Recupere o valor com um ajuste manual.</p>
+                </div>
+              }
+            />
           )}
           <WalletBalance wallet={wallet.balance} />
           {canAdjust && <WalletAdjustForm bureauId={bureau.id} />}

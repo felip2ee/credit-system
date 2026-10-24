@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { cancelPayoutAction } from "@/actions/payouts";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 interface CancelPayoutButtonProps {
   payoutId: string;
@@ -59,9 +60,7 @@ export function CancelPayoutButton({
           novo repasse.
         </p>
         {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
+          <StatusBanner tone="danger" title={error} />
         )}
         <div className="flex justify-end gap-2">
           <Button

@@ -14,6 +14,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { AiPromptKind } from "@/lib/ai/prompt";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { Textarea } from "@/components/ui/textarea";
 
 export function PromptsForm({ prompts }: { prompts: AiPromptEntry[] }) {
   const router = useRouter();
@@ -77,14 +79,14 @@ export function PromptsForm({ prompts }: { prompts: AiPromptEntry[] }) {
               </div>
             </CardHeader>
             <CardContent className="space-y-1">
-              <textarea
+              <Textarea
                 value={val}
                 onChange={(e) => set(p.kind, e.target.value)}
                 rows={16}
                 spellCheck={false}
-                className="flex w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="resize-y font-mono text-sm"
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {val.length.toLocaleString("pt-BR")} caracteres
               </p>
             </CardContent>
@@ -98,19 +100,11 @@ export function PromptsForm({ prompts }: { prompts: AiPromptEntry[] }) {
           {isPending ? "Salvando..." : "Salvar prompts"}
         </Button>
         {msg && (
-          <p
-            className={
-              msg.type === "ok"
-                ? "text-sm text-emerald-600"
-                : "text-sm text-destructive"
-            }
-          >
-            {msg.text}
-          </p>
+          <StatusBanner tone={msg.type === "ok" ? "success" : "danger"} title={msg.text} />
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         Os prompts valem para todos os Bureaus e definem como a IA escreve os pareceres. Mantenha o formato de
         saída JSON descrito no texto — alterá-lo pode quebrar a geração. Deixar o
         texto igual ao padrão (ou vazio) remove a personalização e volta a seguir

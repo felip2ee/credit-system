@@ -66,7 +66,7 @@ function CostRow({ bureauId, row }: { bureauId: string; row: BureauCost }) {
     <li className="space-y-2 rounded-md border p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{row.name}</span>
-        <span className="text-xs text-muted-foreground">{row.code}</span>
+        <span className="text-sm text-muted-foreground">{row.code}</span>
         {!row.productActive && <Badge variant="muted">Produto inativo</Badge>}
         <span className="ml-auto text-right font-medium">
           {hasPartner ? "Empresa: " : ""}
