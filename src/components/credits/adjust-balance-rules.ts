@@ -1,3 +1,4 @@
+import { formatCurrency } from "@/lib/utils";
 import { toCents } from "@/lib/catalog/money";
 import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
 
@@ -12,7 +13,8 @@ interface AdjustmentDraft {
   reason: string;
   // Saldos em reais, como string decimal vinda do banco ("150.00").
   bureauAvailable: string;
-  clientAvailable: string;
+  // Máximo para remover: o menor entre o que o Bureau creditou ao cliente (líquido) e o disponível do cliente.
+  maxDebit: string;
 }
 
 const balanceCents = (value: string): number => Math.round(Number(value) * 100);
@@ -28,8 +30,11 @@ export function canSubmitAdjustment(draft: AdjustmentDraft): { ok: boolean; mess
   if (draft.direction === "credit" && cents > balanceCents(draft.bureauAvailable)) {
     return { ok: false, message: "Saldo da carteira do Bureau insuficiente." };
   }
-  if (draft.direction === "debit" && cents > balanceCents(draft.clientAvailable)) {
-    return { ok: false, message: "Saldo disponível do cliente insuficiente." };
+  if (draft.direction === "debit" && cents > balanceCents(draft.maxDebit)) {
+    return {
+      ok: false,
+      message: `O Bureau só pode remover o que ele mesmo creditou a este cliente (máximo ${formatCurrency(Number(draft.maxDebit))}).`,
+    };
   }
   return { ok: true, message: null };
 }

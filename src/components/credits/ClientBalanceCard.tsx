@@ -1,19 +1,9 @@
 import { AdjustBalanceDialog } from "@/components/credits/AdjustBalanceDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CLIENT_KIND_LABEL, clientLedgerAmount } from "@/components/credits/client-ledger-labels";
 import { formatCurrency } from "@/lib/utils";
 import type { ClientLedgerEntry, ClientWalletBalance } from "@/lib/wallet/client-queries";
-
-const KIND_LABEL: Record<ClientLedgerEntry["kind"], string> = {
-  topup: "Recarga",
-  reserve: "Reserva",
-  capture: "Cobrança",
-  release: "Liberação",
-  reversal: "Estorno",
-  commission_credit: "Comissão convertida",
-  adjustment_credit: "Ajuste do Bureau",
-  adjustment_debit: "Ajuste do Bureau",
-};
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 
@@ -25,18 +15,20 @@ interface ClientBalanceCardProps {
   authors: Record<string, string>;
   // Presente só com credits:adjust.
   bureauAvailable: string | null;
+  // Máximo que o Bureau pode remover agora; presente só com credits:adjust.
+  maxDebit: string;
 }
 
 const authorOf = (row: ClientLedgerEntry, authors: Record<string, string>): string | null =>
   row.reference?.startsWith("adjustment:") ? (authors[row.reference.slice("adjustment:".length)] ?? null) : null;
 
-export function ClientBalanceCard({ holderId, wallet, rows, authors, bureauAvailable }: ClientBalanceCardProps) {
+export function ClientBalanceCard({ holderId, wallet, rows, authors, bureauAvailable, maxDebit }: ClientBalanceCardProps) {
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle className="text-lg">Saldo do cliente</CardTitle>
         {bureauAvailable !== null && (
-          <AdjustBalanceDialog holderId={holderId} bureauAvailable={bureauAvailable} clientAvailable={wallet.available} />
+          <AdjustBalanceDialog holderId={holderId} bureauAvailable={bureauAvailable} maxDebit={maxDebit} />
         )}
       </CardHeader>
       <CardContent className="space-y-4">
@@ -69,8 +61,8 @@ export function ClientBalanceCard({ holderId, wallet, rows, authors, bureauAvail
                 return (
                   <TableRow key={row.id}>
                     <TableCell>{dateFormat.format(new Date(row.createdAt))}</TableCell>
-                    <TableCell>{KIND_LABEL[row.kind]}</TableCell>
-                    <TableCell>{formatCurrency(Number(row.amount))}</TableCell>
+                    <TableCell>{CLIENT_KIND_LABEL[row.kind]}</TableCell>
+                    <TableCell>{clientLedgerAmount(row.kind, row.amount)}</TableCell>
                     <TableCell>{formatCurrency(Number(row.availableAfter))}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {row.reason ?? "—"}

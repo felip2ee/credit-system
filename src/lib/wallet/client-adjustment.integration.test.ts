@@ -33,7 +33,7 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { randomCpf, seedClientWalletTopup, seedSuperadmin, seedSupportSession, seedTenant, seedWalletTopup } from "@/test/seed";
 
-import { adjustClientBalance, listClientAdjustments } from "./client-adjustment";
+import { adjustClientBalance, getClientAdjustmentLimits, listClientAdjustments } from "./client-adjustment";
 import { listClientLedger } from "./client-queries";
 import { listLedger } from "./queries";
 
@@ -104,25 +104,66 @@ describe("adjustClientBalance credit", () => {
 });
 
 describe("adjustClientBalance debit", () => {
-	it("debits 30.00 from the available balance only and returns it to the Bureau", async () => {
-		const t = await setup("0.00", { available: "100.00", reserved: "50.00" });
-		const before = (await balances(t)).client;
-		expect(before).toEqual({ available: "100.00", reserved: "50.00" });
-		const result = await adjust({ ...t.bureauAdmin }, t, "debit", "30.00");
-		expect(result.ok).toBe(true);
+	const admin = (t: Tenant): DbIdentity => ({ ...t.bureauAdmin });
+
+	it("debits 30.00 from the available balance only, after the Bureau credited 50.00, and returns it to the Bureau", async () => {
+		const t = await setup("150.00", { available: "100.00", reserved: "50.00" });
+		expect((await adjust(admin(t), t, "credit", "50.00")).ok).toBe(true);
+		expect((await balances(t)).client).toEqual({ available: "150.00", reserved: "50.00" });
+		expect((await adjust(admin(t), t, "debit", "30.00")).ok).toBe(true);
 		expect(await balances(t)).toEqual({
-			client: { available: "70.00", reserved: "50.00" },
-			bureau: { available: "30.00", reserved: "0.00" },
+			client: { available: "120.00", reserved: "50.00" },
+			bureau: { available: "130.00", reserved: "0.00" },
 		});
 	});
 
-	it("refuses 120.00 with insufficient_client_funds, even though available plus reserved covers it", async () => {
-		const t = await setup("0.00", { available: "100.00", reserved: "50.00" });
-		const result = await adjust({ ...t.bureauAdmin }, t, "debit", "120.00");
-		expect(result).toEqual({ ok: false, reason: "insufficient_client_funds" });
+	it("refuses to remove a PIX top-up the client paid: 100.00 of PIX and no adjustments, debit 10.00", async () => {
+		const t = await setup("0.00", { available: "100.00" });
+		expect(await adjust(admin(t), t, "debit", "10.00")).toEqual({ ok: false, reason: "exceeds_bureau_credit", maxDebit: "0.00" });
 		expect(await balances(t)).toEqual({
-			client: { available: "100.00", reserved: "50.00" },
+			client: { available: "100.00", reserved: "0.00" },
 			bureau: { available: "0.00", reserved: "0.00" },
+		});
+	});
+
+	it("limits debits to credits minus debits: credit 50, debit 30 ok, debit 30 refused with 20.00 left, debit 20 ok", async () => {
+		const t = await setup("100.00", { available: "100.00" });
+		expect((await adjust(admin(t), t, "credit", "50.00")).ok).toBe(true);
+		expect((await adjust(admin(t), t, "debit", "30.00")).ok).toBe(true);
+		expect(await adjust(admin(t), t, "debit", "30.00")).toEqual({ ok: false, reason: "exceeds_bureau_credit", maxDebit: "20.00" });
+		expect(await withUserTransaction(admin(t), (c) => getClientAdjustmentLimits(c, t.client.userId))).toEqual({
+			bureauCredit: "20.00",
+			maxDebit: "20.00",
+		});
+		expect((await adjust(admin(t), t, "debit", "20.00")).ok).toBe(true);
+		expect(await adjust(admin(t), t, "debit", "0.01")).toMatchObject({ ok: false, reason: "exceeds_bureau_credit" });
+		expect(await balances(t)).toEqual({
+			client: { available: "100.00", reserved: "0.00" },
+			bureau: { available: "100.00", reserved: "0.00" },
+		});
+	});
+
+	it("is also limited by the client available balance, never touching the reserved one", async () => {
+		const t = await setup("100.00");
+		expect((await adjust(admin(t), t, "credit", "50.00")).ok).toBe(true);
+		await owner.query("select * from client_wallet_post_entry($1, 'reserve', 40, $2, 'seed', null, $1)", [t.client.userId, randomUUID()]);
+		expect((await balances(t)).client).toEqual({ available: "10.00", reserved: "40.00" });
+		expect(await adjust(admin(t), t, "debit", "20.00")).toEqual({ ok: false, reason: "insufficient_client_funds" });
+		expect(await withUserTransaction(admin(t), (c) => getClientAdjustmentLimits(c, t.client.userId))).toEqual({
+			bureauCredit: "50.00",
+			maxDebit: "10.00",
+		});
+		expect((await adjust(admin(t), t, "debit", "10.00")).ok).toBe(true);
+		expect((await balances(t)).client).toEqual({ available: "0.00", reserved: "40.00" });
+	});
+
+	it("reports the limits as zero to the admin of another Bureau", async () => {
+		const t = await setup("100.00");
+		const other = await seedTenant(owner, "Adjust limits other");
+		await adjust(admin(t), t, "credit", "50.00");
+		expect(await withUserTransaction({ ...other.bureauAdmin }, (c) => getClientAdjustmentLimits(c, t.client.userId))).toEqual({
+			bureauCredit: "0.00",
+			maxDebit: "0.00",
 		});
 	});
 });
@@ -158,12 +199,13 @@ describe("adjustClientBalance records", () => {
 	});
 
 	it("debit writes adjustment_debit on the client ledger and client_adjustment_in on the Bureau ledger", async () => {
-		const t = await setup("0.00", { available: "20.00" });
+		const t = await setup("20.00");
+		await adjust({ ...t.bureauAdmin }, t, "credit", "20.00");
 		const result = await adjust({ ...t.bureauAdmin }, t, "debit", "5.50");
 		expect(result.ok).toBe(true);
 		const client = await owner.query("select kind from client_ledger_entries where client_profile_id = $1 order by seq desc limit 1", [t.client.userId]);
 		expect(client.rows[0].kind).toBe("adjustment_debit");
-		const bureau = await owner.query("select kind, available_after::text from ledger_entries where bureau_id = $1", [t.bureau.id]);
+		const bureau = await owner.query("select kind, available_after::text from ledger_entries where bureau_id = $1 and kind = 'client_adjustment_in'", [t.bureau.id]);
 		expect(bureau.rows).toEqual([{ kind: "client_adjustment_in", available_after: "5.50" }]);
 	});
 
@@ -255,6 +297,84 @@ describe("adjustClientBalance access", () => {
 		);
 		expect(noRequest).toEqual({ ok: false, reason: "invalid_request" });
 		expect((await balances(t)).bureau.available).toBe("150.00");
+	});
+
+	it.each([
+		["11 digits in a row", "Cliente 12345678901 pediu ajuste"],
+		["a formatted CPF", "Cliente 123.456.789-01 pediu ajuste"],
+		["a formatted CNPJ", "Empresa 12.345.678/0001-95 pediu ajuste"],
+	])("rejects a reason with %s, and accepts a short number", async (_name, reason) => {
+		const t = await setup("150.00");
+		expect(await adjust({ ...t.bureauAdmin }, t, "credit", "1.00", reason)).toEqual({ ok: false, reason: "invalid_reason" });
+		expect((await adjust({ ...t.bureauAdmin }, t, "credit", "1.00", "Pedido 1234567890 conferido")).ok).toBe(true);
+	});
+
+	it("refuses an inactive admin, an inactive Bureau, an inactive client and an anonymized client", async () => {
+		const t = await setup("150.00");
+		const run = () => adjust({ ...t.bureauAdmin }, t, "credit", "1.00");
+		// O trigger de perfil só deixa um administrador mudar campos de segurança: o teste o desliga nesta conexão.
+		const ownerUpdate = async (sql: string, params: unknown[]) => {
+			const c = await owner.connect();
+			try {
+				await c.query("set session_replication_role = replica");
+				await c.query(sql, params);
+			} finally {
+				await c.query("reset session_replication_role");
+				c.release();
+			}
+		};
+		expect((await run()).ok).toBe(true);
+		await ownerUpdate("update profiles set is_active = false where id = $1", [t.client.userId]);
+		expect(await run()).toEqual({ ok: false, reason: "not_found" });
+		await ownerUpdate("update profiles set is_active = true where id = $1", [t.client.userId]);
+		await ownerUpdate("update profiles set is_active = false where id = $1", [t.bureauAdmin.userId]);
+		expect(await run()).toEqual({ ok: false, reason: "not_allowed" });
+		await ownerUpdate("update profiles set is_active = true where id = $1", [t.bureauAdmin.userId]);
+		await owner.query("update bureaus set status = 'inactive' where id = $1", [t.bureau.id]);
+		expect(await run()).toEqual({ ok: false, reason: "not_allowed" });
+		await owner.query("update bureaus set status = 'active' where id = $1", [t.bureau.id]);
+		expect((await run()).ok).toBe(true);
+		await ownerUpdate("update profiles set anonymized_at = now() where id = $1", [t.client.userId]);
+		expect(await run()).toEqual({ ok: false, reason: "not_found" });
+		expect((await balances(t)).bureau.available).toBe("148.00");
+	});
+
+	it("waits for an anonymization in progress and then refuses the anonymized client", async () => {
+		const t = await setup("150.00");
+		const anonymizer = await pool.connect();
+		try {
+			await anonymizer.query("begin");
+			await anonymizer.query(
+				"select set_config('app.user_id', $1, true), set_config('app.user_role', 'bureau_admin', true), set_config('app.bureau_id', $2, true), set_config('app.support_session_id', '', true)",
+				[t.bureauAdmin.userId, t.bureau.id],
+			);
+			const done = await anonymizer.query("select lgpd_anonymize_client_account($1) as result", [t.client.userId]);
+			expect(done.rows[0].result).toBe("ok");
+
+			let settled = false;
+			const pending = adjust({ ...t.bureauAdmin }, t, "credit", "1.00").finally(() => {
+				settled = true;
+			});
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			expect(settled).toBe(false);
+			await anonymizer.query("commit");
+			expect(await pending).toEqual({ ok: false, reason: "not_found" });
+		} finally {
+			anonymizer.release();
+		}
+		expect((await balances(t)).bureau.available).toBe("150.00");
+	});
+
+	it("does not let wallet_apply use the reserved adjustment: key prefix", async () => {
+		const t = await setup("150.00");
+		const viaApply = await withUserTransaction({ ...t.bureauAdmin }, (c) =>
+			c.query("select ok, reason from wallet_apply($1, 'reserve', 1, 'adjustment:abc:bureau', null, null)", [t.bureau.id]),
+		);
+		expect(viaApply.rows[0]).toEqual({ ok: false, reason: "invalid_key" });
+		const normal = await withUserTransaction({ ...t.bureauAdmin }, (c) =>
+			c.query("select ok from wallet_apply($1, 'reserve', 1, 'order-key-1', null, null)", [t.bureau.id]),
+		);
+		expect(normal.rows[0].ok).toBe(true);
 	});
 
 	it("does not let the ledger kinds be posted by any app role or through wallet_apply", async () => {

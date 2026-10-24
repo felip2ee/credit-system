@@ -23,7 +23,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getHolderDetail } from "@/lib/holders/queries";
-import { listClientAdjustments } from "@/lib/wallet/client-adjustment";
+import { getClientAdjustmentLimits, listClientAdjustments } from "@/lib/wallet/client-adjustment";
 import { getClientWallet, listClientLedger } from "@/lib/wallet/client-queries";
 import { getWallet } from "@/lib/wallet/queries";
 import { formatCNPJ, formatCPF, formatDate, formatDateSP } from "@/lib/utils";
@@ -61,16 +61,18 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
     clientProfileId && hasPermission(session, "wallet:read")
       ? await withUserTransaction(session, async (client) => {
           const wallet = await getClientWallet(client, clientProfileId);
-          const [ledger, adjustments, bureauWallet] = await Promise.all([
+          const [ledger, adjustments, bureauWallet, limits] = await Promise.all([
             listClientLedger(client, clientProfileId),
             listClientAdjustments(client, clientProfileId),
             canAdjust && session.bureauId ? getWallet(client, session.bureauId) : null,
+            canAdjust ? getClientAdjustmentLimits(client, clientProfileId) : null,
           ]);
           return {
             wallet: wallet ?? { available: "0.00", reserved: "0.00" },
             rows: ledger.rows,
             authors: Object.fromEntries(adjustments.map((a) => [a.id, a.authorName])),
             bureauAvailable: canAdjust ? (bureauWallet?.available ?? "0.00") : null,
+            maxDebit: limits?.maxDebit ?? "0.00",
           };
         })
       : null;

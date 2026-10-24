@@ -16,10 +16,10 @@ import { canSubmitAdjustment, REASON_MAX, type AdjustDirection } from "./adjust-
 interface AdjustBalanceDialogProps {
   holderId: string;
   bureauAvailable: string;
-  clientAvailable: string;
+  maxDebit: string;
 }
 
-export function AdjustBalanceDialog({ holderId, bureauAvailable, clientAvailable }: AdjustBalanceDialogProps) {
+export function AdjustBalanceDialog({ holderId, bureauAvailable, maxDebit }: AdjustBalanceDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [requestId, setRequestId] = useState("");
@@ -29,7 +29,7 @@ export function AdjustBalanceDialog({ holderId, bureauAvailable, clientAvailable
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const check = canSubmitAdjustment({ direction, amount, reason, bureauAvailable, clientAvailable });
+  const check = canSubmitAdjustment({ direction, amount, reason, bureauAvailable, maxDebit });
 
   const openDialog = () => {
     setRequestId(crypto.randomUUID());
@@ -67,7 +67,7 @@ export function AdjustBalanceDialog({ holderId, bureauAvailable, clientAvailable
   const balanceLabel =
     direction === "credit"
       ? `Saldo da carteira do Bureau: ${formatCurrency(Number(bureauAvailable))}`
-      : `Saldo disponível do cliente: ${formatCurrency(Number(clientAvailable))}`;
+      : `Máximo para remover: ${formatCurrency(Number(maxDebit))}`;
 
   return (
     <>

@@ -49,6 +49,8 @@ describe("adjustClientBalanceAction", () => {
 		["three decimals", { ...valid, amount: "1.001" }],
 		["above the cap", { ...valid, amount: "100000000.00" }],
 		["bad direction", { ...valid, direction: "transfer" }],
+		["document in the reason", { ...valid, reason: "Cliente 12345678901 pediu" }],
+		["formatted CPF in the reason", { ...valid, reason: "CPF 123.456.789-01 no pedido" }],
 		["bad holder id", { ...valid, holderId: "nope" }],
 		["missing request id", { ...valid, requestId: undefined }],
 		["bad request id", { ...valid, requestId: "nope" }],
@@ -57,6 +59,12 @@ describe("adjustClientBalanceAction", () => {
 		const result = await adjustClientBalanceAction(values);
 		expect(result.error).toEqual(expect.any(String));
 		expect(state.adjust).not.toHaveBeenCalled();
+	});
+
+	it("tells the user not to write a document in the reason", async () => {
+		expect(await adjustClientBalanceAction({ ...valid, reason: "Cliente 12345678901 pediu" })).toEqual({
+			error: "Não escreva CPF ou CNPJ no motivo.",
+		});
 	});
 
 	it("denies a role without credits:adjust before the query", async () => {
@@ -93,6 +101,18 @@ describe("adjustClientBalanceAction", () => {
 		state.adjust.mockResolvedValue({ ok: false, reason });
 		expect((await adjustClientBalanceAction(valid)).error).toContain(text);
 		expect(revalidatePath).not.toHaveBeenCalled();
+	});
+
+	it("tells the maximum when the debit exceeds what the Bureau credited", async () => {
+		state.adjust.mockResolvedValue({ ok: false, reason: "exceeds_bureau_credit", maxDebit: "20.00" });
+		const result = await adjustClientBalanceAction({ ...valid, direction: "debit" });
+		expect(result.error).toContain("O Bureau só pode remover o que ele mesmo creditou a este cliente (máximo");
+		expect(result.error).toContain("20,00");
+	});
+
+	it("falls back to a generic message for an unknown reason", async () => {
+		state.adjust.mockResolvedValue({ ok: false, reason: "something_new" });
+		expect((await adjustClientBalanceAction(valid)).error).toBe("Não foi possível ajustar o saldo. Tente novamente.");
 	});
 
 	it("hides a thrown error behind a generic message", async () => {

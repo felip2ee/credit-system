@@ -2755,6 +2755,11 @@ describe("client balance adjustments (029)", () => {
 		expect(await rows(ctxOf(foreign.bureauAdmin), sql, [adjustmentId])).toEqual([{ n: 0 }]);
 	});
 
+	it("auth_profile_lookup has no BYPASSRLS, so the gateway policies of the adjustment tables are required", async () => {
+		const { rows: role } = await owner.query("select rolbypassrls from pg_roles where rolname = 'auth_profile_lookup'");
+		expect(role).toEqual([{ rolbypassrls: false }]);
+	});
+
 	it("an app role cannot post the new kinds into the ledgers directly", async () => {
 		await expect(
 			withDbContext(app, ctxOf(T.bureauAdmin), (c) =>

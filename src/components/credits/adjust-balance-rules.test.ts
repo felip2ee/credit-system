@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { canSubmitAdjustment } from "./adjust-balance-rules";
 
-const base = { reason: "Correção de saldo", bureauAvailable: "150.00", clientAvailable: "100.00" };
+const base = { reason: "Correção de saldo", bureauAvailable: "150.00", maxDebit: "100.00" };
 
 describe("canSubmitAdjustment", () => {
   it("aceita crédito dentro do saldo do Bureau", () => {
@@ -15,9 +15,17 @@ describe("canSubmitAdjustment", () => {
   it("aceita débito dentro do saldo do cliente", () => {
     expect(canSubmitAdjustment({ ...base, direction: "debit", amount: "30.00" }).ok).toBe(true);
   });
-  it("recusa débito acima do saldo do cliente", () => {
-    const r = canSubmitAdjustment({ ...base, direction: "debit", amount: "120.00" });
-    expect(r).toEqual({ ok: false, message: "Saldo disponível do cliente insuficiente." });
+  it("recusa débito acima do máximo e mostra o máximo", () => {
+    const r = canSubmitAdjustment({ ...base, direction: "debit", amount: "120.00", maxDebit: "20.00" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("O Bureau só pode remover o que ele mesmo creditou a este cliente (máximo");
+    expect(r.message).toContain("20,00");
+  });
+  it("recusa qualquer débito sem crédito do Bureau (máximo 0)", () => {
+    expect(canSubmitAdjustment({ ...base, direction: "debit", amount: "0.01", maxDebit: "0.00" }).ok).toBe(false);
+  });
+  it("aceita débito exatamente igual ao máximo", () => {
+    expect(canSubmitAdjustment({ ...base, direction: "debit", amount: "20,00", maxDebit: "20.00" }).ok).toBe(true);
   });
   it("recusa motivo curto, também só com espaços", () => {
     expect(canSubmitAdjustment({ ...base, direction: "credit", amount: "10", reason: "abc" }).ok).toBe(false);
