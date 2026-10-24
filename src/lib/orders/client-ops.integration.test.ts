@@ -451,6 +451,39 @@ describe("final review fixes (025)", () => {
 		expect((await owner.query("select 1 from dossier_orders where client_profile_id = $1", [t.client.userId])).rowCount).toBe(5);
 	});
 
+	it("cap: 7 parallel online opens by one client end with at most 5 orders, the rest too_many_orders", async () => {
+		const t = await newTenant("fr parallel cap");
+		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "100.00", createdBy: t.bureauAdmin.userId });
+		const q = await quoteOrder(staff(t), ownInput.productCode, { partnerCount: 0 });
+		if (!q.ok) throw new Error(q.reason);
+
+		const results = await Promise.all(Array.from({ length: 7 }, () => placeOrder(t.client, ownInput, q)));
+
+		const refused = results.filter((r) => !r.ok).map((r) => (r.ok ? null : r.reason));
+		expect(refused).toEqual(["too_many_orders", "too_many_orders"]);
+		expect((await owner.query("select 1 from dossier_orders where client_profile_id = $1", [t.client.userId])).rowCount).toBe(5);
+	});
+
+	it("cap: 5 parallel counter opens to the same recipient e-mail end with at most 3 requests", async () => {
+		const t = await newTenant("fr parallel recipient");
+		const email = mail();
+		const q = await quoteOrder(staff(t), "dossie_pf", { partnerCount: 0 });
+		if (!q.ok) throw new Error(q.reason);
+		const input = (): OpenOrderInput => ({
+			productCode: "dossie_pf",
+			self: false,
+			subject: { type: "PF", name: "Titular Paralelo", documentDigits: onlyDigits(randomCpf()) },
+			partners: [],
+			contact: { email, phoneE164: null },
+			buyerProfileId: null,
+		});
+
+		const results = await Promise.all(Array.from({ length: 5 }, () => placeOrder(staff(t), input(), q)));
+
+		expect(results.filter((r) => r.ok)).toHaveLength(3);
+		expect(results.filter((r) => !r.ok).map((r) => (r.ok ? null : r.reason))).toEqual(["too_many_requests", "too_many_requests"]);
+	});
+
 	it("F4: a cancel expires the pending links of the order, so a sent link stops working", async () => {
 		const t = await newTenant("fr links");
 		const id = await place(t, t.client, companyInput(["Sócio A"]));

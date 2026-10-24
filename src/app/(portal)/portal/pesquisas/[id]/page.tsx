@@ -53,7 +53,7 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 					<OrderStateBadge state={order.state} reason={order.reason} />
 				</CardContent>
 			</Card>
-			<OrderMembers members={members} />
+			<OrderMembers members={members} mode={order.mode} />
 			{canCancelOrder(order.state, order.mode) && <CancelOrderButton dossierId={order.dossierId} />}
 			{order.state === "released" &&
 				(delivery ? (

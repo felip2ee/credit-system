@@ -128,7 +128,9 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 			contact: { email: parsed.data.contactEmail, phoneE164 },
 			buyerProfileId: null,
 		};
-		const result = await placeOrder(session, input, quote, withMembers && parsed.data.declarationVersion !== null ? await declarationOptions(parsed.data.declarationVersion) : undefined);
+		const { declarationVersion } = parsed.data;
+		const options = withMembers && declarationVersion !== null ? await declarationOptions(declarationVersion) : undefined;
+		const result = await placeOrder(session, input, quote, options);
 		if (!result.ok) {
 			const message = CLIENT_ORDER_MESSAGES[result.reason];
 			if (!message) logFailure("openClientOrderAction", result.reason);

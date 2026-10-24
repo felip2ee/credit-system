@@ -702,6 +702,8 @@ begin
   end if;
 
   if v_mode = 'online' then
+    -- Sem o lock, pedidos paralelos do mesmo cliente passam todos pela contagem (cada um só vê o que já foi confirmado).
+    perform pg_advisory_xact_lock(hashtextextended('online_order_cap:' || v_user::text, 0));
     select count(*) into v_orders_today from public.dossier_orders o
      where o.client_profile_id = v_user and o.mode = 'online' and o.created_at > now() - interval '24 hours';
     if v_orders_today >= c_max_online_orders_per_day then
@@ -942,6 +944,11 @@ begin
         -- Teto de pedidos novos por destinatário (e-mail ou celular) em 24 h: ninguém usa o remetente para spam de um destino.
         -- A pesquisa própria vai para o e-mail da conta do comprador e não conta.
         if not (v_self and v_i = 0) then
+          -- Mesmo motivo do teto por cliente: a contagem é por e-mail e por celular, então o lock é por e-mail e por celular.
+          perform pg_advisory_xact_lock(hashtextextended('recipient_cap:' || v_bureau::text || ':' || lower(v_memail), 0));
+          if v_member ->> 'phone' is not null then
+            perform pg_advisory_xact_lock(hashtextextended('recipient_cap:' || v_bureau::text || ':' || (v_member ->> 'phone'), 0));
+          end if;
           select count(*) into v_recent
             from public.scr_authorizations s
            where s.bureau_id = v_bureau and s.status = 'pending' and s.requested_at > now() - interval '24 hours'

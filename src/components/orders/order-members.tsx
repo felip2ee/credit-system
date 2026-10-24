@@ -1,6 +1,7 @@
 import { Badge, type BadgeProps } from "@/components/ui/badge";
-import { BLOCKED_ORDER_MESSAGE, MEMBER_STATUS_LABEL, orderIsBlocked } from "@/components/orders/order-rules";
+import { blockedOrderMessage, MEMBER_STATUS_LABEL, orderIsBlocked } from "@/components/orders/order-rules";
 import type { OrderMember, OrderMemberRole, OrderMemberScrStatus } from "@/lib/orders/client-ops";
+import type { OrderMode } from "@/lib/orders/types";
 
 const ROLE_LABEL: Record<OrderMemberRole, string> = {
 	company: "Empresa",
@@ -16,7 +17,7 @@ const STATUS_VARIANT: Record<OrderMemberScrStatus, BadgeProps["variant"]> = {
 };
 
 // Estado do aceite SCR de cada pessoa do pedido. Só o documento mascarado chega aqui.
-export function OrderMembers({ members }: { members: OrderMember[] }) {
+export function OrderMembers({ members, mode }: { members: OrderMember[]; mode: OrderMode }) {
 	if (members.length === 0) return null;
 	return (
 		<section aria-labelledby="order-members-title" className="space-y-3">
@@ -38,7 +39,7 @@ export function OrderMembers({ members }: { members: OrderMember[] }) {
 			</ul>
 			{orderIsBlocked(members.map((m) => m.scrStatus)) && (
 				<p role="alert" className="text-sm text-destructive">
-					{BLOCKED_ORDER_MESSAGE}
+					{blockedOrderMessage(mode)}
 				</p>
 			)}
 		</section>

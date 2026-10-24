@@ -73,9 +73,15 @@ export const MEMBER_STATUS_LABEL: Record<OrderMemberScrStatus, string> = {
 	expired: "Vencido",
 };
 
-// Um membro recusou ou venceu: o pedido não roda mais e o cliente deve cancelar para ter o valor de volta.
+// Um membro recusou ou venceu: o pedido não roda mais.
 export function orderIsBlocked(statuses: OrderMemberScrStatus[]): boolean {
 	return statuses.some((s) => s === "refused" || s === "expired");
 }
 
-export const BLOCKED_ORDER_MESSAGE = "Este pedido não vai rodar. Cancele para receber o valor de volta.";
+const BLOCKED_ONLINE_MESSAGE = "Este pedido não vai rodar. Cancele para receber o valor de volta.";
+const BLOCKED_COUNTER_MESSAGE = "Este pedido não vai rodar. Fale com o Bureau.";
+
+// Só o pedido online tem botão de cancelar: no balcão a saída é falar com o Bureau.
+export function blockedOrderMessage(mode: OrderMode): string {
+	return mode === "online" ? BLOCKED_ONLINE_MESSAGE : BLOCKED_COUNTER_MESSAGE;
+}
