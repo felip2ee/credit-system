@@ -323,162 +323,113 @@ describe("catalogo (schema e RLS)", () => {
 		expect(deactivated.rowCount).toBe(1);
 	});
 
-	it("trigger rejects activation while the effective cost is 0", async () => {
+	it("trigger accepts cost 0 and activation without any cost override", async () => {
 		const tenant = await seedTenant(owner, "Catalogo custo zero");
 		const admin = adminOf(tenant);
 		const product = await seedProduct(owner, { baseCost: "0.00" });
-		const args = (active: boolean) => [tenant.bureau.id, product.id, active, "5.00", admin.userId];
 
-		await expect(
-			withDbContext(app, admin, (c) => c.query(insertItem, args(true))),
-		).rejects.toThrow(/cost not set/);
-		// Rascunho inativo passa; ativá-lo depois falha enquanto o custo for 0.
-		await seedCatalogItem(owner, {
-			bureauId: tenant.bureau.id,
-			productId: product.id,
-			salePrice: "5.00",
-			updatedBy: admin.userId,
-			active: false,
-		});
-		await expect(
-			withDbContext(app, admin, (c) =>
-				c.query(
-					"update bureau_catalog_items set active = true where bureau_id = $1 and product_id = $2",
-					[tenant.bureau.id, product.id],
-				),
-			),
-		).rejects.toThrow(/cost not set/);
-
+		await withDbContext(app, admin, (c) =>
+			c.query(insertItem, [tenant.bureau.id, product.id, true, "5.00", admin.userId]),
+		);
 		await seedBureauCost(owner, {
 			bureauId: tenant.bureau.id,
 			productId: product.id,
-			cost: "3.00",
+			cost: "0.00",
 			setBy: superadmin.userId,
 		});
-		const activated = await withDbContext(app, admin, (c) =>
-			c.query(
-				"update bureau_catalog_items set active = true where bureau_id = $1 and product_id = $2",
-				[tenant.bureau.id, product.id],
-			),
+		const { rows } = await owner.query(
+			"select cost, cost_per_partner from bureau_product_costs where bureau_id = $1",
+			[tenant.bureau.id],
 		);
-		expect(activated.rowCount).toBe(1);
+		expect(rows).toEqual([{ cost: "0.00", cost_per_partner: "0.00" }]);
 	});
 
-	it("addon needs compatible main", async () => {
-		const tenant = await seedTenant(owner, "Catalogo addon");
+	it("trigger checks the per-partner price against the per-partner cost", async () => {
+		const tenant = await seedTenant(owner, "Catalogo por socio");
 		const admin = adminOf(tenant);
-		const main = await seedProduct(owner, { baseCost: "10.00" });
-		const addon = await seedProduct(owner, {
-			kind: "addon",
-			addonFor: [main.code],
-			baseCost: "2.00",
-		});
-		const otherMain = await seedProduct(owner, { baseCost: "10.00" });
-		const addonArgs = [tenant.bureau.id, addon.id, true, "3.00", admin.userId];
-		const mainArgs = (id: string, active: boolean) => [
-			tenant.bureau.id,
-			id,
-			active,
-			"10.00",
-			admin.userId,
-		];
+		const product = await seedProduct(owner, { baseCost: "10.00", baseCostPerPartner: "4.00" });
+		const insertPartnerItem = (price: string, perPartner: string, active = true) =>
+			withDbContext(app, admin, (c) =>
+				c.query(
+					`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, sale_price_per_partner, updated_by)
+           values ($1, $2, $3, $4, $5, $6)`,
+					[tenant.bureau.id, product.id, active, price, perPartner, admin.userId],
+				),
+			);
 
-		// Sem nenhum main.
-		await expect(
-			withDbContext(app, admin, (c) => c.query(insertItem, addonArgs)),
-		).rejects.toThrow(/compatible main/);
-		// Main incompatível ativo, main compatível inativo.
+		await expect(insertPartnerItem("10.00", "3.99")).rejects.toThrow(/partner price below partner cost/);
+		await expect(insertPartnerItem("9.99", "4.00")).rejects.toThrow(/below effective cost/);
+		await insertPartnerItem("10.00", "4.00");
+		// withDbContext desfaz no fim: o item que os próximos passos usam entra pelo dono.
 		await seedCatalogItem(owner, {
 			bureauId: tenant.bureau.id,
-			productId: otherMain.id,
+			productId: product.id,
 			salePrice: "10.00",
+			salePricePerPartner: "4.00",
 			updatedBy: admin.userId,
 		});
-		await expect(
-			withDbContext(app, admin, async (c) => {
-				await c.query(insertItem, mainArgs(main.id, false));
-				await c.query(insertItem, addonArgs);
-			}),
-		).rejects.toThrow(/compatible main/);
-		// Main compatível de outro Bureau não conta.
-		await seedCatalogItem(owner, {
-			bureauId: tenantB.bureau.id,
-			productId: main.id,
-			salePrice: "10.00",
-			updatedBy: tenantB.bureauAdmin.userId,
-		});
-		await expect(
-			withDbContext(app, admin, (c) => c.query(insertItem, addonArgs)),
-		).rejects.toThrow(/compatible main/);
 
-		// Main compatível ativo: passa. Addon inativo passa sem main.
-		await withDbContext(app, admin, async (c) => {
-			await c.query(insertItem, mainArgs(main.id, true));
-			await c.query(insertItem, addonArgs);
-		});
-		await withDbContext(app, admin, (c) =>
-			c.query(insertItem, [
-				tenant.bureau.id,
-				addon.id,
-				false,
-				"3.00",
-				admin.userId,
-			]),
-		);
-		// Ativar um addon inativo exige o main.
-		await seedCatalogItem(owner, {
-			bureauId: tenant.bureau.id,
-			productId: addon.id,
-			salePrice: "3.00",
-			updatedBy: admin.userId,
-			active: false,
-		});
+		// Subir só o valor por sócio abaixo do custo por sócio falha no UPDATE.
 		await expect(
 			withDbContext(app, admin, (c) =>
 				c.query(
-					"update bureau_catalog_items set active = true where bureau_id = $1 and product_id = $2",
-					[tenant.bureau.id, addon.id],
+					"update bureau_catalog_items set sale_price_per_partner = '3.00' where bureau_id = $1 and product_id = $2",
+					[tenant.bureau.id, product.id],
 				),
 			),
-		).rejects.toThrow(/compatible main/);
+		).rejects.toThrow(/partner price below partner cost/);
+
+		// Custo por sócio do Bureau sobe: desativar continua possível.
+		await seedBureauCost(owner, {
+			bureauId: tenant.bureau.id,
+			productId: product.id,
+			cost: "10.00",
+			costPerPartner: "6.00",
+			setBy: superadmin.userId,
+		});
+		const deactivated = await withDbContext(app, admin, (c) =>
+			c.query(
+				"update bureau_catalog_items set active = false where bureau_id = $1 and product_id = $2",
+				[tenant.bureau.id, product.id],
+			),
+		);
+		expect(deactivated.rowCount).toBe(1);
 	});
 
-	it("public_bureau_catalog columns and inactive bureau", async () => {
+	it("trigger refuses a per-partner price on dossie_pf only", async () => {
+		const tenant = await seedTenant(owner, "Catalogo pf sem socio");
+		const admin = adminOf(tenant);
+		const { rows } = await owner.query<{ id: string }>("select id from products where code = 'dossie_pf'");
+		const insertPf = (perPartner: string) =>
+			withDbContext(app, admin, (c) =>
+				c.query(
+					`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, sale_price_per_partner, updated_by)
+           values ($1, $2, true, '5.00', $3, $4)`,
+					[tenant.bureau.id, rows[0].id, perPartner, admin.userId],
+				),
+			);
+
+		// O seed deixa dossie_pf inativo: o trigger do item exige produto ativo.
+		await owner.query("update products set active = true where code = 'dossie_pf'");
+		await expect(insertPf("1.00")).rejects.toThrow(/per-partner price only for dossie_empresarial/);
+		await insertPf("0.00");
+	});
+
+	it("public_bureau_catalog columns, inactive bureau and per-field price rule", async () => {
 		const tenant = await seedTenant(owner, "Catalogo publico");
 		const admin = tenant.bureauAdmin.userId;
-		const main = await seedProduct(owner, {
-			baseCost: "10.00",
-			depsProduct: "Smart X",
-		});
-		const priced = await seedProduct(owner, { baseCost: "10.00" });
-		const free = await seedProduct(owner, { baseCost: "1.00" });
-		const hidden = await seedProduct(owner, { baseCost: "10.00" });
-		const addon = await seedProduct(owner, {
-			kind: "addon",
-			addonFor: [main.code],
-			baseCost: "2.00",
-		});
 		const bureauId = tenant.bureau.id;
+		const main = await seedProduct(owner, { baseCost: "10.00", baseCostPerPartner: "4.00" });
+		const hidden = await seedProduct(owner, { baseCost: "10.00" });
+		const raisedCost = await seedProduct(owner, { baseCost: "10.00" });
+		const raisedPartnerCost = await seedProduct(owner, { baseCost: "10.00", baseCostPerPartner: "4.00" });
 		await seedCatalogItem(owner, {
 			bureauId,
 			productId: main.id,
 			salePrice: "15.00",
+			salePricePerPartner: "5.00",
 			updatedBy: admin,
 		});
-		await seedCatalogItem(owner, {
-			bureauId,
-			productId: addon.id,
-			salePrice: "3.00",
-			updatedBy: admin,
-		});
-		// Custo efetivo zero: fora da venda.
-		await seedCatalogItem(owner, {
-			bureauId,
-			productId: free.id,
-			salePrice: "5.00",
-			updatedBy: admin,
-		});
-		await seedProductVersion(owner, { productId: free.id, version: 2, baseCost: "0.00" });
 		// Item inativo: fora da venda.
 		await seedCatalogItem(owner, {
 			bureauId,
@@ -487,105 +438,89 @@ describe("catalogo (schema e RLS)", () => {
 			updatedBy: admin,
 			active: false,
 		});
-		// Custo sobe acima do preço: fora da venda, preço intacto.
+		// Custo base sobe acima do preço: fora da venda, preço intacto.
+		await seedCatalogItem(owner, { bureauId, productId: raisedCost.id, salePrice: "15.00", updatedBy: admin });
+		await seedBureauCost(owner, {
+			bureauId,
+			productId: raisedCost.id,
+			cost: "20.00",
+			setBy: superadmin.userId,
+		});
+		// Só o custo por sócio sobe acima do valor por sócio: também fora da venda.
 		await seedCatalogItem(owner, {
 			bureauId,
-			productId: priced.id,
+			productId: raisedPartnerCost.id,
 			salePrice: "15.00",
+			salePricePerPartner: "5.00",
 			updatedBy: admin,
 		});
 		await seedBureauCost(owner, {
 			bureauId,
-			productId: priced.id,
-			cost: "20.00",
+			productId: raisedPartnerCost.id,
+			cost: "10.00",
+			costPerPartner: "6.00",
 			setBy: superadmin.userId,
 		});
 
-		const result = await app.query("select * from public_bureau_catalog($1)", [
-			tenant.bureau.slug,
+		const result = await app.query("select * from public_bureau_catalog($1)", [tenant.bureau.slug]);
+		expect(result.fields.map((f) => f.name)).toEqual(["code", "name", "sale_price", "sale_price_per_partner"]);
+		expect(result.rows.map((r) => [r.code, r.sale_price, r.sale_price_per_partner])).toEqual([
+			[main.code, "15.00", "5.00"],
 		]);
-		expect(result.fields.map((f) => f.name)).toEqual([
-			"code",
-			"name",
-			"kind",
-			"sale_price",
-		]);
-		expect(result.rows.map((r) => [r.code, r.kind, r.sale_price])).toEqual([
-			[main.code, "main", "15.00"],
-			[addon.code, "addon", "3.00"],
-		]);
-
-		// Último main compatível sai da venda: o addon sai junto.
-		await owner.query(
-			"update bureau_catalog_items set active = false where bureau_id = $1 and product_id = $2",
-			[bureauId, main.id],
-		);
-		const withoutMain = await app.query(
-			"select code from public_bureau_catalog($1)",
-			[tenant.bureau.slug],
-		);
-		expect(withoutMain.rowCount).toBe(0);
 
 		// Bureau inativo e slug inexistente.
-		await owner.query(
-			"update bureau_catalog_items set active = true where bureau_id = $1 and product_id = $2",
-			[bureauId, main.id],
-		);
-		await owner.query("update bureaus set status = 'inactive' where id = $1", [
-			bureauId,
-		]);
-		const inactive = await app.query(
-			"select code from public_bureau_catalog($1)",
-			[tenant.bureau.slug],
-		);
+		await owner.query("update bureaus set status = 'inactive' where id = $1", [bureauId]);
+		const inactive = await app.query("select code from public_bureau_catalog($1)", [tenant.bureau.slug]);
 		expect(inactive.rowCount).toBe(0);
-		const missing = await app.query(
-			"select code from public_bureau_catalog($1)",
-			["slug-que-nao-existe"],
-		);
+		const missing = await app.query("select code from public_bureau_catalog($1)", ["slug-que-nao-existe"]);
 		expect(missing.rowCount).toBe(0);
 	});
 
-	it("resolve_product_terms uses override then base cost", async () => {
+	it("resolve_product_terms uses override then base cost, base and per partner", async () => {
 		const tenant = await seedTenant(owner, "Catalogo termos");
 		const other = await seedTenant(owner, "Catalogo termos outro");
-		const product = await seedProduct(owner, { baseCost: "10.00" });
+		const product = await seedProduct(owner, { baseCost: "10.00", baseCostPerPartner: "3.00" });
 		const resolve = (t: SeededTenant) =>
 			withDbContext(app, adminOf(t), async (c) => {
 				const { rows } = await c.query(
-					"select product_version_id, effective_cost from resolve_product_terms($1, $2)",
+					"select product_version_id, effective_cost, effective_cost_per_partner from resolve_product_terms($1, $2)",
 					[t.bureau.id, product.id],
 				);
 				return rows;
 			});
 
 		expect(await resolve(tenant)).toEqual([
-			{ product_version_id: product.versionId, effective_cost: "10.00" },
+			{ product_version_id: product.versionId, effective_cost: "10.00", effective_cost_per_partner: "3.00" },
 		]);
 
 		const version2 = await seedProductVersion(owner, {
 			productId: product.id,
 			version: 2,
 			baseCost: "11.00",
+			baseCostPerPartner: "3.50",
 		});
 		expect(await resolve(tenant)).toEqual([
-			{ product_version_id: version2, effective_cost: "11.00" },
+			{ product_version_id: version2, effective_cost: "11.00", effective_cost_per_partner: "3.50" },
 		]);
 
-		for (const cost of ["12.00", "9.50"]) {
+		for (const [cost, costPerPartner] of [
+			["12.00", "5.00"],
+			["9.50", "2.25"],
+		]) {
 			await seedBureauCost(owner, {
 				bureauId: tenant.bureau.id,
 				productId: product.id,
 				cost,
+				costPerPartner,
 				setBy: superadmin.userId,
 			});
 		}
-		// Override mais recente vence; outro Bureau segue no custo padrão.
+		// Override mais recente vence (os dois campos); outro Bureau segue no custo padrão.
 		expect(await resolve(tenant)).toEqual([
-			{ product_version_id: version2, effective_cost: "9.50" },
+			{ product_version_id: version2, effective_cost: "9.50", effective_cost_per_partner: "2.25" },
 		]);
 		expect(await resolve(other)).toEqual([
-			{ product_version_id: version2, effective_cost: "11.00" },
+			{ product_version_id: version2, effective_cost: "11.00", effective_cost_per_partner: "3.50" },
 		]);
 	});
 });

@@ -15,7 +15,23 @@ Spec: [docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md](../sup
 | `completed` | capturado; aguarda parecer IA e/ou liberação | `released` |
 | `released` | entrega visível ao comprador | `completed` (revogação) |
 | `failed` | falha terminal; reserva liberada | — |
-| `cancelled` | recusa, expiração, prazo de pagamento ou cancelamento da equipe; reserva liberada | — |
+| `cancelled` | recusa, expiração, prazo de pagamento ou cancelamento da equipe ou do cliente; reserva liberada | — |
+
+### Fluxo do pedido no portal
+
+1. O cliente escolhe o dossiê, informa os dados e (se houver membros) marca a declaração do comprador. O valor total é reservado da carteira.
+2. Cada membro (responsável da empresa e sócios) recebe o pedido de autorização SCR. Quando um membro autoriza, a consulta dele passa a `processing` na hora.
+3. Quando todos autorizam, o pedido fica `ready` e o próximo tick o executa.
+
+### Estado do aceite por membro
+
+A página do pedido lista cada membro com o estado: pendente, autorizado, recusado ou vencido. Se um membro recusa ou deixa vencer, o pedido não roda e a página mostra o aviso.
+
+### Cancelamento pelo cliente
+
+- O cliente cancela o próprio pedido em `awaiting_authorization` ou `ready`, com o botão "Cancelar pedido".
+- O pedido vai para `cancelled` (`cancelled_by_client`), a reserva volta ao saldo e a auditoria registra o evento na mesma transação.
+- Depois de `executing`, o cliente não cancela.
 
 ## 2. Prazos
 
@@ -27,6 +43,7 @@ Spec: [docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md](../sup
 - Erro transitório da DEPS: o pedido volta para `ready` com espera de `2^(tentativa-1)` minutos, no máximo 60. Na 5ª falha, o pedido vai para `failed` e libera a reserva.
 - Parecer IA: 3 tentativas. A tentativa é contada antes da chamada ao modelo, com lease de 5 minutos. Depois, `ai_status = failed`. A entrega sai sem parecer.
 - Pedidos de autorização por destinatário: no máximo 3 pedidos pendentes por e-mail ou celular em 24 h por Bureau. O 4º pedido é recusado (`too_many_requests`).
+- Pedidos online por cliente: no máximo 5 em 24 h. O 6º é recusado (`too_many_orders`). Ao cancelar um pedido, os links de autorização pendentes dele passam a `expired`.
 
 ## 3. Cron
 

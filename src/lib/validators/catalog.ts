@@ -11,6 +11,17 @@ export const moneySchema = z.string().refine((value) => {
 	}
 }, "Informe um valor entre 0,01 e 99.999.999,99, com até 2 casas decimais.");
 
+// Custo e valor por sócio aceitam 0: o Dossiê Pessoa Física não cobra por sócio.
+export const nonNegativeMoneySchema = z.string().refine((value) => {
+	try {
+		return toCents(value) >= 0;
+	} catch {
+		return false;
+	}
+}, "Informe um valor entre 0,00 e 99.999.999,99, com até 2 casas decimais.");
+
+const perPartnerMoney = nonNegativeMoneySchema.default("0.00");
+
 const productName = z
 	.string()
 	.trim()
@@ -26,32 +37,13 @@ const depsProduct = z
 
 const uuid = z.string().uuid();
 
-export const productCreateSchema = z
-	.object({
-		code: z
-			.string()
-			.regex(
-				/^[a-z0-9_]{3,60}$/,
-				"Use de 3 a 60 letras minúsculas, números ou _.",
-			),
-		name: productName,
-		kind: z.enum(["main", "addon"]),
-		addonFor: z
-			.array(z.string().regex(/^[a-z0-9_]{3,60}$/))
-			.default([])
-			.transform((codes) => Array.from(new Set(codes))),
-		depsProduct,
-		baseCost: moneySchema,
-	})
-	.refine(
-		(v) =>
-			v.kind === "addon" ? v.addonFor.length > 0 : v.addonFor.length === 0,
-		{
-			message:
-				"Só o adicional lista produtos compatíveis, e deve listar ao menos um.",
-			path: ["addonFor"],
-		},
-	);
+export const productCreateSchema = z.object({
+	code: z.string().regex(/^[a-z0-9_]{3,60}$/, "Use de 3 a 60 letras minúsculas, números ou _."),
+	name: productName,
+	depsProduct,
+	baseCost: nonNegativeMoneySchema,
+	baseCostPerPartner: perPartnerMoney,
+});
 
 export const productUpdateSchema = z.object({
 	id: uuid,
@@ -62,19 +54,22 @@ export const productUpdateSchema = z.object({
 export const productVersionSchema = z.object({
 	productId: uuid,
 	depsProduct,
-	baseCost: moneySchema,
+	baseCost: nonNegativeMoneySchema,
+	baseCostPerPartner: perPartnerMoney,
 });
 
 export const bureauCostSchema = z.object({
 	bureauId: uuid,
 	productId: uuid,
-	cost: moneySchema,
+	cost: nonNegativeMoneySchema,
+	costPerPartner: perPartnerMoney,
 });
 
 export const catalogItemSchema = z.object({
 	productId: uuid,
 	active: z.boolean(),
 	salePrice: moneySchema,
+	salePricePerPartner: perPartnerMoney,
 });
 
 export type ProductCreate = z.infer<typeof productCreateSchema>;

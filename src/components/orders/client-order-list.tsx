@@ -18,9 +18,8 @@ const STATE_VARIANT: Record<OrderState, BadgeProps["variant"]> = {
 };
 
 const PRODUCT_LABEL: Record<ClientOrderListItem["productCode"], string> = {
-	consulta_pf: "Consulta PF",
-	consulta_pj: "Consulta PJ",
-	dossie_pj_completo: "Dossiê PJ completo",
+	dossie_pf: "Dossiê Pessoa Física",
+	dossie_empresarial: "Dossiê Empresarial Estruturado",
 };
 
 export function OrderStateBadge({ state, reason }: { state: OrderState; reason: ClientOrderListItem["reason"] }) {
@@ -46,7 +45,6 @@ export function ClientOrderList({ orders }: { orders: ClientOrderListItem[] }) {
 						<span className="min-w-0 space-y-0.5">
 							<span className="block text-sm font-medium">
 								{PRODUCT_LABEL[o.productCode]}
-								{o.withAi && " + parecer IA"}
 							</span>
 							<span className="block truncate text-sm">{o.subjectName}</span>
 							<span className="block text-xs text-muted-foreground">

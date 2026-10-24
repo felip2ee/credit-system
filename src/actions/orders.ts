@@ -69,13 +69,12 @@ export async function openCounterOrderAction(values: unknown): Promise<ActionRes
 	if (parsed.data.contactPhone !== null && !phoneE164) return { error: INVALID_PHONE };
 
 	try {
-		const quote = await quoteOrder(auth.session, parsed.data.productCode, { withAi: parsed.data.withAi });
+		const quote = await quoteOrder(auth.session, parsed.data.productCode, { partnerCount: parsed.data.partners.length });
 		if (!quote.ok) return failureOf("openCounterOrderAction", quote.reason);
 		const result = await placeOrder(
 			auth.session,
 			{
 				productCode: parsed.data.productCode,
-				withAi: parsed.data.withAi,
 				self: false,
 				subject: parsed.data.subject,
 				partners: parsed.data.partners,

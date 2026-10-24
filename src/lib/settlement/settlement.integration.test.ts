@@ -102,7 +102,7 @@ async function reserve(c: PoolClient, input: ReserveInput) {
 }
 // Como reserve, sem criar o Dossiê (o teste já o tem).
 async function reserveWithCatalog(c: PoolClient, input: ReserveInput) {
-	const quote = input.quote ?? (await seedOrderCatalog(owner, c, { price: input.price, cost: input.cost }));
+	const quote = input.quote ?? (await seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: input.price, cost: input.cost }));
 	return reserveRaw(c, { ...input, quote });
 }
 const reserveRaw = (c: PoolClient, input: ReserveInput) =>
@@ -291,7 +291,7 @@ describe("reserve_order / capture_order / release_order (online)", () => {
 			quote: { lines: [{ code: "ignored" }], total: "999.00", note: "caller field" },
 		};
 		const code = await committed(clientCtx(t), async (c) => {
-			const { lines } = await seedOrderCatalog(owner, c, { price: order.price, cost: order.cost });
+			const { lines } = await seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: order.price, cost: order.cost });
 			await seedOrderDossierForSession(owner, c, { orderRef: order.orderRef, clientProfileId: t.client.userId });
 			await reserveRaw(c, { ...order, quote: { lines: [{ code: lines[0].code, costCents: 1, priceCents: 1 }] } });
 			return lines[0].code;
@@ -301,8 +301,12 @@ describe("reserve_order / capture_order / release_order (online)", () => {
 				{
 					productVersionId: expect.any(String),
 					code,
-					costCents: 3000,
+					part: "base",
+					quantity: 1,
+					unitPriceCents: 5000,
+					unitCostCents: 3000,
 					priceCents: 5000,
+					costCents: 3000,
 				},
 			],
 		});

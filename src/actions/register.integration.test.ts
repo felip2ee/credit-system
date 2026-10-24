@@ -75,7 +75,7 @@ function formValues(overrides: Record<string, unknown> = {}) {
 		password: PASSWORD,
 		confirm: PASSWORD,
 		acceptedTerms: true,
-		termsVersion: 1,
+		termsVersion: 2,
 		privacyVersion: 1,
 		...overrides,
 	};

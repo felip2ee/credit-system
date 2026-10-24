@@ -56,7 +56,7 @@ import type { OpenOrderInput, OrderProductCode } from "./types";
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 
 const onlyDigits = (value: string) => value.replace(/\D/g, "");
-const PRICES: Record<string, string> = { consulta_pf: "50.00", parecer_ia: "20.00" };
+const PRICES: Record<string, string> = { dossie_pf: "50.00" };
 const COST = "1.00";
 const parecer = {
 	tipo_pessoa: "PF",
@@ -113,7 +113,14 @@ beforeEach(() => {
 
 async function newTenant(label: string): Promise<SeededTenant> {
 	const t = await seedTenant(owner, label);
+	// O pedido online de terceiro (Dossiê Pessoa Física) é da conta PJ: o Titular da conta vira uma empresa.
+	await owner.query("update holders set type = 'PJ', document = $2 where id = $1", [
+		t.holder.id,
+		Array.from({ length: 14 }, () => Math.floor(Math.random() * 10)).join(""),
+	]);
 	for (const code of Object.keys(PRICES)) {
+		// O seed do catálogo deixa os produtos inativos.
+		await owner.query("update products set active = true where code = $1", [code]);
 		const { rows } = await owner.query<{ id: string }>("select id from products where code = $1", [code]);
 		await seedBureauCost(owner, { bureauId: t.bureau.id, productId: rows[0].id, cost: COST, setBy: t.bureauAdmin.userId });
 		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: rows[0].id, salePrice: PRICES[code], updatedBy: t.bureauAdmin.userId });
@@ -125,11 +132,27 @@ async function newTenant(label: string): Promise<SeededTenant> {
 }
 
 const staff = (t: SeededTenant): DbIdentity => ({ ...t.operator });
+
+// O teto de 5 pedidos online por cliente em 24 h vale: os pedidos de carga saem da janela, em ordem de criação.
+// created_at é imutável sob o gatilho do pedido: o teste o desliga só nesta transação.
+async function outOfDailyWindow(t: SeededTenant) {
+	const c = await owner.connect();
+	try {
+		await c.query("begin");
+		await c.query("set local session_replication_role = replica");
+		await c.query("update dossier_orders set created_at = created_at - interval '2 days' where client_profile_id = $1", [t.client.userId]);
+		await c.query("commit");
+	} catch (error) {
+		await c.query("rollback");
+		throw error;
+	} finally {
+		c.release();
+	}
+}
 const buyerOf = (t: SeededTenant): DbIdentity => ({ ...t.client });
 
 const thirdInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
-	productCode: "consulta_pf",
-	withAi: false,
+	productCode: "dossie_pf",
 	self: false,
 	subject: { type: "PF", name: "Fulano de Tal", documentDigits: onlyDigits(randomCpf()) },
 	partners: [],
@@ -139,7 +162,7 @@ const thirdInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
 });
 
 async function place(who: DbIdentity, t: SeededTenant, input: OpenOrderInput): Promise<string> {
-	const quote = await quoteOrder(staff(t), input.productCode as OrderProductCode, { withAi: input.withAi });
+	const quote = await quoteOrder(staff(t), input.productCode as OrderProductCode, { partnerCount: input.partners.length });
 	if (!quote.ok) throw new Error(`quote failed: ${quote.reason}`);
 	const result = await placeOrder(who, input, quote);
 	if (!result.ok) throw new Error(`placeOrder failed: ${result.reason}`);
@@ -188,10 +211,12 @@ const ZERO: TickResult = {
 describe("runOrdersTick", () => {
 	it("online order end to end debits P from the client and accrues P minus C", async () => {
 		const t = await newTenant("tick e2e");
-		const id = await place(buyerOf(t), t, thirdInput({ withAi: true }));
+		const id = await place(buyerOf(t), t, thirdInput());
+		// Sem nenhuma opção de IA no pedido: o parecer entra pendente e o tick o gera.
+		expect((await orderOf(id)).ai_status).toBe("pending");
 		const [settlement] = await rows("select price::text, cost::text from order_settlements where order_ref = $1", [id]);
-		expect(settlement).toEqual({ price: "70.00", cost: "2.00" });
-		expect(await clientWallet(t)).toEqual({ available: "130.00", reserved: "70.00" });
+		expect(settlement).toEqual({ price: "50.00", cost: "1.00" });
+		expect(await clientWallet(t)).toEqual({ available: "150.00", reserved: "50.00" });
 
 		// Tick 1: emite o pedido de autorização SCR por e-mail.
 		expect(await runOrdersTick()).toEqual({ ...ZERO, requested: 1 });
@@ -210,10 +235,10 @@ describe("runOrdersTick", () => {
 		expect(fakes.consultPF).toHaveBeenCalledOnce();
 		expect(fakes.generateParecer).toHaveBeenCalledOnce();
 		expect(await orderOf(id)).toEqual({ state: "released", state_reason: null, ai_status: "done" });
-		expect(await clientWallet(t)).toEqual({ available: "130.00", reserved: "0.00" });
+		expect(await clientWallet(t)).toEqual({ available: "150.00", reserved: "0.00" });
 		expect(await bureauWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
 		expect(await rows("select kind, amount::text from bureau_payable_entries where bureau_id = $1", [t.bureau.id])).toEqual([
-			{ kind: "accrual", amount: "68.00" },
+			{ kind: "accrual", amount: "49.00" },
 		]);
 		expect(await rows("select channel, status from notifications where reference = $1", [`order:${id}`])).toEqual([
 			{ channel: "email", status: "pending" },
@@ -222,7 +247,7 @@ describe("runOrdersTick", () => {
 		expect(released.key).toMatch(new RegExp(`^research_released:email:${id}:\\d+$`));
 
 		const delivery = await withUserTransaction(buyerOf(t), (c) => getMyDelivery(c, id));
-		expect(delivery?.order).toMatchObject({ dossierId: id, state: "released", withAi: true });
+		expect(delivery?.order).toMatchObject({ dossierId: id, state: "released" });
 		expect(delivery?.members).toHaveLength(1);
 		expect(delivery?.members[0]).toMatchObject({ status: "completed", canonical: expect.any(Object), opinion: expect.objectContaining({ resumo_executivo: parecer.resumo_executivo }) });
 		expect(await rows("select status::text from dossiers where id = $1", [id])).toEqual([{ status: "completed" }]);
@@ -322,7 +347,7 @@ describe("runOrdersTick", () => {
 
 		expect(await runOrdersTick()).toEqual({ ...ZERO, expired: 1, cancelled: 1 });
 
-		expect(await orderOf(id)).toEqual({ state: "cancelled", state_reason: "scr_expired", ai_status: "none" });
+		expect(await orderOf(id)).toEqual({ state: "cancelled", state_reason: "scr_expired", ai_status: "pending" });
 		expect((await scrOf(id)).status).toBe("expired");
 		expect(await clientWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
 		expect(fakes.consultPF).not.toHaveBeenCalled();
@@ -346,7 +371,7 @@ describe("runOrdersTick", () => {
 
 		expect(await runOrdersTick()).toEqual({ ...ZERO, promoted: 1, executed: 1 });
 
-		expect(await orderOf(id)).toEqual({ state: "failed", state_reason: "deps_no_data", ai_status: "none" });
+		expect(await orderOf(id)).toEqual({ state: "failed", state_reason: "deps_no_data", ai_status: "pending" });
 		expect(await clientWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
 		expect(await rows("select status::text, error_message from consultations where dossier_id = $1", [id])).toEqual([
 			{ status: "error", error_message: "Sem dados na DEPS." },
@@ -376,7 +401,7 @@ describe("runOrdersTick", () => {
 
 		expect(await runOrdersTick()).toEqual({ ...ZERO, cancelled: 1 });
 
-		expect(await orderOf(id)).toEqual({ state: "cancelled", state_reason: "payment_timeout", ai_status: "none" });
+		expect(await orderOf(id)).toEqual({ state: "cancelled", state_reason: "payment_timeout", ai_status: "pending" });
 		expect(await bureauWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
 	});
 
@@ -405,7 +430,10 @@ describe("runOrdersTick", () => {
 		const t = await newTenant("tick limit");
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "1000.00", createdBy: t.bureauAdmin.userId });
 		const ids: string[] = [];
-		for (let i = 0; i < TICK_EXECUTION_LIMIT + 1; i += 1) ids.push(await place(buyerOf(t), t, thirdInput()));
+		for (let i = 0; i < TICK_EXECUTION_LIMIT + 1; i += 1) {
+			ids.push(await place(buyerOf(t), t, thirdInput()));
+			await outOfDailyWindow(t);
+		}
 		await owner.query(
 			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null
 			  where id in (select scr_authorization_id from consultations where dossier_id = any($1::uuid[]))`,
@@ -419,7 +447,7 @@ describe("runOrdersTick", () => {
 
 	it("two overlapping ticks pay the AI opinion once and the second skips the Bureau", async () => {
 		const t = await newTenant("tick overlap");
-		const id = await place(buyerOf(t), t, thirdInput({ withAi: true }));
+		const id = await place(buyerOf(t), t, thirdInput());
 		await owner.query(
 			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null
 			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
@@ -443,7 +471,10 @@ describe("runOrdersTick", () => {
 	it("an authorized order is promoted on the first tick even behind 25 older waiting orders", async () => {
 		const t = await newTenant("tick starve");
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "2000.00", createdBy: t.bureauAdmin.userId });
-		for (let i = 0; i < 25; i += 1) await place(buyerOf(t), t, thirdInput());
+		for (let i = 0; i < 25; i += 1) {
+			await place(buyerOf(t), t, thirdInput());
+			await outOfDailyWindow(t);
+		}
 		const newest = await place(buyerOf(t), t, thirdInput());
 		await owner.query(
 			`update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days', auth_code = null
@@ -491,7 +522,7 @@ describe("runOrdersTick", () => {
 		await runOrdersTick();
 
 		expect(fakes.consultPF).not.toHaveBeenCalled();
-		expect(await orderOf(second)).toEqual({ state: "failed", state_reason: "deps_unavailable", ai_status: "none" });
+		expect(await orderOf(second)).toEqual({ state: "failed", state_reason: "deps_unavailable", ai_status: "pending" });
 		expect(await clientWallet(t)).toEqual({ available: "150.00", reserved: "0.00" });
 	});
 });

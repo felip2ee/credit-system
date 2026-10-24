@@ -33,9 +33,9 @@ describe("fromCents", () => {
 });
 
 describe("isPriceSellable", () => {
-  it("needs a cost above zero and a price at or above it", () => {
+  it("needs a price at or above the cost, and accepts a cost of zero", () => {
     expect(isPriceSellable(1000, 1000)).toBe(true);
     expect(isPriceSellable(999, 1000)).toBe(false);
-    expect(isPriceSellable(500, 0)).toBe(false);
+    expect(isPriceSellable(500, 0)).toBe(true);
   });
 });

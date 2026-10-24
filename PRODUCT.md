@@ -61,8 +61,11 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - **Venda de balcão:** o cliente paga o Bureau. O custo da consulta sai do saldo pré-pago do Bureau, comprado via Asaas.
 - **Reserva, captura e estorno:** o valor é reservado ao pedir. É capturado quando a consulta DEPS retorna sucesso. É liberado se a consulta falha.
 - **Livro-razão:** todo movimento é um lançamento imutável. O saldo nunca é editável.
-- **Catálogo:** o superadmin cadastra produtos base (Consulta PF, Consulta PJ, Dossiê PJ completo, adicional Parecer IA), mapeados aos produtos DEPS. O Bureau escolhe o que vende e o preço.
-- **Parecer IA:** gerado pela OpenAI e vendido como adicional com preço próprio.
+- **Catálogo:** o superadmin cadastra dois produtos base: Dossiê Pessoa Física e Dossiê Empresarial Estruturado, mapeados aos produtos DEPS. Os dois nascem inativos. O superadmin define o custo e ativa. O Bureau escolhe o que vende e o preço.
+- **Preço:** total = valor base + valor por sócio × sócios distintos (por CPF, de 0 a 20). O valor por sócio só vale no Dossiê Empresarial. O preço de venda de cada campo não pode ficar abaixo do custo do mesmo campo.
+- **Parecer IA:** todo pedido inclui o parecer, gerado pela OpenAI. Não há adicional nem preço próprio. O custo fica no valor base.
+- **Portal:** a conta PF compra o Dossiê Pessoa Física só para si. A conta PJ informa CPF, nome e e-mail do responsável. O Dossiê Empresarial vale para qualquer CNPJ, com sócios. Pedido com membros exige a declaração do comprador. A página do pedido mostra o estado do aceite SCR de cada membro. O cliente cancela antes da execução e o valor volta ao saldo.
+- **Próxima entrega:** programa de afiliados (link, comissão, saque). "Comissão" continua fora de escopo até a spec de afiliados.
 - **SCR:** consulta de terceiros exige autorização do próprio titular, com trilha auditável.
 - **Auditoria:** eventos append-only, na mesma transação da mutação. Nunca grave CPF/CNPJ completo.
 - **Segurança:** isolamento por Bureau com RLS no Postgres. Autorização é checada no servidor.

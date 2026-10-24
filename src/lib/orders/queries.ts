@@ -11,6 +11,7 @@ import { enqueueNotification } from "@/lib/notifications/queries";
 import { captureOrder, releaseOrder, reserveOrder } from "@/lib/settlement/queries";
 import type { OrderQuote, SettlementFailure } from "@/lib/settlement/types";
 
+import { recordOrderDeclaration } from "./client-ops";
 import {
 	LEASE_MINUTES,
 	MAX_EXECUTION_ATTEMPTS,
@@ -27,12 +28,13 @@ const OPEN_FAILURES: readonly string[] = [
 	"not_allowed",
 	"invalid_input",
 	"product_not_for_sale",
-	"addon_not_for_sale",
 	"kind_mismatch",
+	"third_party_not_allowed",
 	"self_holder_missing",
 	"contact_is_buyer",
 	"buyer_not_found",
 	"too_many_requests",
+	"too_many_orders",
 ];
 const MAX_REVOKE_REASON = 500;
 
@@ -47,10 +49,9 @@ export async function openOrder(client: PoolClient, input: OpenOrderInput): Prom
 		role: p.role,
 	}));
 	const { rows } = await client.query<{ ok: boolean; reason: string | null; dossier_id: string | null; state: OrderState | null }>(
-		"select ok, reason, dossier_id, state from open_order($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)",
+		"select ok, reason, dossier_id, state from open_order($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)",
 		[
 			input.productCode,
-			input.withAi,
 			input.self,
 			input.subject?.type ?? null,
 			input.subject?.name ?? null,
@@ -67,24 +68,33 @@ export async function openOrder(client: PoolClient, input: OpenOrderInput): Prom
 	throw new Error("unexpected openOrder reason");
 }
 
+export type PlaceOrderFailure = OpenOrderFailure | SettlementFailure | "declaration_outdated";
+export type PlaceOrderOptions = { declaration?: { version: number; ip: string | null; userAgent: string | null } };
+
 // Carrega o motivo da reserva recusada para fora da transação: lançar desfaz Titular, Dossiê, pedido e autorizações.
 class PlaceOrderAbort extends Error {
-	constructor(readonly reason: OpenOrderFailure | SettlementFailure) {
+	constructor(readonly reason: PlaceOrderFailure) {
 		super("placeOrder aborted");
 	}
 }
 
-// Uma transação: abre, reserva e (balcão) atualiza o estado. Saldo insuficiente não deixa Dossiê, pedido nem autorização.
+// Uma transação: abre, grava a declaração (portal), reserva e (balcão) atualiza o estado. Saldo insuficiente ou
+// declaração recusada não deixa Dossiê, pedido nem autorização.
 export async function placeOrder(
 	identity: DbIdentity,
 	input: OpenOrderInput,
 	quote: OrderQuote,
-): Promise<{ ok: true; dossierId: string; state: OrderState } | { ok: false; reason: OpenOrderFailure | SettlementFailure }> {
+	options: PlaceOrderOptions = {},
+): Promise<{ ok: true; dossierId: string; state: OrderState } | { ok: false; reason: PlaceOrderFailure }> {
 	const mode: OrderMode = identity.role === "client" ? "online" : "counter";
 	try {
 		return await withUserTransaction(identity, async (client) => {
 			const opened = await openOrder(client, input);
 			if (!opened.ok) throw new PlaceOrderAbort(opened.reason);
+			if (options.declaration) {
+				const declared = await recordOrderDeclaration(client, { dossierId: opened.dossierId, ...options.declaration });
+				if (!declared.ok) throw new PlaceOrderAbort(declared.reason === "outdated" ? "declaration_outdated" : "not_found");
+			}
 			const reserved = await reserveOrder(client, {
 				orderRef: opened.dossierId,
 				mode,
@@ -151,11 +161,11 @@ export async function getExecutionPlan(
 	client: PoolClient,
 	dossierId: string,
 ): Promise<{
-	order: { dossierId: string; mode: OrderMode; withAi: boolean; attempts: number; kind: OrderKind };
+	order: { dossierId: string; mode: OrderMode; attempts: number; kind: OrderKind };
 	members: ExecutionMember[];
 } | null> {
-	const order = await client.query<{ mode: OrderMode; with_ai: boolean; attempts: number; kind: OrderKind }>(
-		`select o.mode, o.with_ai, o.attempts, d.kind::text as kind
+	const order = await client.query<{ mode: OrderMode; attempts: number; kind: OrderKind }>(
+		`select o.mode, o.attempts, d.kind::text as kind
 		   from dossier_orders o join dossiers d on d.id = o.dossier_id
 		  where o.dossier_id = $1`,
 		[dossierId],
@@ -181,7 +191,7 @@ export async function getExecutionPlan(
 	);
 	const o = order.rows[0];
 	return {
-		order: { dossierId, mode: o.mode, withAi: o.with_ai, attempts: o.attempts, kind: o.kind },
+		order: { dossierId, mode: o.mode, attempts: o.attempts, kind: o.kind },
 		members: members.rows.map((m) => ({
 			consultationId: m.id,
 			type: m.type,
@@ -266,8 +276,7 @@ export async function completeOrder(
 	}
 	const { rowCount } = await client.query(
 		`update dossier_orders
-		    set state = 'completed', lease_until = null, ai_status = case when with_ai then 'pending' else 'none' end,
-		        updated_at = now()
+		    set state = 'completed', lease_until = null, updated_at = now()
 		  where dossier_id = $1 and state = 'executing'`,
 		[dossierId],
 	);
@@ -341,7 +350,18 @@ export async function cancelOrder(
 	);
 	await client.query("update dossiers set status = 'cancelled' where id = $1", [dossierId]);
 	await client.query(
-		"update consultations set status = 'rejected' where dossier_id = $1 and status = 'pending_authorization'",
+		"update consultations set status = 'rejected' where dossier_id = $1 and status in ('pending_authorization', 'processing')",
+		[dossierId],
+	);
+	// Links já enviados deixam de valer: autorização pendente que nenhuma outra consulta viva usa passa a 'expired'.
+	await client.query(
+		`update scr_authorizations s
+		    set status = 'expired', auth_code = null, last_checked_at = now()
+		  where s.status = 'pending'
+		    and s.id in (select c.scr_authorization_id from consultations c where c.dossier_id = $1)
+		    and not exists (select 1 from consultations c2
+		                     where c2.scr_authorization_id = s.id and c2.dossier_id <> $1
+		                       and c2.status in ('pending_authorization', 'authorized', 'processing'))`,
 		[dossierId],
 	);
 	await recordTransition(client, identity, dossierId, {

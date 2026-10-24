@@ -53,7 +53,6 @@ const NOT_ALLOWED = "Você não tem permissão para gerenciar o catálogo.";
 const newProduct = {
 	code: "consulta_extra",
 	name: "Consulta extra",
-	kind: "main",
 	depsProduct: "Smart PF 002",
 	baseCost: "5.00",
 };
@@ -105,25 +104,38 @@ describe("permission by role", () => {
 			BUREAU_ID,
 			PRODUCT_ID,
 			"7.25",
+			"0.00",
 		);
 	});
 });
 
 describe("validation", () => {
 	it("rejects invalid money and ids before the query", async () => {
-		for (const bad of ["0", "-1.00", "1.234", "abc", "100000000.00", " 10.00", "1,50"]) {
+		for (const bad of ["-1.00", "1.234", "abc", "100000000.00", " 10.00", "1,50"]) {
 			expect((await setBureauProductCost({ ...cost, cost: bad })).error).toBeTruthy();
 		}
 		expect((await setBureauProductCost({ ...cost, bureauId: "abc" })).error).toBeTruthy();
-		expect((await createProductVersion({ ...newVersion, baseCost: "0.00" })).error).toBeTruthy();
+		expect((await createProductVersion({ ...newVersion, baseCost: "-0.01" })).error).toBeTruthy();
+		expect((await createProductVersion({ ...newVersion, baseCostPerPartner: "1.234" })).error).toBeTruthy();
+		expect((await setBureauProductCost({ ...cost, costPerPartner: "-1.00" })).error).toBeTruthy();
 		expect(state.setBureauProductCost).not.toHaveBeenCalled();
 		expect(state.createProductVersion).not.toHaveBeenCalled();
 	});
 
-	it("requires compatible mains for an addon and none for a main", async () => {
-		expect((await createProduct({ ...newProduct, kind: "addon" })).error).toBeTruthy();
-		expect((await createProduct({ ...newProduct, addonFor: ["consulta_pf"] })).error).toBeTruthy();
-		expect(state.createProduct).not.toHaveBeenCalled();
+	it("accepts cost 0 and passes the per-partner values", async () => {
+		expect(await createProductVersion({ ...newVersion, baseCost: "0.00", baseCostPerPartner: "2.50" })).toEqual({
+			error: null,
+			id: "v2",
+		});
+		expect(await setBureauProductCost({ ...cost, cost: "0", costPerPartner: "3.00" })).toEqual({
+			error: null,
+			id: PRODUCT_ID,
+		});
+		expect(state.createProductVersion).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ baseCost: "0.00", baseCostPerPartner: "2.50" }),
+		);
+		expect(state.setBureauProductCost).toHaveBeenCalledWith(expect.anything(), BUREAU_ID, PRODUCT_ID, "0", "3.00");
 	});
 });
 
@@ -139,14 +151,28 @@ describe("upsertCatalogItem", () => {
 		expect(state.upsertCatalogItem).toHaveBeenCalledWith(
 			expect.objectContaining({ bureauId: BUREAU_ID }),
 			PRODUCT_ID,
-			{ active: true, salePrice: "10.00" },
+			{ active: true, salePrice: "10.00", salePricePerPartner: "0.00" },
 		);
+	});
+
+	it("passes the per-partner price and rejects an invalid one before the query", async () => {
+		await upsertCatalogItem({ ...item, salePricePerPartner: "30.00" });
+		expect(state.upsertCatalogItem).toHaveBeenCalledWith(expect.anything(), PRODUCT_ID, {
+			active: true,
+			salePrice: "10.00",
+			salePricePerPartner: "30.00",
+		});
+
+		state.upsertCatalogItem.mockClear();
+		expect((await upsertCatalogItem({ ...item, salePricePerPartner: "-1.00" })).error).toBeTruthy();
+		expect((await upsertCatalogItem({ ...item, salePrice: "0.00" })).error).toBeTruthy();
+		expect(state.upsertCatalogItem).not.toHaveBeenCalled();
 	});
 
 	it.each([
 		["price_below_cost", "O preço de venda não pode ser menor que o custo."],
-		["cost_not_set", "O custo deste produto ainda não foi definido. Peça ao suporte para defini-lo."],
-		["addon_requires_main", "Ative antes um produto principal compatível com este adicional."],
+		["partner_price_below_cost", "O valor por sócio não pode ser menor que o custo por sócio."],
+		["per_partner_not_allowed", "O Dossiê Pessoa Física não cobra valor por sócio."],
 		["product_inactive", "Este produto está desativado."],
 	])("maps %s to a pt-BR message", async (reason, message) => {
 		state.upsertCatalogItem.mockResolvedValue({ ok: false, reason });
@@ -216,13 +242,10 @@ describe("session errors", () => {
 });
 
 describe("query results", () => {
-	it.each([
-		["code_taken", "Este código já está em uso."],
-		["addon_for_unknown", "Os produtos compatíveis devem existir e ser do tipo principal."],
-	])("maps createProduct %s to a pt-BR message", async (reason, message) => {
-		state.createProduct.mockResolvedValue({ ok: false, reason });
+	it("maps createProduct code_taken to a pt-BR message", async () => {
+		state.createProduct.mockResolvedValue({ ok: false, reason: "code_taken" });
 
-		expect((await createProduct(newProduct)).error).toBe(message);
+		expect((await createProduct(newProduct)).error).toBe("Este código já está em uso.");
 	});
 
 	it("maps not_found to a pt-BR message on update, version and cost", async () => {
@@ -238,15 +261,6 @@ describe("query results", () => {
 });
 
 describe("input normalization", () => {
-	it("stores duplicate addonFor codes once", async () => {
-		await createProduct({ ...newProduct, kind: "addon", addonFor: ["consulta_pf", "consulta_pf", "consulta_pj"] });
-
-		expect(state.createProduct).toHaveBeenCalledWith(
-			expect.anything(),
-			expect.objectContaining({ addonFor: ["consulta_pf", "consulta_pj"] }),
-		);
-	});
-
 	it("accepts a missing depsProduct and passes null", async () => {
 		const { depsProduct: _omitted, ...withoutDeps } = newProduct;
 		const { depsProduct: _omittedVersion, ...versionWithoutDeps } = newVersion;

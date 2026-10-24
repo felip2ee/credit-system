@@ -44,6 +44,7 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
               <TableHead>Versão</TableHead>
               <TableHead>Nome DEPS</TableHead>
               <TableHead className="text-right">Custo padrão</TableHead>
+              <TableHead className="text-right">Custo por sócio</TableHead>
               <TableHead>Criada em</TableHead>
             </TableRow>
           </TableHeader>
@@ -53,6 +54,9 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
                 <TableCell>v{v.version}</TableCell>
                 <TableCell>{v.depsProduct ?? "—"}</TableCell>
                 <TableCell className="text-right">{formatBRL(v.baseCost)}</TableCell>
+                <TableCell className="text-right">
+                  {product.code === "dossie_empresarial" ? formatBRL(v.baseCostPerPartner) : "—"}
+                </TableCell>
                 <TableCell>{v.createdAt.toLocaleString("pt-BR")}</TableCell>
               </TableRow>
             ))}
@@ -67,8 +71,10 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
           </p>
           <ProductVersionForm
             productId={product.id}
+            productCode={product.code}
             currentDepsProduct={product.depsProduct}
             currentBaseCost={product.baseCost}
+            currentBaseCostPerPartner={product.baseCostPerPartner}
           />
         </section>
       )}

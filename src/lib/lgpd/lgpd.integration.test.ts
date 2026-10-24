@@ -124,7 +124,7 @@ async function seedHolderGraph(
 	);
 	await owner.query(
 		`insert into dossier_orders (dossier_id, bureau_id, mode, product_code, subject_name, subject_document_masked, state, created_by)
-     values ($1, $2, 'counter', 'consulta_pf', 'Nome Real do Titular', '***.000.000-**', $3, $4)`,
+     values ($1, $2, 'counter', 'dossie_pf', 'Nome Real do Titular', '***.000.000-**', $3, $4)`,
 		[dossierId, bureauId, options.orderState ?? "completed", adminId],
 	);
 	const authCode = `AUTH-${randomBytes(6).toString("hex")}`;
@@ -316,7 +316,7 @@ describe("anonymizeClientAccount", () => {
 		await owner.query(
 			`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
            subject_document_masked, state, created_by)
-       values ($1, $2, 'online', $3, 'consulta_pf', 'Titular', '***', 'ready', $4)`,
+       values ($1, $2, 'online', $3, 'dossie_pf', 'Titular', '***', 'ready', $4)`,
 			[dossierId, tenant.bureau.id, tenant.client.userId, tenant.bureauAdmin.userId],
 		);
 

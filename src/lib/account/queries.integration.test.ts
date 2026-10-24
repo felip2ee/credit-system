@@ -65,7 +65,7 @@ function registerInput(overrides: Partial<RegisterClientInput> = {}): RegisterCl
 		email: `${randomUUID()}@example.test`,
 		phoneE164: `+55639${String(randomInt(0, 100_000_000)).padStart(8, "0")}`,
 		passwordHash: `hash-${randomBytes(16).toString("hex")}`,
-		termsVersion: 1,
+		termsVersion: 2,
 		privacyVersion: 1,
 		ip: newIp(),
 		userAgent: "vitest-agent/1.0",
@@ -90,14 +90,14 @@ describe("getClientAccountStatus", () => {
 				documentMasked: null,
 			});
 
-			const accepted = await db.query("select ok, reason from accept_legal_documents($1, 1, 1, null, 'vitest')", [
+			const accepted = await db.query("select ok, reason from accept_legal_documents($1, 2, 1, null, 'vitest')", [
 				client.userId,
 			]);
 			expect(accepted.rows[0]).toEqual({ ok: true, reason: null });
 			expect((await getClientAccountStatus(db, client.userId)).termsAccepted).toBe(true);
 		});
 
-		// Versão 2 publicada: quem aceitou só a 1 volta a pendente. Transação do dono, desfeita no fim.
+		// Versão 3 publicada: quem aceitou só a 2 volta a pendente. Transação do dono, desfeita no fim.
 		const db = await owner.connect();
 		try {
 			await db.query("begin");
@@ -106,9 +106,9 @@ describe("getClientAccountStatus", () => {
                 set_config('app.bureau_id', $2, true), set_config('app.support_session_id', '', true)`,
 				[client.userId, client.bureauId],
 			);
-			await db.query("select ok from accept_legal_documents($1, 1, 1, null, 'vitest')", [client.userId]);
+			await db.query("select ok from accept_legal_documents($1, 2, 1, null, 'vitest')", [client.userId]);
 			expect((await getClientAccountStatus(db, client.userId)).termsAccepted).toBe(true);
-			await db.query("insert into legal_documents (kind, version, title, body_md) values ('terms', 2, 'Termos v2', 'texto')");
+			await db.query("insert into legal_documents (kind, version, title, body_md) values ('terms', 3, 'Termos v3', 'texto')");
 			expect((await getClientAccountStatus(db, client.userId)).termsAccepted).toBe(false);
 		} finally {
 			await db.query("rollback");
@@ -146,9 +146,9 @@ describe("getClientAccountStatus", () => {
 });
 
 describe("getCurrentLegalDocuments", () => {
-	it("getCurrentLegalDocuments without a session returns both kinds at v1", async () => {
+	it("getCurrentLegalDocuments without a session returns terms v2 and privacy v1", async () => {
 		const docs = await getCurrentLegalDocuments();
-		expect(docs.terms).toMatchObject({ kind: "terms", version: 1 });
+		expect(docs.terms).toMatchObject({ kind: "terms", version: 2 });
 		expect(docs.privacy).toMatchObject({ kind: "privacy", version: 1 });
 		expect(docs.terms.title.length).toBeGreaterThan(0);
 		expect(docs.privacy.bodyMd.length).toBeGreaterThan(0);

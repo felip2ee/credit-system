@@ -2053,6 +2053,7 @@ describe("client accounts (021)", () => {
 			"select kind, version from legal_documents where version = 1 order by kind",
 		);
 		expect(rows).toEqual([
+			{ kind: "buyer_declaration", version: 1 },
 			{ kind: "privacy", version: 1 },
 			{ kind: "terms", version: 1 },
 		]);
@@ -2114,11 +2115,14 @@ describe("client accounts (021)", () => {
 
 describe("orders and delivery (022)", () => {
 	const PUBLIC_FUNCTIONS = [
-		"open_order(text, boolean, boolean, text, text, text, jsonb, text, text, uuid)",
+		"open_order(text, boolean, text, text, text, jsonb, text, text, uuid)",
 		"refresh_order_state(uuid)",
 		"due_order_bureaus()",
 		"reserve_order(uuid, text, uuid, numeric, numeric, jsonb)",
 		"confirm_public_scr_authorization(text, text, text, text, text)",
+		"cancel_client_order(uuid)",
+		"client_order_members(uuid)",
+		"record_order_declaration(uuid, integer, inet, text)",
 	];
 	const INTERNAL_FUNCTIONS = ["create_bureau_system_profile()", "order_mask_document(text)"];
 
@@ -2134,7 +2138,7 @@ describe("orders and delivery (022)", () => {
 		owner.query(
 			`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
          subject_document_masked, state, released_at, created_by)
-       values ($1, $2, $3, $4, 'consulta_pf', 'Titular', '***.000.000-**', $5, case when $5 = 'released' then now() end, $6)`,
+       values ($1, $2, $3, $4, 'dossie_pf', 'Titular', '***.000.000-**', $5, case when $5 = 'released' then now() end, $6)`,
 			[dossier, T.bureau.id, clientId ? "online" : "counter", clientId, state, T.bureauAdmin.userId],
 		);
 	const setState = (dossier: string, state: string) =>
@@ -2235,7 +2239,7 @@ describe("orders and delivery (022)", () => {
 					client.query(
 						`insert into dossier_orders (dossier_id, bureau_id, mode, client_profile_id, product_code, subject_name,
                subject_document_masked, state, created_by)
-             values ($1, $2, 'online', $3, 'consulta_pf', 'X', '***.000.000-**', 'awaiting_authorization', $3)`,
+             values ($1, $2, 'online', $3, 'dossie_pf', 'X', '***.000.000-**', 'awaiting_authorization', $3)`,
 						[dossier, T.bureau.id, T.client.userId],
 					),
 				).rejects.toMatchObject({ code: "42501" });
@@ -2310,5 +2314,43 @@ describe("orders and delivery (022)", () => {
 		for (const signature of PUBLIC_FUNCTIONS) expect(await privilege(signature)).toBe(true);
 		await expectCode(app, "select order_mask_document('12345678901')", [], "42501");
 		await expectCode(app, "select create_bureau_system_profile()", [], "42501");
+	});
+
+	it("order_declarations is isolated by bureau and by client, and is append-only", async () => {
+		const { rows: doc } = await owner.query<{ id: string }>(
+			"select id from legal_documents where kind = 'buyer_declaration' and version = 1",
+		);
+		for (const [order, profile] of [
+			[ownOrder, T.client.userId],
+			[otherOrder, otherClient.userId],
+		]) {
+			await owner.query(
+				"insert into order_declarations (dossier_id, bureau_id, profile_id, document_id) values ($1, $2, $3, $4)",
+				[order, T.bureau.id, profile, doc[0].id],
+			);
+		}
+		const visible = (actor: Actor) =>
+			withDbContext(app, actor, async (client) =>
+				(await client.query<{ dossier_id: string }>("select dossier_id from order_declarations order by dossier_id")).rows.map(
+					(r) => r.dossier_id,
+				),
+			);
+		expect(await visible(ctxOf(T.client))).toEqual([ownOrder]);
+		expect(await visible(ctxOf(otherClient))).toEqual([otherOrder]);
+		expect(await visible(ctxOf(T.operator))).toEqual([ownOrder, otherOrder].sort());
+		expect(await visible(ctxOf(foreign.operator))).toEqual([]);
+		expect(await visible(ctxOf(foreign.client))).toEqual([]);
+		expect(await visible(ctxOf(sa))).toEqual([]);
+
+		// Só a função grava; o app não tem INSERT, UPDATE nem DELETE, e nem o dono altera a linha.
+		for (const sql of [
+			"insert into order_declarations (dossier_id, bureau_id, profile_id, document_id) select dossier_id, bureau_id, profile_id, document_id from order_declarations",
+			"update order_declarations set ip = null",
+			"delete from order_declarations",
+		]) {
+			await expectCode(app, sql, [], "42501");
+		}
+		await expect(owner.query("update order_declarations set ip = null")).rejects.toMatchObject({ code: "23514" });
+		await expect(owner.query("delete from order_declarations")).rejects.toMatchObject({ code: "23514" });
 	});
 });

@@ -1,53 +1,38 @@
 // Orçamento de um pedido: custo do Bureau e preço de venda, com as versões vigentes.
-// O M3 cobra o custo com este resultado; o M6 liga a função ao pedido.
+// Total = valor base + valor por sócio × número de sócios. O M3 cobra o custo com este resultado.
 import type { DbIdentity } from "@/lib/db/transaction";
 
+import { buildQuote, type QuoteLine } from "./build-quote";
 import { toCents } from "./money";
 import { listCatalog } from "./queries";
 
-// Único adicional do M2.
-export const AI_ADDON_CODE = "parecer_ia";
-
-export type QuoteLine = {
-	productVersionId: string;
-	code: string;
-	costCents: number;
-	priceCents: number;
-};
+export { buildQuote, type QuoteLine } from "./build-quote";
 
 export type Quote =
 	| { ok: true; lines: QuoteLine[]; totalCostCents: number; totalPriceCents: number }
-	| { ok: false; reason: "product_not_for_sale" | "addon_not_for_sale" };
+	| { ok: false; reason: "product_not_for_sale" };
 
 export async function quoteOrder(
 	identity: DbIdentity,
-	productCode: string,
-	options: { withAi: boolean },
+	productCode: "dossie_pf" | "dossie_empresarial",
+	options: { partnerCount: number },
 ): Promise<Quote> {
 	const catalog = await listCatalog(identity);
-	const main = catalog.find((e) => e.code === productCode && e.kind === "main" && e.onSale);
-	if (!main) return { ok: false, reason: "product_not_for_sale" };
+	const product = catalog.find((e) => e.code === productCode && e.onSale);
+	if (!product?.item) return { ok: false, reason: "product_not_for_sale" };
 
-	const entries = [main];
-	if (options.withAi) {
-		const addon = catalog.find(
-			(e) => e.code === AI_ADDON_CODE && e.onSale && e.addonFor?.includes(main.code),
-		);
-		if (!addon) return { ok: false, reason: "addon_not_for_sale" };
-		entries.push(addon);
-	}
-
-	const lines = entries.map((e) => ({
-		productVersionId: e.productVersionId,
-		code: e.code,
-		costCents: toCents(e.effectiveCost),
-		// onSale garante o item.
-		priceCents: toCents(e.item?.salePrice ?? "0"),
-	}));
 	return {
 		ok: true,
-		lines,
-		totalCostCents: lines.reduce((sum, l) => sum + l.costCents, 0),
-		totalPriceCents: lines.reduce((sum, l) => sum + l.priceCents, 0),
+		...buildQuote(
+			{
+				productVersionId: product.productVersionId,
+				code: product.code,
+				salePriceCents: toCents(product.item.salePrice),
+				salePricePerPartnerCents: toCents(product.item.salePricePerPartner),
+				costCents: toCents(product.effectiveCost),
+				costPerPartnerCents: toCents(product.effectiveCostPerPartner),
+			},
+			options.partnerCount,
+		),
 	};
 }
