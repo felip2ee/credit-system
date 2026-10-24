@@ -41,7 +41,7 @@ export interface Profile {
 
 // ─── Titular / Sociedade ──────────────────────────────────────────────────
 
-export type PartnershipSource = "deps" | "operator";
+export type PartnershipSource = "deps" | "operator" | "client";
 
 export type TimelineEntityType = "holder" | "query";
 

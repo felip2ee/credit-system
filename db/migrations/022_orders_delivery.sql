@@ -889,7 +889,8 @@ begin
           end if;
         end if;
         insert into public.holder_partnerships (bureau_id, company_id, partner_id, percentage, role, source, created_by)
-        values (v_bureau, v_holder, v_h, (v_member ->> 'percentage')::numeric, v_member ->> 'role', 'operator', v_user)
+        values (v_bureau, v_holder, v_h, (v_member ->> 'percentage')::numeric, v_member ->> 'role',
+                case v_mode when 'online' then 'client' else 'operator' end, v_user)
         on conflict (company_id, partner_id) do nothing;
       end if;
 
@@ -1095,7 +1096,8 @@ create policy holder_partnerships_gateway_select on holder_partnerships for sele
   using (true);
 drop policy if exists holder_partnerships_gateway_order_insert on holder_partnerships;
 create policy holder_partnerships_gateway_order_insert on holder_partnerships for insert to auth_profile_lookup
-  with check (bureau_id = app_bureau_id() and created_by = app_user_id() and source = 'operator');
+  with check (bureau_id = app_bureau_id() and created_by = app_user_id()
+         and source = case when app_user_role() = 'client' then 'client' else 'operator' end);
 drop policy if exists dossiers_gateway_order_insert on dossiers;
 create policy dossiers_gateway_order_insert on dossiers for insert to auth_profile_lookup
   with check (bureau_id = app_bureau_id() and created_by = app_user_id() and status = 'pending');

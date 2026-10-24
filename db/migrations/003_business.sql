@@ -91,7 +91,7 @@ create table holder_partnerships (
   partner_id uuid not null,
   percentage numeric(5,2) check (percentage between 0 and 100),
   role text,
-  source text not null check (source in ('deps', 'operator')),
+  source text not null check (source in ('deps', 'operator', 'client')),
   created_by uuid references profiles(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

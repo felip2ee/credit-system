@@ -660,6 +660,38 @@ describe("open_order", () => {
 		expect(await rows("select 1 from consultations where dossier_id = $1", [result.dossier_id])).toHaveLength(3);
 	});
 
+	it("partnerships are stored as client data online and as operator data at the counter", async () => {
+		const sourcesOf = (dossierId: string | null) =>
+			rows<{ source: string }>(
+				"select p.source from holder_partnerships p join dossiers d on d.holder_id = p.company_id where d.id = $1",
+				[dossierId],
+			);
+		const b = await newBuyer(T);
+		const online = await committed(b.identity, (c) =>
+			openOrder(c, {
+				product: "dossie_empresarial",
+				type: "PJ",
+				document: cnpj(),
+				email: mail(),
+				partners: [{ document: cpf(), name: "Sócio Online", email: mail() }],
+			}),
+		);
+		expect(online.ok).toBe(true);
+		expect(await sourcesOf(online.dossier_id)).toEqual([{ source: "client" }]);
+		const counter = await committed(staff(T), (c) =>
+			openOrder(c, {
+				product: "dossie_empresarial",
+				type: "PJ",
+				name: "Empresa Balcão",
+				document: cnpj(),
+				email: mail(),
+				partners: [{ document: cpf(), name: "Sócio Balcão", email: mail() }],
+			}),
+		);
+		expect(counter.ok).toBe(true);
+		expect(await sourcesOf(counter.dossier_id)).toEqual([{ source: "operator" }]);
+	});
+
 	it("superadmin in support, no context and a bad role are not_allowed", async () => {
 		const sa = await seedSuperadmin(owner);
 		const session = await seedSupportSession(owner, { superadminId: sa.userId, bureauId: T.bureau.id });
