@@ -7,7 +7,7 @@ export type ClientWalletBalance = { available: string; reserved: string };
 export type ClientLedgerEntry = {
 	id: string;
 	seq: string;
-	kind: "topup" | "reserve" | "capture" | "release" | "reversal";
+	kind: "topup" | "reserve" | "capture" | "release" | "reversal" | "commission_credit";
 	amount: string;
 	availableAfter: string;
 	reservedAfter: string;

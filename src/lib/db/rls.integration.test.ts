@@ -1951,7 +1951,7 @@ async function expectRejectCode(promise: Promise<unknown>, code: string) {
 
 describe("client accounts (021)", () => {
 	const PUBLIC_FUNCTIONS = [
-		"register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text)",
+		"register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text, text)",
 		"confirm_email_verification(text)",
 		"request_email_verification(uuid, text, text)",
 		"request_phone_verification(uuid, text, text)",
@@ -2352,5 +2352,189 @@ describe("orders and delivery (022)", () => {
 		}
 		await expect(owner.query("update order_declarations set ip = null")).rejects.toMatchObject({ code: "23514" });
 		await expect(owner.query("delete from order_declarations")).rejects.toMatchObject({ code: "23514" });
+	});
+});
+
+describe("affiliates (026)", () => {
+	const TABLES = [
+		"affiliate_codes",
+		"affiliate_referrals",
+		"bureau_affiliate_settings",
+		"affiliate_rates",
+		"affiliate_wallets",
+		"affiliate_ledger_entries",
+		"affiliate_commissions",
+	];
+	const PUBLIC_FUNCTIONS = [
+		"affiliate_my_referrals()",
+		"affiliate_my_commissions()",
+		"register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text, text)",
+	];
+	const INTERNAL_FUNCTIONS = [
+		"affiliate_wallet_post_entry(uuid, text, numeric, text, text, uuid)",
+		"affiliate_provision(uuid, uuid)",
+		"affiliate_provision_for_client()",
+	];
+
+	let T: SeededTenant;
+	let foreign: SeededTenant;
+	let affiliate: { userId: string; role: "client"; bureauId: string };
+	let referred: { userId: string; role: "client"; bureauId: string };
+	let stranger: { userId: string; role: "client"; bureauId: string };
+
+	const count = async (actor: Actor, table: string, where = "true", params: unknown[] = []) =>
+		withDbContext(app, actor, async (client) =>
+			Number((await client.query<{ n: string }>(`select count(*) as n from ${table} where ${where}`, params)).rows[0].n),
+		);
+
+	beforeAll(async () => {
+		[T, foreign] = await Promise.all([seedTenant(owner, "tenant affiliates"), seedTenant(owner, "tenant affiliates foreign")]);
+		[affiliate, referred, stranger] = await Promise.all(
+			[0, 1, 2].map(async () => ({ ...(await seedClientProfile(owner, T.bureau.id)), role: "client" as const })),
+		);
+		await owner.query(
+			"insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $2, $3)",
+			[referred.userId, affiliate.userId, T.bureau.id],
+		);
+		await owner.query(
+			`insert into affiliate_commissions (order_ref, bureau_id, affiliate_profile_id, referred_profile_id, pct, margin, amount, release_at)
+			 values ($1, $2, $3, $4, 10, 100, 10, now())`,
+			[randomUUID(), T.bureau.id, affiliate.userId, referred.userId],
+		);
+		await owner.query("select affiliate_wallet_post_entry($1, 'commission', 10, $2, 'seed', $1)", [affiliate.userId, randomUUID()]);
+		await owner.query("insert into bureau_affiliate_settings (bureau_id, default_pct) values ($1, 5)", [T.bureau.id]);
+		await owner.query("insert into affiliate_rates (bureau_id, affiliate_profile_id, pct) values ($1, $2, 10)", [T.bureau.id, affiliate.userId]);
+	});
+
+	it("every table forces row level security", async () => {
+		const { rows } = await owner.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+			"select relname, relrowsecurity, relforcerowsecurity from pg_class where relname = any($1::text[])",
+			[TABLES],
+		);
+		expect(rows).toHaveLength(TABLES.length);
+		for (const row of rows) expect(row).toMatchObject({ relrowsecurity: true, relforcerowsecurity: true });
+	});
+
+	it("a client reads only its own code, wallet, referrals as affiliate, ledger and commissions", async () => {
+		const own = ctxOf(affiliate);
+		expect(await count(own, "affiliate_codes")).toBe(1);
+		expect(await count(own, "affiliate_codes", "profile_id = $1", [affiliate.userId])).toBe(1);
+		expect(await count(own, "affiliate_wallets", "profile_id = $1", [affiliate.userId])).toBe(1);
+		expect(await count(own, "affiliate_referrals")).toBe(1);
+		expect(await count(own, "affiliate_ledger_entries")).toBe(1);
+		expect(await count(own, "affiliate_commissions")).toBe(1);
+		for (const other of [referred, stranger]) {
+			expect(await count(ctxOf(other), "affiliate_codes", "profile_id = $1", [affiliate.userId])).toBe(0);
+			expect(await count(ctxOf(other), "affiliate_wallets", "profile_id = $1", [affiliate.userId])).toBe(0);
+			for (const table of ["affiliate_referrals", "affiliate_ledger_entries", "affiliate_commissions"]) {
+				expect(await count(ctxOf(other), table)).toBe(0);
+			}
+		}
+	});
+
+	it("bureau staff reads the affiliate data of its bureau and nothing of another", async () => {
+		for (const actor of [T.bureauAdmin, T.operator]) {
+			expect(await count(ctxOf(actor), "affiliate_codes")).toBeGreaterThanOrEqual(3);
+			expect(await count(ctxOf(actor), "affiliate_referrals")).toBe(1);
+			expect(await count(ctxOf(actor), "affiliate_commissions")).toBe(1);
+			expect(await count(ctxOf(actor), "bureau_affiliate_settings")).toBe(1);
+			expect(await count(ctxOf(actor), "affiliate_rates")).toBe(1);
+			// A carteira e o livro-razão do afiliado não são do Bureau.
+			expect(await count(ctxOf(actor), "affiliate_wallets")).toBe(0);
+			expect(await count(ctxOf(actor), "affiliate_ledger_entries")).toBe(0);
+		}
+		for (const actor of [foreign.bureauAdmin, foreign.operator, foreign.client, sa]) {
+			for (const table of TABLES) expect(await count(ctxOf(actor), table, "bureau_id = $1", [T.bureau.id])).toBe(0);
+		}
+	});
+
+	it("app_runtime cannot write the core tables", async () => {
+		for (const sql of [
+			"insert into affiliate_codes (profile_id, bureau_id, code) values ($1, $2, 'abcd1234')",
+			"insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $1, $2)",
+			"insert into affiliate_wallets (profile_id, bureau_id) values ($1, $2)",
+			"insert into affiliate_ledger_entries (profile_id, bureau_id, kind, amount, pending_after, available_after, idempotency_key, created_by) values ($1, $2, 'commission', 1, 1, 0, 'x', $1)",
+			"insert into affiliate_commissions (order_ref, bureau_id, affiliate_profile_id, referred_profile_id, pct, margin, amount, release_at) values (gen_random_uuid(), $2, $1, $1, 1, 1, 1, now())",
+			"update affiliate_wallets set available = 999 where profile_id = $1 and bureau_id = $2",
+			"update affiliate_codes set code = 'zzzzzzzz' where profile_id = $1 and bureau_id = $2",
+			"delete from affiliate_referrals where affiliate_profile_id = $1 and bureau_id = $2",
+			"delete from affiliate_ledger_entries where profile_id = $1 and bureau_id = $2",
+		]) {
+			for (const actor of [affiliate, T.bureauAdmin, T.operator]) {
+				await withDbContext(app, ctxOf(actor), (client) =>
+					expectNoEffect(client.query(sql, [affiliate.userId, T.bureau.id])),
+				);
+			}
+		}
+		const { rows } = await owner.query("select available from affiliate_wallets where profile_id = $1", [affiliate.userId]);
+		expect(rows).toEqual([{ available: "0.00" }]);
+	});
+
+	it("only the bureau_admin of the bureau writes the percentages", async () => {
+		const write = (actor: Actor, bureauId: string) =>
+			withDbContext(app, actor, async (client) => {
+				await client.query("update bureau_affiliate_settings set default_pct = 7 where bureau_id = $1", [bureauId]);
+				const updated = await client.query("update affiliate_rates set pct = 12 where bureau_id = $1", [bureauId]);
+				const settings = await client.query("select default_pct from bureau_affiliate_settings where bureau_id = $1", [bureauId]);
+				return { rates: updated.rowCount, settings: settings.rows[0]?.default_pct };
+			});
+		expect(await write(ctxOf(T.bureauAdmin), T.bureau.id)).toEqual({ rates: 1, settings: "7.00" });
+		expect(await write(ctxOf(T.operator), T.bureau.id)).toEqual({ rates: 0, settings: "5.00" });
+		expect(await write(ctxOf(foreign.bureauAdmin), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
+		await expect(
+			withDbContext(app, ctxOf(foreign.bureauAdmin), (client) =>
+				client.query("insert into affiliate_rates (bureau_id, affiliate_profile_id, pct) values ($1, $2, 1)", [T.bureau.id, stranger.userId]),
+			),
+		).rejects.toMatchObject({ code: "42501" });
+		await expect(
+			withDbContext(app, ctxOf(T.bureauAdmin), (client) =>
+				client.query("update affiliate_rates set pct = 101 where bureau_id = $1", [T.bureau.id]),
+			),
+		).rejects.toMatchObject({ code: "23514" });
+	});
+
+	it("referrals and the ledger are append-only, even for the owner", async () => {
+		for (const sql of [
+			"update affiliate_referrals set bureau_id = bureau_id",
+			"delete from affiliate_referrals",
+			"update affiliate_ledger_entries set amount = 1",
+			"delete from affiliate_ledger_entries",
+		]) {
+			await expect(owner.query(sql)).rejects.toMatchObject({ code: "23514" });
+		}
+		await expect(
+			owner.query("insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $1, $2)", [stranger.userId, T.bureau.id]),
+		).rejects.toMatchObject({ code: "23514" });
+	});
+
+	it("rejects a referral or a wallet across bureaus", async () => {
+		await expect(
+			owner.query("insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $2, $3)", [
+				stranger.userId, foreign.client.userId, T.bureau.id,
+			]),
+		).rejects.toMatchObject({ code: "23503" });
+	});
+
+	it("function grants: only the public functions run as app_runtime", async () => {
+		const privilege = async (signature: string) =>
+			(
+				await owner.query<{ allowed: boolean }>(
+					"select has_function_privilege('app_runtime', $1::regprocedure, 'execute') as allowed",
+					[signature],
+				)
+			).rows[0].allowed;
+		for (const signature of INTERNAL_FUNCTIONS) expect(await privilege(signature)).toBe(false);
+		for (const signature of PUBLIC_FUNCTIONS) expect(await privilege(signature)).toBe(true);
+	});
+
+	it("affiliate_my_referrals and affiliate_my_commissions return rows only for the owner client", async () => {
+		const rows = (actor: Actor, fn: string) =>
+			withDbContext(app, actor, async (client) => (await client.query(`select * from ${fn}()`)).rows.length);
+		expect(await rows(ctxOf(affiliate), "affiliate_my_referrals")).toBe(1);
+		expect(await rows(ctxOf(affiliate), "affiliate_my_commissions")).toBe(1);
+		for (const actor of [referred, stranger, T.bureauAdmin, T.operator, foreign.client, sa]) {
+			expect(await rows(ctxOf(actor), "affiliate_my_referrals")).toBe(0);
+			expect(await rows(ctxOf(actor), "affiliate_my_commissions")).toBe(0);
+		}
 	});
 });

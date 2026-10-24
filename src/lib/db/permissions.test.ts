@@ -29,6 +29,7 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
       "nfse:manage",
       "notifications:manage",
       "payout:read",
+      "withdrawals:manage",
     ],
   },
   "superadmin in support": {
@@ -46,6 +47,7 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
       "nfse:manage",
       "notifications:manage",
       "payout:read",
+      "withdrawals:manage",
       "counter:read",
       "counter:write",
       ...tenantData,
@@ -68,6 +70,7 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
       "counter:write",
       "payout:read",
       "lgpd:manage",
+      "affiliates:manage",
     ],
   },
   operator: {
@@ -76,7 +79,7 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
   },
   client: {
     subject: { role: "client" },
-    allowed: ["portal:read", "portal:write", "credits:read", "credits:topup"],
+    allowed: ["portal:read", "portal:write", "credits:read", "credits:topup", "affiliates:read"],
   },
 };
 

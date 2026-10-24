@@ -50,10 +50,10 @@ function accountResult<R extends string>(fn: string, row: OutcomeRow | undefined
 }
 
 export async function registerClient(
-	input: RegisterClientInput,
+	input: RegisterClientInput & { referralCode?: string | null },
 ): Promise<{ ok: true; userId: string } | { ok: false; reason: RegisterFailure }> {
 	const { rows } = await pool.query<OutcomeRow & { user_id: string | null }>(
-		"select ok, reason, user_id from register_client($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::inet, $11, $12, $13)",
+		"select ok, reason, user_id from register_client($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::inet, $11, $12, $13, $14)",
 		[
 			input.slug,
 			input.type,
@@ -68,6 +68,7 @@ export async function registerClient(
 			input.userAgent,
 			input.emailToken,
 			input.siteUrl,
+			input.referralCode ?? null,
 		],
 	);
 	const row = rows[0];
