@@ -203,6 +203,8 @@ const ZERO: TickResult = {
 	executed: 0,
 	ai: 0,
 	released: 0,
+	// Global como purged: o banco compartilhado pode ter comissão vencida de outros arquivos.
+	commissionsReleased: expect.any(Number) as number,
 	skipped: 0,
 	errors: 0,
 	purged: expect.any(Object) as Record<string, number>,

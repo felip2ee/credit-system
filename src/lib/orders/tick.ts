@@ -37,6 +37,8 @@ export type TickResult = {
 	executed: number;
 	ai: number;
 	released: number;
+	// Comissões de afiliado que saíram da carência neste tick.
+	commissionsReleased: number;
 	// Bureaus que outro tick já processava (lock por Bureau): ficam para o próximo.
 	skipped: number;
 	errors: number;
@@ -222,6 +224,14 @@ async function sweepBureaus(result: TickResult): Promise<void> {
 	}
 }
 
+// A função SECURITY DEFINER só age sem usuário nem Bureau no contexto (identidade da plataforma).
+async function releaseDueCommissions(identity: DbIdentity): Promise<number> {
+	return withUserTransaction(identity, async (client) => {
+		const { rows } = await client.query<{ released: number }>("select release_due_commissions() as released");
+		return rows[0].released;
+	});
+}
+
 export async function runOrdersTick(): Promise<TickResult> {
 	const due = await pool.query<{ bureau_id: string; system_profile_id: string }>(
 		"select bureau_id, system_profile_id from due_order_bureaus()",
@@ -235,11 +245,14 @@ export async function runOrdersTick(): Promise<TickResult> {
 		executed: 0,
 		ai: 0,
 		released: 0,
+		commissionsReleased: 0,
 		skipped: 0,
 		errors: 0,
 		purged: {},
 	};
 	addCounts(result.purged, await guarded(result, "purge-technical", () => purgeTechnicalData(PLATFORM_IDENTITY)));
+	result.commissionsReleased =
+		(await guarded(result, "release-commissions", () => releaseDueCommissions(PLATFORM_IDENTITY))) ?? 0;
 	for (const bureau of due.rows) {
 		const identity: DbIdentity = { userId: bureau.system_profile_id, role: "operator", bureauId: bureau.bureau_id };
 		const ran = await withBureauLock(bureau.bureau_id, () =>

@@ -37,6 +37,7 @@ const FAILURE_MESSAGES: Record<AnonymizeHolderFailure | AnonymizeClientFailure, 
 	client_active: "Anonimize primeiro a conta do cliente ligada a este titular.",
 	open_orders: "Há pedido em andamento para este titular. Conclua ou cancele antes de anonimizar.",
 	balance: "A conta tem saldo. Devolva ou zere o saldo antes de anonimizar.",
+	commission: "Você tem saldo de comissão ou saque em aberto. Saque o saldo antes de pedir a exclusão.",
 };
 
 // Só nome e código do erro: sem documento, e-mail nem motivo.
