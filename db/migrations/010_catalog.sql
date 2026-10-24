@@ -251,9 +251,10 @@ create policy bureau_catalog_items_gateway_select on bureau_catalog_items for se
 
 -- Seed: custo 0.00; o superadmin ajusta antes de vender. Nomes DEPS repetem src/lib/deps/products.ts.
 -- O Dossiê Empresarial cobra o valor base (empresa) mais o valor por sócio.
-insert into products (code, name) values
-  ('dossie_pf', 'Dossiê Pessoa Física'),
-  ('dossie_empresarial', 'Dossiê Empresarial Estruturado');
+-- Produtos nascem inativos: o superadmin define o custo e ativa. Custo 0 só por escolha explícita.
+insert into products (code, name, active) values
+  ('dossie_pf', 'Dossiê Pessoa Física', false),
+  ('dossie_empresarial', 'Dossiê Empresarial Estruturado', false);
 
 insert into product_versions (product_id, version, deps_product, base_cost, base_cost_per_partner)
 select p.id, 1, d.deps_product, 0.00, 0.00
