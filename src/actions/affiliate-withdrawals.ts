@@ -172,9 +172,13 @@ async function withdrawalManager(step: string): Promise<{ session: RequiredSessi
 
 const revalidateClient = () => {
 	revalidatePath("/portal");
-	revalidatePath("/portal/afiliados");
+	revalidatePath("/portal/afiliacao");
+	revalidatePath("/portal/afiliacao/saque");
 };
-const revalidateManager = () => revalidatePath("/superadmin/saques");
+const revalidateManager = () => {
+	revalidatePath("/superadmin/saques");
+	revalidatePath("/superadmin/saques/[id]", "page");
+};
 
 export async function requestWithdrawalAction(values: unknown): Promise<AffiliateWithdrawalResult> {
 	const parsed = requestSchema.safeParse(values);

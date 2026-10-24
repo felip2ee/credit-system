@@ -213,6 +213,6 @@ export async function saveAffiliateSettings(values: unknown): Promise<SaveResult
     return { error: "Falha ao salvar as regras de afiliados." };
   }
 
-  revalidatePath("/superadmin/settings/affiliates");
+  revalidatePath("/superadmin/settings/afiliados");
   return { error: null };
 }

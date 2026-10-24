@@ -12,6 +12,7 @@ import {
   Wallet,
   Banknote,
   HandCoins,
+  Share2,
 } from "lucide-react";
 
 import { visibleNavItems, type NavItem } from "@/components/layout/nav-items";
@@ -29,6 +30,7 @@ const NAV_ITEMS: SidebarItem[] = [
   { href: "/settings/wallet", label: "Carteira", icon: Wallet },
   { href: "/settings/counter-payments", label: "Pagamentos de balcão", icon: Banknote, permission: "counter:read" },
   { href: "/settings/payouts", label: "Repasses", icon: HandCoins, permission: "payout:read" },
+  { href: "/afiliados", label: "Afiliados", icon: Share2, permission: "affiliates:manage" },
   { href: "/settings", label: "Configurações", icon: Settings },
 ];
 

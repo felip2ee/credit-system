@@ -1,10 +1,12 @@
 import Link from "next/link";
 import {
   Bot,
+  HandCoins,
   Layers,
   Search,
   ShieldCheck,
   Users,
+  Wallet,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -26,7 +28,12 @@ import {
 import { redirect } from "next/navigation";
 
 import { getRequiredSession } from "@/lib/auth/session";
+import { formatCurrency } from "@/lib/utils";
+import { hasPermission } from "@/lib/db/permissions";
+import { withUserTransaction } from "@/lib/db/transaction";
 import { getDashboardMetrics } from "@/lib/dashboard/queries";
+import { getPayableBalance } from "@/lib/payables/queries";
+import { getWallet } from "@/lib/wallet/queries";
 import {
   QUERY_STATUS_LABEL,
   SCR_STATUS_LABEL,
@@ -133,6 +140,15 @@ export default async function DashboardPage() {
   });
   const { counts } = metrics;
 
+  // Saldos do Bureau: carteira pré-paga (todos) e valor a receber (só quem vê repasses).
+  const { bureauId } = session;
+  const balances = bureauId
+    ? await withUserTransaction(session, async (client) => ({
+        wallet: await getWallet(client, bureauId),
+        payable: hasPermission(session, "payout:read") ? await getPayableBalance(client, bureauId) : null,
+      }))
+    : null;
+
   // ── Compliance SCR ─────────────────────────────────────────
   const scrRows = metrics.scrStatuses.map((status) => ({
     status: status as ScrStatus,
@@ -190,6 +206,29 @@ export default async function DashboardPage() {
     { label: "Pesquisas em andamento", value: String(counts.dossiersProcessing), hint: "Dossiês em análise", href: "/dossiers", icon: Layers },
   ];
 
+  const balanceCards = balances
+    ? [
+        {
+          label: "Saldo da carteira",
+          value: formatCurrency(Number(balances.wallet?.available ?? 0)),
+          hint: "Créditos pré-pagos disponíveis",
+          href: "/settings/wallet",
+          icon: Wallet,
+        },
+        ...(balances.payable === null
+          ? []
+          : [
+              {
+                label: "A receber",
+                value: formatCurrency(Number(balances.payable)),
+                hint: "Repasse pendente do Reino",
+                href: "/settings/payouts",
+                icon: HandCoins,
+              },
+            ]),
+      ]
+    : [];
+
   const pipeline = {
     completed: counts.cCompleted,
     pending_authorization: counts.cPending,
@@ -244,6 +283,27 @@ export default async function DashboardPage() {
           </Link>
         ))}
       </div>
+
+      {balanceCards.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {balanceCards.map((m) => (
+            <Link key={m.label} href={m.href}>
+              <Card className="h-full transition-colors hover:bg-muted/50">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardDescription>{m.label}</CardDescription>
+                    <m.icon className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <CardTitle className="text-2xl">{m.value}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">{m.hint}</p>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* KPIs secundários */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

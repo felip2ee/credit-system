@@ -13,7 +13,7 @@ export interface AffiliatesBureauResult {
 
 const NOT_ALLOWED = "Você não tem permissão para gerenciar afiliados.";
 const SESSION_CHECK_FAILED = "Não foi possível verificar sua sessão. Tente novamente.";
-const PCT_PAGE = "/settings/affiliates";
+const PCT_PAGE = "/afiliados";
 
 // Número de 0 a 100 com até 2 casas, como texto (vai direto para numeric(5,2) sem perda).
 const pctField = z
