@@ -132,7 +132,7 @@ begin
 
     -- Comissão: só se o indicado tem telefone verificado e o afiliado está ativo e não foi anonimizado. A % vale na
     -- captura e fica gravada na comissão: mudá-la depois não altera o passado. O perfil do afiliado é lido com
-    -- "for share": a anonimização (que o trava "for update") e esta captura se enfileiram, e a comissão nunca nasce
+    -- "for share": a anonimização (que o trava "for no key update") e esta captura se enfileiram, e a comissão nunca nasce
     -- depois de a conta ser anonimizada.
     v_margin := v_s.price - v_s.cost;
     v_commission := 0;
@@ -323,7 +323,7 @@ begin
             select * into v_post from public.affiliate_wallet_post_entry(
               v_commission.affiliate_profile_id,
               'commission_reversal', v_commission_reversal,
-              'refund:' || v_charge.id::text || ':' || v_commission.id::text,
+              'refund:' || v_commission.id::text || ':' || md5(v_charge.id::text),
               'commission:' || v_commission.id::text, v_commission.affiliate_profile_id);
             if not v_post.ok then
               raise exception 'affiliate commission reversal failed: %', v_post.reason;

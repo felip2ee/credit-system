@@ -256,8 +256,8 @@ describe("comissão na captura", () => {
 		await release();
 		await refund30(s);
 
-		const { rows } = await owner.query<{ kind: string; reference: string; created_by: string }>(
-			"select kind, reference, created_by from affiliate_ledger_entries where profile_id = $1 order by seq",
+		const { rows } = await owner.query<{ kind: string; reference: string; created_by: string; idempotency_key: string }>(
+			"select kind, reference, created_by, idempotency_key from affiliate_ledger_entries where profile_id = $1 order by seq",
 			[s.affiliateId],
 		);
 		expect(rows.map((r) => r.kind)).toEqual(["commission", "commission", "commission_release", "commission_reversal"]);
@@ -268,6 +268,11 @@ describe("comissão na captura", () => {
 		expect(rows[2].reference).toBe(`commission:${commissionId}`);
 		expect(JSON.stringify(rows)).not.toContain(s.buyerId);
 		expect(JSON.stringify(rows)).not.toContain("pix_charge");
+		// A chave de idempotência do estorno também não leva o id da cobrança.
+		const { rows: charges } = await owner.query<{ id: string }>("select id from pix_charges where client_profile_id = $1", [s.buyerId]);
+		expect(charges.length).toBeGreaterThan(0);
+		for (const charge of charges) expect(JSON.stringify(rows)).not.toContain(charge.id);
+		expect(rows[3].idempotency_key).toMatch(/^refund:[0-9a-f-]{36}:[0-9a-f]{32}$/);
 		expect((await commissionsOf(reversed.orderRef))[0].reversed_amount).toBe("30.00");
 	});
 

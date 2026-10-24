@@ -9,7 +9,9 @@
 --    A comissão ainda em carência é perdida na anonimização (affiliate_forfeit_pending): reversão de cada comissão
 --    pendente, auditoria affiliate.forfeit sem documento.
 -- 4) affiliate_withdrawal_fee: a taxa de saque para o cliente (a tabela settings não é visível a ele).
--- Ordem de travas: carteira do afiliado -> comissões dele -> carteira de créditos. Pagar e cancelar travam o saque e depois
+-- Ordem de travas: perfil (for no key update, só na anonimização) -> carteira do afiliado -> comissões dele -> carteira de
+-- créditos. O perfil não usa "for update": o lançamento no livro (FK para profiles) pede "for key share", que conflitaria
+-- e fecharia um ciclo com quem já trava a carteira. "for no key update" ainda espera a captura ("for share"). Pagar e cancelar travam o saque e depois
 -- a carteira; o pedido não trava o saque aberto de ninguém, então as duas ordens não se cruzam.
 
 -- Formato da chave PIX por tipo. A action normaliza antes (documento só dígitos, telefone E.164, UUID minúsculo); aqui
@@ -653,7 +655,7 @@ grant execute on function affiliate_forfeit_pending(uuid) to lgpd_owner;
 
 -- LGPD (027): comissão disponível ou saque aberto bloqueiam a anonimização da conta; a comissão pendente é perdida
 -- (affiliate_forfeit_pending, que repete a checagem sob a trava da carteira). Dono e grants não mudam. O perfil fica
--- travado "for update" desde o início: a captura de pedido (capture_order) lê o perfil do afiliado "for share" e espera.
+-- travado "for no key update" desde o início: a captura de pedido (capture_order) lê o perfil do afiliado "for share" e espera.
 create or replace function public.lgpd_anonymize_client_account(p_profile_id uuid)
 returns text
 language plpgsql
@@ -674,7 +676,7 @@ begin
   select p.auth_user_id, p.email, p.anonymized_at into v_user_id, v_old_email, v_anonymized_at
     from public.profiles p
    where p.id = p_profile_id and p.role = 'client' and p.bureau_id = v_bureau
-   for update;
+   for no key update;
   if not found then
     return 'not_found';
   end if;
