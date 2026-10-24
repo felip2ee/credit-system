@@ -38,7 +38,7 @@ describe("renderEmail", () => {
 
 	it("renders an SCR-shaped template with the code and the URL", () => {
 		const scr = {
-			email_subject: "Autorização de consulta SCR — Rainha do Crédito",
+			email_subject: "Autorização de consulta SCR — Rainha Cred",
 			email_html: '<p>{{authorizedName}}, seu código: <b>{{code}}</b></p><a href="{{url}}">Autorizar</a>',
 			email_text: "{{authorizedName}}, código {{code}}: {{url}}",
 		};

@@ -11,7 +11,9 @@ export async function sendEmailNotification(notification: ClaimedNotification): 
 
 	let rendered;
 	try {
-		rendered = renderEmail(notification, notification.params);
+		// {{siteUrl}} (logo por URL absoluta) vem do ambiente e vence qualquer parâmetro enfileirado de mesmo nome.
+		const siteUrl = (process.env.BETTER_AUTH_URL ?? "").replace(/\/+$/, "");
+		rendered = renderEmail(notification, { ...notification.params, siteUrl });
 	} catch (error) {
 		if (error instanceof TemplateRenderError) return { ok: false, permanent: error.permanent, code: error.code };
 		throw error;
