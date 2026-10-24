@@ -14,6 +14,7 @@ import {
 } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession, SessionAccessError, type RequiredSession } from "@/lib/auth/session";
 import { toCents } from "@/lib/catalog/money";
+import { readAffiliateWithdrawalsEnabled } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { toE164 } from "@/lib/notifications/recipient";
 import {
@@ -36,6 +37,7 @@ const NOT_ALLOWED_MANAGER = "Você não tem permissão para gerenciar saques.";
 const SUPPORT_ACTIVE = "Encerre a sessão de suporte para gerenciar saques.";
 const SESSION_CHECK_FAILED = "Não foi possível verificar sua sessão. Tente novamente.";
 const RECEIPT_REQUIRED = "Anexe o comprovante do pagamento.";
+const WITHDRAWALS_DISABLED = "O saque ainda não está disponível.";
 const GENERIC_FAILURE = "Não foi possível concluir a operação.";
 const MAX_REASON_LENGTH = 500;
 
@@ -44,6 +46,7 @@ const FAILURE_MESSAGES: Record<WithdrawalFailure, string> = {
 	not_found: "Saque ou conta não encontrado.",
 	invalid_amount: "Informe um valor maior que zero, com até 2 casas decimais.",
 	invalid_pix_key: "Chave PIX inválida.",
+	pix_key_not_owner: "A chave CPF/CNPJ precisa ser o documento da sua conta.",
 	invalid_request: "Pedido inválido. Recarregue a página e tente de novo.",
 	invalid_reason: "Informe o motivo do cancelamento (até 500 caracteres).",
 	invalid_receipt: "Comprovante inválido.",
@@ -181,6 +184,9 @@ const revalidateManager = () => {
 };
 
 export async function requestWithdrawalAction(values: unknown): Promise<AffiliateWithdrawalResult> {
+	// Desligado até a validação fiscal: não lê sessão nem banco.
+	if (!readAffiliateWithdrawalsEnabled(process.env)) return { error: WITHDRAWALS_DISABLED };
+
 	const parsed = requestSchema.safeParse(values);
 	if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
 

@@ -4,6 +4,8 @@ Runbook da carência, da fila de saques e do pagamento. Regras do produto: [PROD
 
 **Antes de liberar saques em produção:** o contador deve validar o tratamento fiscal do saque. Este item é **(post-deploy)**. Ele não bloqueia o merge. Enquanto a validação não existir, não avise os clientes sobre a função de saque.
 
+**Flag do saque:** `AFFILIATE_WITHDRAWALS_ENABLED`. O saque nasce desligado: só o valor `true` liga. Desligado, o portal mostra "Saque disponível em breve." no lugar de "Sacar por PIX", e o pedido de saque é recusado com "O saque ainda não está disponível.". A conversão em créditos, a carência e a fila do superadmin continuam. Para liberar, depois da validação do contador, defina `AFFILIATE_WITHDRAWALS_ENABLED=true` no deploy e reinicie o app.
+
 ## 1. Como a comissão nasce
 
 1. O cliente A copia o link em `/portal/afiliacao`.
@@ -12,7 +14,7 @@ Runbook da carência, da fila de saques e do pagamento. Regras do produto: [PROD
 4. A comissão só nasce se B tem o celular verificado.
 5. A comissão entra em "Em carência". Depois do prazo, ela passa a "Comissão disponível".
 
-O estorno do pedido reverte a comissão.
+O estorno da recarga PIX do indicado reverte primeiro a comissão ainda em carência. Só o que sobra é cobrado do Bureau. Comissão já liberada não é revertida.
 
 ## 2. % do Bureau
 
@@ -27,9 +29,10 @@ O Bureau define a % padrão e a % por afiliado em `/afiliados`. A % vale na capt
 ## 4. Fila de saques
 
 1. A afiliada pede o saque em `/portal/afiliacao/saque`. Ela informa a chave PIX e declara que a chave está no nome dela.
-2. A taxa de saque é a configuração `affiliate_withdrawal_fee` (valor fixo mais %). O valor líquido é o valor menos a taxa.
+2. A taxa de saque é a configuração `affiliate_withdrawal_fee` (valor fixo mais %). O valor líquido é o valor menos a taxa. A afiliada vê a taxa em `/portal/afiliacao` e em `/portal/afiliacao/saque`.
 3. O valor sai do saldo disponível no momento do pedido.
-4. O superadmin vê os saques abertos em `/superadmin/saques`, do mais antigo ao mais novo. A chave PIX aparece mascarada.
+4. A chave CPF/CNPJ precisa ser o documento da conta. O sistema recusa outra.
+5. O superadmin vê os saques abertos em `/superadmin/saques`, do mais antigo ao mais novo. A chave PIX aparece mascarada. O detalhe mostra a chave completa e o documento da conta mascarado.
 
 Com uma sessão de suporte ativa, a fila não abre. Encerre a sessão de suporte.
 
@@ -50,10 +53,14 @@ Não existe repasse automático.
 
 Um saque pago não pode ser cancelado.
 
-## 7. Conversão em créditos
+## 7. Anonimização (LGPD) de uma afiliada
+
+A anonimização fica bloqueada se a afiliada tem comissão disponível ou saque aberto: ela precisa sacar antes. A comissão ainda em carência é perdida na anonimização (decisão do designer; validar com o jurídico).
+
+## 8. Conversão em créditos
 
 A afiliada converte parte do saldo disponível em créditos em `/portal/afiliacao`. Um crédito vale R$ 1. A conversão não tem taxa e não pode ser desfeita. O crédito convertido não pode ser sacado.
 
-## 8. Teste e2e
+## 9. Teste e2e
 
-`e2e/affiliate.spec.ts` cobre o fluxo completo: link, cadastro, compra, carência, tick, conversão, saque e pagamento. O teste confirma o celular, define o saldo do indicado e captura o pedido direto no banco. Ele não depende da execução da pesquisa.
+`e2e/affiliate.spec.ts` cobre o fluxo completo: link, cadastro, compra, carência, tick, conversão, saque e pagamento. O teste roda com `AFFILIATE_WITHDRAWALS_ENABLED=true` (definido no `ci.yml`). Ele confirma o celular, define o saldo do indicado e captura o pedido direto no banco. Ele não depende da execução da pesquisa.

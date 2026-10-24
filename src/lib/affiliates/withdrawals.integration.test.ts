@@ -30,7 +30,7 @@ import { pool } from "@/lib/db/pool";
 import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
 import type { DbIdentity } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
-import { seedClientProfile, seedSuperadmin, seedSupportSession, seedTenant, type SeededTenant } from "@/test/seed";
+import { randomCpf, seedClientProfile, seedSuperadmin, seedSupportSession, seedTenant, type SeededTenant } from "@/test/seed";
 
 import {
 	cancelWithdrawal,
@@ -39,6 +39,7 @@ import {
 	listMyWithdrawals,
 	listWithdrawalQueue,
 	markWithdrawalPaid,
+	readWithdrawalFee,
 	requestWithdrawal,
 } from "./withdrawals";
 
@@ -86,6 +87,17 @@ async function seedAffiliate(available: string, pending = "0") {
 		await owner.query("select affiliate_wallet_post_entry($1, 'commission', $2, $3, 'seed', $1)", [userId, pending, randomUUID()]);
 	}
 	return userId;
+}
+
+// Titular da própria conta (registro do cliente): o documento que a chave CPF/CNPJ precisa ser.
+async function seedOwnDocument(userId: string): Promise<string> {
+	const digits = randomCpf().replace(/\D/g, "");
+	await owner.query(
+		`insert into holders (bureau_id, type, name, document, created_by, client_profile_id)
+		 values ($1, 'PF', 'Titular da conta', $2, $3, $3)`,
+		[T.bureau.id, digits, userId],
+	);
+	return digits;
 }
 
 const wallet = async (userId: string) =>
@@ -168,6 +180,55 @@ describe("requestWithdrawal", () => {
 			expect(await request(userId, amount)).toEqual({ ok: false, reason: "invalid_amount" });
 		}
 		expect(await wallet(userId)).toEqual({ pending: "0.00", available: "30.00" });
+	});
+
+	it("refuses a PIX key of the document type that is not the account's document, and writes nothing", async () => {
+		const userId = await seedAffiliate("40.00");
+		await seedOwnDocument(userId);
+
+		expect(await request(userId, "10.00", "52998224725", "document")).toEqual({ ok: false, reason: "pix_key_not_owner" });
+		expect(await wallet(userId)).toEqual({ pending: "0.00", available: "40.00" });
+		expect((await owner.query("select 1 from affiliate_withdrawals where profile_id = $1", [userId])).rows).toHaveLength(0);
+	});
+
+	it("refuses a document key when the account has no linked holder", async () => {
+		const userId = await seedAffiliate("40.00");
+
+		expect(await request(userId, "10.00", "11144477735", "document")).toEqual({ ok: false, reason: "pix_key_not_owner" });
+	});
+
+	it("accepts a PIX key of the document type that is the account's own document", async () => {
+		const userId = await seedAffiliate("40.00");
+		const own = await seedOwnDocument(userId);
+
+		expect((await request(userId, "10.00", own, "document")).ok).toBe(true);
+	});
+
+	it.each([
+		["a document with 10 digits", "document", "1114447773"],
+		["an e-mail without @", "email", "ana.example.test"],
+		["a phone without +", "phone", "5563912345678"],
+		["a phone that is too short", "phone", "+12345"],
+		["a random key with upper case", "random", "0F8FAD5B-D9CB-469F-A165-70867728950E"],
+		["a random key that is not a uuid", "random", "abc"],
+	] as const)("refuses %s with invalid_pix_key", async (_name, type, key) => {
+		const userId = await seedAffiliate("40.00");
+
+		expect(await request(userId, "10.00", key, type)).toEqual({ ok: false, reason: "invalid_pix_key" });
+		expect(await wallet(userId)).toEqual({ pending: "0.00", available: "40.00" });
+	});
+
+	it("the table itself refuses a malformed key (CHECK), even written by the owner", async () => {
+		const userId = await seedAffiliate("0");
+		for (const [type, key] of [["document", "123"], ["email", "sem-arroba"], ["phone", "123"], ["random", "xyz"]]) {
+			await expect(
+				owner.query(
+					`insert into affiliate_withdrawals (bureau_id, profile_id, amount, fee, net, pix_key_type, pix_key, holder_name)
+					 values ($1, $2, 10, 0, 10, $3, $4, 'Afiliado')`,
+					[T.bureau.id, userId, type, key],
+				),
+			).rejects.toMatchObject({ code: "23514" });
+		}
 	});
 
 	it("only a client requests", async () => {
@@ -340,13 +401,39 @@ describe("withdraw and convert in parallel", () => {
 	});
 });
 
+describe("withdrawal fee reader", () => {
+	it("a client reads the stored fee (the settings table is hidden from clients by RLS)", async () => {
+		await setFee(2, 1);
+		try {
+			const userId = await seedAffiliate("0");
+
+			expect(await readWithdrawalFee(asClient(userId))).toEqual({ fixed: "2.00", percent: "1.00" });
+		} finally {
+			await setFee(0, 0);
+		}
+	});
+
+	it("falls back to 0.00 when the setting is malformed and matches what request charges", async () => {
+		await owner.query("update settings set value = '\"x\"'::jsonb where key = 'affiliate_withdrawal_fee'");
+		try {
+			const userId = await seedAffiliate("0");
+			expect(await readWithdrawalFee(asClient(userId))).toEqual({ fixed: "0.00", percent: "0.00" });
+		} finally {
+			await setFee(0, 0);
+		}
+	});
+});
+
 describe("PIX key exposure", () => {
 	it("the superadmin reads the full key and holder; each read is audited without the key", async () => {
 		const userId = await seedAffiliate("25.00");
-		const id = ((await request(userId, "25.00", "11144477735", "document")) as { withdrawalId: string }).withdrawalId;
+		const own = await seedOwnDocument(userId);
+		const id = ((await request(userId, "25.00", own, "document")) as { withdrawalId: string }).withdrawalId;
 
 		const detail = await getWithdrawalDetail(asSuperadmin(), id);
-		expect(detail).toMatchObject({ id, pixKey: "11144477735", pixKeyType: "document", amount: "25.00", status: "open", profileId: userId });
+		expect(detail).toMatchObject({ id, pixKey: own, pixKeyType: "document", amount: "25.00", status: "open", profileId: userId });
+		// O documento da conta aparece só mascarado, para o superadmin conferir uma chave de outro tipo.
+		expect(detail?.accountDocumentMasked).toBe(`***${own.slice(-2)}`);
 		expect(detail?.holderName).toMatch(/cliente/);
 		await getWithdrawalDetail(asSuperadmin(), id);
 
@@ -357,9 +444,9 @@ describe("PIX key exposure", () => {
 		expect(rows).toHaveLength(2);
 		for (const row of rows) {
 			expect(row).toMatchObject({ user_id: sa.userId, bureau_id: T.bureau.id });
-			expect(JSON.stringify(row.metadata)).not.toContain("11144477735");
+			expect(JSON.stringify(row.metadata)).not.toContain(own);
 		}
-		const leaked = await owner.query("select 1 from audit_logs where metadata::text like '%11144477735%' or new_data::text like '%11144477735%'");
+		const leaked = await owner.query("select 1 from audit_logs where metadata::text like $1 or new_data::text like $1", [`%${own}%`]);
 		expect(leaked.rows).toHaveLength(0);
 	});
 

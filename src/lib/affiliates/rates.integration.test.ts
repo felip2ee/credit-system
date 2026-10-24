@@ -30,7 +30,7 @@ import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedClientProfile, seedTenant, type SeededTenant, type SeedIdentity } from "@/test/seed";
 
-import { affiliateLink, listBureauAffiliates, setAffiliatePct, setBureauDefaultPct } from "./rates";
+import { affiliateLink, getBureauDefaultPct, listBureauAffiliates, setAffiliatePct, setBureauDefaultPct } from "./rates";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 
@@ -53,6 +53,17 @@ const codeOf = async (profileId: string) =>
 const defaultPct = async (bureauId: string) =>
 	(await owner.query<{ default_pct: string }>("select default_pct from bureau_affiliate_settings where bureau_id = $1", [bureauId]))
 		.rows[0]?.default_pct;
+
+describe("getBureauDefaultPct", () => {
+	it("is 0.00 without a stored setting and returns the stored value after it is set", async () => {
+		const T = await seedTenant(owner, "Default pct");
+		const admin = { ...T.bureauAdmin };
+
+		expect(await getBureauDefaultPct(admin)).toBe("0.00");
+		await setBureauDefaultPct(admin, "12.50");
+		expect(await getBureauDefaultPct(admin)).toBe("12.50");
+	});
+});
 
 describe("affiliateLink", () => {
 	it("builds the registration link with the code", () => {

@@ -73,6 +73,8 @@ jobs:
           ASAAS_DRIVER: fake
           WHATSAPP_DRIVER: fake
           NOTIFICATIONS_DISPATCH_SECRET: e2e-dispatch-secret-0123456789abcdef
+          # The affiliate spec requests a withdrawal; the flag is off by default.
+          AFFILIATE_WITHDRAWALS_ENABLED: "true"
           # Not production: config requires an https BETTER_AUTH_URL and the fake drivers are blocked there.
           NODE_ENV: test
           TEST_DATABASE_OWNER_URL: postgres://postgres:test@localhost:54329/credit_system

@@ -71,6 +71,12 @@ export default async function WithdrawalDetailPage({ params }: { params: { id: s
             <dd className="font-medium">{w.holderName}</dd>
             <dt className="text-muted-foreground">Tipo da chave</dt>
             <dd>{KEY_TYPE_LABEL[w.pixKeyType]}</dd>
+            {w.accountDocumentMasked && (
+              <>
+                <dt className="text-muted-foreground">Documento da conta</dt>
+                <dd className="font-mono">{w.accountDocumentMasked}</dd>
+              </>
+            )}
             <dt className="text-muted-foreground">Chave PIX</dt>
             <dd className="break-all font-mono">{w.pixKey}</dd>
             {rows.map(([label, value]) => (

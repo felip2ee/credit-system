@@ -7,11 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getMyAffiliateSummary } from "@/lib/affiliates/queries";
-import { listMyWithdrawals, type WithdrawalStatus } from "@/lib/affiliates/withdrawals";
+import { listMyWithdrawals, readWithdrawalFee, type WithdrawalStatus } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
+import { readAffiliateWithdrawalsEnabled } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
-import { readAffiliateSettings } from "@/lib/settings/readers";
 import { formatCurrency, formatDateSP } from "@/lib/utils";
 
 export const metadata = { title: "Saque de comissão" };
@@ -27,9 +27,11 @@ export default async function AffiliateWithdrawalPage() {
   const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
   if (!hasPermission(session, "affiliates:read")) redirect("/portal");
 
-  const [summary, settings, withdrawals] = await Promise.all([
+  const withdrawalsEnabled = readAffiliateWithdrawalsEnabled(process.env);
+  // A taxa vem da função SQL de saque: o cliente não lê settings (RLS), e a mesma leitura cobra o pedido.
+  const [summary, fee, withdrawals] = await Promise.all([
     withUserTransaction(session, (client) => getMyAffiliateSummary(client)),
-    readAffiliateSettings(session),
+    readWithdrawalFee(session),
     listMyWithdrawals(session),
   ]);
 
@@ -47,7 +49,11 @@ export default async function AffiliateWithdrawalPage() {
           </p>
         </CardHeader>
         <CardContent>
-          <WithdrawalForm fee={settings.withdrawalFee} />
+          {withdrawalsEnabled ? (
+            <WithdrawalForm fee={fee} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Saque disponível em breve.</p>
+          )}
         </CardContent>
       </Card>
       <Card>

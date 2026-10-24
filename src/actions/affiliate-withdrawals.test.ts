@@ -10,10 +10,14 @@ const s = vi.hoisted(() => ({
 	cancelWithdrawal: vi.fn(),
 	store: vi.fn(),
 	discard: vi.fn(),
+	withdrawalsEnabled: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/lib/config", () => ({ config: { betterAuthUrl: "https://app.example.test" } }));
+vi.mock("@/lib/config", () => ({
+	config: { betterAuthUrl: "https://app.example.test" },
+	readAffiliateWithdrawalsEnabled: s.withdrawalsEnabled,
+}));
 vi.mock("@/lib/auth/session", () => ({
 	getRequiredSession: s.session,
 	SessionAccessError: class SessionAccessError extends Error {},
@@ -63,6 +67,7 @@ function form(entries: Record<string, string | File>) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	s.withdrawalsEnabled.mockReturnValue(true);
 	s.session.mockResolvedValue(client);
 	s.requestWithdrawal.mockResolvedValue({ ok: true, withdrawalId });
 	s.convertCommission.mockResolvedValue({ ok: true });
@@ -79,6 +84,28 @@ describe("requestWithdrawalAction", () => {
 
 		expect(result).toEqual({ error: null, id: withdrawalId });
 		expect(s.requestWithdrawal).toHaveBeenCalledWith(client, { amount: "100.00", pixKeyType: "email", pixKey: "ana@example.com" });
+	});
+
+	it("refuses while withdrawals are disabled, before any session or database access", async () => {
+		s.withdrawalsEnabled.mockReturnValue(false);
+
+		const result = await requestWithdrawalAction(valid);
+
+		expect(result).toEqual({ error: "O saque ainda não está disponível." });
+		expect(s.session).not.toHaveBeenCalled();
+		expect(s.requestWithdrawal).not.toHaveBeenCalled();
+	});
+
+	it("keeps conversion working while withdrawals are disabled", async () => {
+		s.withdrawalsEnabled.mockReturnValue(false);
+
+		expect(await convertCommissionAction({ amount: "10.00" })).toEqual({ error: null });
+	});
+
+	it("maps a document key that is not the account's to the pt-BR message", async () => {
+		s.requestWithdrawal.mockResolvedValueOnce({ ok: false, reason: "pix_key_not_owner" });
+
+		expect((await requestWithdrawalAction(valid)).error).toBe("A chave CPF/CNPJ precisa ser o documento da sua conta.");
 	});
 
 	it("needs the declaration that the key is in the client's name, and writes nothing without it", async () => {

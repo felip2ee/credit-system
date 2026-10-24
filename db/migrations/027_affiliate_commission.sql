@@ -1,11 +1,13 @@
 -- Programa de afiliados, comissão.
 -- 1) capture_order (019) grava a comissão do afiliado quando o comprador indicado tem telefone verificado; o repasse ao
 --    Bureau (accrual) fica com a margem menos a comissão.
--- 2) apply_asaas_payment (019): no estorno de PIX, o que sobra depois do clawback ao Bureau reverte a comissão ainda
---    pendente do indicado, da mais nova para a mais antiga. Comissão já liberada não é tocada.
+-- 2) apply_asaas_payment (019): no estorno de PIX, a falta reverte primeiro a comissão ainda pendente do indicado (da
+--    mais nova para a mais antiga) e só o que sobra é cobrado do Bureau (clawback). Comissão já liberada não é tocada.
 -- 3) release_due_commissions: passa a comissão vencida da carência de pending para available (só a plataforma chama).
--- 4) lgpd_anonymize_client_account (023): recusa anonimizar conta com saldo de comissão.
--- Ordem de travas: liquidação -> carteira do cliente -> (webhook: lock payout:<bureau>) -> comissão -> carteira do afiliado.
+-- 4) lgpd_anonymize_client_account (023): recusa anonimizar conta com saldo de comissão (a 028 troca esta versão).
+-- Ordem de travas: liquidação -> carteira do cliente -> carteira do afiliado -> comissões (a captura e o estorno seguem
+-- esta ordem; release_due_commissions trava a carteira do afiliado antes das comissões dele). O lock payout:<bureau>
+-- do webhook vem depois das comissões, só para o clawback.
 
 -- Dono das funções de captura e webhook: o que elas leem e escrevem sobre afiliados, e só sob as políticas abaixo.
 grant select (bureau_id, affiliate_profile_id, pct) on affiliate_rates to auth_profile_lookup;
@@ -25,7 +27,7 @@ create policy affiliate_commissions_gateway_update on affiliate_commissions for 
 
 -- Auditoria da comissão: só estas ações, só sobre uma comissão do mesmo Bureau. O metadata não leva documento.
 create policy audit_logs_affiliate_commission_insert on audit_logs for insert to auth_profile_lookup with check (
-  action in ('affiliate.commission', 'affiliate.commission_reversal', 'affiliate.commission_release')
+  action in ('affiliate.commission', 'affiliate.commission_reversal', 'affiliate.commission_release', 'affiliate.forfeit')
   and table_name = 'affiliate_commissions'
   and support_session_id is null
   and bureau_id is not null
@@ -128,8 +130,10 @@ begin
       return;
     end if;
 
-    -- Comissão: só se o indicado tem telefone verificado e o afiliado não foi anonimizado. A % vale na captura e
-    -- fica gravada na comissão: mudá-la depois não altera o passado.
+    -- Comissão: só se o indicado tem telefone verificado e o afiliado está ativo e não foi anonimizado. A % vale na
+    -- captura e fica gravada na comissão: mudá-la depois não altera o passado. O perfil do afiliado é lido com
+    -- "for share": a anonimização (que o trava "for update") e esta captura se enfileiram, e a comissão nunca nasce
+    -- depois de a conta ser anonimizada.
     v_margin := v_s.price - v_s.cost;
     v_commission := 0;
     select r.affiliate_profile_id into v_affiliate
@@ -137,7 +141,8 @@ begin
       join public.profiles a on a.id = r.affiliate_profile_id
       join public.profiles b on b.id = r.referred_profile_id
      where r.referred_profile_id = v_s.client_profile_id
-       and a.anonymized_at is null and b.phone_verified_at is not null;
+       and a.anonymized_at is null and a.is_active and b.phone_verified_at is not null
+       for share of a;
     if v_affiliate is not null and v_margin > 0 then
       v_pct := coalesce(
         (select pct from public.affiliate_rates where bureau_id = v_s.bureau_id and affiliate_profile_id = v_affiliate),
@@ -157,9 +162,10 @@ begin
         (v_s.order_ref, v_s.bureau_id, v_affiliate, v_s.client_profile_id, v_pct, v_margin, v_commission,
          now() + make_interval(days => coalesce(v_hold_days, 30)))
       returning id into v_commission_id;
+      -- O livro do afiliado não guarda o id do indicado: created_by é o próprio afiliado e a referência é a comissão.
       select * into v_post from public.affiliate_wallet_post_entry(
         v_affiliate, 'commission', v_commission, 'order:commission:' || p_order_ref::text,
-        'order:' || p_order_ref::text, v_user);
+        'commission:' || v_commission_id::text, v_affiliate);
       if not v_post.ok then
         raise exception 'affiliate commission failed: %', v_post.reason;
       end if;
@@ -182,8 +188,8 @@ begin
 end
 $$;
 
--- 2) Webhook (019). Muda só o ramo PAYMENT_REFUNDED: reverte comissão pendente com o que sobra do clawback, e
--- grava refund_shortfall com o valor final (depois do clawback e da reversão de comissão).
+-- 2) Webhook (019). Muda só o ramo PAYMENT_REFUNDED: reverte primeiro a comissão pendente, cobra o resto do Bureau
+-- (clawback) e grava refund_shortfall com o valor final (depois da reversão de comissão e do clawback).
 create or replace function apply_asaas_payment(
   p_event_id text,
   p_event_type text,
@@ -207,6 +213,7 @@ declare
   v_payable numeric;
   v_clawback numeric := 0;
   v_left numeric;
+  v_affiliate uuid;
   v_commission record;
   v_commission_reversal numeric;
   v_commissions_reversed numeric := 0;
@@ -290,10 +297,53 @@ begin
       end if;
       v_reversed := least(v_available + v_reserved, v_charge.amount);
       v_shortfall := v_charge.amount - v_reversed;
-      -- Cobrança do cliente: o que a carteira não cobre pode já ter virado valor a repassar ao Bureau (pedido capturado
-      -- depois da recarga). Estorna-se esse valor, até o saldo a repassar ainda não pago. O lock é o de create_payout:
-      -- um repasse em curso e este estorno se enfileiram. O que sobra continua em refund_shortfall (o M6 cobre).
-      if v_charge.client_profile_id is not null and v_shortfall > 0 then
+      -- Cobrança do cliente: o que a carteira não cobre pode já ter virado comissão do afiliado e valor a repassar ao
+      -- Bureau (pedido capturado depois da recarga). A falta paga primeiro com a comissão ainda pendente do indicado
+      -- (a mais nova primeiro) e só o resto é cobrado do Bureau. Comissão liberada não é tocada: o afiliado já pode
+      -- sacar. O que sobra continua em refund_shortfall (o M6 cobre).
+      v_left := v_shortfall;
+      if v_charge.client_profile_id is not null and v_left > 0 then
+        -- Ordem de travas: carteira do cliente (acima) -> carteira do afiliado -> comissões. As comissões pendentes de
+        -- um indicado são de um afiliado só (o vínculo é imutável), então a carteira dele vem antes. release_due_commissions
+        -- segue a mesma ordem; por isso as duas rotinas não se cruzam.
+        select r.affiliate_profile_id into v_affiliate
+          from public.affiliate_referrals r where r.referred_profile_id = v_charge.client_profile_id;
+        if v_affiliate is not null then
+          perform 1 from public.affiliate_wallets w where w.profile_id = v_affiliate for update;
+          for v_commission in
+            select c.id, c.amount, c.reversed_amount, c.bureau_id, c.affiliate_profile_id
+              from public.affiliate_commissions c
+             where c.referred_profile_id = v_charge.client_profile_id and c.status = 'pending'
+             order by c.created_at desc, c.id desc
+               for update
+          loop
+            exit when v_left <= 0;
+            v_commission_reversal := least(v_commission.amount - v_commission.reversed_amount, v_left);
+            -- O livro do afiliado não guarda a cobrança nem o comprador: a referência é a comissão.
+            select * into v_post from public.affiliate_wallet_post_entry(
+              v_commission.affiliate_profile_id,
+              'commission_reversal', v_commission_reversal,
+              'refund:' || v_charge.id::text || ':' || v_commission.id::text,
+              'commission:' || v_commission.id::text, v_commission.affiliate_profile_id);
+            if not v_post.ok then
+              raise exception 'affiliate commission reversal failed: %', v_post.reason;
+            end if;
+            update public.affiliate_commissions
+               set reversed_amount = reversed_amount + v_commission_reversal,
+                   status = case when reversed_amount + v_commission_reversal = amount then 'reversed' else status end
+             where id = v_commission.id;
+            insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+            values (v_commission.bureau_id, v_charge.requested_by, 'affiliate.commission_reversal',
+              'affiliate_commissions', v_commission.id,
+              jsonb_build_object('pix_charge_id', v_charge.id, 'amount', v_commission_reversal::text));
+            v_left := v_left - v_commission_reversal;
+            v_commissions_reversed := v_commissions_reversed + v_commission_reversal;
+          end loop;
+        end if;
+      end if;
+      -- O que a comissão não cobriu vira clawback do Bureau, até o saldo a repassar ainda não pago. O lock é o de
+      -- create_payout: um repasse em curso e este estorno se enfileiram.
+      if v_charge.client_profile_id is not null and v_left > 0 then
         perform pg_catalog.pg_advisory_xact_lock(
           pg_catalog.hashtextextended('payout:' || v_charge.bureau_id::text, 0));
         -- Só o que nenhum repasse pegou (o mesmo conjunto de create_payout): o valor de um repasse aberto não
@@ -303,40 +353,8 @@ begin
          where e.bureau_id = v_charge.bureau_id
            and e.kind in ('accrual', 'reversal')
            and not exists (select 1 from public.payout_items i where i.entry_id = e.id);
-        v_clawback := least(v_shortfall, greatest(v_payable, 0));
-      end if;
-      -- O que ainda falta depois do clawback ao Bureau reverte a comissão pendente do indicado (a mais nova primeiro).
-      -- Comissão liberada não é tocada: o afiliado já pode sacar. O que sobra continua em refund_shortfall.
-      v_left := v_shortfall - v_clawback;
-      if v_charge.client_profile_id is not null and v_left > 0 then
-        for v_commission in
-          select c.id, c.amount, c.reversed_amount, c.bureau_id, c.affiliate_profile_id
-            from public.affiliate_commissions c
-           where c.referred_profile_id = v_charge.client_profile_id and c.status = 'pending'
-           order by c.created_at desc, c.id desc
-             for update
-        loop
-          exit when v_left <= 0;
-          v_commission_reversal := least(v_commission.amount - v_commission.reversed_amount, v_left);
-          select * into v_post from public.affiliate_wallet_post_entry(
-            v_commission.affiliate_profile_id,
-            'commission_reversal', v_commission_reversal,
-            'refund:' || v_charge.id::text || ':' || v_commission.id::text,
-            'pix_charge:' || v_charge.id::text, v_charge.requested_by);
-          if not v_post.ok then
-            raise exception 'affiliate commission reversal failed: %', v_post.reason;
-          end if;
-          update public.affiliate_commissions
-             set reversed_amount = reversed_amount + v_commission_reversal,
-                 status = case when reversed_amount + v_commission_reversal = amount then 'reversed' else status end
-           where id = v_commission.id;
-          insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
-          values (v_commission.bureau_id, v_charge.requested_by, 'affiliate.commission_reversal',
-            'affiliate_commissions', v_commission.id,
-            jsonb_build_object('pix_charge_id', v_charge.id, 'amount', v_commission_reversal::text));
-          v_left := v_left - v_commission_reversal;
-          v_commissions_reversed := v_commissions_reversed + v_commission_reversal;
-        end loop;
+        v_clawback := least(v_left, greatest(v_payable, 0));
+        v_left := v_left - v_clawback;
       end if;
       update public.pix_charges
          set status = 'refunded', refund_shortfall = v_left where id = v_charge.id;
@@ -388,6 +406,8 @@ $$;
 -- 3) Fim da carência. Só a plataforma (tick, sem usuário nem Bureau no contexto) chama. Idempotente: a chave do
 -- lançamento é por comissão e o status só sai de pending uma vez. Devolve quantas liberou. Comissão que a carteira
 -- recusa fica de fora (aviso no log do banco) e as demais seguem.
+-- Ordem de travas: carteira do afiliado -> comissões dele (a mesma do estorno). A carteira trava com skip locked: um
+-- afiliado em uso (estorno, saque, conversão) fica para o próximo tick e ninguém espera.
 create function release_due_commissions(p_limit integer default 500)
 returns integer
 language plpgsql
@@ -395,6 +415,7 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
+  v_affiliate uuid;
   v_commission record;
   v_post record;
   v_released integer := 0;
@@ -403,28 +424,42 @@ begin
     return 0;
   end if;
 
-  for v_commission in
-    select c.id, c.order_ref, c.bureau_id, c.affiliate_profile_id, c.amount - c.reversed_amount as rest
+  for v_affiliate in
+    select c.affiliate_profile_id
       from public.affiliate_commissions c
      where c.status = 'pending' and c.release_at <= now()
-     order by c.release_at, c.id
-     limit greatest(p_limit, 0)
-       for update skip locked
+     group by c.affiliate_profile_id
+     order by min(c.release_at), c.affiliate_profile_id
   loop
-    select * into v_post from public.affiliate_wallet_post_entry(
-      v_commission.affiliate_profile_id, 'commission_release', v_commission.rest,
-      'release:' || v_commission.id::text, 'order:' || v_commission.order_ref::text,
-      v_commission.affiliate_profile_id);
-    if not v_post.ok then
-      -- Uma comissão sem lastro na carteira (não deveria existir) não trava as outras: fica pending e vai ao log.
-      raise warning 'affiliate commission % not released: %', v_commission.id, v_post.reason;
+    exit when v_released >= greatest(p_limit, 0);
+    perform 1 from public.affiliate_wallets w where w.profile_id = v_affiliate for update skip locked;
+    if not found then
       continue;
     end if;
-    update public.affiliate_commissions set status = 'released' where id = v_commission.id;
-    insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
-    values (v_commission.bureau_id, v_commission.affiliate_profile_id, 'affiliate.commission_release',
-      'affiliate_commissions', v_commission.id, jsonb_build_object('amount', v_commission.rest::text));
-    v_released := v_released + 1;
+
+    for v_commission in
+      select c.id, c.order_ref, c.bureau_id, c.affiliate_profile_id, c.amount - c.reversed_amount as rest
+        from public.affiliate_commissions c
+       where c.affiliate_profile_id = v_affiliate and c.status = 'pending' and c.release_at <= now()
+       order by c.release_at, c.id
+       limit greatest(p_limit, 0) - v_released
+         for update skip locked
+    loop
+      select * into v_post from public.affiliate_wallet_post_entry(
+        v_commission.affiliate_profile_id, 'commission_release', v_commission.rest,
+        'release:' || v_commission.id::text, 'commission:' || v_commission.id::text,
+        v_commission.affiliate_profile_id);
+      if not v_post.ok then
+        -- Uma comissão sem lastro na carteira (não deveria existir) não trava as outras: fica pending e vai ao log.
+        raise warning 'affiliate commission % not released: %', v_commission.id, v_post.reason;
+        continue;
+      end if;
+      update public.affiliate_commissions set status = 'released' where id = v_commission.id;
+      insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+      values (v_commission.bureau_id, v_commission.affiliate_profile_id, 'affiliate.commission_release',
+        'affiliate_commissions', v_commission.id, jsonb_build_object('amount', v_commission.rest::text));
+      v_released := v_released + 1;
+    end loop;
   end loop;
   return v_released;
 end

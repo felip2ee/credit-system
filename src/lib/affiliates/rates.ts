@@ -52,6 +52,16 @@ export async function listBureauAffiliates(identity: DbIdentity): Promise<Bureau
 	});
 }
 
+// Sem linha em bureau_affiliate_settings, o padrão do Bureau é 0 (default da coluna).
+export async function getBureauDefaultPct(identity: DbIdentity): Promise<string> {
+	return withUserTransaction(identity, async (client) => {
+		const { rows } = await client.query<{ default_pct: string }>(
+			"select default_pct from bureau_affiliate_settings where bureau_id = app_bureau_id()",
+		);
+		return rows[0]?.default_pct ?? "0.00";
+	});
+}
+
 export async function setBureauDefaultPct(identity: DbIdentity, pct: string): Promise<void> {
 	await withUserTransaction(identity, async (client) => {
 		await client.query(

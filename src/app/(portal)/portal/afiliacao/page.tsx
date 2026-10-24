@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { affiliateLink } from "@/lib/affiliates/rates";
 import { getMyAffiliateSummary } from "@/lib/affiliates/queries";
+import { readWithdrawalFee } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
+import { readAffiliateWithdrawalsEnabled } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { formatCurrency } from "@/lib/utils";
@@ -35,6 +37,8 @@ export default async function AffiliatePage() {
   }
   const { code, wallet, referrals, commissions } = data.summary;
   const hasAvailable = Number(wallet.available) > 0;
+  const withdrawalsEnabled = readAffiliateWithdrawalsEnabled(process.env);
+  const fee = withdrawalsEnabled ? await readWithdrawalFee(session) : null;
 
   return (
     <div className="space-y-6">
@@ -61,9 +65,18 @@ export default async function AffiliatePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <ConvertForm available={wallet.available} />
-            <Button asChild variant="outline">
-              <Link href="/portal/afiliacao/saque">Sacar por PIX</Link>
-            </Button>
+            {fee ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Taxa de saque: {formatCurrency(Number(fee.fixed))} + {fee.percent}%
+                </p>
+                <Button asChild variant="outline">
+                  <Link href="/portal/afiliacao/saque">Sacar por PIX</Link>
+                </Button>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Saque disponível em breve.</p>
+            )}
           </CardContent>
         </Card>
       )}

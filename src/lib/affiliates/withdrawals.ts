@@ -11,6 +11,7 @@ export type WithdrawalFailure =
 	| "not_found"
 	| "invalid_amount"
 	| "invalid_pix_key"
+	| "pix_key_not_owner"
 	| "invalid_request"
 	| "invalid_reason"
 	| "invalid_receipt"
@@ -66,6 +67,8 @@ export type WithdrawalDetail = {
 	pixKeyType: PixKeyType;
 	pixKey: string;
 	holderName: string;
+	// Documento da conta, só mascarado: para conferir uma chave que não é CPF/CNPJ.
+	accountDocumentMasked: string | null;
 	status: WithdrawalStatus;
 	cancelReason: string | null;
 	receiptObjectKey: string | null;
@@ -73,6 +76,17 @@ export type WithdrawalDetail = {
 	paidAt: Date | null;
 	createdAt: Date;
 };
+
+// Taxa de saque para qualquer papel. A tabela settings não é visível ao cliente (RLS): a função SQL expõe só esta chave e
+// é a mesma leitura que o pedido de saque usa para cobrar.
+export async function readWithdrawalFee(identity: DbIdentity): Promise<{ fixed: string; percent: string }> {
+	return withUserTransaction(identity, async (client) => {
+		const { rows } = await client.query<{ fixed: string; percent: string }>(
+			"select fixed::numeric(15,2) as fixed, percent::numeric(15,2) as percent from affiliate_withdrawal_fee()",
+		);
+		return rows[0] ?? { fixed: "0.00", percent: "0.00" };
+	});
+}
 
 export async function requestWithdrawal(
 	identity: DbIdentity,
@@ -191,6 +205,7 @@ type DetailRow = {
 	pix_key_type: PixKeyType;
 	pix_key: string;
 	holder_name: string;
+	account_document_masked: string | null;
 	status: WithdrawalStatus;
 	cancel_reason: string | null;
 	receipt_object_key: string | null;
@@ -203,8 +218,8 @@ type DetailRow = {
 export async function getWithdrawalDetail(identity: DbIdentity, id: string): Promise<WithdrawalDetail | null> {
 	return withUserTransaction(identity, async (client) => {
 		const { rows } = await client.query<DetailRow>(
-			`select id, bureau_id, profile_id, amount, fee, net, pix_key_type, pix_key, holder_name, status, cancel_reason,
-			        receipt_object_key, receipt_mime, paid_at, created_at
+			`select id, bureau_id, profile_id, amount, fee, net, pix_key_type, pix_key, holder_name, account_document_masked,
+			        status, cancel_reason, receipt_object_key, receipt_mime, paid_at, created_at
 			   from get_affiliate_withdrawal_detail($1)`,
 			[id],
 		);
@@ -220,6 +235,7 @@ export async function getWithdrawalDetail(identity: DbIdentity, id: string): Pro
 			pixKeyType: r.pix_key_type,
 			pixKey: r.pix_key,
 			holderName: r.holder_name,
+			accountDocumentMasked: r.account_document_masked,
 			status: r.status,
 			cancelReason: r.cancel_reason,
 			receiptObjectKey: r.receipt_object_key,

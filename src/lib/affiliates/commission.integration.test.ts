@@ -152,6 +152,17 @@ const release = () =>
 const backdate = (id: string) =>
 	owner.query("update affiliate_commissions set release_at = now() - interval '1 minute' where id = $1", [id]);
 
+// Estorno de 30,00 sobre a carteira zerada do indicado (a falta inteira): reverte 30,00 da comissão mais nova.
+async function refund30(s: Scenario) {
+	const charge = await seedPixCharge(owner, {
+		bureauId: s.t.bureau.id, requestedBy: s.buyerId, clientProfileId: s.buyerId, amount: "30.00", status: "paid",
+	});
+	await hook.query("select apply_asaas_payment($1, 'PAYMENT_REFUNDED', $2, '{}'::jsonb)", [
+		`evt-${randomBytes(6).toString("hex")}`,
+		charge.asaasPaymentId,
+	]);
+}
+
 describe("comissão na captura", () => {
 	it("grava 40,00 pendente, accrual 360,00 e saldo pendente do afiliado (10% de 400,00)", async () => {
 		const s = await scenario("Com 10");
@@ -224,6 +235,40 @@ describe("comissão na captura", () => {
 
 		expect(await commissionsOf(order.orderRef)).toEqual([]);
 		expect(await accruals(order.orderRef)).toEqual(["400.00"]);
+	});
+
+	it("afiliado inativo não recebe comissão", async () => {
+		const s = await scenario("Afiliado inativo");
+		await ownerUpdateProfile(s.affiliateId, "is_active = false");
+		const order = await placeAndCapture(s);
+
+		expect(await commissionsOf(order.orderRef)).toEqual([]);
+		expect(await accruals(order.orderRef)).toEqual(["400.00"]);
+		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "0.00" });
+	});
+
+	it("o livro do afiliado não guarda o id do indicado nem a referência da cobrança (captura, liberação e estorno)", async () => {
+		const s = await scenario("Livro neutro", { funds: "2000.00" });
+		const released = await placeAndCapture(s);
+		const reversed = await placeAndCapture(s);
+		const commissionId = (await commissionsOf(released.orderRef))[0].id;
+		await backdate(commissionId);
+		await release();
+		await refund30(s);
+
+		const { rows } = await owner.query<{ kind: string; reference: string; created_by: string }>(
+			"select kind, reference, created_by from affiliate_ledger_entries where profile_id = $1 order by seq",
+			[s.affiliateId],
+		);
+		expect(rows.map((r) => r.kind)).toEqual(["commission", "commission", "commission_release", "commission_reversal"]);
+		for (const row of rows) {
+			expect(row.created_by).toBe(s.affiliateId);
+			expect(row.reference).toMatch(/^commission:[0-9a-f-]{36}$/);
+		}
+		expect(rows[2].reference).toBe(`commission:${commissionId}`);
+		expect(JSON.stringify(rows)).not.toContain(s.buyerId);
+		expect(JSON.stringify(rows)).not.toContain("pix_charge");
+		expect((await commissionsOf(reversed.orderRef))[0].reversed_amount).toBe("30.00");
 	});
 
 	it("captura repetida mantém uma comissão só", async () => {
@@ -316,16 +361,36 @@ describe("estorno de PIX do indicado", () => {
 			.query<{ refund_shortfall: string }>("select refund_shortfall from pix_charges where id = $1", [chargeId])
 			.then((r) => r.rows[0].refund_shortfall);
 
-	it("reverte da comissão pendente a falta de 30,00 que sobra depois do clawback", async () => {
+	const clawback = (chargeId: string) =>
+		owner
+			.query<{ amount: string }>("select amount from bureau_payable_entries where pix_charge_id = $1 and kind = 'reversal'", [chargeId])
+			.then((r) => r.rows.map((x) => x.amount));
+
+	it("reverte a comissão pendente primeiro: falta de 30,00 sai da comissão e o Bureau não paga nada", async () => {
 		const s = await scenario("Estorno pendente");
 		const order = await placeAndCapture(s);
-		// Carteira zerada pelo pedido: o estorno de 390,00 falta inteiro; o clawback tira os 360,00 do accrual.
-		const charge = await chargeAfterOrder(s, "390.00");
+		// Carteira zerada pelo pedido: o estorno de 30,00 falta inteiro. O accrual de 360,00 do Bureau cobriria, mas a
+		// comissão pendente vem antes.
+		const charge = await chargeAfterOrder(s, "30.00");
 
 		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
 
 		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ reversed_amount: "30.00", status: "pending" });
 		expect(await wallet(s.affiliateId)).toEqual({ pending: "10.00", available: "0.00" });
+		expect(await clawback(charge.id)).toEqual([]);
+		expect(await shortfall(charge.id)).toBe("0.00");
+	});
+
+	it("falta de 50,00 com comissão pendente de 40,00: reverte 40,00 e o Bureau paga os 10,00 que restam", async () => {
+		const s = await scenario("Estorno comissão e Bureau");
+		const order = await placeAndCapture(s);
+		const charge = await chargeAfterOrder(s, "50.00");
+
+		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
+
+		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ reversed_amount: "40.00", status: "reversed" });
+		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "0.00" });
+		expect(await clawback(charge.id)).toEqual(["-10.00"]);
 		expect(await shortfall(charge.id)).toBe("0.00");
 	});
 
@@ -364,31 +429,79 @@ describe("estorno de PIX do indicado", () => {
 
 		expect(await refund(charge.asaasPaymentId)).toBe("duplicate");
 
-		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ reversed_amount: "30.00" });
+		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ reversed_amount: "40.00", status: "reversed" });
+		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "0.00" });
 	});
 });
 
 describe("LGPD", () => {
-	it("anonimizar afiliado com saldo de comissão devolve 'commission'", async () => {
-		const s = await scenario("LGPD saldo");
-		await placeAndCapture(s);
-
-		const result = await committed(adminCtx(s.t), (c) =>
+	const anonymize = (s: Scenario) =>
+		committed(adminCtx(s.t), (c) =>
 			c.query<{ result: string }>("select lgpd_anonymize_client_account($1) as result", [s.affiliateId]).then((r) => r.rows[0].result),
 		);
 
-		expect(result).toBe("commission");
+	it("anonimizar afiliado com comissão disponível devolve 'commission' e nada muda", async () => {
+		const s = await scenario("LGPD saldo");
+		const order = await placeAndCapture(s);
+		await backdate((await commissionsOf(order.orderRef))[0].id);
+		await release();
+
+		expect(await anonymize(s)).toBe("commission");
+
 		const { rows } = await owner.query("select anonymized_at from profiles where id = $1", [s.affiliateId]);
 		expect(rows[0].anonymized_at).toBeNull();
+		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "40.00" });
+	});
+
+	it("anonimizar afiliado com saque aberto devolve 'commission'", async () => {
+		const s = await scenario("LGPD saque");
+		await owner.query("select affiliate_wallet_post_entry($1, 'commission', '50.00', 'seed-c', 'seed', $1)", [s.affiliateId]);
+		await owner.query("select affiliate_wallet_post_entry($1, 'commission_release', '50.00', 'seed-r', 'seed', $1)", [s.affiliateId]);
+		await owner.query("select affiliate_wallet_post_entry($1, 'withdrawal_hold', '50.00', 'seed-h', 'seed', $1)", [s.affiliateId]);
+		await owner.query(
+			`insert into affiliate_withdrawals (bureau_id, profile_id, amount, fee, net, pix_key_type, pix_key, holder_name)
+			 values ($1, $2, 50, 0, 50, 'email', 'a@example.test', 'Afiliado')`,
+			[s.t.bureau.id, s.affiliateId],
+		);
+
+		expect(await anonymize(s)).toBe("commission");
+	});
+
+	it("só com comissão pendente a anonimização passa e a pendente é perdida (reversão, auditoria sem documento)", async () => {
+		const s = await scenario("LGPD pendente");
+		const order = await placeAndCapture(s);
+		const commissionId = (await commissionsOf(order.orderRef))[0].id;
+
+		expect(await anonymize(s)).toBe("ok");
+
+		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ amount: "40.00", reversed_amount: "40.00", status: "reversed" });
+		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "0.00" });
+		const ledger = await owner.query<{ kind: string; amount: string; idempotency_key: string }>(
+			"select kind, amount, idempotency_key from affiliate_ledger_entries where profile_id = $1 order by seq desc limit 1",
+			[s.affiliateId],
+		);
+		expect(ledger.rows[0]).toEqual({ kind: "commission_reversal", amount: "40.00", idempotency_key: `lgpd:${commissionId}` });
+		const audit = await owner.query<{ metadata: unknown }>(
+			"select metadata from audit_logs where action = 'affiliate.forfeit' and record_id = $1",
+			[commissionId],
+		);
+		expect(audit.rows).toHaveLength(1);
+		expect(JSON.stringify(audit.rows[0].metadata)).toBe(JSON.stringify({ amount: "40.00" }));
+	});
+
+	it("depois de anonimizado, um novo pedido do indicado não gera comissão", async () => {
+		const s = await scenario("LGPD depois", { funds: "2000.00" });
+		await placeAndCapture(s);
+		expect(await anonymize(s)).toBe("ok");
+
+		const next = await placeAndCapture(s);
+
+		expect(await commissionsOf(next.orderRef)).toEqual([]);
 	});
 
 	it("anonimizar afiliado sem saldo continua funcionando", async () => {
 		const s = await scenario("LGPD zero");
 
-		const result = await committed(adminCtx(s.t), (c) =>
-			c.query<{ result: string }>("select lgpd_anonymize_client_account($1) as result", [s.affiliateId]).then((r) => r.rows[0].result),
-		);
-
-		expect(result).toBe("ok");
+		expect(await anonymize(s)).toBe("ok");
 	});
 });
