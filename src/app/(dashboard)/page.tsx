@@ -34,9 +34,8 @@ import { withUserTransaction } from "@/lib/db/transaction";
 import { getDashboardMetrics } from "@/lib/dashboard/queries";
 import { getPayableBalance } from "@/lib/payables/queries";
 import { getWallet } from "@/lib/wallet/queries";
+import { statusInfo } from "@/lib/ui/status";
 import {
-  QUERY_STATUS_LABEL,
-  SCR_STATUS_LABEL,
   type EntityKind,
   type QueryStatus,
   type ScrStatus,
@@ -238,7 +237,7 @@ export default async function DashboardPage() {
   const pipelineTotal = PIPELINE_ORDER.reduce((acc, s) => acc + pipeline[s], 0);
 
   const scrItems: CategoryItem[] = SCR_ORDER.map((s) => ({
-    label: SCR_STATUS_LABEL[s],
+    label: statusInfo("scr", s, "staff").label,
     value: scrCounts[s],
     hue: SCR_HUE[s],
   }));
@@ -248,7 +247,7 @@ export default async function DashboardPage() {
     hue: APTITUDE_HUE[a],
   }));
   const pipelineItems: CategoryItem[] = PIPELINE_ORDER.map((s) => ({
-    label: QUERY_STATUS_LABEL[s],
+    label: statusInfo("consultation", s, "staff").label,
     value: pipeline[s],
     hue: PIPELINE_HUE[s] ?? "slate",
   }));

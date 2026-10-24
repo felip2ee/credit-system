@@ -1,21 +1,11 @@
 import Link from "next/link";
 
-import { Badge, type BadgeProps } from "@/components/ui/badge";
-import { ORDER_REASON_LABEL, ORDER_STATE_LABEL } from "@/lib/orders/labels";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { ORDER_REASON_LABEL } from "@/lib/orders/labels";
 import type { ClientOrderListItem } from "@/lib/orders/client-queries";
 import type { OrderState } from "@/lib/orders/types";
+import { statusInfo } from "@/lib/ui/status";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
-
-const STATE_VARIANT: Record<OrderState, BadgeProps["variant"]> = {
-	awaiting_payment: "muted",
-	awaiting_authorization: "secondary",
-	ready: "secondary",
-	executing: "secondary",
-	completed: "secondary",
-	released: "success",
-	failed: "destructive",
-	cancelled: "destructive",
-};
 
 const PRODUCT_LABEL: Record<ClientOrderListItem["productCode"], string> = {
 	dossie_pf: "Dossiê Pessoa Física",
@@ -23,9 +13,10 @@ const PRODUCT_LABEL: Record<ClientOrderListItem["productCode"], string> = {
 };
 
 export function OrderStateBadge({ state, reason }: { state: OrderState; reason: ClientOrderListItem["reason"] }) {
+	const { tone, label } = statusInfo("order", state, "client");
 	return (
 		<span className="flex flex-col items-end gap-1">
-			<Badge variant={STATE_VARIANT[state]}>{ORDER_STATE_LABEL[state]}</Badge>
+			<StatusBadge tone={tone} label={label} />
 			{reason && (state === "failed" || state === "cancelled") && (
 				<span className="text-xs text-muted-foreground">{ORDER_REASON_LABEL[reason]}</span>
 			)}

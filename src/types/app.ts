@@ -96,20 +96,3 @@ export interface ScrAuthorization {
   last_checked_at: string | null;
   lastNotificationStatus: NotificationStatus | null;
 }
-
-export const QUERY_STATUS_LABEL: Record<QueryStatus, string> = {
-  pending_authorization: "Aguardando SCR",
-  authorized: "Autorizada",
-  processing: "Processando",
-  completed: "Concluída",
-  payload_incompatible: "Dados incompatíveis",
-  error: "Erro",
-  rejected: "Recusada",
-};
-
-export const SCR_STATUS_LABEL: Record<ScrStatus, string> = {
-  pending: "Pendente",
-  authorized: "Concedida",
-  not_authorized: "Não autorizada",
-  expired: "Expirada",
-};

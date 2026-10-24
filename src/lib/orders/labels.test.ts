@@ -19,7 +19,7 @@ describe("orderStepLines", () => {
 	});
 
 	it("says the reservation went back only for an online order that was not clawed back", () => {
-		expect(orderStepLines({ state: "cancelled", reason: "scr_expired", mode: "online" })).toEqual(["Autorização expirada", REFUNDED]);
+		expect(orderStepLines({ state: "cancelled", reason: "scr_expired", mode: "online" })).toEqual(["A autorização venceu.", REFUNDED]);
 		expect(orderStepLines({ state: "failed", reason: "deps_no_data", mode: "online" })).toContain(REFUNDED);
 	});
 

@@ -1,18 +1,8 @@
-import { Badge, type BadgeProps } from "@/components/ui/badge";
-import { ORDER_STATE_LABEL } from "@/lib/orders/labels";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { statusInfo } from "@/lib/ui/status";
 import type { OrderState } from "@/lib/orders/types";
 
-const VARIANT: Record<OrderState, BadgeProps["variant"]> = {
-  awaiting_payment: "secondary",
-  awaiting_authorization: "secondary",
-  ready: "secondary",
-  executing: "secondary",
-  completed: "success",
-  released: "success",
-  failed: "destructive",
-  cancelled: "muted",
-};
-
 export function OrderStateBadge({ state }: { state: OrderState }) {
-  return <Badge variant={VARIANT[state]}>{ORDER_STATE_LABEL[state]}</Badge>;
+  const { tone, label } = statusInfo("order", state, "staff");
+  return <StatusBadge tone={tone} label={label} />;
 }
