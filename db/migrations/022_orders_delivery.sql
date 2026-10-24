@@ -455,6 +455,12 @@ begin
          auth_code = null
    where id = v_id;
 
+  -- A consulta sai de "Aguardando SCR" na hora, sem esperar o tick. A recusa não muda nada aqui.
+  if v_authorized then
+    update public.consultations set status = 'processing'
+     where scr_authorization_id = v_id and status = 'pending_authorization';
+  end if;
+
   insert into public.timeline_events (bureau_id, entity_type, entity_id, event_type, title)
   values (
     v_bureau_id,
@@ -1048,10 +1054,10 @@ grant select (type, name, created_at) on public.holders to auth_profile_lookup;
 grant select (company_id, partner_id), insert (bureau_id, company_id, partner_id, percentage, role, source, created_by)
   on public.holder_partnerships to auth_profile_lookup;
 grant insert (bureau_id, kind, holder_id, product, status, created_by) on public.dossiers to auth_profile_lookup;
-grant select (dossier_id, scr_authorization_id),
+grant select (dossier_id, scr_authorization_id, status),
   insert (bureau_id, type, document, document_name, product, holder_id, dossier_id, created_by, status,
           requires_auth, scr_mode, scr_email),
-  update (scr_authorization_id) on public.consultations to auth_profile_lookup;
+  update (scr_authorization_id, status) on public.consultations to auth_profile_lookup;
 grant select (email, phone_e164, client_profile_id, request_expires_at, requested_at),
   insert (bureau_id, document, type, name, email, phone_e164, holder_id, client_profile_id, consultation_id,
           requested_by, channel, request_expires_at) on public.scr_authorizations to auth_profile_lookup;
@@ -1084,6 +1090,13 @@ drop policy if exists consultations_gateway_order_update on consultations;
 create policy consultations_gateway_order_update on consultations for update to auth_profile_lookup
   using (bureau_id = app_bureau_id() and status = 'pending_authorization')
   with check (bureau_id = app_bureau_id() and status = 'pending_authorization');
+-- confirm_public_scr_authorization roda sem contexto de Bureau (rota pública): só tira a consulta de 'pending_authorization'
+-- para 'processing', e só quando a autorização ligada a ela já está 'authorized'.
+drop policy if exists consultations_gateway_scr_confirm on consultations;
+create policy consultations_gateway_scr_confirm on consultations for update to auth_profile_lookup
+  using (status = 'pending_authorization'
+         and exists (select 1 from scr_authorizations s where s.id = consultations.scr_authorization_id and s.status = 'authorized'))
+  with check (status = 'processing');
 drop policy if exists scr_authorizations_gateway_order_insert on scr_authorizations;
 create policy scr_authorizations_gateway_order_insert on scr_authorizations for insert to auth_profile_lookup
   with check (channel = 'internal' and bureau_id = app_bureau_id() and requested_by = app_user_id()
