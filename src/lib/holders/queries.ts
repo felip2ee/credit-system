@@ -128,9 +128,15 @@ export async function updateHolder(
 	id: string,
 	input: HolderInput,
 ): Promise<
-	{ ok: true } | { ok: false; reason: "not_found" | "duplicate_document" }
+	{ ok: true } | { ok: false; reason: "not_found" | "duplicate_document" | "anonymized" }
 > {
 	return withUserTransaction(identity, async (client) => {
+		// Titular anonimizado não muda mais (o trigger holders_anonymized_guard também recusa).
+		const current = await client.query<{ anonymized_at: string | null }>(
+			"select anonymized_at::text from holders where id = $1",
+			[id],
+		);
+		if (current.rows[0]?.anonymized_at) return { ok: false, reason: "anonymized" } as const;
 		try {
 			const updated = await client.query(
 				`update holders set
@@ -388,6 +394,7 @@ export interface HolderRow {
 	zip_code: string | null;
 	notes: string | null;
 	client_profile_id: string | null;
+	anonymized_at: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -441,7 +448,7 @@ export async function getHolderDetail(
 		const holder = await client.query<HolderRow>(
 			`select id, type, name, document, email, phone, address, address_number,
               address_complement, neighborhood, city, state, zip_code, notes,
-              client_profile_id, created_at::text, updated_at::text
+              client_profile_id, anonymized_at::text, created_at::text, updated_at::text
          from holders where id = $1`,
 			[id],
 		);

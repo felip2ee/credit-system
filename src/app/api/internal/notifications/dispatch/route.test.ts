@@ -26,7 +26,7 @@ const call = (headers: Record<string, string> = {}) =>
 beforeEach(() => {
 	vi.clearAllMocks();
 	vi.stubEnv("NOTIFICATIONS_DISPATCH_SECRET", SECRET);
-	vi.stubEnv("DISPATCH_DATABASE_URL", "postgres://app_dispatch:test@localhost:54329/credit_system");
+	vi.stubEnv("DISPATCH_DATABASE_URL", "postgres://app_dispatch:test@localhost:54329/credit_system_test");
 	s.run.mockResolvedValue(counts);
 	vi.spyOn(console, "error").mockImplementation(() => {});
 });

@@ -46,11 +46,11 @@ src/
   types/ test/
 db/migrations/           Migrations SQL numeradas.
 scripts/                 db (migrate, reset), setup (Python), notifications-cron, verify-release.
-e2e/                     Specs Playwright.
+e2e/                     Specs Playwright (login com MFA, compra no portal e balcão até `ready`). Veja [quality.md](quality.md).
 docker/ docker-compose.dev.yml docker-stack.yml
 ```
 
-Outros domínios em `src/lib/`: asaas, bureaus, catalog, consultations, counter-payments, dashboard, dossiers, holders, nfse, payables, payouts, scr, settings, settlement, support, wallet.
+Outros domínios em `src/lib/`: asaas, bureaus, catalog, consultations, counter-payments, dashboard, dossiers, holders, lgpd, nfse, payables, payouts, scr, settings, settlement, support, wallet.
 
 Responsabilidade por módulo: veja os `CLAUDE.md` em `src/components/`, `src/lib/{ai,auth,db,deps,documents,pdf}` e `src/actions/`.
 
@@ -78,18 +78,22 @@ Webhooks e worker:
 - Uma notificação entra na fila (tabela no Postgres) na mesma transação da regra de negócio.
 - O serviço `notifications_cron` (`scripts/notifications-cron.mjs`) chama `POST /api/internal/notifications/dispatch` a cada 60 s, com `NOTIFICATIONS_DISPATCH_SECRET`.
 - O despacho tenta de novo com espera crescente. Veja [operations/notifications.md](operations/notifications.md).
-- `POST /api/internal/orders/tick` executa os pedidos de pesquisa com a identidade de sistema do Bureau (perfil `is_system`), sem sessão. Veja [operations/orders.md](operations/orders.md).
+- `POST /api/internal/orders/tick` executa os pedidos de pesquisa com a identidade de sistema do Bureau (perfil `is_system`), sem sessão. Veja [operations/orders.md](operations/orders.md). O mesmo tick roda a varredura de retenção LGPD (`src/lib/lgpd`).
+- O cron também envia alertas por e-mail: indisponibilidade, falha de envio, erro no tick e backup atrasado. Veja [operations/monitoring.md](operations/monitoring.md).
 
 ## Dados e migrations
 
-- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `022`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
+- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `024`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
 - A 021 cria as contas de cliente: `legal_documents`, `legal_acceptances`, `verification_challenges`, `client_register_attempts`, e as funções `register_client` e de verificação (`request_*` e `confirm_*` de e-mail e de telefone).
+- A 023 cria a retenção LGPD: anonimização do titular e da conta do cliente, varredura técnica e do Bureau. Veja [operations/lgpd.md](operations/lgpd.md).
 - A 022 cria os pedidos de pesquisa (`dossier_orders`, com estado protegido por trigger), a função `open_order` (única porta de criação de Dossiê), o perfil de sistema por Bureau (`profiles.is_system`) e a RLS de entrega do cliente. Veja [operations/orders.md](operations/orders.md).
+- A 024 dá ao cliente leitura de `bureau_payloads` só de pedido próprio em `released` (`bureau_payloads_client_released`).
 - Aplicar: `npm run db:migrate`. O runner grava checksums. Não edite uma migration já aplicada.
-- A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. Depois, só migrations novas.
+- A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. A partir do primeiro deploy de produção, só migrations novas (forward-only, com checksum).
+- Serviço `migrate` (Swarm, one-shot): aplica as migrations com `DATABASE_OWNER_URL`, a única DSN de owner em produção. `reino_app` só tem `app_runtime` e espera o schema com `migrate.mjs --check`. Veja [operations/deploy.md](operations/deploy.md).
 - Dois roles de conexão:
   - `DATABASE_URL`: role de runtime do app (`app_runtime`), sujeito ao RLS.
-  - `DATABASE_OWNER_URL`: dono do schema. Usado por migrations e `db:reset`.
+  - `DATABASE_OWNER_URL`: dono do schema. Usado por migrations e `db:reset`. Em produção, só o serviço `migrate` a recebe.
   - `DATABASE_WEBHOOK_URL`: role `app_webhook`, usado pelos webhooks.
 - `db:reset` apaga o schema `public` e recusa hosts não locais.
 - O RLS lê `app.user_id`, `app.user_role`, `app.bureau_id` e `app.support_session_id`. `withUserTransaction` define esses valores com `set_config(..., true)` (local à transação).
@@ -104,10 +108,11 @@ Webhooks e worker:
 |---|---|---|
 | SQL puro com `pg`, sem ORM | Controle do RLS e do contexto de transação. Fonte: `CLAUDE.md`. | Um ORM provar que preserva o contexto RLS. |
 | SQL parametrizado em `queries.ts` | Evita injeção de SQL. Uma função por operação. | — |
-| Sem logger estruturado; `console` direto | Estado atual do código. Não há módulo de log. | O projeto adotar um logger (hipótese: antes da produção, no M7). |
+| Sem logger estruturado; `console` direto | Estado atual do código. Não há módulo de log. | Decidido: sem logger; alertas pelo cron (M7). |
 | Outbox no Postgres + cron, sem fila externa | Decisão D1 do spec do M4: sem infraestrutura nova. | Volume de envio exceder o worker de 60 s. |
 | Livro-razão imutável | Spec de produto: saldo nunca é editável. | — |
 | Migrations editáveis até o primeiro deploy | Dados de produção foram perdidos; não há compatibilidade a preservar. | Primeiro deploy de produção. |
+| Tela, PDF e IA leem o payload bruto (`bureau_payloads`), não o canônico | Mostrar 100% do retorno da deps sem deploy por módulo novo (spec 2026-10-19). | Payload ultrapassar o limite de tamanho da tela ou do PDF. |
 | Sem Supabase | Migrou para Postgres self-hosted com Better Auth. | — |
 
 ## Manutenção

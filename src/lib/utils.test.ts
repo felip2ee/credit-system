@@ -24,6 +24,11 @@ describe("onlyDigits", () => {
     expect(onlyDigits("abc 123 !@#")).toBe("123");
     expect(onlyDigits("")).toBe("");
   });
+
+  it("devolve vazio para o documento nulo do Titular anonimizado", () => {
+    expect(onlyDigits(null)).toBe("");
+    expect(onlyDigits(undefined)).toBe("");
+  });
 });
 
 describe("isValidCPF", () => {

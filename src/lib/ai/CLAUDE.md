@@ -31,6 +31,7 @@ Rules active in this directory — read them before touching code here:
 - Keep `parecer-prompt.md` and `prompt.ts` consistent; `prompt.ts` is the source of truth.
 - Prompts and user-facing errors are pt-BR.
 - Server-only: never import from client components.
+- `bureau-input.ts` prunes the raw deps payload before it goes to the model (removes noise, contact and personal data; never mutates the input).
 
 ## Rules
 <!-- aia-harness:fixed — non-negotiable; do not edit, reorder, or remove during enrichment -->

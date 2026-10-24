@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadMigrations, pendingMigrations } from "./migrate.mjs";
+import pg from "pg";
+
+import { loadMigrations, migrate, pendingMigrations } from "./migrate.mjs";
 
 test("rejects a changed checksum for an applied migration", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "credit-system-migrations-"));
@@ -79,4 +82,143 @@ test("restricts the public SCR gateway role to RLS policies and column grants", 
 		/create policy timeline_events_gateway_insert on public\.timeline_events for insert to auth_profile_lookup/,
 	);
 	assert.doesNotMatch(sql, /select \*\s+into v_authorization/);
+});
+
+const ADMIN_URL = "postgres://postgres:test@127.0.0.1:54329/postgres";
+
+// Runs `migrate.mjs --check` as a child process and returns its exit code and stderr.
+function runCheck(env) {
+	return new Promise((resolveRun) => {
+		const child = spawn(
+			process.execPath,
+			["scripts/db/migrate.mjs", "--check"],
+			{ env: { PATH: process.env.PATH, ...env } },
+		);
+		let stderr = "";
+		child.stderr.on("data", (chunk) => (stderr += chunk));
+		child.on("close", (code) => resolveRun({ code, stderr }));
+	});
+}
+
+// Each --check test gets its own database so it never races reset.test.mjs.
+async function withTempDatabase(fn) {
+	const name = `check_probe_${process.pid}_${Date.now()}`;
+	const admin = new pg.Client({ connectionString: ADMIN_URL });
+	await admin.connect();
+	try {
+		await admin.query(`create database ${name}`);
+		await fn(`postgres://postgres:test@127.0.0.1:54329/${name}`, name);
+	} finally {
+		await admin.query(`drop database if exists ${name} with (force)`);
+		await admin.end();
+	}
+}
+
+test("--check exits 0 when current", async () => {
+	await withTempDatabase(async (ownerUrl) => {
+		await migrate(ownerUrl);
+		const { code } = await runCheck({ DATABASE_URL: ownerUrl });
+		assert.equal(code, 0);
+	});
+});
+
+test("--check exits 2 when a migration is pending", async () => {
+	await withTempDatabase(async (ownerUrl) => {
+		await migrate(ownerUrl);
+		const directory = await mkdtemp(join(tmpdir(), "credit-system-check-"));
+		try {
+			await cp("db/migrations", directory, { recursive: true });
+			await writeFile(join(directory, "999_check_probe.sql"), "select 1;\n");
+			const { code, stderr } = await runCheck({
+				DATABASE_URL: ownerUrl,
+				MIGRATIONS_DIR: directory,
+			});
+			assert.equal(code, 2);
+			assert.match(stderr, /schema has 1 pending migration\(s\)/);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+});
+
+test("--check runs as app_runtime after grant", async () => {
+	await withTempDatabase(async (ownerUrl, name) => {
+		await migrate(ownerUrl);
+		const { code } = await runCheck({
+			DATABASE_URL: `postgres://app_runtime:test@127.0.0.1:54329/${name}`,
+		});
+		assert.equal(code, 0);
+	});
+});
+
+test("--check exits 1 when schema_migrations does not exist", async () => {
+	await withTempDatabase(async (ownerUrl) => {
+		const { code } = await runCheck({ DATABASE_URL: ownerUrl });
+		assert.equal(code, 1);
+	});
+});
+
+test("--check falls back to DATABASE_OWNER_URL when DATABASE_URL is empty", async () => {
+	await withTempDatabase(async (ownerUrl) => {
+		await migrate(ownerUrl);
+		const { code } = await runCheck({
+			DATABASE_URL: "",
+			DATABASE_OWNER_URL: ownerUrl,
+		});
+		assert.equal(code, 0);
+	});
+});
+
+test("entrypoint retries --check until exit 0", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "credit-system-entrypoint-"));
+	try {
+		const counter = join(directory, "count");
+		await writeFile(counter, "0");
+		await writeFile(
+			join(directory, "node"),
+			`#!/bin/sh
+if [ "$1" = "server.js" ]; then echo "server started"; exit 0; fi
+n=$(cat "${counter}"); n=$((n + 1)); echo "$n" > "${counter}"
+[ "$n" -ge 3 ] && exit 0
+exit 2
+`,
+			{ mode: 0o755 },
+		);
+		await writeFile(join(directory, "sleep"), "#!/bin/sh\nexit 0\n", {
+			mode: 0o755,
+		});
+		const { code, out } = await new Promise((resolveRun) => {
+			const child = spawn("sh", ["docker/app-entrypoint.sh"], {
+				env: { PATH: `${directory}:${process.env.PATH}`, MIGRATE_MAX_ATTEMPTS: "5" },
+			});
+			let out = "";
+			child.stdout.on("data", (chunk) => (out += chunk));
+			child.on("close", (code) => resolveRun({ code, out }));
+		});
+		assert.equal(code, 0);
+		assert.match(out, /server started/);
+		assert.equal((await readFile(counter, "utf8")).trim(), "3");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("entrypoint gives up after MIGRATE_MAX_ATTEMPTS", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "credit-system-entrypoint-"));
+	try {
+		await writeFile(join(directory, "node"), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+		await writeFile(join(directory, "sleep"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+		const { code, err } = await new Promise((resolveRun) => {
+			const child = spawn("sh", ["docker/app-entrypoint.sh"], {
+				env: { PATH: `${directory}:${process.env.PATH}`, MIGRATE_MAX_ATTEMPTS: "2" },
+			});
+			let err = "";
+			child.stderr.on("data", (chunk) => (err += chunk));
+			child.on("close", (code) => resolveRun({ code, err }));
+		});
+		assert.equal(code, 1);
+		assert.match(err, /schema is not current after 2 attempts/);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
 });

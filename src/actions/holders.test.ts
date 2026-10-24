@@ -40,6 +40,12 @@ describe("holder id validation", () => {
     expect(state.updateHolder).not.toHaveBeenCalled();
   });
 
+  it("updateHolder refuses an anonymized holder", async () => {
+    state.updateHolder.mockResolvedValueOnce({ ok: false, reason: "anonymized" });
+    const values = { type: "PF", name: "Maria Souza", document: CPF } as never;
+    expect(await updateHolder(UUID, values)).toEqual({ error: "Titular anonimizado. Nenhuma edição é permitida." });
+  });
+
   it("linkPartner returns an error for a non-uuid company id", async () => {
     expect(await linkPartner("abc", { cpf: CPF, name: "Maria Souza" })).toEqual({
       error: "Titular não encontrado.",

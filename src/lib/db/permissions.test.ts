@@ -67,6 +67,7 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
       "counter:read",
       "counter:write",
       "payout:read",
+      "lgpd:manage",
     ],
   },
   operator: {
@@ -93,6 +94,19 @@ describe("hasPermission", () => {
 
   it("treats a null support session as absent", () => {
     expect(hasPermission({ role: "superadmin", supportSessionId: null }, "holders:read")).toBe(false);
+  });
+});
+
+describe("lgpd:manage", () => {
+  it("bureau_admin has lgpd:manage", () => {
+    expect(hasPermission({ role: "bureau_admin" }, "lgpd:manage")).toBe(true);
+  });
+
+  it("operator superadmin and client do not have lgpd:manage", () => {
+    expect(hasPermission({ role: "operator" }, "lgpd:manage")).toBe(false);
+    expect(hasPermission({ role: "superadmin" }, "lgpd:manage")).toBe(false);
+    expect(hasPermission({ role: "superadmin", supportSessionId: SUPPORT }, "lgpd:manage")).toBe(false);
+    expect(hasPermission({ role: "client" }, "lgpd:manage")).toBe(false);
   });
 });
 

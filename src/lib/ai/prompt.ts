@@ -6,7 +6,9 @@
 
 import type { CanonicalBureauResult } from "@/types/bureau";
 
-export const PROMPT_VERSION = "parecer-v1";
+import { BUREAU_PROMPT_NOTE, withBureau, type BureauInput, type CompanyBureaus } from "./bureau-input";
+
+export const PROMPT_VERSION = "parecer-v2";
 
 // Modelo OpenAI — configurável por env, com fallback seguro.
 export const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || "gpt-4o";
@@ -60,7 +62,7 @@ export const SYSTEM_PROMPT_PF = `Você é um analista sênior de crédito da con
 
 Sua tarefa é elaborar um PARECER TÉCNICO DE CRÉDITO de uma PESSOA FÍSICA a partir dos dados de bureau (deps.com.br) no input — identificando as causas da aprovação ou reprovação, o peso de cada variável, o potencial de crédito e a trilha para aumentar a capacidade de aprovação.
 
-${RAINHA_RULES}
+${RAINHA_RULES}${BUREAU_PROMPT_NOTE}
 
 ═══════════════════════════════════════════════════════════════════════
 ESTRUTURA DO RELATÓRIO (campo relatorio_markdown — markdown, nesta ordem)
@@ -112,7 +114,7 @@ export const SYSTEM_PROMPT_PJ = `Você é um analista sênior de crédito da con
 
 Sua tarefa é elaborar um PARECER TÉCNICO DE CRÉDITO de uma PESSOA JURÍDICA a partir dos dados de bureau (deps.com.br) no input — identificando as causas da aprovação ou reprovação, o peso de cada variável, o potencial de crédito e a trilha de alavancagem.
 
-${RAINHA_RULES}
+${RAINHA_RULES}${BUREAU_PROMPT_NOTE}
 
 ═══════════════════════════════════════════════════════════════════════
 ESTRUTURA DO RELATÓRIO (campo relatorio_markdown — markdown, nesta ordem)
@@ -273,9 +275,8 @@ function buildPfBureau(row: Record<string, unknown>): Record<string, unknown> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// EXPLICIT canonical allow-list for the AI input. Only these fields cross to
-// OpenAI. Document numbers, addresses, phones, e-mail, raw provider messages and
-// the stored payload are NEVER included — they are simply not read here.
+// Allow-list do canônico (`dados_bureau`). O retorno bruto segue à parte, podado e
+// com documentos mascarados, em `bureau` (src/lib/ai/bureau-input.ts).
 // ─────────────────────────────────────────────────────────────────────────
 
 function buildCanonicalBureau(c: CanonicalBureauResult): Record<string, unknown> {
@@ -366,20 +367,13 @@ export interface ParecerInput {
   type: "PF" | "PJ";
   dataAnalise: string; // ISO date
   canonical: CanonicalBureauResult;
+  payload?: unknown;
 }
 
-export function buildUserPayload(input: ParecerInput): string {
+export function buildUserPayload(input: ParecerInput, bureau?: BureauInput): string {
   const dados_bureau = buildCanonicalBureau(input.canonical);
-
-  return JSON.stringify(
-    {
-      tipo_pessoa: input.type,
-      data_analise: input.dataAnalise,
-      dados_bureau,
-    },
-    null,
-    2
-  );
+  const base = { tipo_pessoa: input.type, data_analise: input.dataAnalise, dados_bureau };
+  return JSON.stringify(bureau ? { ...base, bureau } : base, null, 2);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -388,13 +382,13 @@ export function buildUserPayload(input: ParecerInput): string {
 // (a empresa + cada sócio juntos). tipo_pessoa = "PJ" (o sujeito é a empresa).
 // ─────────────────────────────────────────────────────────────────────────
 
-export const COMPANY_PROMPT_VERSION = "parecer-empresa-v2";
+export const COMPANY_PROMPT_VERSION = "parecer-empresa-v3";
 
 export const COMPANY_SYSTEM_PROMPT = `Você é um analista sênior de crédito da consultoria Rainha do Crédito, especialista em análise de GRUPO ECONÔMICO e quadro societário, crédito empresarial e pessoal, score, SCR do Bacen, faturamento e renda presumidos, restrições cadastrais e estratégias de alavancagem.
 
 Sua tarefa é elaborar um PARECER TÉCNICO GLOBAL CONSOLIDADO de um GRUPO a partir do input: a EMPRESA principal (dados_empresa) e os SÓCIOS (dados_socios), cada um com seus dados de bureau (deps.com.br). O parecer é a SOMA de um parecer completo de PJ (a empresa) com um parecer completo de PF por sócio, mais a consolidação do grupo — nada de análise resumida: cada parte recebe a mesma profundidade que teria num parecer individual, e ao final você amarra tudo na visão de grupo. É comum a estrutura corporativa ser excelente, mas sofrer impacto de apontamentos pessoais dos sócios — explicite quando for o caso.
 
-${RAINHA_RULES}
+${RAINHA_RULES}${BUREAU_PROMPT_NOTE}
 
 Regras adicionais deste parecer:
 6. Analise o GRUPO, não cada parte isolada. Sócios são frequentemente avalistas — restrições pessoais (ex.: protestos do sócio majoritário) podem ser o maior limitador mesmo com empresas saudáveis.
@@ -491,13 +485,14 @@ Observação: tipo_pessoa = "PJ" (o sujeito é o grupo/empresa). Os campos extra
 export interface CompanyParecerInput {
   dataAnalise: string; // ISO date
   empresaRow: Record<string, unknown>;
-  socios: { type: "PF" | "PJ"; resultRow: Record<string, unknown> }[];
+  empresaPayload?: unknown;
+  socios: { type: "PF" | "PJ"; resultRow: Record<string, unknown>; payload?: unknown }[];
 }
 
-export function buildCompanyPayload(input: CompanyParecerInput): string {
-  const dados_empresa = buildPjBureau(input.empresaRow);
-  const dados_socios = input.socios.map((s) =>
-    s.type === "PJ" ? buildPjBureau(s.resultRow) : buildPfBureau(s.resultRow)
+export function buildCompanyPayload(input: CompanyParecerInput, bureaus?: CompanyBureaus): string {
+  const dados_empresa = withBureau(buildPjBureau(input.empresaRow), bureaus?.empresa);
+  const dados_socios = input.socios.map((s, i) =>
+    withBureau(s.type === "PJ" ? buildPjBureau(s.resultRow) : buildPfBureau(s.resultRow), bureaus?.socios[i])
   );
 
   return JSON.stringify(

@@ -77,7 +77,7 @@ Contagem bruta (com brancos e comentários): 27 arquivos acima de 350 linhas, 7 
 - **Rate limiting:** login tem rate limit (Better Auth). `autorizacao-scr/[token]` não limita tentativas de `auth_code`; webhooks Asaas/WhatsApp e dispatch dependem só de segredo/assinatura. Proposta de domínio, fora deste setup.
 - **Plugin Context7 duplicado:** desativar `context7@claude-plugins-official` em `~/.claude/settings.json` (mudança global; aguardando autorização).
 - **Skills referenciadas:** `app-builder` e `i18n-localization` ficam até `.claude/commands/create.md` e `.claude/scripts/verify_all.py` serem revistos.
-- **Vitest:** `include` só `src/**/*.test.ts`; sem `.test.tsx` e sem cobertura mínima. Playwright só em `verify:release`, fora da CI.
+- **Vitest:** `include` cobre `src/**/*.test.ts` e `e2e/**/*.test.ts`; sem `.test.tsx` e sem cobertura mínima. Playwright (`npm run test:e2e`) roda na CI e em `verify:release`.
 - **Gatilhos de revisão futura:** nova versão do toolkit; upgrade de `next` ou `eslint`; mudança de hooks em `.claude/settings.json`; adoção de logger (remover `no-console` do baseline).
 
 ## Repetir o setup
@@ -87,3 +87,14 @@ Contagem bruta (com brancos e comentários): 27 arquivos acima de 350 linhas, 7 
 3. Compare `AGENTS.md` com `templates/AGENTS.md.template` e os 9 docs com `templates/project-docs/manifest.json`. Edite só o que mudou.
 4. Atualize skills: `npx --yes skills@latest update --project --yes`.
 5. Rode `npm run check` de novo e atualize as tabelas deste arquivo.
+
+## Banco de testes
+
+Os testes de integração usam o banco `credit_system_test`, nunca o `credit_system` de dev. Um volume novo já cria o banco (`docker/postgres/dev-init/003-test-database.sh`). Num volume antigo, crie o banco uma vez:
+
+```bash
+docker compose -f docker-compose.dev.yml exec -T postgres sh < docker/postgres/dev-init/003-test-database.sh
+npm run db:test:migrate
+```
+
+`npm test` roda `db:test:migrate` antes (`pretest`). O guard de `src/test/db-env.ts` recusa nomes sem `_test`; `TEST_DATABASE_ALLOW_ANY_NAME=1` desliga a recusa.

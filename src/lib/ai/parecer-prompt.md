@@ -168,9 +168,14 @@ Injetamos os dados reais da consulta deps como JSON. O modelo trata isto como a
   "dados_bureau": {
     // objeto mapeado de src/lib/deps/map.ts — cadastro, score, scr,
     // restrições, etc. Campos ausentes simplesmente não aparecem aqui.
+  },
+  "bureau": {
+    // retorno completo da deps, podado (src/lib/ai/bureau-input.ts)
   }
 }
 ```
+
+O campo `bureau` traz o retorno completo do bureau; use SCR, parecer Smart e renda presumida no plano de ação.
 
 ---
 

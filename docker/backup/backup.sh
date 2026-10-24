@@ -27,6 +27,18 @@ load_secrets() {
   read_file_env RESTIC_PASSWORD
   read_file_env PGPASSWORD
   read_file_env SMTP_PASS
+  read_file_env AWS_ACCESS_KEY_ID
+  read_file_env AWS_SECRET_ACCESS_KEY
+}
+
+# The repository must be off-server S3. BACKUP_ALLOW_LOCAL_REPO=1 is for the
+# test harness only (it has no S3).
+require_s3_repository() {
+  case "${RESTIC_REPOSITORY:-}" in
+    s3:*) return 0 ;;
+  esac
+  [ "${BACKUP_ALLOW_LOCAL_REPO:-}" = "1" ] && return 0
+  return 1
 }
 
 alert() {
@@ -53,6 +65,11 @@ alert() {
 
 main() {
   load_secrets
+  if ! require_s3_repository; then
+    alert "reino backup FAILED: bad repository" \
+      "RESTIC_REPOSITORY must be an s3: repository. No snapshot was created."
+    exit 1
+  fi
   mkdir -p "$STATE_DIR" "$WORK_ROOT"
 
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then

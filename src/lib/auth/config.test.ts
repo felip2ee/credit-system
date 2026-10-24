@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.hoisted(() => {
   Object.assign(process.env, {
     NODE_ENV: "production",
-    DATABASE_URL: "postgres://app_runtime:test@localhost:54329/credit_system",
+    DATABASE_URL: "postgres://app_runtime:test@localhost:54329/credit_system_test",
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
     BETTER_AUTH_URL: "https://credit.example.test",
     TRAEFIK_PROXY_CIDR: "10.0.0.0/8",

@@ -41,9 +41,10 @@ export async function generateDossierReport(dossierId: string, force = false): P
       {
         dataAnalise: new Date().toISOString().slice(0, 10),
         empresaRow: JSON.parse(JSON.stringify(company.canonical_result)),
+        empresaPayload: company.payload,
         socios: rows
           .filter((row) => row.type === "PF")
-          .map((row) => ({ type: "PF" as const, resultRow: JSON.parse(JSON.stringify(row.canonical_result)) })),
+          .map((row) => ({ type: "PF" as const, resultRow: JSON.parse(JSON.stringify(row.canonical_result)), payload: row.payload })),
       },
       await getAiPrompt("empresa"),
     );

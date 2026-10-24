@@ -38,20 +38,18 @@ services:
       DATABASE_WEBHOOK_URL_FILE: /run/secrets/database_webhook_url
       # Role app_dispatch: only the notifications dispatch route (EXECUTE on claim_notifications, complete_notification).
       DISPATCH_DATABASE_URL_FILE: /run/secrets/dispatch_database_url
-      # The app entrypoint applies schema migrations on start, which need the
-      # owner/superuser DSN. RUN_MIGRATIONS=0 to disable that per-container.
-      DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
       SMTP_PASS_FILE: /run/secrets/smtp_pass
       DEPS_API_PASSWORDL_FILE: /run/secrets/deps_api_password
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-}
+      LGPD_PURGE_ENABLED: ${LGPD_PURGE_ENABLED:-0}
       SUPERADMIN_PASSWORD_FILE: /run/secrets/superadmin_password
       WHATSAPP_ACCESS_TOKEN_FILE: /run/secrets/whatsapp_access_token
       WHATSAPP_APP_SECRET_FILE: /run/secrets/whatsapp_app_secret
       WHATSAPP_VERIFY_TOKEN_FILE: /run/secrets/whatsapp_verify_token
       NOTIFICATIONS_DISPATCH_SECRET_FILE: /run/secrets/notifications_dispatch_secret
-    secrets: [database_url, database_webhook_url, dispatch_database_url, database_owner_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret]
+    secrets: [database_url, database_webhook_url, dispatch_database_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret]
     volumes:
       - documents:/var/lib/reino/documents
     healthcheck:
@@ -59,7 +57,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 160s
     deploy:
       replicas: 1
       placement:
@@ -90,7 +88,7 @@ services:
       options: { max-size: 10m, max-file: "3" }
 
   # Calls the dispatch route of reino_app every 60 s (outbox worker). Own entrypoint:
-  # it must NOT run the migrations that the app entrypoint runs.
+  # it must NOT wait for the schema like the app entrypoint does.
   notifications_cron:
     image: *app_image
     entrypoint: ["node", "scripts/notifications-cron.mjs"]
@@ -104,7 +102,17 @@ services:
       NOTIFICATIONS_DISPATCH_URL: http://reino_app:3000/api/internal/notifications/dispatch
       ORDERS_TICK_URL: http://reino_app:3000/api/internal/orders/tick
       NOTIFICATIONS_DISPATCH_SECRET_FILE: /run/secrets/notifications_dispatch_secret
-    secrets: [notifications_dispatch_secret]
+      OPS_ALERT_TO: ${OPS_ALERT_TO:-}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:?SMTP_USER is required}
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
+      SMTP_PASS_FILE: /run/secrets/smtp_pass
+      BACKUP_STATE_FILE: /var/lib/backup/last-success
+    secrets: [notifications_dispatch_secret, smtp_pass]
+    volumes:
+      - backup_state:/var/lib/backup:ro
     deploy:
       replicas: 1
       restart_policy:
@@ -163,9 +171,30 @@ services:
         reservations: { cpus: "0.5", memory: 4G }
     logging: *json-logs
 
-  # Schema migrations run automatically from the reino_app entrypoint
-  # (docker/app-entrypoint.sh) on every deploy — idempotent, forward-only.
-  # No separate one-shot service.
+  # One-shot schema migration (forward-only, checksum-tracked). The only
+  # service that holds the owner/superuser DSN. reino_app waits for it with
+  # `migrate.mjs --check` (docker/app-entrypoint.sh).
+  migrate:
+    image: *app_image
+    command: ["node", "scripts/db/migrate.mjs"]
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    networks: [private]
+    environment:
+      NODE_ENV: production
+      DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
+    secrets: [database_owner_url]
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 30
+    logging: *json-logs
 
   backup:
     # Own multi-stage image (PG18 client + Restic 0.18.1 + curl SMTP). Same
@@ -177,11 +206,7 @@ services:
       - /run/lock:rw,noexec,nosuid,nodev,size=1m
     stop_grace_period: 30s
     # Internal encrypted overlay only. No Traefik, no published port, no Docker
-    # socket. Reaches postgres for pg_dump; the Restic repo is a local encrypted
-    # filesystem backend on this host (the `restic_repo` volume) — no external
-    # object store. Point that volume at a SEPARATE disk (provider block storage
-    # mounted at /srv/reino-restic) so a primary-disk failure does not take the
-    # backups with it.
+    # socket. Reaches postgres for pg_dump; the Restic repo is an S3 bucket.
     networks: [private]
     environment:
       TZ: America/Sao_Paulo
@@ -191,9 +216,10 @@ services:
       PGDATABASE: credit_system
       PGPASSWORD_FILE: /run/secrets/backup_reader_password
       DOCUMENT_ROOT: /var/lib/reino/documents
-      # Local encrypted Restic backend — a path inside this container backed by
-      # the `restic_repo` volume. Encryption at rest is still on (restic_password).
-      RESTIC_REPOSITORY: /srv/restic
+      # Off-site S3 repository. Encryption at rest is on (restic_password).
+      RESTIC_REPOSITORY: s3:${RESTIC_S3_ENDPOINT:?RESTIC_S3_ENDPOINT is required}/${RESTIC_S3_BUCKET:?RESTIC_S3_BUCKET is required}
+      AWS_ACCESS_KEY_ID_FILE: /run/secrets/restic_s3_access_key
+      AWS_SECRET_ACCESS_KEY_FILE: /run/secrets/restic_s3_secret_key
       RESTIC_PASSWORD_FILE: /run/secrets/restic_password
       SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
       SMTP_PORT: ${SMTP_PORT:-465}
@@ -202,6 +228,7 @@ services:
       SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
       SMTP_PASS_FILE: /run/secrets/smtp_pass
       BACKUP_ALERT_TO: ${BACKUP_ALERT_TO:?BACKUP_ALERT_TO is required}
+      OPS_ALERT_TO: ${OPS_ALERT_TO:-}
       # Core tables the monthly restore drill must find in the restored dump.
       RESTORE_REQUIRED_TABLES: >-
         schema_migrations user session account profiles
@@ -209,12 +236,11 @@ services:
         scr_authorizations bureau_payloads bureau_results ai_reports
         company_reports timeline_events
         crm_notes settings audit_logs
-    secrets: [backup_reader_password, restic_password, smtp_pass]
+    secrets: [backup_reader_password, restic_password, restic_s3_access_key, restic_s3_secret_key, smtp_pass]
     volumes:
       - documents:/var/lib/reino/documents:ro
       - backup_state:/var/lib/backup
       - backup_work:/work
-      - restic_repo:/srv/restic
     healthcheck:
       test: ["CMD-SHELL", "pgrep crond >/dev/null"]
       interval: 60s
@@ -247,11 +273,6 @@ volumes:
   clamav_data:
   backup_state:
   backup_work:
-  # Encrypted Restic repository, on-server. For real disaster tolerance, create
-  # this volume bound to a SEPARATE disk before `docker stack deploy`, e.g.:
-  #   docker volume create --driver local \
-  #     --opt type=none --opt o=bind --opt device=/srv/reino-restic reino_restic_repo
-  restic_repo:
 
 configs:
   postgres-init-users:
@@ -278,3 +299,5 @@ secrets:
   app_webhook_password: { external: true }
   app_dispatch_password: { external: true }
   restic_password: { external: true }
+  restic_s3_access_key: { external: true }
+  restic_s3_secret_key: { external: true }

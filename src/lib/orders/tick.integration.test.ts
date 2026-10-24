@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 vi.hoisted(() => {
 	Object.assign(process.env, {
-		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://app_runtime:test@localhost:54329/credit_system",
+		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://app_runtime:test@localhost:54329/credit_system_test",
 		BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
 		BETTER_AUTH_URL: "http://localhost:3000",
 		DOCUMENT_ROOT: "/tmp/reino-test-documents",
@@ -41,6 +41,7 @@ import {
 	seedBureauCost,
 	seedCatalogItem,
 	seedClientWalletTopup,
+	seedExpiredChallenge,
 	seedTenant,
 	seedWalletTopup,
 	type SeededTenant,
@@ -91,12 +92,14 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
+	vi.unstubAllEnvs();
 	vi.restoreAllMocks();
 	await Promise.all([owner.end(), pool.end()]);
 	await releaseClaimLock();
 });
 
 beforeEach(() => {
+	vi.unstubAllEnvs();
 	vi.clearAllMocks();
 	scope.clear();
 	fakes.consultPF.mockImplementation(async () => ({
@@ -167,7 +170,20 @@ const scrOf = async (dossierId: string) =>
 const confirmScr = async (token: string, code: string) =>
 	(await pool.query<{ r: string }>("select confirm_public_scr_authorization($1, 'internal', $2, 'authorize', '203.0.113.9') as r", [token, code])).rows[0].r;
 
-const ZERO: TickResult = { bureaus: 1, expired: 0, cancelled: 0, requested: 0, promoted: 0, executed: 0, ai: 0, released: 0, skipped: 0, errors: 0 };
+// `purged` é global (varredura LGPD sem tenant): o banco compartilhado pode ter linhas vencidas de outros arquivos.
+const ZERO: TickResult = {
+	bureaus: 1,
+	expired: 0,
+	cancelled: 0,
+	requested: 0,
+	promoted: 0,
+	executed: 0,
+	ai: 0,
+	released: 0,
+	skipped: 0,
+	errors: 0,
+	purged: expect.any(Object) as Record<string, number>,
+};
 
 describe("runOrdersTick", () => {
 	it("online order end to end debits P from the client and accrues P minus C", async () => {
@@ -213,6 +229,87 @@ describe("runOrdersTick", () => {
 
 		// Nada devido: o Bureau fica de fora e o tick seguinte não faz nada.
 		expect(await runOrdersTick()).toEqual({ ...ZERO, bureaus: 0 });
+	});
+
+	it("tick purges expired challenges", async () => {
+		const t = await newTenant("tick purge");
+		const old = await seedExpiredChallenge(owner, { profileId: t.client.userId, expiresAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) });
+		const fresh = await seedExpiredChallenge(owner, { profileId: t.client.userId, expiresAt: new Date(Date.now() - 60 * 60 * 1000) });
+
+		const result = await runOrdersTick();
+
+		expect(result.purged.verification_challenges).toBeGreaterThanOrEqual(1);
+		expect(result.errors).toBe(0);
+		const left = await rows<{ id: string }>("select id from verification_challenges where id = any($1)", [[old, fresh]]);
+		expect(left).toEqual([{ id: fresh }]);
+	});
+
+	// A varredura de 5 anos vale para todo Bureau do banco compartilhado: marca os de fora do escopo como já varridos.
+	async function enableSweepFor(t: SeededTenant): Promise<void> {
+		vi.stubEnv("LGPD_PURGE_ENABLED", "1");
+		await owner.query(
+			"insert into audit_logs (bureau_id, action) select id, 'lgpd.purge_bureau' from bureaus where id <> $1",
+			[t.bureau.id],
+		);
+	}
+
+	const insertOldScr = async (t: SeededTenant) =>
+		(
+			await owner.query<{ id: string }>(
+				`insert into scr_authorizations (bureau_id, document, type, holder_id, status, channel, expires_at)
+         values ($1, $2, 'PF', $3, 'authorized', 'internal', now() - interval '5 years 1 day') returning id`,
+				[t.bureau.id, randomCpf(), t.holder.id],
+			)
+		).rows[0].id;
+
+	it("the bureau sweep is off unless LGPD_PURGE_ENABLED is 1", async () => {
+		const t = await newTenant("tick sweep off");
+		const old = await insertOldScr(t);
+
+		const result = await runOrdersTick();
+
+		expect(result.errors).toBe(0);
+		expect(await rows("select 1 from scr_authorizations where id = $1", [old])).toHaveLength(1);
+		expect(await rows("select 1 from audit_logs where bureau_id = $1 and action = 'lgpd.purge_bureau'", [t.bureau.id])).toEqual([]);
+	});
+
+	it("tick purges a bureau with no pending orders", async () => {
+		const t = await newTenant("tick purge idle");
+		await enableSweepFor(t);
+		const old = await insertOldScr(t);
+
+		// Sem pedido devido: o Bureau fica fora de due_order_bureaus() e mesmo assim é varrido.
+		const result = await runOrdersTick();
+
+		expect(result.bureaus).toBe(0);
+		expect(result.errors).toBe(0);
+		expect(result.purged.scr_authorizations).toBe(1);
+		expect(await rows("select 1 from scr_authorizations where id = $1", [old])).toEqual([]);
+	});
+
+	it("sweep runs once within 24h", async () => {
+		const t = await newTenant("tick sweep daily");
+		await enableSweepFor(t);
+		const first = await insertOldScr(t);
+		await runOrdersTick();
+		expect(await rows("select 1 from scr_authorizations where id = $1", [first])).toEqual([]);
+
+		const second = await insertOldScr(t);
+		await runOrdersTick();
+		expect(await rows("select 1 from scr_authorizations where id = $1", [second])).toHaveLength(1);
+
+		// Audit é append-only para o app; o dono volta a data 25 h sem triggers.
+		const c = await owner.connect();
+		try {
+			await c.query("begin");
+			await c.query("set local session_replication_role = replica");
+			await c.query("update audit_logs set created_at = now() - interval '25 hours' where bureau_id = $1 and action = 'lgpd.purge_bureau'", [t.bureau.id]);
+			await c.query("commit");
+		} finally {
+			c.release();
+		}
+		await runOrdersTick();
+		expect(await rows("select 1 from scr_authorizations where id = $1", [second])).toEqual([]);
 	});
 
 	it("expired request cancels and releases on the tick", async () => {

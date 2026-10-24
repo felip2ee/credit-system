@@ -9,7 +9,7 @@ vi.hoisted(() => {
 	Object.assign(process.env, {
 		DATABASE_URL:
 			process.env.TEST_DATABASE_URL ??
-			"postgres://app_runtime:test@localhost:54329/credit_system",
+			"postgres://app_runtime:test@localhost:54329/credit_system_test",
 		BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
 		BETTER_AUTH_URL: "http://localhost:3000",
 		DOCUMENT_ROOT: "/tmp/reino-test-documents",
@@ -24,7 +24,7 @@ vi.hoisted(() => {
 		ASAAS_WEBHOOK_TOKEN: "i".repeat(32),
 		DATABASE_WEBHOOK_URL:
 			process.env.TEST_DATABASE_WEBHOOK_URL ??
-			"postgres://app_webhook:test@localhost:54329/credit_system",
+			"postgres://app_webhook:test@localhost:54329/credit_system_test",
 	});
 });
 

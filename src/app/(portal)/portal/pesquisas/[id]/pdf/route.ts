@@ -1,8 +1,9 @@
 import { getRequiredSession } from "@/lib/auth/session";
-import { toConsultationView, formatSubjectDocument } from "@/lib/consultations/view-model";
+import { toConsultationContent } from "@/lib/consultations/full-view";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
+import { maskDocument } from "@/lib/mask-document";
 import { getMyDelivery } from "@/lib/orders/client-queries";
 import { renderDossierPdf, type DossierEntry } from "@/lib/pdf/dossier-document";
 import { letterheadDataUri } from "@/lib/pdf/letterhead";
@@ -51,19 +52,22 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 	const ordered = [...members].sort((a, b) => (a.type === b.type ? 0 : a.type === "PJ" ? -1 : 1));
 	const entries: DossierEntry[] = [];
 	for (const m of ordered) {
-		if (!m.canonical) continue;
-		const view = toConsultationView(m.canonical);
+		// Só consulta concluída entrega conteúdo ao cliente; o rodapé técnico (meta) fica só com a equipe.
+		if (m.status !== "completed") continue;
+		const raw = toConsultationContent(m.payload, m.canonical);
+		if (!raw.full && !raw.view) continue;
+		const content = { ...raw, full: raw.full && { ...raw.full, meta: [] } };
 		const header: FullPdfHeader = {
-			name: m.name ?? (view.subject.name || "—"),
-			cpf: formatSubjectDocument(m.canonical),
-			docLabel: view.subject.documentLabel,
+			name: m.name ?? content.view?.subject.name ?? "—",
+			cpf: m.canonical ? maskDocument(m.type, m.canonical.document.value) : "—",
+			docLabel: content.view?.subject.documentLabel ?? (m.type === "PJ" ? "CNPJ" : "CPF"),
 			produto: m.product ?? (m.type === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
 			data: (order.releasedAt ?? order.createdAt).toLocaleString("pt-BR"),
 			consultante: "Reino do Crédito",
 			usuario: session.userId,
-			endereco: view.subject.location ?? undefined,
+			endereco: content.view?.subject.location ?? undefined,
 		};
-		entries.push({ view, header, role: m.type === "PJ" ? "Empresa" : kind === "PF" ? "Titular" : "Sócio" });
+		entries.push({ content, header, role: m.type === "PJ" ? "Empresa" : kind === "PF" ? "Titular" : "Sócio" });
 	}
 	if (entries.length === 0) return new Response("A entrega ainda não tem resultado para gerar o PDF.", {
 			status: 409,

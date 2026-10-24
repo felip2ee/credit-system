@@ -10,7 +10,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/actions/settings", () => ({ getAiPrompt: vi.fn(async () => "prompt") }));
 vi.mock("@/lib/ai/opinion", () => ({ generateParecer: state.generateParecer }));
 vi.mock("@/lib/ai/prompt", () => ({ PROMPT_VERSION: "v-test" }));
-vi.mock("@/lib/consultations/canonical-store", () => ({ loadCanonicalResult: vi.fn(async () => ({})) }));
+vi.mock("@/lib/consultations/canonical-store", () => ({ loadCanonicalResult: vi.fn(async () => ({})), loadLatestPayload: vi.fn(async () => null) }));
 vi.mock("@/lib/auth/session", () => ({
   getRequiredSession: vi.fn(async () => ({ userId: "u1", role: "operator", bureauId: "b1" })),
 }));

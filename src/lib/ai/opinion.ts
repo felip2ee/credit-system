@@ -4,6 +4,7 @@
 import OpenAI from "openai";
 
 import { ParecerSchema, type Parecer } from "@/types/ai";
+import { pruneCompanyForAi, pruneForAi, withRemovedNote } from "./bureau-input";
 import {
   COMPANY_SYSTEM_PROMPT,
   OPENAI_MODEL,
@@ -99,7 +100,9 @@ export async function generateParecer(
   input: ParecerInput,
   systemPrompt: string = SYSTEM_PROMPT
 ): Promise<GenerateParecerResult> {
-  return runParecer(systemPrompt, buildUserPayload(input));
+  const pruned = pruneForAi(input.payload);
+  const result = await runParecer(systemPrompt, buildUserPayload(input, pruned.bureau));
+  return { ...result, parecer: withRemovedNote(result.parecer, pruned.removed) };
 }
 
 // Parecer técnico consolidado do grupo (empresa + sócios do quadro societário).
@@ -109,5 +112,7 @@ export async function generateCompanyParecer(
   input: CompanyParecerInput,
   systemPrompt: string = COMPANY_SYSTEM_PROMPT
 ): Promise<GenerateParecerResult> {
-  return runParecer(systemPrompt, buildCompanyPayload(input), 16000);
+  const { bureaus, removed } = pruneCompanyForAi(input.empresaPayload, input.socios.map((s) => s.payload));
+  const result = await runParecer(systemPrompt, buildCompanyPayload(input, bureaus), 16000);
+  return { ...result, parecer: withRemovedNote(result.parecer, removed) };
 }

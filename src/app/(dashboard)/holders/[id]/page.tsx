@@ -10,21 +10,24 @@ import {
 } from "@/components/dossiers/dossier-badges";
 import { AddNote } from "@/components/holders/add-note";
 import { HolderTimeline } from "@/components/holders/holder-timeline";
+import { LgpdActions } from "@/components/holders/lgpd-actions";
 import { PartnerSection, type PartnerItem } from "@/components/holders/partner-section";
 import { PortalAccessButton } from "@/components/holders/portal-access-button";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
 import { PageHeader } from "@/components/layout/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { getHolderDetail } from "@/lib/holders/queries";
-import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
+import { formatCNPJ, formatCPF, formatDate, formatDateSP } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
 import type { EntityKind, QueryStatus } from "@/types/app";
 
-const formatDocument = (type: EntityKind, document: string) =>
-  type === "PJ" ? formatCNPJ(document) : formatCPF(document);
+// Documento é nulo depois da anonimização (LGPD).
+const formatDocument = (type: EntityKind, document: string | null) =>
+  !document ? "—" : type === "PJ" ? formatCNPJ(document) : formatCPF(document);
 
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
@@ -45,6 +48,8 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
   const { holder, companies, partners, consultations, dossiers, timeline, notes } = detail;
   const canWrite = hasPermission(session, "holders:write");
   const canInvite = hasPermission(session, "users:manage");
+  const canManageLgpd = hasPermission(session, "lgpd:manage");
+  const isAnonymized = holder.anonymized_at !== null;
 
   const partnerItems: PartnerItem[] = partners.map((p) => ({
     id: p.holder_id,
@@ -71,14 +76,15 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
         title={holder.name}
         description={`${holder.type === "PJ" ? "Pessoa Jurídica" : "Pessoa Física"} · ${formatDocument(holder.type, holder.document)}`}
       >
-        {canInvite && (
+        {isAnonymized && <Badge variant="muted">Anonimizado em {formatDateSP(holder.anonymized_at)}</Badge>}
+        {canInvite && !isAnonymized && (
           <PortalAccessButton
             holderId={holder.id}
             hasAccess={Boolean(holder.client_profile_id)}
             hasEmail={Boolean(holder.email)}
           />
         )}
-        {canWrite && (
+        {canWrite && !isAnonymized && (
           <Button asChild variant="outline">
             <Link href={`/holders/${holder.id}/edit`}>
               <Pencil className="h-4 w-4" />
@@ -145,7 +151,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                           {c.name}
                         </Link>
                         <span className="ml-2 text-muted-foreground">
-                          {formatCNPJ(c.document)}
+                          {formatDocument("PJ", c.document)}
                           {c.role ? ` · ${c.role}` : ""}
                           {c.percentage != null ? ` · ${c.percentage}%` : ""}
                         </span>
@@ -164,7 +170,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
               <CardTitle className="text-lg">
                 Pesquisas {dossiers.length > 0 && `(${dossiers.length})`}
               </CardTitle>
-              {hasPermission(session, "consultations:write") && (
+              {hasPermission(session, "consultations:write") && !isAnonymized && (
                 <Button asChild variant="outline" size="sm">
                   <Link href="/consultations/new">
                     <Plus className="h-4 w-4" />
@@ -242,6 +248,9 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
         </div>
 
         <div className="space-y-6">
+          {canManageLgpd && (
+            <LgpdActions holderId={holder.id} clientProfileId={holder.client_profile_id} anonymized={isAnonymized} />
+          )}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Timeline</CardTitle>

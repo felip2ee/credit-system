@@ -28,6 +28,7 @@ export const permissions = [
   "payout:manage",
   "nfse:manage",
   "notifications:manage",
+  "lgpd:manage",
 ] as const;
 
 export type Permission = (typeof permissions)[number];
@@ -72,6 +73,7 @@ export const rolePermissions = {
     "portal:read",
     "portal:write",
     "payout:read",
+    "lgpd:manage",
   ],
   operator: operatorPermissions,
   client: ["portal:read", "portal:write", "credits:read", "credits:topup"],

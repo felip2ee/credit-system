@@ -40,7 +40,7 @@ Roadmap do spec. O estado reflete o repositório em 2026-10-15. A produção nã
 | M4 | Notificações | Fila de envio, templates de e-mail, WhatsApp Cloud API. Em desenvolvimento na branch `feature/m4-notificacoes`. |
 | M5 | Contas de cliente | Auto-cadastro com verificações, portal. Em execução na branch `feature/m5-contas-de-cliente`. Spec: [docs/superpowers/specs/2026-10-15-m5-contas-de-cliente-design.md](docs/superpowers/specs/2026-10-15-m5-contas-de-cliente-design.md). |
 | M6 | Pesquisa e entrega | Autoatendimento, terceiros, fluxo assistido, entrega. Em execução na branch `feature/m6-pesquisa-e-entrega`. Spec: [docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md](docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md). |
-| M7 | Produção | Backup fora do servidor, monitoramento, retenção LGPD, e2e Playwright. |
+| M7 | Produção | Backup fora do servidor, monitoramento, retenção LGPD, e2e Playwright. Em execução na branch `feature/m7-producao`. Spec: [docs/superpowers/specs/2026-10-16-m7-producao-design.md](docs/superpowers/specs/2026-10-16-m7-producao-design.md). |
 
 Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milestone como entregue sem checar o código e a spec dele.
 
@@ -75,12 +75,11 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - Persistência usa SQL puro e migrations numeradas. O projeto não usa Drizzle.
 - Nunca reintroduza Supabase.
 - Deploy em Docker Swarm, com imagens do GHCR.
-- Até o primeiro deploy de produção, `db/migrations/` é uma base editável. Depois, só migrations novas (forward-only, com checksum).
+- Até o primeiro deploy de produção, `db/migrations/` é uma base editável. A partir do primeiro deploy de produção (data: preencher no deploy), `db/migrations/` é forward-only com checksum.
 
 ## Hipóteses e pendências
 
 - (hipótese) O repositório será tornado privado. O spec registra isso como risco conhecido.
-- Risco: o backup (Restic) fica no mesmo servidor até o M7.
 - Risco: a plataforma recebe o dinheiro das vendas online e repassa à mão. Isso implica obrigações fiscais e de conciliação do superadmin.
 
 ## Critérios de aceitação
@@ -98,7 +97,7 @@ Os checks técnicos ficam em [docs/quality.md](docs/quality.md).
 
 ## Próxima entrega
 
-Concluir o M6 (pesquisa e entrega) conforme a spec e abrir o PR da branch `feature/m6-pesquisa-e-entrega`. Depois, fechar o M5 e o M4 conforme a tabela do MVP.
+Concluir o M7 (produção) conforme a spec e abrir o PR da branch `feature/m7-producao`. Depois, fechar o M5 e o M4 conforme a tabela do MVP.
 
 ## Manutenção
 

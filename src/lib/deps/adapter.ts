@@ -93,7 +93,7 @@ const fail = (errors: AdapterError[]): AdaptResult => ({
 
 // ── envelope unwrap ──────────────────────────────────────────────────────
 // DEPS returns `[{ mix: {...} }]`, `{ mix: {...} }`, or the mix object directly.
-function extractMix(body: unknown): Record<string, unknown> | null {
+export function extractMix(body: unknown): Record<string, unknown> | null {
   const root = Array.isArray(body) ? body[0] : body;
   if (!isRecord(root)) return null;
   if (isRecord(root.mix)) return root.mix;

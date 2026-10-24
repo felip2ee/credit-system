@@ -1,0 +1,932 @@
+{
+  "mix": {
+    "scr": {
+      "data": {
+        "vencimentoPorModalidade": {
+          "prejuizo": {
+            "itens": [
+              {
+                "valor": 0,
+                "descricao": "Créditos baixados como prejuízo até 12 meses",
+                "percentual": "0 %",
+                "itensDetalhados": null
+              },
+              {
+                "valor": 0,
+                "descricao": "Créditos baixados como prejuízo há mais de 12 meses e até 48 meses",
+                "percentual": "0 %",
+                "itensDetalhados": null
+              },
+              {
+                "valor": 0,
+                "descricao": "Créditos baixados como prejuízo há mais de 48 meses",
+                "percentual": "0 %",
+                "itensDetalhados": null
+              }
+            ],
+            "valorTotal": 0,
+            "descricaoTotal": "Prejuízo (B)",
+            "percentualTotal": "0,00 %"
+          },
+          "riscoTotal": {
+            "valor": 3095,
+            "descricao": "Risco Total = F+G+H+I",
+            "percentual": "100 %",
+            "itensDetalhados": null
+          },
+          "coobrigacao": {
+            "itens": [],
+            "valorTotal": 0,
+            "descricaoTotal": "Coobrigações",
+            "percentualTotal": "0 %"
+          },
+          "carteiraAtiva": {
+            "valor": 3095.34,
+            "descricao": "Carteira Ativa (A)",
+            "percentual": "100 %",
+            "itensDetalhados": null
+          },
+          "limiteCredito": {
+            "itens": [
+              {
+                "valor": 0,
+                "descricao": "Limite de crédito com vencimento até 360 dias",
+                "percentual": "0 %",
+                "itensDetalhados": null
+              },
+              {
+                "valor": 0,
+                "descricao": "Limite de crédito com vencimento acima de 360 dias",
+                "percentual": "0 %",
+                "itensDetalhados": null
+              }
+            ],
+            "valorTotal": 0,
+            "descricaoTotal": "Limite de Crédito (H)",
+            "percentualTotal": "0,00 %"
+          },
+          "riscoAssumido": {
+            "valor": 0,
+            "descricao": "Risco assumido como garantidor",
+            "percentual": "0 %",
+            "itensDetalhados": null
+          },
+          "riscoIndireto": {
+            "valor": 0,
+            "descricao": "Risco Indireto (I)",
+            "percentual": "0 %",
+            "itensDetalhados": null
+          },
+          "creditoLiberar": {
+            "itens": [
+              {
+                "valor": 0,
+                "descricao": "Créditos a liberar até 360 dias",
+                "percentual": "0 %",
+                "itensDetalhados": []
+              },
+              {
+                "valor": 0,
+                "descricao": "Créditos a liberar acima de 360 dias",
+                "percentual": "0 %",
+                "itensDetalhados": []
+              }
+            ],
+            "valorTotal": 0,
+            "descricaoTotal": "Créditos a liberar (G)",
+            "percentualTotal": "0 %"
+          },
+          "carteiraCredito": {
+            "valor": 3095.34,
+            "descricao": "Carteira de crédito (C)=A+B",
+            "percentual": "100 %",
+            "itensDetalhados": null
+          },
+          "coobrigacaoRecebida": {
+            "valor": 0,
+            "descricao": "Coobrigação recebida em cessão de crédito pelo SFN",
+            "percentual": "0 %",
+            "itensDetalhados": null
+          },
+          "responsabilidadeTotal": {
+            "valor": 3095,
+            "descricao": "Responsabilidade Total (F)=C+D+E",
+            "percentual": "100 %",
+            "itensDetalhados": null
+          },
+          "repasseInterfinanceiro": {
+            "itens": [],
+            "valorTotal": 0,
+            "descricaoTotal": "Repasses interfinanceiros",
+            "percentualTotal": "0 %"
+          },
+          "vencimentoPorModalidades": [
+            {
+              "itens": [
+                {
+                  "valor": 3095.34,
+                  "descricao": "Crédito pessoal - sem consignação em folha de pagamento",
+                  "percentual": "100 %",
+                  "itensDetalhados": [
+                    {
+                      "valor": 316.36,
+                      "descricao": "Creditos a vencer ate 30 dias",
+                      "percentual": "10,22%",
+                      "itensDetalhados": null
+                    },
+                    {
+                      "valor": 304.34,
+                      "descricao": "Creditos a vencer de 31 a 60 dias",
+                      "percentual": "9,83%",
+                      "itensDetalhados": null
+                    },
+                    {
+                      "valor": 292.78,
+                      "descricao": "Creditos a vencer de 61 a 90 dias",
+                      "percentual": "9,46%",
+                      "itensDetalhados": null
+                    },
+                    {
+                      "valor": 813.25,
+                      "descricao": "Creditos a vencer de 91 a 180 dias",
+                      "percentual": "26,27%",
+                      "itensDetalhados": null
+                    },
+                    {
+                      "valor": 1368.61,
+                      "descricao": "Creditos a vencer de 181 a 360 dias",
+                      "percentual": "44,22%",
+                      "itensDetalhados": null
+                    }
+                  ]
+                }
+              ],
+              "valorTotal": 3095.34,
+              "descricaoTotal": "Empréstimos",
+              "percentualTotal": "100 %"
+            }
+          ]
+        },
+        "vencimentosConsolidados": {
+          "itensAVencer": {
+            "itens": [
+              {
+                "valor": 316.36,
+                "descricao": "Creditos a vencer ate 30 dias",
+                "percentual": "10,22 %",
+                "itensDetalhados": null
+              },
+              {
+                "valor": 304.34,
+                "descricao": "Creditos a vencer de 31 a 60 dias",
+                "percentual": "9,83 %",
+                "itensDetalhados": null
+              },
+              {
+                "valor": 292.78,
+                "descricao": "Creditos a vencer de 61 a 90 dias",
+                "percentual": "9,46 %",
+                "itensDetalhados": null
+              },
+              {
+                "valor": 813.25,
+                "descricao": "Creditos a vencer de 91 a 180 dias",
+                "percentual": "26,27 %",
+                "itensDetalhados": null
+              },
+              {
+                "valor": 1368.61,
+                "descricao": "Creditos a vencer de 181 a 360 dias",
+                "percentual": "44,22 %",
+                "itensDetalhados": null
+              }
+            ],
+            "valorTotal": 3095.34,
+            "descricaoTotal": "A vencer",
+            "percentualTotal": "100,00%"
+          },
+          "itensVencidos": {
+            "itens": [],
+            "valorTotal": 0,
+            "descricaoTotal": "Vencido",
+            "percentualTotal": "0,00%"
+          },
+          "informacaoConsulta": [
+            {
+              "valor": "08/2026",
+              "descricao": "Data-Base"
+            },
+            {
+              "valor": "97.13%",
+              "descricao": "Situação de processamento IF's"
+            },
+            {
+              "valor": "99.98%",
+              "descricao": "Situação de processamento valor"
+            },
+            {
+              "valor": "1",
+              "descricao": "Quantidade de operações"
+            },
+            {
+              "valor": "1",
+              "descricao": "Quantidade de IF's que o cliente possui operações"
+            },
+            {
+              "valor": "",
+              "descricao": "Quantidade de operações amparadas por sub-judice"
+            },
+            {
+              "valor": "",
+              "descricao": "Operações amparadas por sub-judice"
+            },
+            {
+              "valor": "",
+              "descricao": "Quantidade de operações com manifestação por discordância"
+            },
+            {
+              "valor": "",
+              "descricao": "Operações com manifestação de discordância"
+            },
+            {
+              "valor": "16/06/2021",
+              "descricao": "Data de início de relacionamento com a IF"
+            }
+          ]
+        }
+      },
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "score": {
+      "data": {
+        "risco": "Médio",
+        "score": 677,
+        "motivos": null,
+        "descricao": "Capacidade de pagamento menor do que a média da população brasileira.",
+        "scoreBoleto": false,
+        "descricaoPagamento": null,
+        "probabilidadePagamento": null
+      },
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "share": null,
+    "smart": {
+      "data": {
+        "message": null,
+        "parecer": {
+          "motivo": "",
+          "aprovado": true,
+          "resultadoParecer": [
+            {
+              "id": "c5f32ff3-2642-4179-a33f-76063d640160",
+              "nome": "Cliente não está regular na receita",
+              "regras": [
+                {
+                  "id": "977828f0-0fba-49bd-921a-07d0b1ee122b",
+                  "motivo": "",
+                  "formula": null,
+                  "atendido": true,
+                  "descricao": "Situação cadastral contém Regular",
+                  "pontuacao": 0,
+                  "resultado": [
+                    "REGULAR"
+                  ],
+                  "obrigatorio": true,
+                  "regrasAgrupadas": null
+                }
+              ],
+              "atendido": true,
+              "descricao": null,
+              "percentual": 100,
+              "percentualEsperado": 100
+            },
+            {
+              "id": "c17718e6-dcfe-4d52-a3a2-ec5988000494",
+              "nome": "Cliente possui cheque devolvido",
+              "regras": [
+                {
+                  "id": "22f6b207-549a-41b6-9a33-70905ab6d350",
+                  "motivo": "",
+                  "formula": null,
+                  "atendido": true,
+                  "descricao": "Cheques devolvidos informados usuário - Quantidade igual a 0",
+                  "pontuacao": 0,
+                  "resultado": [
+                    "0"
+                  ],
+                  "obrigatorio": true,
+                  "regrasAgrupadas": null
+                },
+                {
+                  "id": "39a32858-9c11-4e15-938f-2776d647a116",
+                  "motivo": "",
+                  "formula": null,
+                  "atendido": true,
+                  "descricao": "Cheques devolvidos sem fundo - Quantidade igual a 0",
+                  "pontuacao": 0,
+                  "resultado": [
+                    "0"
+                  ],
+                  "obrigatorio": true,
+                  "regrasAgrupadas": null
+                },
+                {
+                  "id": "a65641ea-9822-41dd-bb75-6eb5e402d44a",
+                  "motivo": "",
+                  "formula": null,
+                  "atendido": true,
+                  "descricao": "Cheques sustados - Quantidade igual a 0",
+                  "pontuacao": 0,
+                  "resultado": [
+                    "0"
+                  ],
+                  "obrigatorio": true,
+                  "regrasAgrupadas": null
+                },
+                {
+                  "id": "ee49fc8f-3192-4c2a-989c-8469c0d7e039",
+                  "motivo": "",
+                  "formula": null,
+                  "atendido": true,
+                  "descricao": "Cheques devolvidos outros motivos - Quantidade igual a 0",
+                  "pontuacao": 0,
+                  "resultado": [
+                    "0"
+                  ],
+                  "obrigatorio": true,
+                  "regrasAgrupadas": null
+                }
+              ],
+              "atendido": true,
+              "descricao": null,
+              "percentual": 100,
+              "percentualEsperado": 100
+            },
+            {
+              "id": "3f78ea2a-3cd4-4c29-857b-63faed295b68",
+              "nome": "Cliente possui protesto",
+              "regras": [
+                {
+                  "id": "a243aab7-35f1-4344-ae00-1af4880a14f1",
+                  "motivo": "",
+                  "formula": null,
+                  "atendido": true,
+                  "descricao": "Protestos - Quantidade igual a 0",
+                  "pontuacao": 0,
+                  "resultado": [
+                    "0"
+                  ],
+                  "obrigatorio": true,
+                  "regrasAgrupadas": null
+                }
+              ],
+              "atendido": true,
+              "descricao": null,
+              "percentual": 100,
+              "percentualEsperado": 100
+            },
+            {
+              "id": "c203e38e-3402-41c6-8958-c2ee1ba380c8",
+              "nome": "Cliente possui pendência",
+              "regras": [
+                {
+                  "id": "5a7b1f77-f003-4d5d-96aa-413b0170c712",
+                  "motivo": "",
+                  "formula": null,
+                  "atendido": true,
+                  "descricao": "Pendências e restrições - Quantidade igual a 0",
+                  "pontuacao": 0,
+                  "resultado": [
+                    "0"
+                  ],
+                  "obrigatorio": true,
+                  "regrasAgrupadas": null
+                }
+              ],
+              "atendido": true,
+              "descricao": null,
+              "percentual": 100,
+              "percentualEsperado": 100
+            }
+          ],
+          "limiteRequisitado": null
+        },
+        "success": true,
+        "negativas": [
+          {
+            "impacto": 100,
+            "metrica": "SCR",
+            "descricao": "R$ 3,10 mil",
+            "pontuacao": -21,
+            "percentualMetrica": 13.12
+          }
+        ],
+        "positivas": [
+          {
+            "impacto": 46.15,
+            "metrica": "Renda presumida",
+            "descricao": "C",
+            "pontuacao": 6,
+            "percentualMetrica": 46.15
+          },
+          {
+            "impacto": 30.77,
+            "metrica": "Score",
+            "descricao": "(Risco Alto): 677",
+            "pontuacao": 4,
+            "percentualMetrica": 33.33
+          },
+          {
+            "impacto": 23.08,
+            "metrica": "Idade",
+            "descricao": "23 anos",
+            "pontuacao": 3,
+            "percentualMetrica": 25
+          },
+          {
+            "impacto": 0,
+            "metrica": "Protesto",
+            "descricao": "Não possui",
+            "pontuacao": 0,
+            "percentualMetrica": 0
+          },
+          {
+            "impacto": 0,
+            "metrica": "Pendência financeira",
+            "descricao": "Não possui",
+            "pontuacao": 0,
+            "percentualMetrica": 0
+          },
+          {
+            "impacto": 0,
+            "metrica": "CCF",
+            "descricao": "Não possui",
+            "pontuacao": 0,
+            "percentualMetrica": 0
+          },
+          {
+            "impacto": 0,
+            "metrica": "Ações judiciais - Leve",
+            "descricao": "Não possui",
+            "pontuacao": 0,
+            "percentualMetrica": 0
+          },
+          {
+            "impacto": 0,
+            "metrica": "Ações judiciais - Grave",
+            "descricao": "Não possui",
+            "pontuacao": 0,
+            "percentualMetrica": 0
+          },
+          {
+            "impacto": 0,
+            "metrica": "Ações judiciais - Gravíssima",
+            "descricao": "Não possui",
+            "pontuacao": 0,
+            "percentualMetrica": 0
+          }
+        ],
+        "classificacao": {
+          "porte": "Padrão",
+          "politica": "Política Eliane PF",
+          "validade": "2026-11-18T20:55:06.55541",
+          "politicaId": "a71e3144-86ee-4a1e-8f06-b965dfccf52e",
+          "ticketMedio": 1420,
+          "classificacao": "E",
+          "limiteSugerido": 0,
+          "limiteRequisitado": null,
+          "pontuacaoAtingida": -12.5
+        },
+        "errosMetricas": null,
+        "dadosComplementares": null,
+        "todasClassificacoes": [
+          {
+            "nome": "E",
+            "validade": 30,
+            "limiteMaximo": 0,
+            "limiteMinimo": 0,
+            "limiteExigido": 0,
+            "pontuacaoAtingida": -112.5,
+            "multiplicadorArranque": 0
+          },
+          {
+            "nome": "D",
+            "validade": 30,
+            "limiteMaximo": 582.2,
+            "limiteMinimo": 0,
+            "limiteExigido": 0,
+            "pontuacaoAtingida": 0,
+            "multiplicadorArranque": 25
+          },
+          {
+            "nome": "C",
+            "validade": 30,
+            "limiteMaximo": 837.8,
+            "limiteMinimo": 0,
+            "limiteExigido": 582.2,
+            "pontuacaoAtingida": 8,
+            "multiplicadorArranque": 25
+          },
+          {
+            "nome": "B",
+            "validade": 30,
+            "limiteMaximo": 1192.8,
+            "limiteMinimo": 0,
+            "limiteExigido": 837.8,
+            "pontuacaoAtingida": 17,
+            "multiplicadorArranque": 22
+          },
+          {
+            "nome": "BB",
+            "validade": 30,
+            "limiteMaximo": 1547.8,
+            "limiteMinimo": 0,
+            "limiteExigido": 1192.8,
+            "pontuacaoAtingida": 26,
+            "multiplicadorArranque": 20
+          },
+          {
+            "nome": "BBB",
+            "validade": 30,
+            "limiteMaximo": 2016.4,
+            "limiteMinimo": 0,
+            "limiteExigido": 1547.8,
+            "pontuacaoAtingida": 35,
+            "multiplicadorArranque": 18
+          },
+          {
+            "nome": "A",
+            "validade": 30,
+            "limiteMaximo": 2627,
+            "limiteMinimo": 0,
+            "limiteExigido": 2016.4,
+            "pontuacaoAtingida": 44,
+            "multiplicadorArranque": 16
+          },
+          {
+            "nome": "AA",
+            "validade": 30,
+            "limiteMaximo": 3408,
+            "limiteMinimo": 0,
+            "limiteExigido": 2627,
+            "pontuacaoAtingida": 55,
+            "multiplicadorArranque": 14
+          },
+          {
+            "nome": "AAA",
+            "validade": 30,
+            "limiteMaximo": 4430.4,
+            "limiteMinimo": 0,
+            "limiteExigido": 3408,
+            "pontuacaoAtingida": 66,
+            "multiplicadorArranque": 12
+          }
+        ],
+        "historicoClassificacao": [
+          {
+            "dataHora": "2026-10-19T20:55:20.562-03:00",
+            "negativas": [
+              {
+                "impacto": 100,
+                "metrica": "SCR",
+                "descricao": "R$ 3,10 mil",
+                "pontuacao": -21,
+                "percentualMetrica": 13.12
+              }
+            ],
+            "positivas": [
+              {
+                "impacto": 46.15,
+                "metrica": "Renda presumida",
+                "descricao": "C",
+                "pontuacao": 6,
+                "percentualMetrica": 46.15
+              },
+              {
+                "impacto": 30.77,
+                "metrica": "Score",
+                "descricao": "(Risco Alto): 677",
+                "pontuacao": 4,
+                "percentualMetrica": 33.33
+              },
+              {
+                "impacto": 23.08,
+                "metrica": "Idade",
+                "descricao": "23 anos",
+                "pontuacao": 3,
+                "percentualMetrica": 25
+              },
+              {
+                "impacto": 0,
+                "metrica": "Ações judiciais - Grave",
+                "descricao": "Não possui",
+                "pontuacao": 0,
+                "percentualMetrica": 0
+              },
+              {
+                "impacto": 0,
+                "metrica": "Ações judiciais - Gravíssima",
+                "descricao": "Não possui",
+                "pontuacao": 0,
+                "percentualMetrica": 0
+              },
+              {
+                "impacto": 0,
+                "metrica": "Ações judiciais - Leve",
+                "descricao": "Não possui",
+                "pontuacao": 0,
+                "percentualMetrica": 0
+              },
+              {
+                "impacto": 0,
+                "metrica": "CCF",
+                "descricao": "Não possui",
+                "pontuacao": 0,
+                "percentualMetrica": 0
+              },
+              {
+                "impacto": 0,
+                "metrica": "Pendência financeira",
+                "descricao": "Não possui",
+                "pontuacao": 0,
+                "percentualMetrica": 0
+              },
+              {
+                "impacto": 0,
+                "metrica": "Protesto",
+                "descricao": "Não possui",
+                "pontuacao": 0,
+                "percentualMetrica": 0
+              }
+            ],
+            "classificacao": "E",
+            "historicoConsultaId": "historico-teste-1"
+          }
+        ]
+      },
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "depsIa": null,
+    "emails": {
+      "data": [
+        "titular1@example.com",
+        "titular2@example.com",
+        "titular3@example.com",
+        "titular4@example.com"
+      ],
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "pessoa": {
+      "data": {
+        "cpf": "52998224725",
+        "nome": "Maria Exemplo da Silva",
+        "idade": 23,
+        "obito": null,
+        "nomeMae": null,
+        "identidade": null,
+        "escolaridade": null,
+        "dataInscricao": null,
+        "nacionalidade": null,
+        "dataNascimento": "1980-01-01T00:00:00-03:00",
+        "rendaPresumida": null,
+        "dadosCadastrais": {
+          "uf": "MG",
+          "cep": "01001000",
+          "bairro": "MARTINS",
+          "cidade": "UBERLANDIA",
+          "numero": "100",
+          "endereco": "Rua Exemplo",
+          "complemento": "Casa"
+        },
+        "dataHoraReceita": null,
+        "situacaoCadastral": "REGULAR",
+        "politicamenteExposta": null,
+        "codigoControleReceita": null,
+        "mensagemErroRendaPresumida": null
+      },
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "versao": "3",
+    "balanco": null,
+    "empresa": null,
+    "isGrupo": false,
+    "produto": "Smart PF 002",
+    "suframa": null,
+    "usuario": "usuario-teste",
+    "sintegra": null,
+    "consultas": {
+      "data": {
+        "detalhes": [
+          {
+            "segmento": "INSTITUICOES FINANCEIRAS",
+            "dataConsulta": "2026-02-08T00:00:00-03:00",
+            "nomeInformante": null,
+            "quantidadeConsultas": 1
+          }
+        ],
+        "contagem90DiasMais": 1,
+        "contagemUltimos15Dias": null,
+        "contagemUltimos30Dias": 0,
+        "contagemUltimos31a60Dias": 0,
+        "contagemUltimos61a90Dias": 0
+      },
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "isParcial": false,
+    "protestos": {
+      "data": null,
+      "info": null,
+      "message": "Nada consta.",
+      "success": true
+    },
+    "restricao": null,
+    "centroCusto": null,
+    "consultante": "Consultante Teste",
+    "indicadores": null,
+    "analiseRisco": null,
+    "dataConsulta": "2026-10-19T20:55:26.7178788-03:00",
+    "gastoEstimado": null,
+    "versaoProduto": null,
+    "acoesJudiciais": {
+      "data": null,
+      "info": null,
+      "message": "Nada consta.",
+      "success": true
+    },
+    "blocosComErros": [],
+    "comportamental": null,
+    "rendaPresumida": {
+      "data": {
+        "valor": 1518,
+        "valorMaximo": 2200,
+        "valorMinimo": 1500,
+        "gastoEstimado": null,
+        "rendaPresumida": "Entre R$ 1.500,00 e R$ 2.200,00",
+        "possuiGastoEstimado": false
+      },
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "outrosEnderecos": {
+      "data": [
+        {
+          "uf": "MG",
+          "cep": "01001000",
+          "bairro": "MARTINS",
+          "numero": "100",
+          "endereco": "Rua Exemplo",
+          "municipio": "UBERLANDIA",
+          "complemento": "Casa"
+        },
+        {
+          "uf": "TO",
+          "cep": "01001000",
+          "bairro": "PLANO DIRETOR SUL",
+          "numero": "100",
+          "endereco": "Rua Exemplo",
+          "municipio": "PALMAS",
+          "complemento": null
+        }
+      ],
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "grupoComponentes": null,
+    "quadroSocietario": null,
+    "indicadoresBoleto": null,
+    "restricoesCheques": {
+      "alertas": null,
+      "chequesSustados": null,
+      "possuiInformacao": true,
+      "chequesDevolvidosSemFundo": {
+        "data": null,
+        "info": null,
+        "message": "Nada consta.",
+        "success": true
+      },
+      "chequesDevolvidosOutrosMotivos": {
+        "data": null,
+        "info": null,
+        "message": "Nada consta.",
+        "success": true
+      },
+      "chequesDevolvidosInformadosUsuario": null
+    },
+    "consultasDetalhadas": null,
+    "historicoConsultaId": "historico-teste-0",
+    "participacaoEmpresa": {
+      "data": null,
+      "info": null,
+      "message": "Sem informação.",
+      "success": true
+    },
+    "vinculoEmpregaticio": null,
+    "faturamentoPresumido": null,
+    "linkCompartilhamento": "https://example.com/compartilhamento/teste",
+    "pendenciasRestricoes": {
+      "data": null,
+      "info": null,
+      "message": "Nada consta.",
+      "success": true
+    },
+    "comportamentalConsumo": null,
+    "contatosPreferenciais": {
+      "data": [
+        {
+          "uf": null,
+          "rua": null,
+          "nome": null,
+          "bairro": null,
+          "cidade": null,
+          "numero": null,
+          "procon": null,
+          "telefone": "(99) 99999-9999",
+          "whatsapp": null,
+          "documento": null,
+          "operadora": "CLARO",
+          "complemento": null
+        },
+        {
+          "uf": null,
+          "rua": null,
+          "nome": null,
+          "bairro": null,
+          "cidade": null,
+          "numero": null,
+          "procon": null,
+          "telefone": "(99) 99999-9999",
+          "whatsapp": null,
+          "documento": null,
+          "operadora": "CLARO",
+          "complemento": null
+        },
+        {
+          "uf": null,
+          "rua": null,
+          "nome": null,
+          "bairro": null,
+          "cidade": null,
+          "numero": null,
+          "procon": null,
+          "telefone": "(99) 99999-9999",
+          "whatsapp": null,
+          "documento": null,
+          "operadora": "CLARO",
+          "complemento": null
+        },
+        {
+          "uf": null,
+          "rua": null,
+          "nome": null,
+          "bairro": null,
+          "cidade": null,
+          "numero": null,
+          "procon": null,
+          "telefone": "(99) 99999-9999",
+          "whatsapp": null,
+          "documento": null,
+          "operadora": "CLARO",
+          "complemento": null
+        },
+        {
+          "uf": null,
+          "rua": null,
+          "nome": null,
+          "bairro": null,
+          "cidade": null,
+          "numero": null,
+          "procon": null,
+          "telefone": "(99) 99999-9999",
+          "whatsapp": null,
+          "documento": null,
+          "operadora": null,
+          "complemento": null
+        }
+      ],
+      "info": null,
+      "message": null,
+      "success": true
+    },
+    "comportamentalResumido": null,
+    "certidaoNegativaDebitos": null,
+    "comportamentalPagamento": null,
+    "redeRelacionamentoSocio": null,
+    "falenciasRecuperacaoJudicial": null,
+    "relacaoEmpresaParticipacaoSocio": null
+  },
+  "consultasComplementares": []
+}

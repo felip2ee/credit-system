@@ -3,7 +3,7 @@
 import { generateCompanyParecer, generateParecer } from "@/lib/ai/opinion";
 import { saveConsultationOpinion } from "@/lib/ai/persist";
 import { COMPANY_PROMPT_VERSION } from "@/lib/ai/prompt";
-import { loadCanonicalResult } from "@/lib/consultations/canonical-store";
+import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { dossierCanonicalResults, saveDossierReport } from "@/lib/dossiers/queries";
 import { readAiPrompt } from "@/lib/settings/readers";
@@ -20,7 +20,7 @@ async function generateConsultationOpinion(identity: DbIdentity, dossierId: stri
 	const canonical = await loadCanonicalResult(identity, main.consultationId);
 	if (!canonical) throw new Error("generateOrderAi: canonical result not found");
 	const { parecer, model } = await generateParecer(
-		{ type: main.type, dataAnalise: today(), canonical },
+		{ type: main.type, dataAnalise: today(), canonical, payload: await loadLatestPayload(identity, main.consultationId) },
 		await readAiPrompt(identity, main.type === "PJ" ? "pj" : "pf"),
 	);
 	await withUserTransaction(identity, (client) =>
@@ -41,9 +41,10 @@ async function generateGroupReport(identity: DbIdentity, dossierId: string): Pro
 		{
 			dataAnalise: today(),
 			empresaRow: JSON.parse(JSON.stringify(company.canonical_result)),
+			empresaPayload: company.payload,
 			socios: rows
 				.filter((row) => row.type === "PF")
-				.map((row) => ({ type: "PF" as const, resultRow: JSON.parse(JSON.stringify(row.canonical_result)) })),
+				.map((row) => ({ type: "PF" as const, resultRow: JSON.parse(JSON.stringify(row.canonical_result)), payload: row.payload })),
 		},
 		await readAiPrompt(identity, "empresa"),
 	);

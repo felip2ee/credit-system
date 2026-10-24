@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Harness for docker/backup: a temporary Restic LOCAL backend + a disposable
-# PostgreSQL cluster, no Docker, no network.
+# PostgreSQL cluster, no Docker, no network. The S3 guards run first, with stubs.
 #
 # Proves:
 #   1. `backup.sh` produces exactly one snapshot carrying the custom-format
@@ -20,6 +20,40 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
+# --- S3 guards: stubs only, no restic / postgres needed ----------------------
+spass=0; sfail=0
+sok() { echo "PASS: $1"; spass=$((spass+1)); }
+sno() { echo "FAIL: $1"; sfail=$((sfail+1)); }
+stmp=$(mktemp -d)
+mkdir -p "$stmp/bin"
+# Fake pg_dump records the keys the script exported, then fails so backup stops.
+cat > "$stmp/bin/pg_dump" <<STUB
+#!/bin/sh
+printf '%s:%s' "\$AWS_ACCESS_KEY_ID" "\$AWS_SECRET_ACCESS_KEY" > "$stmp/seen"
+exit 1
+STUB
+chmod +x "$stmp/bin/pg_dump"
+printf 'AKIA-test-access' > "$stmp/ak"; printf 'sekret-test-value' > "$stmp/sk"
+sout=$(env -i PATH="$stmp/bin:$PATH" RESTIC_REPOSITORY="s3:s3.example.com/bkt" \
+  AWS_ACCESS_KEY_ID_FILE="$stmp/ak" AWS_SECRET_ACCESS_KEY_FILE="$stmp/sk" \
+  STATE_DIR="$stmp/state" WORK_ROOT="$stmp/work" LOCK_DIR="$stmp/lock" \
+  sh "$here/backup.sh" 2>&1 || true)
+[ "$(cat "$stmp/seen" 2>/dev/null)" = "AKIA-test-access:sekret-test-value" ] \
+  && sok "load_secrets exports aws keys from files" || sno "aws keys not exported from files"
+case "$sout" in *AKIA-test-access*|*sekret-test-value*) sno "load_secrets echoed an aws key" ;;
+  *) sok "load_secrets never echoes them" ;; esac
+for script in backup.sh restore-test.sh; do
+  rc=0
+  sout=$(env -i PATH="$stmp/bin:$PATH" RESTIC_REPOSITORY="$stmp/local-repo" \
+    STATE_DIR="$stmp/state" WORK_ROOT="$stmp/work" LOCK_DIR="$stmp/lock2" \
+    sh "$here/$script" 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ] && grep -q 'RESTIC_REPOSITORY must be an s3: repository' <<<"$sout"; then
+    sok "$script refuses a local RESTIC_REPOSITORY"
+  else sno "$script accepted a local RESTIC_REPOSITORY (rc=$rc)"; fi
+done
+rm -rf "$stmp"
+[ "$sfail" -eq 0 ] || { echo "pass=$spass fail=$sfail"; exit 1; }
+
 for bin in restic pg_dump pg_restore initdb pg_ctl createdb psql jq shuf sha256sum; do
   command -v "$bin" >/dev/null || { echo "SKIP: '$bin' not on PATH (deferred to Task 15 gate)"; exit 127; }
 done
@@ -51,6 +85,7 @@ echo "contract two" > "$docroot/2026/01/b.pdf"
 
 # --- environment for the scripts under test -------------------------------
 export RESTIC_REPOSITORY="$tmp/repo"
+export BACKUP_ALLOW_LOCAL_REPO=1          # harness has no S3; guards are tested above
 export RESTIC_PASSWORD="test-harness-key"
 export PGHOST="$sock" PGUSER=postgres PGDATABASE=credit_system
 export DOCUMENT_ROOT="$docroot"

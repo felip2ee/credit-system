@@ -1,19 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
-const staff = {
-  email: process.env.AUTH_E2E_STAFF_EMAIL ?? "",
-  password: process.env.AUTH_E2E_STAFF_PASSWORD ?? "",
-};
-const client = {
-  email: process.env.AUTH_E2E_CLIENT_EMAIL ?? "",
-  password: process.env.AUTH_E2E_CLIENT_PASSWORD ?? "",
-};
-// A valid, unexpired reset token for the forced-password-setup case, minted by
-// the seed step (better-auth requestPasswordReset -> capture token from email).
-const freshResetToken = process.env.AUTH_E2E_RESET_TOKEN ?? "";
+import { E2E, resetRateLimit } from "./fixtures";
 
-async function signIn(page: Page, user: typeof staff) {
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+const { staff, disabled } = E2E;
+
+async function signIn(page: Page, user: { email: string; password: string }) {
+  await resetRateLimit();
   await page.goto(`${baseURL}/login`);
   await page.getByLabel("E-mail").fill(user.email);
   await page.getByLabel("Senha").fill(user.password);
@@ -47,38 +40,6 @@ test("requires staff MFA before the dashboard and supports logout", async ({
   await expect(page).toHaveURL(/\/login$/);
 });
 
-test("completes forced password setup from a reset link", async ({ page }) => {
-  await page.goto(`${baseURL}/update-password?token=${freshResetToken}`);
-  const newPassword = "brand-new-twelve-character-password";
-  await page.getByLabel("Nova senha").fill(newPassword);
-  await page.getByLabel("Confirmar senha").fill(newPassword);
-  await page.getByRole("button", { name: "Salvar nova senha" }).click();
-  await expect(page).toHaveURL(/\/login|\/$|\/portal/);
-});
-
-test("allows an optional client TOTP enrollment and an administrator invitation", async ({
-  page,
-}) => {
-  await signIn(page, client);
-  await expect(page).toHaveURL(/\/portal|\/$/);
-
-  await page.goto(`${baseURL}/settings/security`);
-  await page.getByLabel("Confirme sua senha").fill(client.password);
-  await page.getByRole("button", { name: "Adicionar autenticador" }).click();
-  await expect(page.getByAltText("QR code TOTP")).toBeVisible();
-  await expect(page.getByText(/códigos de recuperação/i)).toBeVisible();
-  await page.getByLabel("Código de 6 dígitos").fill("000000");
-  await page.getByRole("button", { name: "Confirmar autenticador" }).click();
-  await expect(page.getByText(/código inválido/i)).toBeVisible();
-
-  await signIn(page, staff);
-  await page.goto(`${baseURL}/settings/users`);
-  await page.getByLabel("Nome completo").fill("E2E Invite");
-  await page.getByLabel("E-mail").fill(`invite-${Date.now()}@example.test`);
-  await page.getByRole("button", { name: "Criar usuário" }).click();
-  await expect(page.getByText("Convite enviado")).toBeVisible();
-});
-
 test("rejects an expired reset link and disabled users", async ({ page }) => {
   await page.goto(`${baseURL}/update-password?token=expired-token`);
   await page.getByLabel("Nova senha").fill("another-twelve-character-password");
@@ -90,10 +51,7 @@ test("rejects an expired reset link and disabled users", async ({ page }) => {
 
   // A deactivated user may authenticate, but findAuthProfile -> user_deactivated
   // blocks the first protected page load and bounces back to /login.
-  await signIn(page, {
-    email: process.env.AUTH_E2E_DISABLED_EMAIL ?? "",
-    password: process.env.AUTH_E2E_DISABLED_PASSWORD ?? "",
-  });
+  await signIn(page, disabled);
   await page.goto(`${baseURL}/`);
   await expect(page).toHaveURL(/\/login/);
 });

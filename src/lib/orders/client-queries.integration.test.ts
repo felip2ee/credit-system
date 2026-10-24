@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
 	Object.assign(process.env, {
-		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://app_runtime:test@localhost:54329/credit_system",
+		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://app_runtime:test@localhost:54329/credit_system_test",
 		BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
 		BETTER_AUTH_URL: "http://localhost:3000",
 		DOCUMENT_ROOT: "/tmp/reino-test-documents",
@@ -28,6 +28,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { quoteOrder } from "@/lib/catalog/quote";
+import { loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
@@ -221,13 +222,31 @@ describe("getMyDelivery", () => {
 			kind: "PF",
 			order: { dossierId: id, state: "released", price: "50.00" },
 			dossierOpinion: null,
-			members: [{ type: "PF", status: "completed", canonical: { marker: "canonical" }, opinion: null }],
+			members: [{ type: "PF", status: "completed", canonical: { marker: "canonical" }, payload: {}, opinion: null }],
 		});
 		expect(delivery?.members).toHaveLength(1);
 		expect(await mine(other)).toBeNull();
 
 		await withUserTransaction(staff(t), (c) => revokeDelivery(c, staff(t), id, "Resultado em revisão"));
 		expect(await mine()).toBeNull();
+	});
+
+	it("uses the payload referenced by the result, not the newest row", async () => {
+		const t = await newTenant("cq payload pick");
+		const id = await place(t, t.client, ownInput);
+		await release(t, id);
+		await seedResult(t, id);
+		await owner.query(
+			`insert into bureau_payloads (bureau_id, consultation_id, provider, product, received_at, http_status, payload, payload_sha256, validation_status)
+			 select bureau_id, consultation_id, provider, product, now() + interval '1 hour', http_status, '{"newer":true}'::jsonb, repeat('b', 64), 'incompatible'
+			   from bureau_payloads where bureau_id = $1`,
+			[t.bureau.id],
+		);
+
+		const delivery = await withUserTransaction(t.client, (c) => getMyDelivery(c, id));
+		expect(delivery?.members[0].payload).toEqual({});
+		const { rows } = await owner.query<{ id: string }>("select id from consultations where dossier_id = $1", [id]);
+		expect(await loadLatestPayload(staff(t), rows[0].id)).toEqual({});
 	});
 
 	it("exposes the opinion only for an order with the AI add-on", async () => {

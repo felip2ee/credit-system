@@ -461,3 +461,39 @@ export async function seedPayableEntry(
 	);
 	return rows[0].id;
 }
+
+// Retenção LGPD: linhas técnicas com data escolhida pelo teste (o app nunca grava no passado).
+export async function seedExpiredChallenge(
+	owner: Pool,
+	input: { profileId: string; expiresAt: Date },
+): Promise<string> {
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into verification_challenges (profile_id, kind, target, code_hash, expires_at)
+     values ($1, 'email', 'seed@example.test', $2, $3) returning id`,
+		[input.profileId, randomBytes(32).toString("hex"), input.expiresAt],
+	);
+	return rows[0].id;
+}
+
+export async function seedRegisterAttempt(
+	owner: Pool,
+	input: { createdAt: Date },
+): Promise<number> {
+	const { rows } = await owner.query<{ id: string }>(
+		"insert into client_register_attempts (ip, created_at) values ('203.0.113.7', $1) returning id",
+		[input.createdAt],
+	);
+	return Number(rows[0].id);
+}
+
+export async function seedExpiredSession(
+	owner: Pool,
+	input: { userId: string; expiresAt: Date },
+): Promise<string> {
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into "session" (expires_at, token, updated_at, user_id)
+     values ($1, $2, now(), $3) returning id`,
+		[input.expiresAt, randomBytes(24).toString("hex"), input.userId],
+	);
+	return rows[0].id;
+}

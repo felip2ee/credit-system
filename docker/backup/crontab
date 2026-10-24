@@ -6,8 +6,16 @@
 #      restore-test.sh logs and emails the measured drill duration every month;
 #      record it in the recovery runbook.
 #
+# The Restic repository is remote: an S3-compatible bucket (RESTIC_REPOSITORY=s3:...),
+# reached with the restic_s3_access_key / restic_s3_secret_key Docker secrets.
+#
 # Operator prerequisites (S3 bucket holding the Restic repo):
-#   - object versioning MUST be enabled (server keys cannot then erase history);
+#   - a key that can delete objects can also delete object versions, so versioning alone
+#     does not protect history (R2 has no classic versioning). Require Object Lock
+#     (governance or compliance, retention >= 30 days) OR a key/bucket policy denying
+#     s3:DeleteObjectVersion, s3:PutLifecycleConfiguration and s3:PutBucketVersioning;
+#     then `restic forget --prune` needs lock-aware retention (keep-* >= lock period)
+#     or a separate credential;
 #   - public access MUST be fully denied (block-all-public-access / no ACLs).
 #
 # Daily encrypted snapshot (dump + documents) at 02:30.
