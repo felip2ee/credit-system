@@ -14,6 +14,7 @@ export type OrderStateReason =
 	| "scr_expired"
 	| "payment_timeout"
 	| "cancelled_by_staff"
+	| "cancelled_by_client"
 	| "deps_no_data"
 	| "deps_incompatible"
 	| "deps_unavailable"
