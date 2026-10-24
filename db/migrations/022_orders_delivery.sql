@@ -624,6 +624,7 @@ declare
   v_type text;
   v_acct_type text;
   v_self_member boolean := false;
+  v_buyer_as_company_contact boolean := false;
   v_deps_pf text;
   v_holder uuid;
   v_dossier uuid;
@@ -791,7 +792,16 @@ begin
     end if;
     -- v_buyer_p só existe com comprador: o plpgsql não garante curto-circuito, então o ramo é um if.
     if v_buyer is not null then
-      if v_email = lower(v_buyer_p.email) or (v_phone is not null and v_phone = v_buyer_p.phone_e164) then
+      -- Exceção (decisão do dono, risco aceito): no Dossiê Empresarial online, o e-mail do comprador também vale para o
+      -- responsável da empresa quando o documento do Titular da conta dele está entre os sócios. O celular nunca vale.
+      v_buyer_as_company_contact := v_mode = 'online' and p_product_code = 'dossie_empresarial'
+        and v_email = lower(v_buyer_p.email)
+        and exists (
+          select 1 from jsonb_array_elements(v_partners) e
+            join public.holders h on h.bureau_id = v_bureau and h.client_profile_id = v_user
+                                 and h.document_digits = regexp_replace(coalesce(e ->> 'document', ''), '\D', '', 'g'));
+      if (v_email = lower(v_buyer_p.email) and not v_buyer_as_company_contact)
+         or (v_phone is not null and v_phone = v_buyer_p.phone_e164) then
         return query select false, 'contact_is_buyer'::text, null::uuid, null::text;
         return;
       end if;
@@ -989,7 +999,9 @@ begin
     insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
     values (v_bureau, v_user, 'order.open', 'dossier_orders', v_dossier,
             jsonb_build_object('mode', v_mode, 'product_code', p_product_code,
-                               'members', jsonb_array_length(v_members), 'self_member', v_self or v_self_member));
+                               'members', jsonb_array_length(v_members), 'self_member', v_self or v_self_member)
+                            || case when v_buyer_as_company_contact then jsonb_build_object('buyer_as_company_contact', true)
+                                    else '{}'::jsonb end);
   exception when sqlstate 'OR001' then
     return query select false, v_fail, null::uuid, null::text;
     return;

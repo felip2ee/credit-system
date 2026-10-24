@@ -642,6 +642,56 @@ describe("open_order", () => {
 		expect(counter).toMatchObject({ ok: false, reason: "contact_is_buyer" });
 	});
 
+	it("D12 exception: online, the company contact may be the buyer e-mail only when the account CPF is a partner", async () => {
+		const b = await newBuyer(T); // Titular PF da conta: b.digits
+		const company = cnpj();
+		const open = (partners: { document: string; name: string; email: string }[]) =>
+			committed(b.identity, (c) =>
+				openOrder(c, { product: "dossie_empresarial", type: "PJ", document: company, name: "Empresa", email: b.email, partners }),
+			);
+		const withoutX = await open([{ document: cpf(), name: "Sócio Z", email: mail() }]);
+		expect(withoutX).toMatchObject({ ok: false, reason: "contact_is_buyer", dossier_id: null });
+		const withX = await open([
+			{ document: b.digits, name: "Comprador Sócio", email: b.email },
+			{ document: cpf(), name: "Sócio Z", email: mail() },
+		]);
+		expect(withX.ok).toBe(true);
+		const [audit] = await rows("select metadata from audit_logs where action = 'order.open' and record_id = $1", [withX.dossier_id]);
+		expect(audit.metadata).toMatchObject({ members: 3, self_member: true, buyer_as_company_contact: true });
+		expect(JSON.stringify(audit.metadata)).not.toContain(b.digits);
+		// Outro sócio com o e-mail do comprador continua exigindo o CPF da conta.
+		const otherPartner = await open([
+			{ document: b.digits, name: "Comprador Sócio", email: mail() },
+			{ document: cpf(), name: "Sócio Z", email: b.email },
+		]);
+		expect(otherPartner).toMatchObject({ ok: false, reason: "contact_is_buyer" });
+		// Sem o e-mail do comprador, a exceção não aparece na trilha.
+		const plain = await committed(b.identity, (c) =>
+			openOrder(c, {
+				product: "dossie_empresarial",
+				type: "PJ",
+				document: cnpj(),
+				email: mail(),
+				partners: [{ document: b.digits, name: "Comprador Sócio", email: b.email }],
+			}),
+		);
+		expect(plain.ok).toBe(true);
+		const [plainAudit] = await rows("select metadata from audit_logs where action = 'order.open' and record_id = $1", [plain.dossier_id]);
+		expect(plainAudit.metadata).not.toHaveProperty("buyer_as_company_contact");
+		// Balcão: o contato da empresa nunca é o comprador, nem com o CPF dele entre os sócios.
+		const counter = await committed(staff(T), (c) =>
+			openOrder(c, {
+				product: "dossie_empresarial",
+				type: "PJ",
+				document: cnpj(),
+				email: b.email,
+				partners: [{ document: b.digits, name: "Comprador Sócio", email: mail() }],
+				buyer: b.identity.userId,
+			}),
+		);
+		expect(counter).toMatchObject({ ok: false, reason: "contact_is_buyer" });
+	});
+
 	it("online dossie_empresarial accepts partners; they are CPF-only", async () => {
 		const b = await newBuyer(T);
 		const result = await committed(b.identity, (c) =>

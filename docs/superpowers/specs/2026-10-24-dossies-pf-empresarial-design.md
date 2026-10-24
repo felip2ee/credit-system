@@ -82,6 +82,7 @@ Motivo: o custo real da plataforma cresce com cada CPF consultado na DEPS. Um pr
   2. A tela mostra o total e confirma. O total é reservado da carteira do cliente.
   3. Cada membro recebe o pedido de autorização SCR por e-mail (o fluxo atual por membro, validade de 7 dias). Se o próprio cliente for sócio ou responsável, ele também autoriza pelo link do e-mail.
      - **Decisão do dono (trava por CPF):** no portal, o e-mail de um membro pode ser igual ao e-mail do comprador **só quando o documento desse membro é igual ao documento do titular da conta do comprador**. Em qualquer outro caso, `open_order` continua recusando com `contact_is_buyer` (regra D12). No balcão, a D12 não muda. A checagem fica no banco (`open_order`), não só na action.
+     - Exceção (decisão do dono em 2026-10-24, risco aceito): o e-mail do comprador também vale para o responsável da empresa quando o CPF da conta dele está entre os sócios do pedido. A pessoa só declara ser sócia; a declaração do comprador é a cobertura. A auditoria `order.open` registra `buyer_as_company_contact: true` nesse caso (nunca o documento).
      - O evento de auditoria da autorização registra quando o membro é o próprio comprador.
      - **Declaração do comprador (decisão do dono):** antes de confirmar um pedido com membros (Dossiê Empresarial, ou Dossiê Pessoa Física do responsável da conta PJ), o cliente marca um checkbox obrigatório. O texto declara que os e-mails informados pertencem às pessoas indicadas e que ele responde por informação falsa. O aceite é gravado por pedido, com a versão do texto, na mesma transação do pedido. Reutilize o aceite versionado da 021 (`legal_documents`, `legal_acceptances`) com um tipo de documento novo. Os Termos de Uso ganham a cláusula correspondente (nova versão em `legal_documents`). O texto jurídico final vem do advogado do dono; o builder usa um texto provisório marcado como tal.
   4. A página do pedido lista cada membro com o estado da autorização: pendente, autorizado, recusado, vencido.
@@ -115,6 +116,7 @@ Motivo: o custo real da plataforma cresce com cada CPF consultado na DEPS. Um pr
 - Portal sem consulta de terceiro, exceto o responsável da conta PJ no Dossiê Pessoa Física.
 - Dossiê Empresarial no portal para qualquer CNPJ informado.
 - No portal, o e-mail de um membro pode ser igual ao do comprador só quando o CPF do membro é o CPF da conta do comprador (trava por CPF). Nos outros casos, a D12 continua.
+- Exceção (decisão do dono em 2026-10-24, risco aceito): o e-mail do comprador também vale para o responsável da empresa quando o CPF da conta dele está entre os sócios do pedido. A pessoa só declara ser sócia; a declaração do comprador é a cobertura.
 - Checkbox obrigatório de declaração do comprador em pedido com membros, e cláusula nos Termos de Uso.
 
 ## Chamadas do designer (o dono pode corrigir)
@@ -172,6 +174,7 @@ Para não bloquear essa spec, esta entrega deve:
 - [ ] Teste: conta PF não abre Dossiê Pessoa Física de terceiro; conta PJ abre Dossiê Pessoa Física só com o CPF do responsável.
 - [ ] Teste: o banco e o zod recusam sócio com 14 dígitos.
 - [ ] Teste: no portal, membro com o e-mail do comprador é aceito só quando o CPF do membro é o CPF da conta; com outro CPF, é recusado (`contact_is_buyer`); no balcão, continua recusado.
+- [ ] Teste: no portal, o e-mail do comprador como responsável da empresa abre o pedido só quando o CPF da conta está entre os sócios (auditoria com `buyer_as_company_contact: true`); sem o CPF, `contact_is_buyer`; no balcão, continua recusado.
 - [ ] Teste: depois da autorização SCR, a consulta sai de `pending_authorization` antes do tick (item 18 da #72).
 - [ ] A página do pedido no portal mostra o estado da autorização de cada membro.
 - [ ] Caso novo em `rls.integration.test.ts` para cada tabela ou coluna nova.
