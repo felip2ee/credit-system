@@ -13,6 +13,7 @@ import { HolderTimeline } from "@/components/holders/holder-timeline";
 import { LgpdActions } from "@/components/holders/lgpd-actions";
 import { PartnerSection, type PartnerItem } from "@/components/holders/partner-section";
 import { PortalAccessButton } from "@/components/holders/portal-access-button";
+import { ClientBalanceCard } from "@/components/credits/ClientBalanceCard";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
+import { withUserTransaction } from "@/lib/db/transaction";
 import { getHolderDetail } from "@/lib/holders/queries";
+import { listClientAdjustments } from "@/lib/wallet/client-adjustment";
+import { getClientWallet, listClientLedger } from "@/lib/wallet/client-queries";
+import { getWallet } from "@/lib/wallet/queries";
 import { formatCNPJ, formatCPF, formatDate, formatDateSP } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
 import type { EntityKind, QueryStatus } from "@/types/app";
@@ -50,6 +55,25 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
   const canInvite = hasPermission(session, "users:manage");
   const canManageLgpd = hasPermission(session, "lgpd:manage");
   const isAnonymized = holder.anonymized_at !== null;
+  const canAdjust = hasPermission(session, "credits:adjust");
+  const clientProfileId = holder.client_profile_id;
+  const clientBalance =
+    clientProfileId && hasPermission(session, "wallet:read")
+      ? await withUserTransaction(session, async (client) => {
+          const wallet = await getClientWallet(client, clientProfileId);
+          const [ledger, adjustments, bureauWallet] = await Promise.all([
+            listClientLedger(client, clientProfileId),
+            listClientAdjustments(client, clientProfileId),
+            canAdjust && session.bureauId ? getWallet(client, session.bureauId) : null,
+          ]);
+          return {
+            wallet: wallet ?? { available: "0.00", reserved: "0.00" },
+            rows: ledger.rows,
+            authors: Object.fromEntries(adjustments.map((a) => [a.id, a.authorName])),
+            bureauAvailable: canAdjust ? (bureauWallet?.available ?? "0.00") : null,
+          };
+        })
+      : null;
 
   const partnerItems: PartnerItem[] = partners.map((p) => ({
     id: p.holder_id,
@@ -164,6 +188,8 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
               </CardContent>
             </Card>
           )}
+
+          {clientBalance && <ClientBalanceCard holderId={holder.id} {...clientBalance} />}
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
