@@ -111,8 +111,8 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 		setServerError(null);
 		startTransition(async () => {
 			const result = await openClientOrderAction({ ...getValues(), declarationVersion: declaration.version });
-			if (result.error || !result.id) {
-				setServerError(result.error ?? "Não foi possível abrir o pedido.");
+			if (!result || result.error || !result.id) {
+				setServerError(result?.error ?? "Não foi possível abrir o pedido.");
 				return;
 			}
 			router.push(`/portal/pesquisas/${result.id}`);
