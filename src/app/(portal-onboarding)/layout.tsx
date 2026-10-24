@@ -19,7 +19,7 @@ export default async function PortalOnboardingLayout({ children }: { children: R
       <IdleTimeout />
       <header className="border-b bg-background">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <span className="text-base font-semibold">Rainha do Crédito</span>
+          <span className="text-base font-semibold">Rainha Cred</span>
           <form action={signOut}>
             <Button type="submit" variant="ghost" size="sm">
               <LogOut className="h-4 w-4" />

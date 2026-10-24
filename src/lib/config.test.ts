@@ -128,7 +128,13 @@ describe("readConfig", () => {
     expect(config.smtpSecure).toBe(true);
     expect(config.smtpUser).toBe("credit-system");
     expect(config.smtpPass).toBe("test-password");
-    expect(config.smtpFrom).toBe("Rainha do Crédito <credit-system>");
+    expect(config.smtpFrom).toBe("Rainha Cred <credit-system>");
+  });
+
+  it("defaults the support e-mail and reads SUPPORT_EMAIL when set", () => {
+    expect(readConfig(valid).supportEmail).toBe("suporte@rainhacred.com.br");
+    expect(readConfig({ ...valid, SUPPORT_EMAIL: " ajuda@example.test " }).supportEmail).toBe("ajuda@example.test");
+    expect(readConfig({ ...valid, SUPPORT_EMAIL: " " }).supportEmail).toBe("suporte@rainhacred.com.br");
   });
 
   it.each(["yes", "1", "TRUE"])("rejects non-boolean SMTP_SECURE %s", (secure) => {

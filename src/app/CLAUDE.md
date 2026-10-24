@@ -1,6 +1,6 @@
 # app — Next.js App Router routes, layouts and route handlers
 
-Route tree for the platform and CRM (Reino do Crédito), grouped as `(auth)`, `(dashboard)`, `(portal)`, `(superadmin)`, plus `api/`, `auth/`, `b/[slug]` and public `autorizacao-scr/[token]`. Security-sensitive: it is the session, role and redirect boundary.
+Route tree for the platform and CRM (Rainha Cred), grouped as `(auth)`, `(dashboard)`, `(portal)`, `(superadmin)`, plus `api/`, `auth/`, `b/[slug]` and public `autorizacao-scr/[token]`. Security-sensitive: it is the session, role and redirect boundary.
 
 ## Responsibility
 

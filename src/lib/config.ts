@@ -1,7 +1,11 @@
 import { isIP } from "node:net";
 import path from "node:path";
 
+import { BRAND_NAME } from "@/lib/brand/brand";
+
 import { hydrateSecretEnv } from "./runtime-secrets.mjs";
+
+const DEFAULT_SUPPORT_EMAIL = "suporte@rainhacred.com.br";
 
 type Environment = Record<string, string | undefined>;
 
@@ -92,8 +96,9 @@ export function readConfig(env: Environment) {
     smtpSecure: smtpSecure === "true",
     smtpUser,
     smtpPass: required(env, "SMTP_PASS"),
-    smtpFrom: env.SMTP_FROM?.trim() || `Rainha do Crédito <${smtpUser}>`,
+    smtpFrom: env.SMTP_FROM?.trim() || `${BRAND_NAME} <${smtpUser}>`,
     traefikProxyCidr: traefikProxyCidr || undefined,
+    supportEmail: env.SUPPORT_EMAIL?.trim() || DEFAULT_SUPPORT_EMAIL,
   });
 }
 

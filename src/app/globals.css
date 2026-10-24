@@ -3,66 +3,37 @@
 @tailwind utilities;
 
 @layer base {
-  /* Identidade visual Beabá do Crédito — verde-floresta + dourado. */
+  /* Identidade Rainha Cred. Valores em hex espelhados em src/lib/brand/tokens.ts.
+     Verde da marca #009C97 só em logo, ícones e texto grande; texto e botões usam --primary (#007A76). */
   :root {
-    --background: 48 33% 98%;
-    --foreground: 158 32% 12%;
+    --background: 0 0% 100%;               /* #FFFFFF */
+    --foreground: 178 42% 12%;             /* #122C2B */
     --card: 0 0% 100%;
-    --card-foreground: 158 32% 12%;
+    --card-foreground: 178 42% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 158 32% 12%;
-    --primary: 42 74% 50%;
-    --primary-foreground: 158 55% 11%;
-    --secondary: 150 22% 93%;
-    --secondary-foreground: 158 40% 14%;
-    --muted: 150 20% 95%;
-    --muted-foreground: 155 12% 40%;
-    --accent: 150 30% 91%;
-    --accent-foreground: 158 45% 14%;
-    --destructive: 0 75% 50%;
+    --popover-foreground: 178 42% 12%;
+    --primary: 178 100% 24%;               /* #007A76 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 177 39% 90%;              /* #DDF0EF */
+    --secondary-foreground: 178 42% 12%;
+    --muted: 41 42% 93%;                   /* #F4EFE4 */
+    --muted-foreground: 177 12% 33%;       /* #4A5E5D */
+    --accent: 40 88% 90%;                  /* creme #FCEDCE */
+    --accent-foreground: 178 42% 12%;
+    --destructive: 4 76% 31%;              /* #8A1C14 */
     --destructive-foreground: 0 0% 100%;
-    --border: 150 16% 86%;
-    --input: 150 16% 86%;
-    --ring: 42 74% 50%;
+    --border: 177 9% 53%;                  /* #7D9291, >= 3:1 */
+    --input: 177 9% 53%;
+    --ring: 178 100% 24%;                  /* anel de foco #007A76, >= 3:1 */
     --radius: 0.5rem;
-    --sidebar: 158 56% 11%;
-    --sidebar-foreground: 45 28% 90%;
-    --sidebar-primary: 42 74% 52%;
-    --sidebar-primary-foreground: 158 56% 10%;
-    --sidebar-accent: 158 38% 18%;
-    --sidebar-accent-foreground: 42 72% 60%;
-    --sidebar-border: 158 34% 20%;
-    --sidebar-ring: 42 74% 52%;
-  }
-
-  .dark {
-    --background: 158 44% 8%;
-    --foreground: 45 25% 92%;
-    --card: 158 42% 10%;
-    --card-foreground: 45 25% 92%;
-    --popover: 158 42% 10%;
-    --popover-foreground: 45 25% 92%;
-    --primary: 42 76% 55%;
-    --primary-foreground: 158 56% 10%;
-    --secondary: 158 28% 16%;
-    --secondary-foreground: 45 25% 92%;
-    --muted: 158 26% 15%;
-    --muted-foreground: 150 12% 62%;
-    --accent: 158 28% 16%;
-    --accent-foreground: 45 25% 92%;
-    --destructive: 0 62% 42%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 158 26% 18%;
-    --input: 158 26% 18%;
-    --ring: 42 76% 55%;
-    --sidebar: 158 52% 9%;
-    --sidebar-foreground: 45 28% 90%;
-    --sidebar-primary: 42 76% 55%;
-    --sidebar-primary-foreground: 158 56% 10%;
-    --sidebar-accent: 158 34% 16%;
-    --sidebar-accent-foreground: 42 72% 60%;
-    --sidebar-border: 158 30% 18%;
-    --sidebar-ring: 42 76% 55%;
+    --sidebar: 178 42% 12%;                /* #122C2B */
+    --sidebar-foreground: 40 88% 90%;
+    --sidebar-primary: 178 100% 31%;       /* #009C97 sobre escuro */
+    --sidebar-primary-foreground: 178 42% 12%;
+    --sidebar-accent: 178 30% 20%;
+    --sidebar-accent-foreground: 40 88% 90%;
+    --sidebar-border: 178 25% 24%;
+    --sidebar-ring: 178 100% 31%;
   }
 }
 
@@ -70,7 +41,30 @@
   * {
     @apply border-border;
   }
+  html {
+    font-size: 16px;
+  }
   body {
     @apply bg-background text-foreground;
+    line-height: 1.5;
+  }
+  :focus-visible {
+    outline: 3px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  /* Portal do cliente e páginas públicas: base 18 px. */
+  .area-portal {
+    font-size: 1.125rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

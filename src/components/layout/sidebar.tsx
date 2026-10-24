@@ -50,7 +50,7 @@ export function Sidebar({ permissions }: { permissions: readonly Permission[] })
       <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6 text-lg font-semibold">
         <span className="h-2.5 w-2.5 rounded-full bg-sidebar-primary" />
         <span>
-          Reino do <span className="text-sidebar-primary">Crédito</span>
+          Rainha <span className="text-sidebar-primary">Cred</span>
         </span>
       </div>
       <nav className="flex-1 space-y-1 p-3">

@@ -55,7 +55,7 @@ function LoginForm() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl">Reino do Crédito</CardTitle>
+        <CardTitle className="text-2xl">Rainha Cred</CardTitle>
         <CardDescription>Acesse o painel do consultor</CardDescription>
       </CardHeader>
       <CardContent>

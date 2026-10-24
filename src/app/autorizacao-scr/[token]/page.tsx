@@ -5,7 +5,7 @@ import { getScrSelfAuthorizationByToken } from "@/actions/scr-self";
 import { formatDate } from "@/lib/utils";
 
 export const metadata = {
-  title: "Autorização consulta SCR — Reino do Crédito",
+  title: "Autorização consulta SCR — Rainha Cred",
 };
 
 export default async function ScrAuthorizationPage({
@@ -29,10 +29,7 @@ export default async function ScrAuthorizationPage({
       <div className="mx-auto max-w-3xl overflow-hidden rounded-xl bg-white shadow-lg">
         <div className="bg-[#0B5F59] px-8 py-7 text-center">
           <div className="text-2xl font-bold tracking-wide text-white">
-            Eliane Moreira
-          </div>
-          <div className="mt-1 text-[11px] font-medium uppercase tracking-[0.3em] text-[#C9A24B]">
-            Rainha do Crédito
+            Rainha Cred
           </div>
         </div>
         <div className="bg-[#0E8C84] px-8 py-3.5 text-center">

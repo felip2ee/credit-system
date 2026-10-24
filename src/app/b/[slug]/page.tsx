@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 // Same generic title for existing and unknown slugs: no enumeration signal.
 export const metadata = {
-  title: "Reino do Crédito",
+  title: "Rainha Cred",
 };
 
 export default async function PublicBureauPage({

@@ -1,4 +1,4 @@
-// Tipos de domínio do Reino do Crédito.
+// Tipos de domínio do Rainha Cred.
 // Refletem os enums e tabelas do esquema legado.
 
 import type { NotificationStatus } from "@/lib/notifications/types";

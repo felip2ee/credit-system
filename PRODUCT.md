@@ -2,7 +2,7 @@
 
 ## Problema e objetivo
 
-O sistema nasceu como ferramenta interna do Reino do Crédito. Agora ele vira uma plataforma multi-tenant. Bureaus vendem diagnósticos de crédito a pessoas físicas (PF) e jurídicas (PJ). A plataforma detém o contrato com o fornecedor de dados (DEPS) e revende a consulta aos Bureaus.
+O sistema nasceu como ferramenta interna do Rainha Cred. Agora ele vira uma plataforma multi-tenant. Bureaus vendem diagnósticos de crédito a pessoas físicas (PF) e jurídicas (PJ). A plataforma detém o contrato com o fornecedor de dados (DEPS) e revende a consulta aos Bureaus.
 
 Fonte: [spec de produto](docs/superpowers/specs/2026-10-13-plataforma-bureau-produto-design.md). O roadmap tem os milestones M0 a M7.
 

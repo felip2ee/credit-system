@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // Mesmo título genérico de /b/[slug]: sem sinal de enumeração.
 export const metadata = {
-  title: "Reino do Crédito",
+  title: "Rainha Cred",
 };
 
 export default async function RegisterPage({

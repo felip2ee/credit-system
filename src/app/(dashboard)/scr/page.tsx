@@ -52,7 +52,7 @@ export default async function ScrPage({
     <div className="space-y-6">
       <PageHeader
         title="Autorizações SCR"
-        description="Consentimento dos consultados — autogestão Rainha do Crédito (termo + código por e-mail)"
+        description="Consentimento dos consultados — autogestão Rainha Cred (termo + código por e-mail)"
       />
 
       <div className="flex gap-1 border-b">
