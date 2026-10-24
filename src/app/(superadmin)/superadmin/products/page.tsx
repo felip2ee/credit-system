@@ -39,10 +39,10 @@ export default async function ProductsPage() {
           <TableRow>
             <TableHead>Código</TableHead>
             <TableHead>Nome</TableHead>
-            <TableHead>Tipo</TableHead>
             <TableHead>Estado</TableHead>
             <TableHead>Versão vigente</TableHead>
             <TableHead className="text-right">Custo padrão</TableHead>
+            <TableHead className="text-right">Custo por sócio</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -54,12 +54,14 @@ export default async function ProductsPage() {
                   {p.name}
                 </Link>
               </TableCell>
-              <TableCell>{p.kind === "main" ? "Principal" : "Adicional"}</TableCell>
               <TableCell>
                 <Badge variant={p.active ? "success" : "muted"}>{p.active ? "Ativo" : "Inativo"}</Badge>
               </TableCell>
               <TableCell>v{p.version}</TableCell>
               <TableCell className="text-right">{formatBRL(p.baseCost)}</TableCell>
+              <TableCell className="text-right">
+                {p.code === "dossie_empresarial" ? formatBRL(p.baseCostPerPartner) : "—"}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
