@@ -101,24 +101,21 @@ export async function listClientAdjustments(
 }
 
 export type ClientAdjustmentLimits = {
-	// Créditos de ajuste menos débitos de ajuste do cliente, em reais.
+	// O que o Bureau creditou ao cliente e ele ainda não gastou, em reais (client_wallets.bureau_credit_remaining).
 	bureauCredit: string;
 	// O que o Bureau pode remover agora: o menor entre bureauCredit e o disponível do cliente.
 	maxDebit: string;
 };
 
-// Lê os ajustes sob RLS (equipe do Bureau dono e o próprio cliente); para qualquer outro papel os dois valores vêm 0.00.
+// Lê a carteira sob RLS (equipe do Bureau dono e o próprio cliente); para qualquer outro papel os dois valores vêm 0.00.
 export async function getClientAdjustmentLimits(
 	client: PoolClient,
 	clientProfileId: string,
 ): Promise<ClientAdjustmentLimits> {
 	const { rows } = await client.query<{ bureau_credit: string; max_debit: string }>(
-		`select net::numeric(15,2)::text as bureau_credit,
-		        greatest(least(net, coalesce((select available from client_wallets where client_profile_id = $1), 0)), 0)::numeric(15,2)::text as max_debit
-		   from (
-		     select coalesce(sum(case direction when 'credit' then amount else -amount end), 0) as net
-		       from client_balance_adjustments where client_profile_id = $1
-		   ) t`,
+		`select coalesce(max(bureau_credit_remaining), 0)::numeric(15,2)::text as bureau_credit,
+		        coalesce(max(least(bureau_credit_remaining, available)), 0)::numeric(15,2)::text as max_debit
+		   from client_wallets where client_profile_id = $1`,
 		[clientProfileId],
 	);
 	return { bureauCredit: rows[0].bureau_credit, maxDebit: rows[0].max_debit };

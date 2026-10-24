@@ -143,6 +143,46 @@ describe("adjustClientBalance debit", () => {
 		});
 	});
 
+	it("consumes the Bureau credit first: credit 50, the client spends 50, then PIX 100 cannot be removed", async () => {
+		const t = await setup("100.00");
+		expect((await adjust(admin(t), t, "credit", "50.00")).ok).toBe(true);
+		await owner.query("select * from client_wallet_post_entry($1, 'reserve', 50, $2, 'seed', null, $1)", [t.client.userId, randomUUID()]);
+		await owner.query("select * from client_wallet_post_entry($1, 'capture', 50, $2, 'seed', null, $1)", [t.client.userId, randomUUID()]);
+		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "100.00", createdBy: t.client.userId });
+		expect((await balances(t)).client).toEqual({ available: "100.00", reserved: "0.00" });
+		expect(await adjust(admin(t), t, "debit", "10.00")).toEqual({ ok: false, reason: "exceeds_bureau_credit", maxDebit: "0.00" });
+		expect(await withUserTransaction(admin(t), (c) => getClientAdjustmentLimits(c, t.client.userId))).toEqual({
+			bureauCredit: "0.00",
+			maxDebit: "0.00",
+		});
+		expect((await balances(t)).client).toEqual({ available: "100.00", reserved: "0.00" });
+	});
+
+	it("credit 50, the client spends 20: the Bureau can remove 30 and then nothing", async () => {
+		const t = await setup("100.00");
+		expect((await adjust(admin(t), t, "credit", "50.00")).ok).toBe(true);
+		await owner.query("select * from client_wallet_post_entry($1, 'reserve', 20, $2, 'seed', null, $1)", [t.client.userId, randomUUID()]);
+		await owner.query("select * from client_wallet_post_entry($1, 'capture', 20, $2, 'seed', null, $1)", [t.client.userId, randomUUID()]);
+		expect((await adjust(admin(t), t, "debit", "30.00")).ok).toBe(true);
+		expect(await adjust(admin(t), t, "debit", "1.00")).toEqual({ ok: false, reason: "exceeds_bureau_credit", maxDebit: "0.00" });
+		expect((await balances(t)).client).toEqual({ available: "0.00", reserved: "0.00" });
+	});
+
+	it("keeps the remaining credit on reserve, release, topup and reversal, and caps it at zero on capture", async () => {
+		const t = await setup("100.00");
+		await adjust(admin(t), t, "credit", "50.00");
+		const remaining = async () => (await owner.query("select bureau_credit_remaining::text as r from client_wallets where client_profile_id = $1", [t.client.userId])).rows[0].r;
+		const post = (kind: string, amount: string) =>
+			owner.query("select * from client_wallet_post_entry($1, $2, $3, $4, 'seed', null, $1)", [t.client.userId, kind, amount, randomUUID()]);
+		await post("reserve", "30.00");
+		await post("release", "30.00");
+		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "10.00", createdBy: t.client.userId });
+		expect(await remaining()).toBe("50.00");
+		await post("reserve", "60.00");
+		await post("capture", "60.00");
+		expect(await remaining()).toBe("0.00");
+	});
+
 	it("is also limited by the client available balance, never touching the reserved one", async () => {
 		const t = await setup("100.00");
 		expect((await adjust(admin(t), t, "credit", "50.00")).ok).toBe(true);
