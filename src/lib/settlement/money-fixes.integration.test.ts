@@ -11,13 +11,12 @@ import {
 	TEST_DATABASE_WEBHOOK_URL,
 } from "@/test/db-env";
 import {
+	seedBureauCost,
 	seedCatalogItem,
 	seedClientWalletTopup,
 	seedOrderCatalog,
 	seedOrderDossierForSession,
 	seedPixCharge,
-	seedProduct,
-	seedProductVersion,
 	seedSuperadmin,
 	seedTenant,
 	seedWalletTopup,
@@ -91,7 +90,7 @@ async function reserve(
 	o: { orderRef: string; mode: "online" | "counter"; clientId: string | null; price: string; cost: string },
 ) {
 	await seedOrderDossierForSession(owner, c, { orderRef: o.orderRef, clientProfileId: o.clientId });
-	return reserveRaw(c, { ...o, quote: await seedOrderCatalog(owner, c, o) });
+	return reserveRaw(c, { ...o, quote: await seedOrderCatalog(owner, c, { ...o, productCode: "dossie_pf" }) });
 }
 const capture = (c: PoolClient, ref: string) =>
 	c.query<SettleRow>("select * from capture_order($1)", [ref]).then((r) => r.rows[0]);
@@ -463,7 +462,7 @@ describe("A2: a reserva restante é por pedido", () => {
 
 describe("A3: reserve_order confere preço e custo no catálogo", () => {
 	// Produto principal à venda por 50, custo 30, no Bureau da sessão.
-	const catalogFor = (_t: SeededTenant, c: PoolClient) => seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
+	const catalogFor = (_t: SeededTenant, c: PoolClient) => seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: "50.00", cost: "30.00" });
 	const orderOf = (t: SeededTenant, price: string, cost: string) => onlineOrder(t, price, cost);
 
 	async function newDossier(t: SeededTenant, c: PoolClient, o: { orderRef: string; clientId: string | null }) {
@@ -479,7 +478,7 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 			await newDossier(t, c, order);
 			return reserveRaw(c, { ...order, quote });
 		});
-		expect(result).toEqual({ ok: false, reason: "quote_mismatch", status: null });
+		expect(result).toEqual({ ok: false, reason: "price_mismatch", status: null });
 		expect(await settlementRow(order.orderRef)).toBeUndefined();
 		expect(await clientBalance(t.client.userId)).toEqual({ available: "100.00", reserved: "0.00" });
 	});
@@ -495,7 +494,7 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 			await newDossier(t, c, right);
 			return [await reserveRaw(c, { ...wrong, quote }), await reserveRaw(c, { ...right, quote })];
 		});
-		expect(results[0]).toEqual({ ok: false, reason: "quote_mismatch", status: null });
+		expect(results[0]).toEqual({ ok: false, reason: "cost_mismatch", status: null });
 		expect(results[1]).toEqual({ ok: true, reason: null, status: "reserved" });
 		expect(await settlementRow(wrong.orderRef)).toBeUndefined();
 		expect(await settlementRow(right.orderRef)).toMatchObject({ cost: "30.00", price: "50.00" });
@@ -535,43 +534,15 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 		for (const ref of refs) expect(await settlementRow(ref)).toMatchObject({ cost: "30.00" });
 	});
 
-	it("rejects empty, repeated, unknown, inactive and unsellable lines with one reason", async () => {
+	it("prices by the order's product and ignores the quote lines the caller sends", async () => {
 		const t = await seedTenant(owner, "A3 linhas");
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "500.00", createdBy: t.client.userId });
-		const inactive = await seedProduct(owner, { baseCost: "10.00" });
-		await seedCatalogItem(owner, {
-			bureauId: t.bureau.id,
-			productId: inactive.id,
-			salePrice: "20.00",
-			updatedBy: t.bureauAdmin.userId,
-			active: false,
-		});
-		const unsellable = await seedProduct(owner, { baseCost: "10.00" });
-		await seedCatalogItem(owner, {
-			bureauId: t.bureau.id,
-			productId: unsellable.id,
-			salePrice: "20.00",
-			updatedBy: t.bureauAdmin.userId,
-		});
-		// O custo sobe acima do preço depois da ativação: o item deixa de estar à venda.
-		await seedProductVersion(owner, { productId: unsellable.id, version: 2, baseCost: "25.00" });
 		const results = await committed(clientCtx(t), async (c) => {
-			const ok = await seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
-			const code = ok.lines[0].code;
+			await seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: "50.00", cost: "30.00" });
 			const out: SettleRow[] = [];
-			const cases: Array<[string, Quote | unknown]> = [
-				["20.00", { lines: [] }],
-				["20.00", {}],
-				["20.00", null],
-				["100.00", { lines: [{ code }, { code }] }],
-				["50.00", { lines: [{ code: "nao_existe" }] }],
-				["50.00", { lines: [{ nope: true }] }],
-				["20.00", { lines: [{ code: inactive.code }] }],
-				["20.00", { lines: [{ code: unsellable.code }] }],
-				["50.00", { lines: "x" }],
-			];
-			for (const [price, quote] of cases) {
-				const o = { orderRef: randomUUID(), mode: "online" as const, clientId: t.client.userId, price, cost: "10.00" };
+			const lines: unknown[] = [{ lines: [] }, {}, null, { lines: [{ code: "nao_existe" }] }, { lines: "x" }];
+			for (const quote of lines) {
+				const o = { orderRef: randomUUID(), mode: "online" as const, clientId: t.client.userId, price: "50.00", cost: "10.00" };
 				await newDossier(t, c, o);
 				out.push(
 					await c
@@ -587,49 +558,82 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 			}
 			return out;
 		});
-		for (const r of results) expect(r).toEqual({ ok: false, reason: "quote_mismatch", status: null });
-		expect(await clientBalance(t.client.userId)).toEqual({ available: "500.00", reserved: "0.00" });
+		for (const r of results) expect(r).toEqual({ ok: true, reason: null, status: "reserved" });
+		expect(await clientBalance(t.client.userId)).toEqual({ available: "250.00", reserved: "250.00" });
 	});
 
-	it("prices a main product with its compatible add-on and refuses an incompatible one", async () => {
-		const t = await seedTenant(owner, "A3 adicional");
+	it("refuses an order whose product is not for sale: no item, inactive item or price under the cost", async () => {
+		await owner.query("update products set active = true where code = 'dossie_pf'");
+		const { rows: product } = await owner.query<{ id: string }>("select id from products where code = 'dossie_pf'");
+		const reserveFor = async (label: string, prepare: (t: SeededTenant) => Promise<void>) => {
+			const t = await seedTenant(owner, label);
+			await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "500.00", createdBy: t.client.userId });
+			await prepare(t);
+			const order = onlineOrder(t, "20.00", "10.00");
+			const result = await committed(clientCtx(t), async (c) => {
+				await newDossier(t, c, order);
+				return reserveRaw(c, { ...order, quote: { lines: [{ code: "dossie_pf" }] } });
+			});
+			expect(await clientBalance(t.client.userId)).toEqual({ available: "500.00", reserved: "0.00" });
+			return result;
+		};
+		const noItem = await reserveFor("A3 sem item", async () => {});
+		const inactive = await reserveFor("A3 inativo", (t) =>
+			seedCatalogItem(owner, { bureauId: t.bureau.id, productId: product[0].id, salePrice: "20.00", updatedBy: t.bureauAdmin.userId, active: false }),
+		);
+		const underCost = await reserveFor("A3 abaixo do custo", async (t) => {
+			await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: product[0].id, salePrice: "20.00", updatedBy: t.bureauAdmin.userId });
+			// O custo sobe acima do preço depois da ativação: o item deixa de estar à venda.
+			await seedBureauCost(owner, { bureauId: t.bureau.id, productId: product[0].id, cost: "25.00", setBy: t.bureauAdmin.userId });
+		});
+		for (const r of [noItem, inactive, underCost]) expect(r).toEqual({ ok: false, reason: "quote_mismatch", status: null });
+	});
+
+	it("prices base plus the per-partner value by the order's members and refuses a stale total", async () => {
+		const t = await seedTenant(owner, "A3 sócios");
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "500.00", createdBy: t.client.userId });
-		const main = await seedProduct(owner, { baseCost: "30.00" });
-		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: main.id, salePrice: "50.00", updatedBy: t.bureauAdmin.userId });
-		const addon = await seedProduct(owner, { kind: "addon", addonFor: [main.code], baseCost: "5.00" });
-		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: addon.id, salePrice: "12.00", updatedBy: t.bureauAdmin.userId });
-		const other = await seedProduct(owner, { baseCost: "5.00" });
-		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: other.id, salePrice: "12.00", updatedBy: t.bureauAdmin.userId });
-		const good = onlineOrder(t, "62.00", "35.00");
-		const twoMains = onlineOrder(t, "62.00", "35.00");
+		await seedWalletTopup(owner, { bureauId: t.bureau.id, amount: "500.00", createdBy: t.bureauAdmin.userId });
+		const good = onlineOrder(t, "160.00", "100.00");
+		const stale = onlineOrder(t, "130.00", "80.00");
+		const counterGood = { orderRef: randomUUID(), mode: "counter" as const, clientId: null, price: "160.00", cost: "100.00" };
 		const results = await committed(clientCtx(t), async (c) => {
-			await newDossier(t, c, good);
-			await newDossier(t, c, twoMains);
-			return [
-				await reserveRaw(c, { ...good, quote: { lines: [{ code: main.code }, { code: addon.code }] } }),
-				await reserveRaw(c, { ...twoMains, quote: { lines: [{ code: main.code }, { code: other.code }] } }),
-			];
+			// Venda 100 + 30 por sócio; custo 60 + 20 por sócio; o pedido tem a empresa e 2 sócios (3 membros).
+			await seedOrderCatalog(owner, c, { productCode: "dossie_empresarial", price: "100.00", cost: "60.00", pricePerPartner: "30.00", costPerPartner: "20.00" });
+			for (const o of [good, stale]) {
+				await seedOrderDossierForSession(owner, c, { orderRef: o.orderRef, clientProfileId: o.clientId, productCode: "dossie_empresarial", members: 3 });
+			}
+			return [await reserveRaw(c, { ...good, quote: { lines: [] } }), await reserveRaw(c, { ...stale, quote: { lines: [] } })];
 		});
 		expect(results[0]).toEqual({ ok: true, reason: null, status: "reserved" });
-		expect(results[1]).toEqual({ ok: false, reason: "quote_mismatch", status: null });
-		expect(await settlementRow(good.orderRef)).toMatchObject({ price: "62.00", cost: "35.00" });
+		// 130,00 é o total de 1 sócio: o banco conta 2.
+		expect(results[1]).toEqual({ ok: false, reason: "price_mismatch", status: null });
+		expect(await settlementRow(good.orderRef)).toMatchObject({ price: "160.00", cost: "100.00" });
+		expect(await settlementRow(stale.orderRef)).toBeUndefined();
+		expect(await clientBalance(t.client.userId)).toEqual({ available: "340.00", reserved: "160.00" });
+
+		// Balcão: o custo do pedido (60 + 2 × 20 = 100) é o que sai da carteira do Bureau.
+		const counterResult = await committed(operatorCtx(t), async (c) => {
+			await seedOrderDossierForSession(owner, c, { orderRef: counterGood.orderRef, clientProfileId: null, productCode: "dossie_empresarial", members: 3 });
+			return reserveRaw(c, { ...counterGood, quote: { lines: [] } });
+		});
+		expect(counterResult).toEqual({ ok: true, reason: null, status: "reserved" });
+		expect(await bureauBalance(t.bureau.id)).toEqual({ available: "400.00", reserved: "100.00" });
 	});
 
 	it("rejects a stale price after the catalog changed", async () => {
 		const t = await seedTenant(owner, "A3 preço mudou");
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "500.00", createdBy: t.client.userId });
-		const product = await seedProduct(owner, { baseCost: "30.00" });
-		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: product.id, salePrice: "50.00", updatedBy: t.bureauAdmin.userId });
-		await owner.query("update bureau_catalog_items set sale_price = 60 where bureau_id = $1 and product_id = $2", [
-			t.bureau.id,
-			product.id,
-		]);
 		const order = onlineOrder(t, "50.00", "30.00");
 		const result = await committed(clientCtx(t), async (c) => {
+			const quote = await catalogFor(t, c);
+			await owner.query(
+				"update bureau_catalog_items set sale_price = 60 where bureau_id = $1 and product_id = (select id from products where code = 'dossie_pf')",
+				[t.bureau.id],
+			);
 			await newDossier(t, c, order);
-			return reserveRaw(c, { ...order, quote: { lines: [{ code: product.code }] } });
+			return reserveRaw(c, { ...order, quote });
 		});
-		expect(result).toEqual({ ok: false, reason: "quote_mismatch", status: null });
+		expect(result).toEqual({ ok: false, reason: "price_mismatch", status: null });
 	});
 });
 

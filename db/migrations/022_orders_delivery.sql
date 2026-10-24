@@ -29,8 +29,7 @@ create table if not exists dossier_orders (
   bureau_id uuid not null references bureaus (id),
   mode text not null check (mode in ('online', 'counter')),
   client_profile_id uuid,
-  product_code text not null check (product_code in ('consulta_pf', 'consulta_pj', 'dossie_pj_completo')),
-  with_ai boolean not null default false,
+  product_code text not null check (product_code in ('dossie_pf', 'dossie_empresarial')),
   self_research boolean not null default false,
   subject_name text not null check (btrim(subject_name) <> '' and length(subject_name) <= 200),
   subject_document_masked text not null,
@@ -38,7 +37,7 @@ create table if not exists dossier_orders (
     'completed', 'released', 'failed', 'cancelled')),
   state_reason text check (state_reason is null or state_reason in ('scr_refused', 'scr_expired', 'payment_timeout',
     'cancelled_by_staff', 'deps_no_data', 'deps_incompatible', 'deps_unavailable', 'reservation_clawed_back')),
-  ai_status text not null default 'none' check (ai_status in ('none', 'pending', 'done', 'failed')),
+  ai_status text not null default 'pending' check (ai_status in ('pending', 'done', 'failed')),
   ai_attempts integer not null default 0 check (ai_attempts between 0 and 10),
   attempts integer not null default 0 check (attempts between 0 and 20),
   next_attempt_at timestamptz,
@@ -53,8 +52,6 @@ create table if not exists dossier_orders (
   updated_at timestamptz not null default now(),
   constraint dossier_orders_online_buyer check (mode <> 'online' or client_profile_id is not null),
   constraint dossier_orders_self_online check (not self_research or mode = 'online'),
-  constraint dossier_orders_full_counter check (product_code <> 'dossie_pj_completo' or mode = 'counter'),
-  constraint dossier_orders_ai check (with_ai or ai_status = 'none'),
   constraint dossier_orders_released check (state <> 'released' or released_at is not null),
   foreign key (bureau_id, dossier_id) references dossiers (bureau_id, id),
   foreign key (bureau_id, client_profile_id) references profiles (bureau_id, id),
@@ -275,6 +272,9 @@ declare
   v_price numeric;
   v_cost numeric;
   v_valid boolean;
+  v_code text;
+  v_partners integer;
+  v_item record;
 begin
   if not public.app_context_present() or v_bureau is null or p_order_ref is null
      or p_mode is null or p_mode not in ('online', 'counter') then
@@ -309,37 +309,48 @@ begin
     return;
   end if;
 
-  -- Catálogo do Bureau: as linhas pedidas, resolvidas no preço e no custo vigentes. Linha repetida, sem código, de
-  -- produto fora de venda (item inativo, produto inativo, preço abaixo do custo) ou adicional sem o principal
-  -- compatível deixa v_valid falso.
-  with req as (
-    select l ->> 'code' as code
-      from jsonb_array_elements(
-        case when jsonb_typeof(p_quote -> 'lines') = 'array' then p_quote -> 'lines' else '[]'::jsonb end) l
-  ),
-  cat as (
-    select p.code, p.kind, p.addon_for, i.sale_price, t.product_version_id, t.effective_cost
-      from (select distinct code from req where code is not null) r
-      join public.products p on p.code = r.code and p.active
-      join public.bureau_catalog_items i on i.bureau_id = v_bureau and i.product_id = p.id and i.active
-      cross join lateral public.resolve_product_terms(v_bureau, p.id) t
-     where t.effective_cost is not null and i.sale_price >= t.effective_cost
-  )
-  select
-    (select count(*) from req) between 1 and 2
-      and (select count(*) from req) = (select count(*) from cat)
-      and (select count(*) from cat where kind = 'main') = 1
-      and (select count(*) from cat) = 1 + (select count(*) from cat where kind = 'addon'
-          and addon_for @> array[(select min(code) from cat where kind = 'main')]),
-    coalesce(sum(sale_price), 0),
-    coalesce(sum(effective_cost), 0),
-    coalesce(jsonb_agg(jsonb_build_object(
-      'productVersionId', product_version_id, 'code', code,
-      'costCents', (effective_cost * 100)::bigint, 'priceCents', (sale_price * 100)::bigint
-    ) order by (kind = 'addon'), code), '[]'::jsonb)
-    into v_valid, v_price, v_cost, v_lines
-    from cat;
-  v_valid := coalesce(v_valid, false) and v_price = p_price and (p_mode = 'online' or v_cost = p_cost);
+  -- Preço e custo saem do pedido, não da cotação: produto do pedido, sócios = membros do Dossiê menos o Titular
+  -- principal, valor base + valor por sócio no preço e no custo vigentes do Bureau. A cotação do chamador só
+  -- é conferida pelo total; as linhas gravadas são as montadas aqui (o cliente não escolhe o que fica gravado).
+  select o.product_code into v_code from public.dossier_orders o where o.dossier_id = p_order_ref;
+  select greatest(count(*) - 1, 0) into v_partners from public.consultations c where c.dossier_id = p_order_ref;
+  select p.id, i.sale_price, i.sale_price_per_partner, t.product_version_id, t.effective_cost,
+         t.effective_cost_per_partner
+    into v_item
+    from public.products p
+    join public.bureau_catalog_items i on i.bureau_id = v_bureau and i.product_id = p.id and i.active
+    cross join lateral public.resolve_product_terms(v_bureau, p.id) t
+   where p.code = v_code and p.active
+     and t.effective_cost is not null and i.sale_price >= t.effective_cost
+     and i.sale_price_per_partner >= t.effective_cost_per_partner;
+  v_valid := found;
+  v_fail := 'quote_mismatch';
+  if v_valid then
+    v_price := v_item.sale_price + v_item.sale_price_per_partner * v_partners;
+    v_cost := v_item.effective_cost + v_item.effective_cost_per_partner * v_partners;
+    v_lines := jsonb_build_array(jsonb_build_object(
+      'productVersionId', v_item.product_version_id, 'code', v_code, 'part', 'base', 'quantity', 1,
+      'unitPriceCents', (v_item.sale_price * 100)::bigint, 'unitCostCents', (v_item.effective_cost * 100)::bigint,
+      'priceCents', (v_item.sale_price * 100)::bigint, 'costCents', (v_item.effective_cost * 100)::bigint));
+    if v_partners > 0 then
+      v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+        'productVersionId', v_item.product_version_id, 'code', v_code, 'part', 'partner', 'quantity', v_partners,
+        'unitPriceCents', (v_item.sale_price_per_partner * 100)::bigint,
+        'unitCostCents', (v_item.effective_cost_per_partner * 100)::bigint,
+        'priceCents', (v_item.sale_price_per_partner * v_partners * 100)::bigint,
+        'costCents', (v_item.effective_cost_per_partner * v_partners * 100)::bigint));
+    end if;
+    -- Cliente online manda um custo qualquer (não o conhece): só o preço, que é público, é conferido.
+    if v_price <> p_price then
+      v_valid := false;
+      v_fail := 'price_mismatch';
+    elsif p_mode = 'counter' and v_cost <> p_cost then
+      v_valid := false;
+      v_fail := 'cost_mismatch';
+    end if;
+  else
+    v_lines := '[]'::jsonb;
+  end if;
 
   begin
     -- 1º: linha da liquidação. A unicidade de order_ref serializa duas reservas do mesmo pedido. Com a cotação
@@ -366,7 +377,6 @@ begin
     end if;
 
     if not v_valid then
-      v_fail := 'quote_mismatch';
       raise exception 'reserve_order rolled back' using errcode = 'RS001';
     end if;
 
@@ -416,9 +426,12 @@ declare
   v_holder_id uuid;
   v_authorized boolean;
   v_request_expires_at timestamptz;
+  v_buyer uuid;
+  v_auth_email text;
+  v_self_member boolean;
 begin
-  select s.id, s.status::text, s.auth_code, s.bureau_id, s.holder_id, s.request_expires_at
-    into v_id, v_status, v_auth_code, v_bureau_id, v_holder_id, v_request_expires_at
+  select s.id, s.status::text, s.auth_code, s.bureau_id, s.holder_id, s.request_expires_at, s.client_profile_id, s.email
+    into v_id, v_status, v_auth_code, v_bureau_id, v_holder_id, v_request_expires_at, v_buyer, v_auth_email
     from public.scr_authorizations s
    where s.public_token = case when p_token ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then p_token::uuid end
      and s.channel = p_channel
@@ -455,13 +468,23 @@ begin
          auth_code = null
    where id = v_id;
 
-  insert into public.timeline_events (bureau_id, entity_type, entity_id, event_type, title)
+  -- A consulta sai de "Aguardando SCR" na hora, sem esperar o tick. A recusa não muda nada aqui.
+  if v_authorized then
+    update public.consultations set status = 'processing'
+     where scr_authorization_id = v_id and status = 'pending_authorization';
+  end if;
+
+  -- self_member: o membro é o próprio comprador (o e-mail da autorização é o da conta dele). Sem documento na trilha.
+  v_self_member := v_buyer is not null and exists (
+    select 1 from public.profiles p where p.id = v_buyer and lower(p.email) = lower(v_auth_email));
+  insert into public.timeline_events (bureau_id, entity_type, entity_id, event_type, title, metadata)
   values (
     v_bureau_id,
     'holder',
     v_holder_id,
     case when v_authorized then 'scr.self_authorized' else 'scr.self_refused' end,
-    case when v_authorized then 'Autorização SCR concedida pelo titular' else 'Autorização SCR recusada pelo titular' end
+    case when v_authorized then 'Autorização SCR concedida pelo titular' else 'Autorização SCR recusada pelo titular' end,
+    jsonb_build_object('self_member', v_self_member)
   );
 
   return case when v_authorized then 'authorized' else 'refused' end;
@@ -562,7 +585,6 @@ $$;
 -- nunca lê holders.email (D14). Documento, nome e contato não entram na auditoria.
 create or replace function open_order(
   p_product_code text,
-  p_with_ai boolean,
   p_self boolean,
   p_subject_type text,
   p_subject_name text,
@@ -582,12 +604,13 @@ declare
   -- Mesma forma de isValidEmail (src/lib/utils.ts): sem , ; ( ) < > " para o endereço não virar lista no nodemailer.
   c_email_re constant text := '^[^\s@,;()<>"]+@[^\s@,;()<>"]+\.[^\s@,;()<>"]+$';
   c_max_recent_requests constant integer := 3;
+  -- Teto de pedidos online do mesmo cliente em 24 h: o teto por destinatário não segura quem abre, deixa o convite sair e cancela.
+  c_max_online_orders_per_day constant integer := 5;
   v_bureau uuid := public.app_bureau_id();
   v_user uuid := public.app_user_id();
   v_role text := public.app_user_role();
   v_mode text;
   v_self boolean := coalesce(p_self, false);
-  v_with_ai boolean := coalesce(p_with_ai, false);
   v_partners jsonb := coalesce(nullif(p_partners, 'null'::jsonb), '[]'::jsonb);
   v_digits text := regexp_replace(coalesce(p_subject_document, ''), '\D', '', 'g');
   v_name text := btrim(coalesce(p_subject_name, ''));
@@ -597,11 +620,12 @@ declare
   v_buyer_p record;
   v_own record;
   v_main record;
-  v_ai_ok boolean;
   v_kind_bad boolean;
   v_type text;
+  v_acct_type text;
+  v_self_member boolean := false;
+  v_buyer_as_company_contact boolean := false;
   v_deps_pf text;
-  v_deps_pj text;
   v_holder uuid;
   v_dossier uuid;
   v_members jsonb;
@@ -618,6 +642,7 @@ declare
   v_mtype text;
   v_memail text;
   v_recent integer;
+  v_orders_today integer;
   v_pdigits text;
   v_pname text;
   v_pemail text;
@@ -640,7 +665,8 @@ begin
     return;
   end if;
 
-  -- 2) Entrada. Cliente: só consulta_pf/consulta_pj, sem sócios e sem comprador. Equipe: sem pesquisa própria.
+  -- 2) Entrada. Sócios só no Dossiê Empresarial, no balcão e no online. Cliente: sem comprador. Equipe: sem pesquisa
+  -- própria.
   if p_product_code is null or jsonb_typeof(v_partners) <> 'array'
      or (v_email is not null and (length(v_email) > 254 or v_email !~ c_email_re))
      or (v_phone is not null and v_phone !~ '^\+[1-9][0-9]{7,14}$') then
@@ -648,18 +674,22 @@ begin
     return;
   end if;
   if v_mode = 'online' then
-    if p_product_code not in ('consulta_pf', 'consulta_pj') or jsonb_array_length(v_partners) > 0
-       or p_buyer_profile_id is not null then
+    if p_product_code not in ('dossie_pf', 'dossie_empresarial') or p_buyer_profile_id is not null then
       return query select false, 'invalid_input'::text, null::uuid, null::text;
       return;
     end if;
     v_buyer := v_user;
   else
-    if v_self or (jsonb_array_length(v_partners) > 0 and p_product_code <> 'dossie_pj_completo') then
+    if v_self then
       return query select false, 'invalid_input'::text, null::uuid, null::text;
       return;
     end if;
     v_buyer := p_buyer_profile_id;
+  end if;
+
+  if jsonb_array_length(v_partners) > 0 and p_product_code <> 'dossie_empresarial' then
+    return query select false, 'invalid_input'::text, null::uuid, null::text;
+    return;
   end if;
 
   if v_buyer is not null then
@@ -668,6 +698,17 @@ begin
      where p.id = v_buyer and p.role = 'client' and p.is_active and p.bureau_id = v_bureau;
     if not found then
       return query select false, 'buyer_not_found'::text, null::uuid, null::text;
+      return;
+    end if;
+  end if;
+
+  if v_mode = 'online' then
+    -- Sem o lock, pedidos paralelos do mesmo cliente passam todos pela contagem (cada um só vê o que já foi confirmado).
+    perform pg_advisory_xact_lock(hashtextextended('online_order_cap:' || v_user::text, 0));
+    select count(*) into v_orders_today from public.dossier_orders o
+     where o.client_profile_id = v_user and o.mode = 'online' and o.created_at > now() - interval '24 hours';
+    if v_orders_today >= c_max_online_orders_per_day then
+      return query select false, 'too_many_orders'::text, null::uuid, null::text;
       return;
     end if;
   end if;
@@ -691,6 +732,17 @@ begin
       v_self := found;
     end if;
   end if;
+  -- Dossiê Pessoa Física no portal é do próprio cliente. Só a conta de Titular PJ pesquisa outra pessoa (o responsável).
+  if v_mode = 'online' and p_product_code = 'dossie_pf' and not v_self then
+    select h.type::text into v_acct_type
+      from public.holders h
+     where h.bureau_id = v_bureau and h.client_profile_id = v_user
+     order by h.created_at, h.id limit 1;
+    if v_acct_type is distinct from 'PJ' then
+      return query select false, 'third_party_not_allowed'::text, null::uuid, null::text;
+      return;
+    end if;
+  end if;
   if v_self then
     v_digits := v_own.document_digits;
     v_name := left(btrim(v_own.name), 200);
@@ -700,35 +752,22 @@ begin
     return;
   end if;
 
-  -- 3) Produto à venda no Bureau (produto ativo, item ativo, preço >= custo efetivo) e adicional compatível.
+  -- 3) Produto à venda no Bureau: produto ativo, item ativo, preço e preço por sócio >= custo efetivo.
   select p.id, i.sale_price, t.product_version_id, v.deps_product into v_main
     from public.products p
     join public.bureau_catalog_items i on i.bureau_id = v_bureau and i.product_id = p.id and i.active
     cross join lateral public.resolve_product_terms(v_bureau, p.id) t
     join public.product_versions v on v.id = t.product_version_id
-   where p.code = p_product_code and p.active and p.kind = 'main'
-     and t.effective_cost is not null and i.sale_price >= t.effective_cost;
+   where p.code = p_product_code and p.active
+     and t.effective_cost is not null and i.sale_price >= t.effective_cost
+     and i.sale_price_per_partner >= t.effective_cost_per_partner;
   if not found or v_main.deps_product is null then
     return query select false, 'product_not_for_sale'::text, null::uuid, null::text;
     return;
   end if;
-  if v_with_ai then
-    select exists (
-      select 1
-        from public.products p
-        join public.bureau_catalog_items i on i.bureau_id = v_bureau and i.product_id = p.id and i.active
-        cross join lateral public.resolve_product_terms(v_bureau, p.id) t
-       where p.code = 'parecer_ia' and p.active and p.kind = 'addon' and p.addon_for @> array[p_product_code]
-         and t.effective_cost is not null and i.sale_price >= t.effective_cost
-    ) into v_ai_ok;
-    if not v_ai_ok then
-      return query select false, 'addon_not_for_sale'::text, null::uuid, null::text;
-      return;
-    end if;
-  end if;
 
-  -- 4) Tipo: consulta_pf é de Titular PF (11 dígitos); os outros produtos, de Titular PJ (14 dígitos).
-  v_type := case when p_product_code = 'consulta_pf' then 'PF' else 'PJ' end;
+  -- 4) Tipo: dossie_pf é de Titular PF (11 dígitos); dossie_empresarial, de Titular PJ (14 dígitos).
+  v_type := case when p_product_code = 'dossie_pf' then 'PF' else 'PJ' end;
   -- v_own só existe na pesquisa própria (online): o plpgsql não garante curto-circuito, então o ramo é um if.
   if v_self then
     v_kind_bad := v_own.type <> v_type;
@@ -753,28 +792,33 @@ begin
     end if;
     -- v_buyer_p só existe com comprador: o plpgsql não garante curto-circuito, então o ramo é um if.
     if v_buyer is not null then
-      if v_email = lower(v_buyer_p.email) or (v_phone is not null and v_phone = v_buyer_p.phone_e164) then
+      -- Exceção (decisão do dono, risco aceito): no Dossiê Empresarial online, o e-mail do comprador também vale para o
+      -- responsável da empresa quando o documento do Titular da conta dele está entre os sócios. O celular nunca vale.
+      v_buyer_as_company_contact := v_mode = 'online' and p_product_code = 'dossie_empresarial'
+        and v_email = lower(v_buyer_p.email)
+        and exists (
+          select 1 from jsonb_array_elements(v_partners) e
+            join public.holders h on h.bureau_id = v_bureau and h.client_profile_id = v_user
+                                 and h.document_digits = regexp_replace(coalesce(e ->> 'document', ''), '\D', '', 'g'));
+      if (v_email = lower(v_buyer_p.email) and not v_buyer_as_company_contact)
+         or (v_phone is not null and v_phone = v_buyer_p.phone_e164) then
         return query select false, 'contact_is_buyer'::text, null::uuid, null::text;
         return;
       end if;
     end if;
   end if;
 
-  -- Sócios (PJ completo, só equipe): validados antes de qualquer escrita. Sócio repetido conta uma vez.
+  -- Sócios (Dossiê Empresarial): validados antes de qualquer escrita. Sócio repetido conta uma vez.
   v_members := jsonb_build_array(jsonb_build_object('digits', v_digits, 'name', v_name, 'type', v_type,
     'email', v_email, 'phone', v_phone, 'deps', v_main.deps_product));
   if jsonb_array_length(v_partners) > 0 then
+    -- O sócio usa o produto DEPS do Dossiê Pessoa Física (Smart PF 002), mesmo que ele não esteja à venda.
     select v.deps_product into v_deps_pf
       from public.products p
       cross join lateral public.resolve_product_terms(v_bureau, p.id) t
       join public.product_versions v on v.id = t.product_version_id
-     where p.code = 'consulta_pf';
-    select v.deps_product into v_deps_pj
-      from public.products p
-      cross join lateral public.resolve_product_terms(v_bureau, p.id) t
-      join public.product_versions v on v.id = t.product_version_id
-     where p.code = 'consulta_pj';
-    if v_deps_pf is null or v_deps_pj is null then
+     where p.code = 'dossie_pf';
+    if v_deps_pf is null then
       return query select false, 'product_not_for_sale'::text, null::uuid, null::text;
       return;
     end if;
@@ -786,7 +830,7 @@ begin
       v_prole := nullif(btrim(coalesce(v_partner ->> 'role', '')), '');
       v_ppct := null;
       -- D9: um consentimento por membro. O sócio precisa do próprio e-mail; o contato da empresa nunca vale por ele.
-      if jsonb_typeof(v_partner) <> 'object' or length(v_pdigits) not in (11, 14) or v_pdigits = v_digits
+      if jsonb_typeof(v_partner) <> 'object' or length(v_pdigits) <> 11 or v_pdigits = v_digits
          or v_pname = '' or length(v_pname) > 200
          or v_pemail is null or length(v_pemail) > 254 or v_pemail !~ c_email_re
          or (v_prole is not null and length(v_prole) > 100)
@@ -801,10 +845,20 @@ begin
           return;
         end if;
       end if;
+      -- D12: no portal o sócio pode ter o e-mail do comprador só se o documento dele for o do Titular da conta do
+      -- comprador. No balcão, nunca.
       if v_buyer is not null then
-        if v_pemail = lower(v_buyer_p.email) then
+        if v_pemail = lower(v_buyer_p.email)
+           and (v_mode = 'counter' or not exists (
+                  select 1 from public.holders h
+                   where h.bureau_id = v_bureau and h.client_profile_id = v_user and h.document_digits = v_pdigits)) then
           return query select false, 'contact_is_buyer'::text, null::uuid, null::text;
           return;
+        end if;
+        if v_mode = 'online' and exists (
+             select 1 from public.holders h
+              where h.bureau_id = v_bureau and h.client_profile_id = v_user and h.document_digits = v_pdigits) then
+          v_self_member := true;
         end if;
       end if;
       if v_pdigits = any (v_seen) then
@@ -812,9 +866,9 @@ begin
       end if;
       v_seen := v_seen || v_pdigits;
       v_members := v_members || jsonb_build_array(jsonb_build_object(
-        'digits', v_pdigits, 'name', v_pname, 'type', case length(v_pdigits) when 11 then 'PF' else 'PJ' end,
+        'digits', v_pdigits, 'name', v_pname, 'type', 'PF',
         'email', v_pemail, 'phone', null,
-        'deps', case length(v_pdigits) when 11 then v_deps_pf else v_deps_pj end,
+        'deps', v_deps_pf,
         'percentage', v_ppct, 'role', v_prole));
     end loop;
   end if;
@@ -840,7 +894,7 @@ begin
     -- 7) Dossiê. O produto DEPS vem da versão vigente do produto principal (D25).
     insert into public.dossiers (bureau_id, kind, holder_id, product, status, created_by)
     values (v_bureau,
-            case p_product_code when 'consulta_pf' then 'PF' when 'consulta_pj' then 'PJ' else 'PJ_FULL' end::public.dossier_kind,
+            case p_product_code when 'dossie_pf' then 'PF' else 'PJ_FULL' end::public.dossier_kind,
             v_holder, v_main.deps_product, 'pending', v_user)
     returning id into v_dossier;
 
@@ -865,9 +919,12 @@ begin
             select h.id into v_h from public.holders h where h.bureau_id = v_bureau and h.document_digits = v_mdigits;
           end if;
         end if;
-        insert into public.holder_partnerships (bureau_id, company_id, partner_id, percentage, role, source, created_by)
-        values (v_bureau, v_holder, v_h, (v_member ->> 'percentage')::numeric, v_member ->> 'role', 'operator', v_user)
-        on conflict (company_id, partner_id) do nothing;
+        -- Só o balcão grava o vínculo: os sócios do pedido online vivem nas consultas do pedido, nunca na empresa.
+        if v_mode = 'counter' then
+          insert into public.holder_partnerships (bureau_id, company_id, partner_id, percentage, role, source, created_by)
+          values (v_bureau, v_holder, v_h, (v_member ->> 'percentage')::numeric, v_member ->> 'role', 'operator', v_user)
+          on conflict (company_id, partner_id) do nothing;
+        end if;
       end if;
 
       -- Autorização utilizável (ou pedido ainda no prazo) do mesmo Bureau, Titular e comprador (D10).
@@ -897,6 +954,11 @@ begin
         -- Teto de pedidos novos por destinatário (e-mail ou celular) em 24 h: ninguém usa o remetente para spam de um destino.
         -- A pesquisa própria vai para o e-mail da conta do comprador e não conta.
         if not (v_self and v_i = 0) then
+          -- Mesmo motivo do teto por cliente: a contagem é por e-mail e por celular, então o lock é por e-mail e por celular.
+          perform pg_advisory_xact_lock(hashtextextended('recipient_cap:' || v_bureau::text || ':' || lower(v_memail), 0));
+          if v_member ->> 'phone' is not null then
+            perform pg_advisory_xact_lock(hashtextextended('recipient_cap:' || v_bureau::text || ':' || (v_member ->> 'phone'), 0));
+          end if;
           select count(*) into v_recent
             from public.scr_authorizations s
            where s.bureau_id = v_bureau and s.status = 'pending' and s.requested_at > now() - interval '24 hours'
@@ -920,9 +982,9 @@ begin
 
     -- 11) Pedido. O balcão ainda não tem liquidação: o TypeScript atualiza o estado depois da reserva.
     insert into public.dossier_orders
-      (dossier_id, bureau_id, mode, client_profile_id, product_code, with_ai, self_research, subject_name,
+      (dossier_id, bureau_id, mode, client_profile_id, product_code, self_research, subject_name,
        subject_document_masked, state, created_by)
-    values (v_dossier, v_bureau, v_mode, v_buyer, p_product_code, v_with_ai, v_self, v_name,
+    values (v_dossier, v_bureau, v_mode, v_buyer, p_product_code, v_self, v_name,
             public.order_mask_document(v_digits),
             case v_mode when 'online' then 'awaiting_authorization' else 'awaiting_payment' end, v_user);
     if v_mode = 'online' then
@@ -936,8 +998,10 @@ begin
             jsonb_build_object('dossier_id', v_dossier, 'mode', v_mode, 'product_code', p_product_code), v_user);
     insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
     values (v_bureau, v_user, 'order.open', 'dossier_orders', v_dossier,
-            jsonb_build_object('mode', v_mode, 'product_code', p_product_code, 'with_ai', v_with_ai,
-                               'members', jsonb_array_length(v_members)));
+            jsonb_build_object('mode', v_mode, 'product_code', p_product_code,
+                               'members', jsonb_array_length(v_members), 'self_member', v_self or v_self_member)
+                            || case when v_buyer_as_company_contact then jsonb_build_object('buyer_as_company_contact', true)
+                                    else '{}'::jsonb end);
   exception when sqlstate 'OR001' then
     return query select false, v_fail, null::uuid, null::text;
     return;
@@ -982,7 +1046,7 @@ alter function order_mask_document(text) owner to schema_owner;
 alter function refresh_order_state(uuid) owner to schema_owner;
 alter function protect_system_profile() owner to schema_owner;
 alter function create_bureau_system_profile() owner to auth_profile_lookup;
-alter function open_order(text, boolean, boolean, text, text, text, jsonb, text, text, uuid) owner to auth_profile_lookup;
+alter function open_order(text, boolean, text, text, text, jsonb, text, text, uuid) owner to auth_profile_lookup;
 alter function due_order_bureaus() owner to auth_profile_lookup;
 
 revoke all on function dossier_orders_guard() from public;
@@ -990,11 +1054,11 @@ revoke all on function order_mask_document(text) from public;
 revoke all on function refresh_order_state(uuid) from public;
 revoke all on function protect_system_profile() from public;
 revoke all on function create_bureau_system_profile() from public;
-revoke all on function open_order(text, boolean, boolean, text, text, text, jsonb, text, text, uuid) from public;
+revoke all on function open_order(text, boolean, text, text, text, jsonb, text, text, uuid) from public;
 revoke all on function due_order_bureaus() from public;
 grant execute on function order_mask_document(text) to auth_profile_lookup;
 grant execute on function refresh_order_state(uuid) to app_runtime, auth_profile_lookup;
-grant execute on function open_order(text, boolean, boolean, text, text, text, jsonb, text, text, uuid) to app_runtime;
+grant execute on function open_order(text, boolean, text, text, text, jsonb, text, text, uuid) to app_runtime;
 grant execute on function due_order_bureaus() to app_runtime;
 
 alter table dossier_orders enable row level security;
@@ -1048,15 +1112,15 @@ grant select (type, name, created_at) on public.holders to auth_profile_lookup;
 grant select (company_id, partner_id), insert (bureau_id, company_id, partner_id, percentage, role, source, created_by)
   on public.holder_partnerships to auth_profile_lookup;
 grant insert (bureau_id, kind, holder_id, product, status, created_by) on public.dossiers to auth_profile_lookup;
-grant select (dossier_id, scr_authorization_id),
+grant select (dossier_id, scr_authorization_id, status),
   insert (bureau_id, type, document, document_name, product, holder_id, dossier_id, created_by, status,
           requires_auth, scr_mode, scr_email),
-  update (scr_authorization_id) on public.consultations to auth_profile_lookup;
+  update (scr_authorization_id, status) on public.consultations to auth_profile_lookup;
 grant select (email, phone_e164, client_profile_id, request_expires_at, requested_at),
   insert (bureau_id, document, type, name, email, phone_e164, holder_id, client_profile_id, consultation_id,
           requested_by, channel, request_expires_at) on public.scr_authorizations to auth_profile_lookup;
 grant select (deps_product) on public.product_versions to auth_profile_lookup;
-grant select, insert (dossier_id, bureau_id, mode, client_profile_id, product_code, with_ai, self_research,
+grant select, insert (dossier_id, bureau_id, mode, client_profile_id, product_code, self_research,
     subject_name, subject_document_masked, state, created_by),
   update (state, updated_at) on public.dossier_orders to auth_profile_lookup;
 grant insert (metadata, created_by) on public.timeline_events to auth_profile_lookup;
@@ -1084,6 +1148,13 @@ drop policy if exists consultations_gateway_order_update on consultations;
 create policy consultations_gateway_order_update on consultations for update to auth_profile_lookup
   using (bureau_id = app_bureau_id() and status = 'pending_authorization')
   with check (bureau_id = app_bureau_id() and status = 'pending_authorization');
+-- confirm_public_scr_authorization roda sem contexto de Bureau (rota pública): só tira a consulta de 'pending_authorization'
+-- para 'processing', e só quando a autorização ligada a ela já está 'authorized'.
+drop policy if exists consultations_gateway_scr_confirm on consultations;
+create policy consultations_gateway_scr_confirm on consultations for update to auth_profile_lookup
+  using (status = 'pending_authorization'
+         and exists (select 1 from scr_authorizations s where s.id = consultations.scr_authorization_id and s.status = 'authorized'))
+  with check (status = 'processing');
 drop policy if exists scr_authorizations_gateway_order_insert on scr_authorizations;
 create policy scr_authorizations_gateway_order_insert on scr_authorizations for insert to auth_profile_lookup
   with check (channel = 'internal' and bureau_id = app_bureau_id() and requested_by = app_user_id()

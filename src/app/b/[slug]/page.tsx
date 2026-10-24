@@ -32,7 +32,11 @@ export default async function PublicBureauPage({
             {catalog.map((item) => (
               <li key={item.code} className="flex justify-between gap-4 px-4 py-3">
                 <span>{item.name}</span>
-                <span className="font-medium">{formatCurrency(Number(item.salePrice))}</span>
+                <span className="text-right font-medium">
+                  {Number(item.salePricePerPartner) > 0
+                    ? `a partir de ${formatCurrency(Number(item.salePrice))} + ${formatCurrency(Number(item.salePricePerPartner))} por sócio`
+                    : formatCurrency(Number(item.salePrice))}
+                </span>
               </li>
             ))}
           </ul>

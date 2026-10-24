@@ -55,6 +55,7 @@ const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
 	await seedOrderDossierForSession(owner, c, { orderRef: input.orderRef, clientProfileId: input.clientProfileId });
 	const { lines } = await seedOrderCatalog(owner, c, {
+		productCode: "dossie_pf",
 		price: fromCents(input.quote.totalPriceCents),
 		cost: fromCents(input.quote.totalCostCents),
 	});
@@ -70,7 +71,16 @@ function quoteOf(priceCents: number, costCents: number): OrderQuote {
 	return {
 		ok: true,
 		lines: [
-			{ productVersionId: randomUUID(), code: "smart_pf", costCents, priceCents },
+			{
+				productVersionId: randomUUID(),
+				code: "smart_pf",
+				part: "base" as const,
+				quantity: 1,
+				unitPriceCents: priceCents,
+				unitCostCents: costCents,
+				costCents,
+				priceCents,
+			},
 		],
 		totalCostCents: costCents,
 		totalPriceCents: priceCents,

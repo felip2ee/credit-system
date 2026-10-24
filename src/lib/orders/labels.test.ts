@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { orderStepLines } from "./labels";
+import { ORDER_REASON_LABEL, orderStepLines } from "./labels";
 
 const REFUNDED = "A reserva foi devolvida ao seu saldo.";
+
+describe("ORDER_REASON_LABEL", () => {
+	it("names who cancelled in words that fit staff and client alike", () => {
+		expect(ORDER_REASON_LABEL.cancelled_by_client).toBe("Cancelada pelo cliente");
+		expect(ORDER_REASON_LABEL.cancelled_by_staff).toBe("Cancelada pela equipe");
+	});
+});
 
 describe("orderStepLines", () => {
 	it("tells the client to confirm the SCR e-mail on an own order awaiting authorization", () => {

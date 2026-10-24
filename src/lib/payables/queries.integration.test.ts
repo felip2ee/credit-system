@@ -60,6 +60,7 @@ afterAll(async () => {
 const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
 	await seedOrderDossierForSession(owner, c, { orderRef: input.orderRef, clientProfileId: input.clientProfileId });
 	const { lines } = await seedOrderCatalog(owner, c, {
+		productCode: "dossie_pf",
 		price: fromCents(input.quote.totalPriceCents),
 		cost: fromCents(input.quote.totalCostCents),
 	});
@@ -69,7 +70,16 @@ const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
 
 const quoteOf = (priceCents: number, costCents: number): OrderQuote => ({
 	ok: true,
-	lines: [{ productVersionId: randomUUID(), code: "smart_pf", costCents, priceCents }],
+	lines: [{
+				productVersionId: randomUUID(),
+				code: "smart_pf",
+				part: "base" as const,
+				quantity: 1,
+				unitPriceCents: priceCents,
+				unitCostCents: costCents,
+				costCents,
+				priceCents,
+			}],
 	totalCostCents: costCents,
 	totalPriceCents: priceCents,
 });

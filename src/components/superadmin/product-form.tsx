@@ -7,40 +7,38 @@ import { createProduct, updateProduct } from "@/actions/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
+import { nonNegativeMoneyError, normalizeMoney } from "@/lib/catalog/money-input";
 
-const SELECT_CLASS =
-  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm";
+const PARTNER_CODE = "dossie_empresarial";
 
-export function ProductForm({ mainProducts }: { mainProducts: { code: string; name: string }[] }) {
+export function ProductForm() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [kind, setKind] = useState<"main" | "addon">("main");
-  const [addonFor, setAddonFor] = useState<string[]>([]);
   const [depsProduct, setDepsProduct] = useState("");
   const [baseCost, setBaseCost] = useState("");
+  const [baseCostPerPartner, setBaseCostPerPartner] = useState("");
   const [costError, setCostError] = useState<string | null>(null);
-
-  const toggle = (c: string) =>
-    setAddonFor((cur) => (cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c]));
+  const [partnerCostError, setPartnerCostError] = useState<string | null>(null);
+  const hasPartner = code === PARTNER_CODE;
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const invalid = moneyError(baseCost);
+    const invalid = nonNegativeMoneyError(baseCost);
+    const partnerInvalid = hasPartner ? nonNegativeMoneyError(baseCostPerPartner) : null;
     setCostError(invalid);
-    if (invalid) return;
+    setPartnerCostError(partnerInvalid);
+    if (invalid || partnerInvalid) return;
     setError(null);
     startTransition(async () => {
       const result = await createProduct({
         code,
         name,
-        kind,
-        addonFor: kind === "addon" ? addonFor : [],
         depsProduct,
         baseCost: normalizeMoney(baseCost),
+        baseCostPerPartner: hasPartner ? normalizeMoney(baseCostPerPartner) : "0.00",
       });
       if (result.error) {
         setError(result.error);
@@ -64,39 +62,12 @@ export function ProductForm({ mainProducts }: { mainProducts: { code: string; na
         <Input id="product-name" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="product-kind">Tipo</Label>
-        <select
-          id="product-kind"
-          className={SELECT_CLASS}
-          value={kind}
-          onChange={(e) => setKind(e.target.value as "main" | "addon")}
-        >
-          <option value="main">Principal</option>
-          <option value="addon">Adicional</option>
-        </select>
-      </div>
-      {kind === "addon" && (
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Compatível com</legend>
-          {mainProducts.map((p) => (
-            <label key={p.code} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={addonFor.includes(p.code)}
-                onChange={() => toggle(p.code)}
-              />
-              {p.name}
-            </label>
-          ))}
-        </fieldset>
-      )}
-      <div className="space-y-2">
         <Label htmlFor="product-deps">Nome DEPS</Label>
         <Input id="product-deps" value={depsProduct} onChange={(e) => setDepsProduct(e.target.value)} />
         <p className="text-xs text-muted-foreground">Deixe em branco se o produto não consulta o DEPS.</p>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="product-cost">Custo padrão (R$)</Label>
+        <Label htmlFor="product-cost">{hasPartner ? "Custo padrão da empresa (R$)" : "Custo padrão (R$)"}</Label>
         <Input
           id="product-cost"
           inputMode="decimal"
@@ -106,6 +77,19 @@ export function ProductForm({ mainProducts }: { mainProducts: { code: string; na
         />
         {costError && <p className="text-sm text-destructive">{costError}</p>}
       </div>
+      {hasPartner && (
+        <div className="space-y-2">
+          <Label htmlFor="product-cost-partner">Custo padrão por sócio (R$)</Label>
+          <Input
+            id="product-cost-partner"
+            inputMode="decimal"
+            placeholder="0,00"
+            value={baseCostPerPartner}
+            onChange={(e) => setBaseCostPerPartner(e.target.value)}
+          />
+          {partnerCostError && <p className="text-sm text-destructive">{partnerCostError}</p>}
+        </div>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button type="submit" disabled={isPending} className="w-fit">
         {isPending ? "Criando..." : "Criar produto"}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clientOrderSchema, counterOrderSchema, orderIdSchema, revokeSchema } from "./order";
+import { MAX_PARTNERS, clientOrderSchema, counterOrderSchema, orderIdSchema, revokeSchema } from "./order";
 
 const CPF = "529.982.247-25";
 const CPF_DIGITS = "52998224725";
@@ -9,8 +9,7 @@ const CNPJ_DIGITS = "11222333000181";
 const UUID = "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10";
 
 const third = (over: Record<string, unknown> = {}) => ({
-	productCode: "consulta_pf",
-	withAi: false,
+	productCode: "dossie_pf",
 	self: false,
 	subject: { name: "Maria Souza", document: CPF },
 	contactEmail: "maria@example.com",
@@ -27,14 +26,22 @@ describe("clientOrderSchema", () => {
 		expect(parsed.data.contactPhone).toBe("(63) 99234-5615");
 	});
 
-	it("refuses a CNPJ for consulta_pf and a CPF for consulta_pj", () => {
+	it("refuses a CNPJ for dossie_pf and a CPF for dossie_empresarial", () => {
 		const pf = clientOrderSchema.safeParse(third({ subject: { name: "Empresa", document: CNPJ } }));
 		expect(pf.success).toBe(false);
 		expect(pf.error?.issues.map((i) => i.message)).toContain("CPF inválido.");
-		const pj = clientOrderSchema.safeParse(third({ productCode: "consulta_pj", subject: { name: "Maria", document: CPF } }));
+		const pj = clientOrderSchema.safeParse(third({ productCode: "dossie_empresarial", subject: { name: "Maria", document: CPF } }));
 		expect(pj.success).toBe(false);
 		expect(pj.error?.issues.map((i) => i.message)).toContain("CNPJ inválido.");
-		expect(clientOrderSchema.safeParse(third({ productCode: "consulta_pj", subject: { name: "Empresa", document: CNPJ } })).success).toBe(true);
+		expect(clientOrderSchema.safeParse(third({ productCode: "dossie_empresarial", subject: { name: "Empresa", document: CNPJ } })).success).toBe(true);
+	});
+
+	it("takes the declaration version the form showed: a positive integer, or none", () => {
+		const parsed = clientOrderSchema.safeParse(third({ declarationVersion: 4 }));
+		expect(parsed.success && parsed.data.declarationVersion).toBe(4);
+		const none = clientOrderSchema.safeParse(third());
+		expect(none.success && none.data.declarationVersion).toBeNull();
+		for (const bad of [0, -1, 1.5, "3"]) expect(clientOrderSchema.safeParse(third({ declarationVersion: bad })).success).toBe(false);
 	});
 
 	it("requires the contact e-mail for a third party", () => {
@@ -43,10 +50,10 @@ describe("clientOrderSchema", () => {
 	});
 
 	it("accepts an own order without subject or contact and drops what the client typed", () => {
-		const parsed = clientOrderSchema.safeParse({ productCode: "consulta_pf", withAi: true, self: true });
+		const parsed = clientOrderSchema.safeParse({ productCode: "dossie_pf", self: true });
 		expect(parsed.success).toBe(true);
 		if (!parsed.success) return;
-		expect(parsed.data).toMatchObject({ self: true, withAi: true, subject: null, contactEmail: null, contactPhone: null });
+		expect(parsed.data).toMatchObject({ self: true, subject: null, contactEmail: null, contactPhone: null, partners: [], declarationAccepted: false });
 	});
 
 	it("self with empty subject strings passes and yields subject null", () => {
@@ -67,36 +74,61 @@ describe("clientOrderSchema", () => {
 		expect(clientOrderSchema.safeParse(third({ subject: { name: "", document: "" } })).success).toBe(false);
 	});
 
-	it("refuses the complete dossier and a phone over 30 characters", () => {
-		expect(clientOrderSchema.safeParse(third({ productCode: "dossie_pj_completo" })).success).toBe(false);
+	it("refuses an unknown product and a phone over 30 characters", () => {
+		expect(clientOrderSchema.safeParse(third({ productCode: "consulta_pf" })).success).toBe(false);
 		expect(clientOrderSchema.safeParse(third({ contactPhone: "9".repeat(31) })).success).toBe(false);
+	});
+});
+
+describe("clientOrderSchema partners", () => {
+	const partner = { document: CPF, name: "Sócio Um", email: "socio@example.test", percentage: 50, role: "Sócio" };
+	const company = (over: Record<string, unknown> = {}) =>
+		third({ productCode: "dossie_empresarial", subject: { name: "Empresa Ltda", document: CNPJ }, ...over });
+
+	it("refuses partners on dossie_pf", () => {
+		const parsed = clientOrderSchema.safeParse(third({ partners: [partner] }));
+		expect(parsed.success).toBe(false);
+		expect(parsed.error?.issues.map((i) => i.message)).toContain("Sócios só no Dossiê Empresarial.");
+	});
+
+	it("accepts up to 20 partners on dossie_empresarial and refuses 21", () => {
+		const many = (n: number) => Array.from({ length: n }, () => ({ ...partner }));
+		const ok = clientOrderSchema.safeParse(company({ partners: many(MAX_PARTNERS) }));
+		expect(ok.success).toBe(true);
+		if (ok.success) expect(ok.data.partners[0]).toEqual({ documentDigits: CPF_DIGITS, name: "Sócio Um", email: "socio@example.test", percentage: 50, role: "Sócio" });
+		expect(clientOrderSchema.safeParse(company({ partners: many(MAX_PARTNERS + 1) })).success).toBe(false);
+	});
+
+	it("refuses a CNPJ as partner and keeps the declaration flag", () => {
+		expect(clientOrderSchema.safeParse(company({ partners: [{ ...partner, document: CNPJ }] })).success).toBe(false);
+		const parsed = clientOrderSchema.safeParse(company({ declarationAccepted: true }));
+		expect(parsed.success && parsed.data.declarationAccepted).toBe(true);
 	});
 });
 
 describe("counterOrderSchema", () => {
 	const base = (over: Record<string, unknown> = {}) => ({
-		productCode: "consulta_pj",
-		withAi: false,
+		productCode: "dossie_empresarial",
 		buyerProfileId: null,
 		subject: { name: "Empresa Ltda", document: CNPJ },
 		...over,
 	});
 
-	it("accepts partners only for the complete dossier", () => {
+	it("accepts partners only for dossie_empresarial", () => {
 		const partner = { document: CPF, name: "Sócio Um", email: "socio@example.test", percentage: 50, role: "Sócio" };
-		const full = counterOrderSchema.safeParse(base({ productCode: "dossie_pj_completo", partners: [partner] }));
+		const full = counterOrderSchema.safeParse(base({ productCode: "dossie_empresarial", partners: [partner] }));
 		expect(full.success).toBe(true);
 		if (full.success) {
 			expect(full.data.partners).toEqual([{ documentDigits: CPF_DIGITS, name: "Sócio Um", email: "socio@example.test", percentage: 50, role: "Sócio" }]);
 			expect(full.data.subject).toEqual({ type: "PJ", name: "Empresa Ltda", documentDigits: CNPJ_DIGITS });
 		}
-		expect(counterOrderSchema.safeParse(base({ partners: [partner] })).success).toBe(false);
+		expect(counterOrderSchema.safeParse(base({ productCode: "dossie_pf", subject: { name: "Maria", document: CPF }, partners: [partner] })).success).toBe(false);
 	});
 
 	it("requires a valid e-mail for each partner", () => {
 		const partner = { document: CPF, name: "Sócio Um" };
 		const refuse = (email: unknown) =>
-			counterOrderSchema.safeParse(base({ productCode: "dossie_pj_completo", partners: [{ ...partner, email }] })).success;
+			counterOrderSchema.safeParse(base({ productCode: "dossie_empresarial", partners: [{ ...partner, email }] })).success;
 		expect(refuse(undefined)).toBe(false);
 		expect(refuse("")).toBe(false);
 		expect(refuse("sem-arroba")).toBe(false);
@@ -105,9 +137,9 @@ describe("counterOrderSchema", () => {
 
 	it("refuses an invalid partner CPF, more than 20 partners and a bad buyer id", () => {
 		const bad = { document: "111.111.111-11", name: "Sócio", email: "socio@example.test" };
-		expect(counterOrderSchema.safeParse(base({ productCode: "dossie_pj_completo", partners: [bad] })).success).toBe(false);
+		expect(counterOrderSchema.safeParse(base({ productCode: "dossie_empresarial", partners: [bad] })).success).toBe(false);
 		const many = Array.from({ length: 21 }, () => ({ document: CPF, name: "Sócio", email: "socio@example.test" }));
-		expect(counterOrderSchema.safeParse(base({ productCode: "dossie_pj_completo", partners: many })).success).toBe(false);
+		expect(counterOrderSchema.safeParse(base({ productCode: "dossie_empresarial", partners: many })).success).toBe(false);
 		expect(counterOrderSchema.safeParse(base({ buyerProfileId: "x" })).success).toBe(false);
 		expect(counterOrderSchema.safeParse(base({ buyerProfileId: UUID })).success).toBe(true);
 	});
@@ -115,7 +147,7 @@ describe("counterOrderSchema", () => {
 	it("needs a subject and checks the document kind by product", () => {
 		expect(counterOrderSchema.safeParse(base({ subject: undefined })).success).toBe(false);
 		expect(counterOrderSchema.safeParse(base({ subject: { name: "Maria", document: CPF } })).success).toBe(false);
-		expect(counterOrderSchema.safeParse(base({ productCode: "consulta_pf", subject: { name: "Maria", document: CPF } })).success).toBe(true);
+		expect(counterOrderSchema.safeParse(base({ productCode: "dossie_pf", subject: { name: "Maria", document: CPF } })).success).toBe(true);
 	});
 });
 

@@ -98,7 +98,7 @@ export async function getCurrentLegalDocuments(): Promise<Record<LegalKind, Lega
 	const { rows } = await pool.query<LegalRow>(
 		`select distinct on (kind) kind, version, title, body_md, published_at
        from legal_documents
-      where published_at <= now()
+      where published_at <= now() and kind in ('terms', 'privacy')
       order by kind, version desc`,
 	);
 	const byKind = new Map(rows.map((row) => [row.kind, row]));
@@ -152,7 +152,8 @@ export async function getClientAccountStatus(client: PoolClient, userId: string)
        not exists (
          select 1
            from (select distinct on (d.kind) d.id from legal_documents d
-                  where d.published_at <= now() order by d.kind, d.version desc) cur
+                  where d.published_at <= now() and d.kind in ('terms', 'privacy')
+                  order by d.kind, d.version desc) cur
           where not exists (select 1 from legal_acceptances a where a.profile_id = p.id and a.document_id = cur.id)
        ) as terms_accepted
   from profiles p

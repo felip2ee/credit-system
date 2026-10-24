@@ -71,7 +71,7 @@ function baseArgs(slug: string, overrides: Partial<RegisterArgs> = {}): Register
 		digits: onlyDigits(randomCpf()),
 		email: `${randomUUID()}@example.test`,
 		phone: newPhone(),
-		termsVersion: 1,
+		termsVersion: 2,
 		privacyVersion: 1,
 		ip: newIp(),
 		userAgent: "vitest-agent/1.0",
@@ -214,7 +214,7 @@ describe("register_client", () => {
 		);
 		expect(acceptances.rows).toEqual([
 			{ kind: "privacy", version: 1, ip: a.ip, user_agent: a.userAgent },
-			{ kind: "terms", version: 1, ip: a.ip, user_agent: a.userAgent },
+			{ kind: "terms", version: 2, ip: a.ip, user_agent: a.userAgent },
 		]);
 		const audit = await owner.query(
 			"select bureau_id, host(ip_address) as ip, user_agent, metadata from audit_logs where user_id = $1 and action = 'client.register'",
@@ -608,14 +608,14 @@ describe("notification channel", () => {
 describe("legal acceptance", () => {
 	it("accept_legal_documents records both acceptances once and audits once", async () => {
 		const client = await seedClientProfile(owner, A.bureau.id);
-		expect(await acceptLegal(client, 1, 1)).toEqual({ ok: true, reason: null });
+		expect(await acceptLegal(client, 2, 1)).toEqual({ ok: true, reason: null });
 		const countAcceptances = () => count("select count(*) as n from legal_acceptances where profile_id = $1", [client.userId]);
 		expect(await countAcceptances()).toBe(2);
 		expect(await auditCount(client.userId, "client.legal_accepted")).toBe(1);
 		const audit = await owner.query<{ metadata: unknown }>("select metadata from audit_logs where user_id = $1 and action = 'client.legal_accepted'", [client.userId]);
-		expect(audit.rows[0].metadata).toEqual({ termsVersion: 1, privacyVersion: 1 });
+		expect(audit.rows[0].metadata).toEqual({ termsVersion: 2, privacyVersion: 1 });
 
-		expect(await acceptLegal(client, 1, 1)).toEqual({ ok: true, reason: null });
+		expect(await acceptLegal(client, 2, 1)).toEqual({ ok: true, reason: null });
 		expect(await countAcceptances()).toBe(2);
 		expect(await auditCount(client.userId, "client.legal_accepted")).toBe(1);
 	});
@@ -623,10 +623,10 @@ describe("legal acceptance", () => {
 	it("acceptance of an outdated version is refused", async () => {
 		const client = await seedClientProfile(owner, A.bureau.id);
 		expect(await acceptLegal(client, 0, 1)).toEqual({ ok: false, reason: "outdated" });
-		expect(await acceptLegal(client, 1, 0)).toEqual({ ok: false, reason: "outdated" });
+		expect(await acceptLegal(client, 2, 0)).toEqual({ ok: false, reason: "outdated" });
 		expect(await count("select count(*) as n from legal_acceptances where profile_id = $1", [client.userId])).toBe(0);
 		const other = await seedClientProfile(owner, A.bureau.id);
-		const asOther = await callAs(other, "select ok, reason from accept_legal_documents($1, 1, 1, null, null)", [client.userId]);
+		const asOther = await callAs(other, "select ok, reason from accept_legal_documents($1, 2, 1, null, null)", [client.userId]);
 		expect(asOther).toEqual({ ok: false, reason: "not_allowed" });
 	});
 
@@ -637,7 +637,8 @@ describe("legal acceptance", () => {
 				`select not exists (
            select 1
              from (select distinct on (d.kind) d.id from legal_documents d
-                    where d.published_at <= now() order by d.kind, d.version desc) cur
+                    where d.published_at <= now() and d.kind in ('terms', 'privacy')
+                    order by d.kind, d.version desc) cur
             where not exists (select 1 from legal_acceptances a where a.profile_id = $1 and a.document_id = cur.id)
          ) as accepted`,
 				[userId],
@@ -649,9 +650,9 @@ describe("legal acceptance", () => {
 		const ownerTx = await owner.connect();
 		try {
 			await ownerTx.query("begin");
-			await ownerTx.query("insert into legal_documents (kind, version, title, body_md) values ('terms', 2, 'Termos v2', 'v2')");
+			await ownerTx.query("insert into legal_documents (kind, version, title, body_md) values ('terms', 3, 'Termos v3', 'v3')");
 			const current = await ownerTx.query<{ v: number }>("select legal_current_version('terms') as v");
-			expect(current.rows[0].v).toBe(2);
+			expect(current.rows[0].v).toBe(3);
 			await ownerTx.query("set local role app_runtime");
 			await ownerTx.query(
 				`select set_config('app.user_id', $1, true), set_config('app.user_role', 'client', true),
@@ -659,9 +660,9 @@ describe("legal acceptance", () => {
 				[r.userId, r.bureauId],
 			);
 			expect(await termsAccepted(ownerTx, r.userId)).toBe(false);
-			const old = await ownerTx.query("select ok, reason from accept_legal_documents($1, 1, 1, null, null)", [r.userId]);
+			const old = await ownerTx.query("select ok, reason from accept_legal_documents($1, 2, 1, null, null)", [r.userId]);
 			expect(old.rows[0]).toEqual({ ok: false, reason: "outdated" });
-			const next = await ownerTx.query("select ok, reason from accept_legal_documents($1, 2, 1, null, null)", [r.userId]);
+			const next = await ownerTx.query("select ok, reason from accept_legal_documents($1, 3, 1, null, null)", [r.userId]);
 			expect(next.rows[0]).toEqual({ ok: true, reason: null });
 			expect(await termsAccepted(ownerTx, r.userId)).toBe(true);
 		} finally {

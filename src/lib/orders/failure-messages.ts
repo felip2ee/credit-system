@@ -3,7 +3,6 @@ export const ORDER_FAILED = "Não foi possível concluir. Tente novamente.";
 
 const SHARED_MESSAGES: Record<string, string> = {
 	product_not_for_sale: "Produto indisponível neste Bureau.",
-	addon_not_for_sale: "Parecer IA indisponível para este produto.",
 	kind_mismatch: "O documento não combina com o produto.",
 	self_holder_missing: "Sua conta não tem Titular. Fale com o Bureau.",
 	contact_is_buyer: "Informe o e-mail e o celular do titular, não os seus.",
@@ -17,6 +16,11 @@ const SHARED_MESSAGES: Record<string, string> = {
 export const CLIENT_ORDER_MESSAGES: Record<string, string> = {
 	...SHARED_MESSAGES,
 	insufficient_balance: "Saldo insuficiente. Compre créditos para continuar.",
+	third_party_not_allowed:
+		"No portal, o Dossiê Pessoa Física é só para você. Envie seu link para a outra pessoa consultar na conta dela.",
+	price_mismatch: "O preço mudou. Revise e confirme de novo.",
+	too_many_orders: "Você atingiu o limite de pedidos de hoje. Tente amanhã.",
+	declaration_outdated: "A declaração mudou. Leia e confirme de novo.",
 };
 
 export const STAFF_ORDER_MESSAGES: Record<string, string> = {

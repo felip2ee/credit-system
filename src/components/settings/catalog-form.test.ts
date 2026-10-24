@@ -11,14 +11,25 @@ import type { CatalogEntry } from "@/lib/catalog/queries";
 const entry: CatalogEntry = {
   productId: "p1",
   productVersionId: "v1",
-  code: "consulta_pf",
-  name: "Consulta PF",
-  kind: "main",
-  addonFor: null,
+  code: "dossie_pf",
+  name: "Dossiê Pessoa Física",
   effectiveCost: "10.00",
-  item: { active: true, salePrice: "5.00" },
+  effectiveCostPerPartner: "0.00",
+  item: { active: true, salePrice: "5.00", salePricePerPartner: "0.00" },
   sellable: false,
   onSale: false,
+};
+
+const empresarial: CatalogEntry = {
+  ...entry,
+  productId: "p2",
+  code: "dossie_empresarial",
+  name: "Dossiê Empresarial Estruturado",
+  effectiveCost: "10.00",
+  effectiveCostPerPartner: "4.00",
+  item: { active: true, salePrice: "20.00", salePricePerPartner: "6.00" },
+  sellable: true,
+  onSale: true,
 };
 
 const render = (canWrite: boolean, entries: CatalogEntry[] = [entry]) =>
@@ -35,28 +46,30 @@ describe("CatalogForm", () => {
     expect(html.match(/disabled=""/g)?.length).toBe(2); // price input + switch
   });
 
-  it("shows 'Custo não definido' when the cost is 0.00", () => {
+  it("does not warn when the cost is 0.00 (zero cost is valid)", () => {
     const html = render(true, [{ ...entry, effectiveCost: "0.00" }]);
-    expect(html).toContain("Custo não definido");
-    expect(html).not.toContain("Preço abaixo do custo");
+    expect(html).not.toContain("abaixo do custo");
   });
 
-  it("locks only the off-to-on switch of a blocked addon", () => {
-    const addon: CatalogEntry = {
-      ...entry,
-      productId: "p2",
-      code: "parecer_ia",
-      name: "Parecer IA",
-      kind: "addon",
-      addonFor: ["consulta_pf"],
-      effectiveCost: "1.00",
-    };
-    const switchTag = (active: boolean) =>
-      render(true, [{ ...addon, item: { active, salePrice: "5.00" } }]).match(
-        /<input[^>]*aria-label="Ativar Parecer IA"[^>]*>/,
-      )?.[0];
+  it("Dossiê Pessoa Física shows only 'Valor', not 'Valor por sócio'", () => {
+    const html = render(true);
+    expect(html).not.toContain("Valor por sócio");
+    expect(html).not.toContain("Valor da empresa");
+    expect(html).toContain("Valor");
+  });
 
-    expect(switchTag(false)).toContain('disabled=""');
-    expect(switchTag(true)).not.toContain('disabled=""');
+  it("Dossiê Empresarial shows company and per-partner values", () => {
+    const html = render(true, [empresarial]);
+    expect(html).toContain("Valor da empresa");
+    expect(html).toContain("Valor por sócio");
+    expect(html).not.toContain("abaixo do custo");
+  });
+
+  it("per-partner price below partner cost warns on the per-partner field only", () => {
+    const html = render(true, [
+      { ...empresarial, item: { active: true, salePrice: "20.00", salePricePerPartner: "1.00" } },
+    ]);
+    expect(html).toContain("Valor por sócio abaixo do custo");
+    expect(html).not.toContain("Preço abaixo do custo");
   });
 });

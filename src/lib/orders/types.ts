@@ -14,26 +14,27 @@ export type OrderStateReason =
 	| "scr_expired"
 	| "payment_timeout"
 	| "cancelled_by_staff"
+	| "cancelled_by_client"
 	| "deps_no_data"
 	| "deps_incompatible"
 	| "deps_unavailable"
 	| "reservation_clawed_back";
-export type AiStatus = "none" | "pending" | "done" | "failed";
-export type OrderProductCode = "consulta_pf" | "consulta_pj" | "dossie_pj_completo";
+export type AiStatus = "pending" | "done" | "failed";
+export type OrderProductCode = "dossie_pf" | "dossie_empresarial";
 export type OrderKind = "PF" | "PJ" | "PJ_FULL";
 export type OpenOrderFailure =
 	| "not_allowed"
 	| "invalid_input"
 	| "product_not_for_sale"
-	| "addon_not_for_sale"
 	| "kind_mismatch"
+	| "third_party_not_allowed"
 	| "self_holder_missing"
 	| "contact_is_buyer"
 	| "buyer_not_found"
-	| "too_many_requests";
+	| "too_many_requests"
+	| "too_many_orders";
 export type OpenOrderInput = {
 	productCode: OrderProductCode;
-	withAi: boolean;
 	self: boolean;
 	subject: { type: "PF" | "PJ"; name: string; documentDigits: string } | null;
 	partners: {

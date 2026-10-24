@@ -16,8 +16,9 @@ export const E2E = {
     phone: "+5511999990001",
   },
   disabled: { email: "e2e-disabled@example.test", password: "e2e-disabled-password-123" },
-  product: "consulta_pf",
+  product: "dossie_empresarial",
   salePrice: "20.00",
+  salePricePerPartner: "5.00",
 } as const;
 
 // A tick sweeps every Bureau with due work, so one pass can take several seconds on a shared database.
@@ -56,29 +57,30 @@ export async function orderState(dossierId: string): Promise<string | undefined>
   return rows[0]?.state;
 }
 
-// Ticks until the SCR request is issued, then answers it on the public page like the holder would.
+// Ticks until every member of the order (company, subject and partners) has its SCR request issued,
+// then answers each one on the public page like its holder would.
 export async function authorizeScr(page: Page, request: APIRequestContext, dossierId: string): Promise<void> {
-  const scrOf = async () =>
-    (
-      await dbQuery<{ auth_code: string | null; public_token: string | null }>(
-        `select s.auth_code, s.public_token from scr_authorizations s
-           join consultations c on c.scr_authorization_id = s.id
-          where c.dossier_id = $1`,
-        [dossierId],
-      )
-    )[0];
+  const scrsOf = () =>
+    dbQuery<{ auth_code: string | null; public_token: string | null }>(
+      `select s.auth_code, s.public_token from consultations c
+         left join scr_authorizations s on s.id = c.scr_authorization_id
+        where c.dossier_id = $1`,
+      [dossierId],
+    );
   await expect
     .poll(async () => {
       await runTick(request);
-      return (await scrOf())?.auth_code ?? null;
-    }, { message: "tick issues the SCR request", timeout: TICK_POLL_TIMEOUT_MS, intervals: [1_000] })
-    .not.toBeNull();
-  const scr = await scrOf();
-  await page.goto(`/autorizacao-scr/${scr?.public_token}`);
-  await page.getByLabel("Código de confirmação").fill(scr?.auth_code ?? "");
-  await page.getByRole("button", { name: "Autorizar" }).click();
-  // The action revalidates the page, so the form may be replaced by the "already granted" notice.
-  await expect(page.getByText(/Autorização concedida com sucesso|Esta autorização já foi concedida/)).toBeVisible();
+      const scrs = await scrsOf();
+      return scrs.length > 0 && scrs.every((s) => s.auth_code !== null);
+    }, { message: "tick issues the SCR requests", timeout: TICK_POLL_TIMEOUT_MS, intervals: [1_000] })
+    .toBe(true);
+  for (const scr of await scrsOf()) {
+    await page.goto(`/autorizacao-scr/${scr.public_token}`);
+    await page.getByLabel("Código de confirmação").fill(scr.auth_code ?? "");
+    await page.getByRole("button", { name: "Autorizar" }).click();
+    // The action revalidates the page, so the form may be replaced by the "already granted" notice.
+    await expect(page.getByText(/Autorização concedida com sucesso|Esta autorização já foi concedida/)).toBeVisible();
+  }
 }
 
 // better-auth limits sign-ins per IP (3 per 10 s) and every e2e request comes from 127.0.0.1.
@@ -96,4 +98,18 @@ export function validCpf(): string {
   digits.push(check(digits));
   digits.push(check(digits));
   return digits.join("").replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+}
+
+// Valid CNPJ (check digits included) for the company forms.
+export function validCnpj(): string {
+  const digits = [...Array.from({ length: 8 }, () => Math.floor(Math.random() * 10)), 0, 0, 0, 1];
+  const check = (base: number[]) => {
+    const weights = base.length === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    const sum = base.reduce((acc, d, i) => acc + d * weights[i], 0);
+    const rest = sum % 11;
+    return rest < 2 ? 0 : 11 - rest;
+  };
+  digits.push(check(digits));
+  digits.push(check(digits));
+  return digits.join("").replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3.$4-$5");
 }

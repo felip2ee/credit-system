@@ -5,7 +5,7 @@ import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 import { percentageSchema } from "./holder";
 import { uuidSchema } from "./id";
 
-const MAX_PARTNERS = 20;
+export const MAX_PARTNERS = 20;
 const MAX_REASON = 500;
 
 const nameSchema = z.string().trim().min(2, "Informe o nome.").max(120, "Nome com no máximo 120 caracteres.");
@@ -25,7 +25,7 @@ const optionalEmail = z.preprocess(blank, emailSchema.nullish()).transform((v) =
 const optionalPhone = z.preprocess(blank, phoneSchema.nullish()).transform((v) => v ?? null);
 
 type Subject = z.infer<typeof subjectSchema>;
-const documentKind = (productCode: string): "PF" | "PJ" => (productCode === "consulta_pf" ? "PF" : "PJ");
+const documentKind = (productCode: string): "PF" | "PJ" => (productCode === "dossie_pf" ? "PF" : "PJ");
 
 function checkSubject(subject: Subject, productCode: string, ctx: z.RefinementCtx, path: (string | number)[]) {
 	const valid = documentKind(productCode) === "PF" ? isValidCPF(subject.document) : isValidCNPJ(subject.document);
@@ -44,48 +44,6 @@ const toSubject = (subject: Subject, productCode: string) => ({
 	documentDigits: onlyDigits(subject.document),
 });
 
-// Pedido do cliente (portal). Própria: nome, documento e contato vêm da conta; o que o cliente digitou é descartado.
-const clearThirdParty = (v: unknown) =>
-	v && typeof v === "object" && (v as { self?: unknown }).self === true
-		? { ...v, subject: null, contactEmail: null, contactPhone: null }
-		: v;
-
-export const clientOrderSchema = z
-	.preprocess(
-		clearThirdParty,
-		z.object({
-		productCode: z.enum(["consulta_pf", "consulta_pj"], { errorMap: () => ({ message: "Produto inválido." }) }),
-		withAi: z.boolean(),
-		self: z.boolean(),
-		subject: subjectSchema.nullish(),
-		contactEmail: optionalEmail,
-		contactPhone: optionalPhone,
-		}),
-	)
-	.superRefine((v, ctx) => {
-		if (v.self) return;
-		if (!v.subject) {
-			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["subject"], message: "Informe quem será pesquisado." });
-		} else {
-			checkSubject(v.subject, v.productCode, ctx, ["subject"]);
-		}
-		if (v.contactEmail === null) {
-			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contactEmail"], message: "Informe o e-mail do titular." });
-		}
-	})
-	.transform((v) =>
-		v.self || !v.subject
-			? { productCode: v.productCode, withAi: v.withAi, self: v.self, subject: null, contactEmail: null, contactPhone: null }
-			: {
-					productCode: v.productCode,
-					withAi: v.withAi,
-					self: v.self,
-					subject: toSubject(v.subject, v.productCode),
-					contactEmail: v.contactEmail,
-					contactPhone: v.contactPhone,
-				},
-	);
-
 // D9: um consentimento por membro. O e-mail do sócio é obrigatório; o contato da empresa nunca vale por ele.
 const partnerEmailSchema = z
 	.string({ required_error: "Informe o e-mail do sócio." })
@@ -102,13 +60,71 @@ const partnerSchema = z.object({
 	role: optionalText(100),
 });
 
-// Pedido de balcão (equipe). Sócios só no dossiê PJ completo.
+// O mesmo CPF duas vezes conta um sócio só (como open_order): a cotação precisa casar com o total que o banco recalcula.
+const toPartners = (partners: z.infer<typeof partnerSchema>[]) => {
+	const seen = new Set<string>();
+	return partners.flatMap((p) => {
+		const documentDigits = onlyDigits(p.document);
+		if (seen.has(documentDigits)) return [];
+		seen.add(documentDigits);
+		return [{ documentDigits, name: p.name, email: p.email, percentage: p.percentage, role: p.role }];
+	});
+};
+
+const ORDER_PRODUCT_CODES = ["dossie_pf", "dossie_empresarial"] as const;
+const productCodeSchema = z.enum(ORDER_PRODUCT_CODES, { errorMap: () => ({ message: "Produto inválido." }) });
+const PARTNERS_ONLY_EMPRESARIAL = "Sócios só no Dossiê Empresarial.";
+
+// Pedido do cliente (portal). Própria: nome, documento e contato vêm da conta; o que o cliente digitou é descartado.
+const clearThirdParty = (v: unknown) =>
+	v && typeof v === "object" && (v as { self?: unknown }).self === true
+		? { ...v, subject: null, contactEmail: null, contactPhone: null }
+		: v;
+
+export const clientOrderSchema = z
+	.preprocess(
+		clearThirdParty,
+		z.object({
+		productCode: productCodeSchema,
+		self: z.boolean(),
+		subject: subjectSchema.nullish(),
+		contactEmail: optionalEmail,
+		contactPhone: optionalPhone,
+		partners: z.array(partnerSchema).max(MAX_PARTNERS, `No máximo ${MAX_PARTNERS} sócios.`).default([]),
+		declarationAccepted: z.boolean().default(false),
+		// A versão do texto que o formulário mostrou. O banco recusa se já não for a vigente.
+		declarationVersion: z.number().int().positive().nullish().transform((v) => v ?? null),
+		}),
+	)
+	.superRefine((v, ctx) => {
+		if (v.partners.length > 0 && v.productCode !== "dossie_empresarial") {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners"], message: PARTNERS_ONLY_EMPRESARIAL });
+		}
+		if (v.self) return;
+		if (!v.subject) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["subject"], message: "Informe quem será pesquisado." });
+		} else {
+			checkSubject(v.subject, v.productCode, ctx, ["subject"]);
+		}
+		if (v.contactEmail === null) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contactEmail"], message: "Informe o e-mail do titular." });
+		}
+	})
+	.transform((v) => ({
+		productCode: v.productCode,
+		self: v.self,
+		subject: v.self || !v.subject ? null : toSubject(v.subject, v.productCode),
+		contactEmail: v.self || !v.subject ? null : v.contactEmail,
+		contactPhone: v.self || !v.subject ? null : v.contactPhone,
+		partners: toPartners(v.partners),
+		declarationAccepted: v.declarationAccepted,
+		declarationVersion: v.declarationVersion,
+	}));
+
+// Pedido de balcão (equipe). Sócios só no Dossiê Empresarial.
 export const counterOrderSchema = z
 	.object({
-		productCode: z.enum(["consulta_pf", "consulta_pj", "dossie_pj_completo"], {
-			errorMap: () => ({ message: "Produto inválido." }),
-		}),
-		withAi: z.boolean().default(false),
+		productCode: productCodeSchema,
 		buyerProfileId: uuidSchema.nullish().transform((v) => v ?? null),
 		subject: subjectSchema,
 		contactEmail: optionalEmail,
@@ -117,24 +133,17 @@ export const counterOrderSchema = z
 	})
 	.superRefine((v, ctx) => {
 		checkSubject(v.subject, v.productCode, ctx, ["subject"]);
-		if (v.partners.length > 0 && v.productCode !== "dossie_pj_completo") {
-			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners"], message: "Sócios só no dossiê PJ completo." });
+		if (v.partners.length > 0 && v.productCode !== "dossie_empresarial") {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners"], message: PARTNERS_ONLY_EMPRESARIAL });
 		}
 	})
 	.transform((v) => ({
 		productCode: v.productCode,
-		withAi: v.withAi,
 		buyerProfileId: v.buyerProfileId,
 		subject: toSubject(v.subject, v.productCode),
 		contactEmail: v.contactEmail,
 		contactPhone: v.contactPhone,
-		partners: v.partners.map((p) => ({
-			documentDigits: onlyDigits(p.document),
-			name: p.name,
-			email: p.email,
-			percentage: p.percentage,
-			role: p.role,
-		})),
+		partners: toPartners(v.partners),
 	}));
 
 export const orderIdSchema = uuidSchema;

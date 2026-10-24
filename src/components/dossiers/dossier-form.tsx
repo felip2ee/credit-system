@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { countBillablePartners, orderTotalCents } from "@/components/orders/order-rules";
+import type { OrderProductCode } from "@/lib/orders/types";
 import { formatCurrency } from "@/lib/utils";
 import { counterOrderSchema } from "@/lib/validators/order";
 
@@ -24,19 +26,19 @@ export interface CatalogOption {
   name: string;
   // Preço de venda do catálogo, decimal em string. Nunca digitado pelo operador.
   price: string;
-  addonFor: string[] | null;
+  // Valor por sócio do catálogo; só vale no Dossiê Empresarial.
+  pricePerPartner: string;
 }
 
 interface DossierFormProps {
   products: CatalogOption[];
-  addons: CatalogOption[];
 }
 
-const FULL_PRODUCT = "dossie_pj_completo";
-const PF_PRODUCT = "consulta_pf";
+const EMPRESARIAL_PRODUCT = "dossie_empresarial";
+const PF_PRODUCT = "dossie_pf";
 const SELECT_CLASS = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
-export function DossierForm({ products, addons }: DossierFormProps) {
+export function DossierForm({ products }: DossierFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
@@ -55,7 +57,6 @@ export function DossierForm({ products, addons }: DossierFormProps) {
     resolver: zodResolver(counterOrderSchema),
     defaultValues: {
       productCode: (products[0]?.code ?? "") as OrderFormValues["productCode"],
-      withAi: false,
       buyerProfileId: null,
       subject: { name: "", document: "" },
       contactEmail: "",
@@ -66,18 +67,18 @@ export function DossierForm({ products, addons }: DossierFormProps) {
   const { fields, append, remove, replace } = useFieldArray({ control, name: "partners" });
 
   const productCode = watch("productCode");
-  const withAi = watch("withAi");
+  const partnerCount = countBillablePartners(watch("partners") ?? [], watch("subject.document"));
   const product = products.find((p) => p.code === productCode);
-  const addon = addons.find((a) => a.addonFor?.includes(productCode));
-  const isFull = productCode === FULL_PRODUCT;
+  const isEmpresarial = productCode === EMPRESARIAL_PRODUCT;
   const isPf = productCode === PF_PRODUCT;
-  const total = (product ? Number(product.price) : 0) + (withAi && addon ? Number(addon.price) : 0);
+  const total = product
+    ? orderTotalCents({ code: product.code as OrderProductCode, price: product.price, pricePerPartner: product.pricePerPartner }, partnerCount) / 100
+    : 0;
 
-  // Trocar de produto descarta o que não vale mais: parecer IA sem adicional e sócios fora do PJ completo.
+  // Trocar de produto descarta os sócios: só o Dossiê Empresarial os tem.
   useEffect(() => {
-    if (!addon) setValue("withAi", false);
-    if (!isFull) replace([]);
-  }, [addon, isFull, replace, setValue]);
+    if (!isEmpresarial) replace([]);
+  }, [isEmpresarial, replace]);
 
   const onLookup = () => {
     setLookupMsg(null);
@@ -130,6 +131,7 @@ export function DossierForm({ products, addons }: DossierFormProps) {
                 {products.map((p) => (
                   <option key={p.code} value={p.code}>
                     {p.name} — {formatCurrency(Number(p.price))}
+                    {p.code === EMPRESARIAL_PRODUCT ? ` + ${formatCurrency(Number(p.pricePerPartner))} por sócio` : ""}
                   </option>
                 ))}
               </select>
@@ -137,20 +139,6 @@ export function DossierForm({ products, addons }: DossierFormProps) {
                 <p className="text-xs text-destructive">{errors.productCode.message}</p>
               )}
             </div>
-            {addon && (
-              <div className="flex items-start gap-2">
-                <input
-                  id="withAi"
-                  type="checkbox"
-                  disabled={isPending}
-                  className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
-                  {...register("withAi")}
-                />
-                <Label htmlFor="withAi" className="cursor-pointer">
-                  Incluir parecer IA (+ {formatCurrency(Number(addon.price))})
-                </Label>
-              </div>
-            )}
             <p className="text-sm" aria-live="polite">
               Total: <span className="font-semibold">{formatCurrency(total)}</span>
             </p>
@@ -228,8 +216,8 @@ export function DossierForm({ products, addons }: DossierFormProps) {
             </p>
           </div>
 
-          {/* Sócios (só PJ completo) */}
-          {isFull && (
+          {/* Sócios (só Dossiê Empresarial) */}
+          {isEmpresarial && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium">Sócios (CPF)</p>

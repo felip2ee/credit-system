@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   session: { current: null as unknown },
   requestPasswordReset: vi.fn(),
   revalidatePath: vi.fn(),
+  afterCatalogRead: { current: null as null | (() => Promise<void>) },
 }));
 
 vi.hoisted(() => {
@@ -28,18 +29,39 @@ vi.hoisted(() => {
 });
 
 vi.mock("next/headers", () => ({
-  headers: () => {
-    throw new Error("no request scope");
-  },
+  headers: () => new Headers({ "x-forwarded-for": "203.0.113.9", "user-agent": "vitest-agent" }),
 }));
+// Deixa o teste mudar o preço entre a leitura do catálogo e a reserva.
+vi.mock("@/lib/bureaus/public", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/bureaus/public")>();
+  return {
+    ...real,
+    getPublicCatalog: async (slug: string) => {
+      const items = await real.getPublicCatalog(slug);
+      await mocks.afterCatalogRead.current?.();
+      return items;
+    },
+  };
+});
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/auth/server", () => ({ auth: { api: { requestPasswordReset: mocks.requestPasswordReset } } }));
 vi.mock("@/lib/auth/session", () => ({ getRequiredSession: async () => mocks.session.current }));
 
 import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { randomCpf, seedTenant, type SeededTenant } from "@/test/seed";
+import { withUserTransaction } from "@/lib/db/transaction";
+import { quoteOrder } from "@/lib/catalog/quote";
+import { placeOrder, refreshOrderState } from "@/lib/orders/queries";
+import {
+  randomCpf,
+  seedBureauCost,
+  seedCatalogItem,
+  seedClientWalletTopup,
+  seedTenant,
+  type SeededTenant,
+} from "@/test/seed";
 
+import { cancelMyOrderAction, openClientOrderAction } from "./orders-client";
 import { inviteHolderToPortal, revokeHolderPortalAccess } from "./portal";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
@@ -168,5 +190,161 @@ describe("inviteHolderToPortal", () => {
     expect(await linkedProfile(holderId)).toBeNull();
     expect(await profileState(other.client.userId)).toBe(true);
     expect(mocks.requestPasswordReset).not.toHaveBeenCalled();
+  });
+});
+
+describe("client orders through the portal actions", () => {
+  // O validador do schema confere os dígitos: randomCpf() não serve.
+  const withCheckDigits = (base: number[], weights: (n: number) => number) => {
+    const digit = (digits: number[]) => {
+      const sum = digits.reduce((acc, d, i) => acc + d * weights(digits.length - i), 0);
+      return sum % 11 < 2 ? 0 : 11 - (sum % 11);
+    };
+    const first = [...base, digit(base)];
+    return [...first, digit(first)].join("");
+  };
+  const randomBase = (length: number) => Array.from({ length }, () => Math.floor(Math.random() * 9) + 1);
+  const validCpf = () => withCheckDigits(randomBase(9), (n) => n + 1);
+  const validCnpj = () => withCheckDigits([...randomBase(8), 0, 0, 0, 1], (n) => (n <= 8 ? n + 1 : n - 7));
+  const partner = () => ({ document: validCpf(), name: "Sócio Teste", email: `s${randomUUID()}@example.test` });
+
+  async function readyClientTenant(): Promise<SeededTenant> {
+    const t = await seedTenant(owner, "portal orders");
+    for (const code of ["dossie_pf", "dossie_empresarial"]) {
+      await owner.query("update products set active = true where code = $1", [code]);
+      const { rows } = await owner.query<{ id: string }>("select id from products where code = $1", [code]);
+      await seedBureauCost(owner, {
+        bureauId: t.bureau.id,
+        productId: rows[0].id,
+        cost: "1.00",
+        costPerPartner: code === "dossie_empresarial" ? "1.00" : "0.00",
+        setBy: t.bureauAdmin.userId,
+      });
+      await seedCatalogItem(owner, {
+        bureauId: t.bureau.id,
+        productId: rows[0].id,
+        salePrice: "50.00",
+        salePricePerPartner: code === "dossie_empresarial" ? "20.00" : "0.00",
+        updatedBy: t.bureauAdmin.userId,
+      });
+    }
+    await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "300.00", createdBy: t.bureauAdmin.userId });
+    await owner.query('update "user" set email_verified = true where id = $1', [t.client.userId]);
+    await owner.query(
+      `insert into legal_acceptances (profile_id, document_id)
+       select $1, d.id from legal_documents d where d.kind in ('terms', 'privacy') and d.published_at <= now()
+          and d.version = (select max(version) from legal_documents x where x.kind = d.kind and x.published_at <= now())`,
+      [t.client.userId],
+    );
+    mocks.session.current = { ...t.client, supportSessionId: null };
+    return t;
+  }
+
+  const wallet = async (t: SeededTenant) =>
+    (
+      await owner.query<{ available: string; reserved: string }>(
+        "select available::text, reserved::text from client_wallets where client_profile_id = $1",
+        [t.client.userId],
+      )
+    ).rows[0];
+
+  const company = (declarationAccepted: boolean) => ({
+    productCode: "dossie_empresarial",
+    self: false,
+    subject: { name: "Empresa Teste Ltda", document: validCnpj() },
+    contactEmail: `r${randomUUID()}@example.test`,
+    partners: [partner(), partner()],
+    declarationAccepted,
+    declarationVersion: 1,
+  });
+
+  it("opens an empresarial order with 2 partners and the declaration, then 3 authorizations make it ready", async () => {
+    const t = await readyClientTenant();
+
+    const result = await openClientOrderAction(company(true));
+
+    expect(result.error).toBeNull();
+    const id = result.id as string;
+    const { rows: order } = await owner.query("select state from dossier_orders where dossier_id = $1", [id]);
+    expect(order).toEqual([{ state: "awaiting_authorization" }]);
+    expect(await wallet(t)).toEqual({ available: "210.00", reserved: "90.00" });
+    const { rows: declaration } = await owner.query(
+      "select host(ip) as ip, user_agent from order_declarations where dossier_id = $1",
+      [id],
+    );
+    expect(declaration).toEqual([{ ip: "203.0.113.9", user_agent: "vitest-agent" }]);
+
+    const { rowCount } = await owner.query(
+      `update scr_authorizations set status = 'authorized', authorized_at = now(), expires_at = now() + interval '30 days'
+        where id in (select scr_authorization_id from consultations where dossier_id = $1) and status = 'pending'`,
+      [id],
+    );
+    expect(rowCount).toBe(3);
+    const state = await withUserTransaction({ ...t.operator }, (c) => refreshOrderState(c, id));
+    expect(state).toBe("ready");
+  });
+
+  it("refuses an empresarial order without the declaration and opens nothing", async () => {
+    const t = await readyClientTenant();
+
+    await expect(openClientOrderAction(company(false))).resolves.toEqual({ error: "Marque a declaração para continuar." });
+
+    const { rows } = await owner.query("select 1 from dossier_orders where bureau_id = $1", [t.bureau.id]);
+    expect(rows).toHaveLength(0);
+    expect(await wallet(t)).toEqual({ available: "300.00", reserved: "0.00" });
+  });
+
+  it("cancelMyOrderAction gives the reservation back and stays inside the own orders", async () => {
+    const t = await readyClientTenant();
+    const opened = await openClientOrderAction({ productCode: "dossie_pf", self: true });
+    expect(opened.error).toBeNull();
+    expect(await wallet(t)).toEqual({ available: "250.00", reserved: "50.00" });
+
+    await expect(cancelMyOrderAction(opened.id)).resolves.toEqual({ error: null, id: opened.id });
+
+    expect(await wallet(t)).toEqual({ available: "300.00", reserved: "0.00" });
+    const { rows } = await owner.query("select state, state_reason from dossier_orders where dossier_id = $1", [opened.id]);
+    expect(rows).toEqual([{ state: "cancelled", state_reason: "cancelled_by_client" }]);
+
+    const other = await readyClientTenant();
+    await expect(cancelMyOrderAction(opened.id)).resolves.toEqual({ error: "Pedido não encontrado." });
+    expect(await wallet(other)).toEqual({ available: "300.00", reserved: "0.00" });
+  });
+
+  it("a price changed after the quote returns the price_mismatch message and reserves nothing", async () => {
+    const t = await readyClientTenant();
+    mocks.afterCatalogRead.current = async () => {
+      await owner.query("update bureau_catalog_items set sale_price = '60.00' where bureau_id = $1", [t.bureau.id]);
+    };
+
+    try {
+      await expect(openClientOrderAction({ productCode: "dossie_pf", self: true })).resolves.toEqual({
+        error: "O preço mudou. Revise e confirme de novo.",
+      });
+    } finally {
+      mocks.afterCatalogRead.current = null;
+    }
+
+    expect(await wallet(t)).toEqual({ available: "300.00", reserved: "0.00" });
+    const { rows } = await owner.query("select 1 from dossier_orders where bureau_id = $1", [t.bureau.id]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("an outdated declaration version aborts placeOrder and leaves no order, no reservation", async () => {
+    const t = await readyClientTenant();
+    const quote = await quoteOrder({ ...t.operator }, "dossie_pf", { partnerCount: 0 });
+    if (!quote.ok) throw new Error(quote.reason);
+
+    const result = await placeOrder(
+      { ...t.client },
+      { productCode: "dossie_pf", self: true, subject: null, partners: [], contact: { email: null, phoneE164: null }, buyerProfileId: null },
+      quote,
+      { declaration: { version: 999, ip: null, userAgent: null } },
+    );
+
+    expect(result).toEqual({ ok: false, reason: "declaration_outdated" });
+    expect(await wallet(t)).toEqual({ available: "300.00", reserved: "0.00" });
+    const { rows } = await owner.query("select 1 from dossier_orders where bureau_id = $1", [t.bureau.id]);
+    expect(rows).toHaveLength(0);
   });
 });

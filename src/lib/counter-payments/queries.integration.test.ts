@@ -201,14 +201,23 @@ describe("listCounterPayments", () => {
 		await seedWalletTopup(owner, { bureauId: tenant.bureau.id, amount: "100.00", createdBy: tenant.bureauAdmin.userId });
 		await withUserTransaction(operator, async (c) => {
 			// reserve_order confere preço e custo no catálogo do Bureau.
-			const { lines } = await seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
+			const { lines } = await seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: "50.00", cost: "30.00" });
 			return reserveOrder(c, {
 				orderRef: dossierId,
 				mode: "counter",
 				clientProfileId: null,
 				quote: {
 					ok: true,
-					lines: [{ productVersionId: randomUUID(), code: lines[0].code, costCents: 3000, priceCents: 5000 }],
+					lines: [{
+							productVersionId: randomUUID(),
+							code: lines[0].code,
+							part: "base" as const,
+							quantity: 1,
+							unitPriceCents: 5000,
+							unitCostCents: 3000,
+							costCents: 3000,
+							priceCents: 5000,
+						}],
 					totalCostCents: 3000,
 					totalPriceCents: 5000,
 				},
@@ -235,14 +244,23 @@ describe("order state follows the payments", () => {
 		const ctx = await setup(label);
 		await seedWalletTopup(owner, { bureauId: ctx.tenant.bureau.id, amount: "100.00", createdBy: ctx.tenant.bureauAdmin.userId });
 		await withUserTransaction(ctx.operator, async (c) => {
-			const { lines } = await seedOrderCatalog(owner, c, { price: "50.00", cost: "30.00" });
+			const { lines } = await seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: "50.00", cost: "30.00" });
 			return reserveOrder(c, {
 				orderRef: ctx.dossierId,
 				mode: "counter",
 				clientProfileId: null,
 				quote: {
 					ok: true,
-					lines: [{ productVersionId: randomUUID(), code: lines[0].code, costCents: 3000, priceCents: 5000 }],
+					lines: [{
+							productVersionId: randomUUID(),
+							code: lines[0].code,
+							part: "base" as const,
+							quantity: 1,
+							unitPriceCents: 5000,
+							unitCostCents: 3000,
+							costCents: 3000,
+							priceCents: 5000,
+						}],
 					totalCostCents: 3000,
 					totalPriceCents: 5000,
 				},

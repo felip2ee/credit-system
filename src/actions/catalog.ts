@@ -32,8 +32,8 @@ const SUPPORT_ACTIVE = "Encerre a sessão de suporte para alterar produtos e cus
 
 const CONFLICT_MESSAGES: Record<CatalogConflict, string> = {
 	price_below_cost: "O preço de venda não pode ser menor que o custo.",
-	cost_not_set: "O custo deste produto ainda não foi definido. Peça ao suporte para defini-lo.",
-	addon_requires_main: "Ative antes um produto principal compatível com este adicional.",
+	partner_price_below_cost: "O valor por sócio não pode ser menor que o custo por sócio.",
+	per_partner_not_allowed: "O Dossiê Pessoa Física não cobra valor por sócio.",
 	product_inactive: "Este produto está desativado.",
 };
 
@@ -91,14 +91,7 @@ export async function createProduct(values: unknown): Promise<CatalogActionResul
 	let productId: string;
 	try {
 		const result = await createProductQuery(session, parsed.data);
-		if (!result.ok) {
-			return {
-				error:
-					result.reason === "code_taken"
-						? "Este código já está em uso."
-						: "Os produtos compatíveis devem existir e ser do tipo principal.",
-			};
-		}
+		if (!result.ok) return { error: "Este código já está em uso." };
 		productId = result.id;
 	} catch (error) {
 		logFailure("createProduct", error);
@@ -156,8 +149,8 @@ export async function setBureauProductCost(values: unknown): Promise<CatalogActi
 	const { session } = gate;
 
 	try {
-		const { bureauId, productId, cost } = parsed.data;
-		const result = await setBureauProductCostQuery(session, bureauId, productId, cost);
+		const { bureauId, productId, cost, costPerPartner } = parsed.data;
+		const result = await setBureauProductCostQuery(session, bureauId, productId, cost, costPerPartner);
 		if (!result.ok) return { error: NOT_FOUND };
 	} catch (error) {
 		logFailure("setBureauProductCost", error);
@@ -178,8 +171,8 @@ export async function upsertCatalogItem(values: unknown): Promise<CatalogActionR
 	const { session } = gate;
 
 	try {
-		const { productId, active, salePrice } = parsed.data;
-		const result = await upsertCatalogItemQuery(session, productId, { active, salePrice });
+		const { productId, active, salePrice, salePricePerPartner } = parsed.data;
+		const result = await upsertCatalogItemQuery(session, productId, { active, salePrice, salePricePerPartner });
 		if (!result.ok) return { error: result.reason === "not_found" ? NOT_FOUND : CONFLICT_MESSAGES[result.reason] };
 	} catch (error) {
 		logFailure("upsertCatalogItem", error);

@@ -20,13 +20,6 @@ import type { StaffOrderView } from "@/lib/orders/staff-queries";
 import type { OrderState } from "@/lib/orders/types";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
-const AI_STATUS_LABEL = {
-  none: null,
-  pending: "Parecer IA em andamento",
-  done: "Parecer IA pronto",
-  failed: "Parecer IA falhou",
-} as const;
-
 const CANCELLABLE: OrderState[] = ["awaiting_payment", "awaiting_authorization", "ready"];
 
 interface OrderPanelProps {
@@ -65,7 +58,6 @@ export function OrderPanel({ order, canWrite, canRegisterPayment }: OrderPanelPr
   };
 
   const { state } = order;
-  const aiLabel = order.withAi ? AI_STATUS_LABEL[order.aiStatus] : null;
   const canRelease = state === "completed" && order.mode === "counter" && order.aiStatus !== "pending";
 
   return (
@@ -82,11 +74,6 @@ export function OrderPanel({ order, canWrite, canRegisterPayment }: OrderPanelPr
           <Field label="Comprador">{order.buyerName ?? "Sem comprador: a entrega fica com a equipe"}</Field>
           <Field label="Preço">{formatCurrency(Number(order.price))}</Field>
           {order.paidTotal !== null && <Field label="Pago no balcão">{formatCurrency(Number(order.paidTotal))}</Field>}
-          {aiLabel && (
-            <Field label="Parecer IA">
-              <span className={order.aiStatus === "failed" ? "text-destructive" : undefined}>{aiLabel}</span>
-            </Field>
-          )}
           {order.releasedAt && <Field label="Liberada em">{formatDateTime(order.releasedAt)}</Field>}
           {order.revokedAt && (
             <Field label="Revogada em">

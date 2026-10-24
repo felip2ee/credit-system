@@ -75,10 +75,8 @@ const onlyDigits = (value: string) => value.replace(/\D/g, "");
 const cpf = () => onlyDigits(randomCpf());
 const SITE = "https://app.example.test";
 const ALL_PRICES: Partial<Record<string, string>> = {
-	consulta_pf: "50.00",
-	consulta_pj: "80.00",
-	dossie_pj_completo: "200.00",
-	parecer_ia: "20.00",
+	dossie_pf: "50.00",
+	dossie_empresarial: "50.00",
 };
 
 beforeAll(acquireClaimLock, 120_000);
@@ -88,17 +86,27 @@ afterAll(async () => {
 	await releaseClaimLock();
 });
 
-// Preço de venda por código; custo fixo de 1,00.
+// Preço de venda por código; custo fixo de 1,00. O Dossiê Empresarial cobra 10,00 (custo 1,00) por sócio.
 async function sell(t: SeededTenant, prices: Partial<Record<string, string>>) {
-	for (const code of ["consulta_pf", "consulta_pj", "dossie_pj_completo", "parecer_ia"]) {
+	for (const code of ["dossie_pf", "dossie_empresarial"]) {
 		const price = prices[code];
 		if (!price) continue;
+		const perPartner = code === "dossie_empresarial";
+		// O seed do catálogo deixa os produtos inativos.
+		await owner.query("update products set active = true where code = $1", [code]);
 		const { rows } = await owner.query<{ id: string }>("select id from products where code = $1", [code]);
-		await seedBureauCost(owner, { bureauId: t.bureau.id, productId: rows[0].id, cost: "1.00", setBy: t.bureauAdmin.userId });
+		await seedBureauCost(owner, {
+			bureauId: t.bureau.id,
+			productId: rows[0].id,
+			cost: "1.00",
+			costPerPartner: perPartner ? "1.00" : "0.00",
+			setBy: t.bureauAdmin.userId,
+		});
 		await seedCatalogItem(owner, {
 			bureauId: t.bureau.id,
 			productId: rows[0].id,
 			salePrice: price,
+			salePricePerPartner: perPartner ? "10.00" : "0.00",
 			updatedBy: t.bureauAdmin.userId,
 		});
 	}
@@ -122,15 +130,14 @@ const staff = (t: SeededTenant): DbIdentity => ({ ...t.operator });
 const buyerOf = (t: SeededTenant): DbIdentity => ({ ...t.client });
 
 // O cliente não lê o custo do catálogo: a cotação sai com a identidade da equipe do Bureau.
-async function quote(identity: DbIdentity, code: OrderProductCode, withAi: boolean) {
-	const q = await quoteOrder(identity, code, { withAi });
+async function quote(identity: DbIdentity, code: OrderProductCode, partnerCount = 0) {
+	const q = await quoteOrder(identity, code, { partnerCount });
 	if (!q.ok) throw new Error(`quote failed: ${q.reason}`);
 	return q;
 }
 
 const ownInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
-	productCode: "consulta_pf",
-	withAi: false,
+	productCode: "dossie_pf",
 	self: true,
 	subject: null,
 	partners: [],
@@ -140,8 +147,7 @@ const ownInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
 });
 
 const thirdInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
-	productCode: "consulta_pf",
-	withAi: false,
+	productCode: "dossie_pf",
 	self: false,
 	subject: { type: "PF", name: "Fulano de Tal", documentDigits: cpf() },
 	partners: [],
@@ -150,14 +156,22 @@ const thirdInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput => ({
 	...over,
 });
 
+// Dossiê Empresarial online: qualquer CNPJ, também o de terceiro (o Dossiê Pessoa Física online é só do próprio cliente).
+const companyInput = (over: Partial<OpenOrderInput> = {}): OpenOrderInput =>
+	thirdInput({
+		productCode: "dossie_empresarial",
+		subject: { type: "PJ", name: "Empresa Teste", documentDigits: Array.from({ length: 14 }, () => Math.floor(Math.random() * 10)).join("") },
+		...over,
+	});
+
 async function placeOnline(t: SeededTenant, input: OpenOrderInput = ownInput()): Promise<string> {
-	const result = await placeOrder(buyerOf(t), input, await quote(staff(t), input.productCode, input.withAi));
+	const result = await placeOrder(buyerOf(t), input, await quote(staff(t), input.productCode, input.partners.length));
 	if (!result.ok) throw new Error(`placeOrder failed: ${result.reason}`);
 	return result.dossierId;
 }
 
 async function placeCounter(t: SeededTenant, input: OpenOrderInput = thirdInput()): Promise<string> {
-	const result = await placeOrder(staff(t), input, await quote(staff(t), input.productCode, input.withAi));
+	const result = await placeOrder(staff(t), input, await quote(staff(t), input.productCode, input.partners.length));
 	if (!result.ok) throw new Error(`placeOrder failed: ${result.reason}`);
 	return result.dossierId;
 }
@@ -204,6 +218,12 @@ async function toCompleted(t: SeededTenant, id: string) {
 	expect(await withUserTransaction(staff(t), (c) => completeOrder(c, staff(t), id))).toBe("completed");
 }
 
+// Todo pedido concluído espera o parecer; a liberação só vem depois dele (feito ou falho).
+async function toReleasable(t: SeededTenant, id: string) {
+	await toCompleted(t, id);
+	await withUserTransaction(staff(t), (c) => setAiStatus(c, staff(t), id, "done", 1));
+}
+
 // Os gatilhos de perfil e do pedido bloqueiam o dono do pool: o teste os desliga só nesta transação.
 async function asReplica(sql: string, params: unknown[]) {
 	const client = await owner.connect();
@@ -226,9 +246,9 @@ const count = async (table: string, t: SeededTenant) =>
 describe("placeOrder", () => {
 	it("insufficient balance leaves no dossier, order or scr row", async () => {
 		const t = await newTenant("ord broke", {});
-		const online = await placeOrder(buyerOf(t), ownInput(), await quote(staff(t), "consulta_pf", false));
+		const online = await placeOrder(buyerOf(t), ownInput(), await quote(staff(t), "dossie_pf"));
 		expect(online).toEqual({ ok: false, reason: "insufficient_balance" });
-		const counter = await placeOrder(staff(t), thirdInput(), await quote(staff(t), "consulta_pf", false));
+		const counter = await placeOrder(staff(t), thirdInput(), await quote(staff(t), "dossie_pf"));
 		expect(counter).toEqual({ ok: false, reason: "insufficient_balance" });
 
 		for (const table of ["dossiers", "dossier_orders", "consultations", "scr_authorizations", "order_settlements"]) {
@@ -242,8 +262,8 @@ describe("placeOrder", () => {
 		const t = await newTenant("ord kind");
 		const wrong = await placeOrder(
 			staff(t),
-			thirdInput({ productCode: "consulta_pj" }),
-			await quote(staff(t), "consulta_pj", false),
+			thirdInput({ productCode: "dossie_empresarial" }),
+			await quote(staff(t), "dossie_empresarial"),
 		);
 		expect(wrong).toEqual({ ok: false, reason: "kind_mismatch" });
 		expect(await bureauWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
@@ -360,22 +380,19 @@ describe("claimOrders", () => {
 });
 
 describe("completeOrder", () => {
-	it("completeOrder captures and sets ai_status", async () => {
+	it("completeOrder captures and leaves the opinion pending", async () => {
 		const t = await newTenant("ord complete");
-		const plain = await placeOnline(t);
-		const withAi = await placeOnline(t, ownInput({ withAi: true }));
-		await toCompleted(t, plain);
-		await toCompleted(t, withAi);
+		const id = await placeOnline(t);
+		await toCompleted(t, id);
 
-		expect(await orderOf(plain)).toMatchObject({ state: "completed", ai_status: "none", lease_until: null });
-		expect(await orderOf(withAi)).toMatchObject({ state: "completed", ai_status: "pending", lease_until: null });
-		const [settlement] = await rows("select status from order_settlements where order_ref = $1", [plain]);
+		expect(await orderOf(id)).toMatchObject({ state: "completed", ai_status: "pending", lease_until: null });
+		const [settlement] = await rows("select status from order_settlements where order_ref = $1", [id]);
 		expect(settlement.status).toBe("captured");
-		expect(await clientWallet(t)).toEqual({ available: "80.00", reserved: "0.00" });
-		const audit = await rows<{ metadata: unknown }>("select metadata from audit_logs where action = 'order.complete' and record_id = $1", [plain]);
+		expect(await clientWallet(t)).toEqual({ available: "150.00", reserved: "0.00" });
+		const audit = await rows<{ metadata: unknown }>("select metadata from audit_logs where action = 'order.complete' and record_id = $1", [id]);
 		expect(audit).toHaveLength(1);
 		const timeline = await rows("select 1 from timeline_events where event_type = 'order.completed' and bureau_id = $1", [t.bureau.id]);
-		expect(timeline).toHaveLength(2);
+		expect(timeline).toHaveLength(1);
 	});
 
 	it("counter order captures C on the bureau wallet and accrues nothing to the payable", async () => {
@@ -526,7 +543,7 @@ describe("releaseDelivery and revokeDelivery", () => {
 	it("releaseDelivery enqueues email always and whatsapp only for whatsapp channel", async () => {
 		const t = await newTenant("ord notice");
 		const emailOnly = await placeOnline(t);
-		await toCompleted(t, emailOnly);
+		await toReleasable(t, emailOnly);
 		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), emailOnly, `${SITE}/`))).toEqual({ ok: true });
 		expect(await releasedNotices(emailOnly)).toEqual([{ channel: "email", status: "pending" }]);
 		expect(await orderOf(emailOnly)).toMatchObject({ state: "released" });
@@ -544,7 +561,7 @@ describe("releaseDelivery and revokeDelivery", () => {
 			[t.client.userId],
 		);
 		const both = await placeOnline(t);
-		await toCompleted(t, both);
+		await toReleasable(t, both);
 		await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), both, SITE));
 		expect(await releasedNotices(both)).toEqual([
 			{ channel: "email", status: "pending" },
@@ -567,6 +584,7 @@ describe("releaseDelivery and revokeDelivery", () => {
 		await makeReady(t, id);
 		await claim(t, id);
 		await withUserTransaction(staff(t), (c) => completeOrder(c, staff(t), id));
+		await withUserTransaction(staff(t), (c) => setAiStatus(c, staff(t), id, "done", 1));
 
 		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE))).toEqual({ ok: false, reason: "no_buyer" });
 		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), crypto.randomUUID(), SITE))).toEqual({
@@ -578,7 +596,7 @@ describe("releaseDelivery and revokeDelivery", () => {
 
 	it("release of a pending ai order is invalid_state", async () => {
 		const t = await newTenant("ord aipending");
-		const id = await placeOnline(t, ownInput({ withAi: true }));
+		const id = await placeOnline(t, ownInput());
 		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE))).toEqual({ ok: false, reason: "invalid_state" });
 		await toCompleted(t, id);
 		expect(await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE))).toEqual({ ok: false, reason: "invalid_state" });
@@ -589,7 +607,7 @@ describe("releaseDelivery and revokeDelivery", () => {
 	it("release after revoke clears the revocation and the client reads the delivery again", async () => {
 		const t = await newTenant("ord rerelease");
 		const id = await placeOnline(t);
-		await toCompleted(t, id);
+		await toReleasable(t, id);
 		await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE));
 		await withUserTransaction(staff(t), (c) => revokeDelivery(c, staff(t), id, "Titular errado"));
 		expect(await withUserTransaction(buyerOf(t), (c) => getMyDelivery(c, id))).toBeNull();
@@ -606,7 +624,7 @@ describe("releaseDelivery and revokeDelivery", () => {
 	it("revokeDelivery requires a reason and hides the delivery from the client", async () => {
 		const t = await newTenant("ord revoke");
 		const id = await placeOnline(t);
-		await toCompleted(t, id);
+		await toReleasable(t, id);
 		expect(await withUserTransaction(staff(t), (c) => revokeDelivery(c, staff(t), id, "erro"))).toEqual({ ok: false, reason: "invalid_state" });
 		await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE));
 		expect(await withUserTransaction(buyerOf(t), (c) => getMyDelivery(c, id))).not.toBeNull();
@@ -648,14 +666,14 @@ describe("authorization and stalled orders", () => {
 		const t = await newTenant("ord stalled");
 
 		// Recusa do Titular.
-		const refused = await placeOnline(t, thirdInput());
+		const refused = await placeOnline(t, companyInput());
 		await owner.query(
 			`update scr_authorizations set status = 'not_authorized', refused_at = now()
 			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
 			[refused],
 		);
 		// Pedido sem resposta no prazo.
-		const expired = await placeOnline(t, thirdInput());
+		const expired = await placeOnline(t, companyInput());
 		await owner.query(
 			`update scr_authorizations set auth_code = 'ABC123', request_expires_at = now() - interval '1 minute'
 			  where id in (select scr_authorization_id from consultations where dossier_id = $1)`,
@@ -722,14 +740,14 @@ describe("authorization and stalled orders", () => {
 describe("queue listings and views", () => {
 	it("lists the work for the tick and shows the order to the staff", async () => {
 		const t = await newTenant("ord views");
-		const id = await placeOnline(t, ownInput({ withAi: true }));
+		const id = await placeOnline(t, ownInput());
 		// Sem autorização o refresh não mudaria nada: o pedido ainda não é candidato.
 		expect(await withUserTransaction(staff(t), (c) => listOrdersToPromote(c, 10))).toEqual([]);
 		await authorizeAll(id);
 		expect(await withUserTransaction(staff(t), (c) => listOrdersToPromote(c, 10))).toEqual([id]);
 
 		const plan = await withUserTransaction(staff(t), (c) => getExecutionPlan(c, id));
-		expect(plan?.order).toEqual({ dossierId: id, mode: "online", withAi: true, attempts: 0, kind: "PF" });
+		expect(plan?.order).toEqual({ dossierId: id, mode: "online", attempts: 0, kind: "PF" });
 		expect(plan?.members).toEqual([
 			expect.objectContaining({ type: "PF", document: onlyDigits(t.holder.document), isMain: true, status: "pending_authorization" }),
 		]);
@@ -750,10 +768,9 @@ describe("queue listings and views", () => {
 			mode: "online",
 			state: "completed",
 			reason: null,
-			productCode: "consulta_pf",
-			withAi: true,
+			productCode: "dossie_pf",
 			aiStatus: "done",
-			price: "70.00",
+			price: "50.00",
 			paidTotal: null,
 			releasedAt: null,
 			revokedAt: null,
@@ -779,8 +796,12 @@ describe("tick candidates and AI claim", () => {
 
 	it("listOrdersToPromote is not starved by older orders that cannot change state", async () => {
 		const t = await newTenant("ord starve", { client: "2000.00" });
-		for (let i = 0; i < 25; i += 1) await placeOnline(t, thirdInput());
-		const newest = await placeOnline(t, thirdInput());
+		for (let i = 0; i < 25; i += 1) {
+			await placeOnline(t, companyInput());
+			// O teto de 5 pedidos online por cliente em 24 h vale: os pedidos de carga saem da janela.
+			await asReplica("update dossier_orders set created_at = created_at - interval '2 days' where client_profile_id = $1", [t.client.userId]);
+		}
+		const newest = await placeOnline(t, companyInput());
 		await authorizeAll(newest);
 
 		expect(await withUserTransaction(staff(t), (c) => listOrdersToPromote(c, 20))).toEqual([newest]);
@@ -797,7 +818,7 @@ describe("tick candidates and AI claim", () => {
 
 	it("open_order sets the request deadline when the pending row is created", async () => {
 		const t = await newTenant("ord deadline");
-		const id = await placeOnline(t, thirdInput());
+		const id = await placeOnline(t, companyInput());
 
 		const [row] = await rows<{ days: string }>(
 			`select extract(epoch from s.request_expires_at - now()) / 86400 as days from scr_authorizations s
@@ -810,7 +831,7 @@ describe("tick candidates and AI claim", () => {
 
 	it("renewal without a contact expires the authorization and the order is cancelled as scr_expired", async () => {
 		const t = await newTenant("ord renew nocontact");
-		const id = await placeOnline(t, thirdInput());
+		const id = await placeOnline(t, companyInput());
 		await authorizeAll(id);
 		await owner.query(
 			`update scr_authorizations set email = null, expires_at = now() - interval '1 minute'
@@ -830,7 +851,7 @@ describe("tick candidates and AI claim", () => {
 
 	it("renewed request carries the 7 day deadline", async () => {
 		const t = await newTenant("ord renew deadline");
-		const id = await placeOnline(t, thirdInput());
+		const id = await placeOnline(t, companyInput());
 		await authorizeAll(id);
 		await owner.query(
 			`update scr_authorizations set expires_at = now() - interval '1 minute'
@@ -850,7 +871,7 @@ describe("tick candidates and AI claim", () => {
 	it("a Bureau whose only pending work is a revoked online order is not due", async () => {
 		const t = await newTenant("ord due revoked");
 		const id = await placeOnline(t);
-		await toCompleted(t, id);
+		await toReleasable(t, id);
 		expect(await isDue(t)).toBe(true);
 		await withUserTransaction(staff(t), (c) => releaseDelivery(c, staff(t), id, SITE));
 		await withUserTransaction(staff(t), (c) => revokeDelivery(c, staff(t), id, "Titular errado"));
@@ -860,7 +881,7 @@ describe("tick candidates and AI claim", () => {
 
 	it("claimOrderForAi counts the attempt first and a live lease blocks the next claim and the listing", async () => {
 		const t = await newTenant("ord ai claim");
-		const id = await placeOnline(t, ownInput({ withAi: true }));
+		const id = await placeOnline(t, ownInput());
 		await toCompleted(t, id);
 
 		expect(await withUserTransaction(staff(t), (c) => claimOrderForAi(c, staff(t), id))).toBe(1);
@@ -880,7 +901,7 @@ describe("tick candidates and AI claim", () => {
 
 	it("claimOrderForAi closes as failed when a crash ate the last attempt, and setAiStatus audits", async () => {
 		const t = await newTenant("ord ai exhausted");
-		const id = await placeOnline(t, ownInput({ withAi: true }));
+		const id = await placeOnline(t, ownInput());
 		await toCompleted(t, id);
 		await owner.query("update dossier_orders set ai_attempts = 3 where dossier_id = $1", [id]);
 
@@ -893,5 +914,100 @@ describe("tick candidates and AI claim", () => {
 			{ status: "failed", attempts: 3 },
 			{ status: "failed", attempts: 3 },
 		]);
+	});
+});
+
+describe("total por número de sócios (Dossiê Empresarial)", () => {
+	const cnpj = () => Array.from({ length: 14 }, () => Math.floor(Math.random() * 10)).join("");
+	const partner = (documentDigits = cpf()) => ({
+		documentDigits,
+		name: "Sócio",
+		email: `socio-${crypto.randomUUID()}@example.com`,
+		percentage: null,
+		role: null,
+	});
+	// Venda 100,00 + 30,00 por sócio; custo 60,00 + 20,00 por sócio.
+	async function pricedTenant(label: string): Promise<SeededTenant> {
+		const t = await seedTenant(owner, label);
+		await owner.query("update products set active = true where code = 'dossie_empresarial'");
+		const { rows: product } = await owner.query<{ id: string }>("select id from products where code = 'dossie_empresarial'");
+		await seedBureauCost(owner, { bureauId: t.bureau.id, productId: product[0].id, cost: "60.00", costPerPartner: "20.00", setBy: t.bureauAdmin.userId });
+		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: product[0].id, salePrice: "100.00", salePricePerPartner: "30.00", updatedBy: t.bureauAdmin.userId });
+		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "1000.00", createdBy: t.bureauAdmin.userId });
+		await seedWalletTopup(owner, { bureauId: t.bureau.id, amount: "1000.00", createdBy: t.bureauAdmin.userId });
+		return t;
+	}
+	const companyWith = (partners: ReturnType<typeof partner>[], over: Partial<OpenOrderInput> = {}) =>
+		companyInput({ partners, ...over });
+
+	it("counter order reserves 60, 80 and 120 of cost for 0, 1 and 3 partners", async () => {
+		const t = await pricedTenant("ord total counter");
+		let reserved = 0;
+		for (const [partners, cost] of [[0, 60], [1, 80], [3, 120]] as const) {
+			await placeCounter(t, companyWith(Array.from({ length: partners }, () => partner())));
+			reserved += cost;
+			expect(await bureauWallet(t)).toEqual({ available: (1000 - reserved).toFixed(2), reserved: reserved.toFixed(2) });
+		}
+	});
+
+	it("the same CPF twice counts as one partner", async () => {
+		const t = await pricedTenant("ord total dup");
+		const repeated = partner();
+		// A cotação do chamador conta os dois; o banco recalcula pelos membros do dossiê e recusa o total.
+		const input = companyWith([repeated, { ...repeated, email: `outro-${crypto.randomUUID()}@example.com` }]);
+		const stale = await placeOrder(staff(t), input, await quote(staff(t), "dossie_empresarial", 2));
+		expect(stale).toEqual({ ok: false, reason: "price_mismatch" });
+		const exact = await placeOrder(staff(t), input, await quote(staff(t), "dossie_empresarial", 1));
+		expect(exact.ok).toBe(true);
+		expect(await bureauWallet(t)).toEqual({ available: "920.00", reserved: "80.00" });
+	});
+
+	it("a partner with the company CNPJ or any 14 digits is invalid_input", async () => {
+		const t = await pricedTenant("ord total cnpj");
+		const company = cnpj();
+		const base = companyInput({ subject: { type: "PJ", name: "Empresa", documentDigits: company } });
+		for (const documentDigits of [company, cnpj()]) {
+			const result = await placeOrder(staff(t), { ...base, partners: [partner(documentDigits)] }, await quote(staff(t), "dossie_empresarial", 1));
+			expect(result).toEqual({ ok: false, reason: "invalid_input" });
+		}
+		expect(await bureauWallet(t)).toEqual({ available: "1000.00", reserved: "0.00" });
+	});
+
+	it("online order with 2 partners reserves 160 of sale price on the client wallet", async () => {
+		const t = await pricedTenant("ord total online");
+		const id = await placeOnline(t, companyWith([partner(), partner()]));
+		expect(await clientWallet(t)).toEqual({ available: "840.00", reserved: "160.00" });
+		const [settlement] = await rows("select price, cost from order_settlements where order_ref = $1", [id]);
+		expect(settlement).toEqual({ price: "160.00", cost: "100.00" });
+		const [stored] = await rows<{ quote: { lines: { part: string; quantity: number; priceCents: number; costCents: number }[] } }>(
+			"select quote from order_settlements where order_ref = $1",
+			[id],
+		);
+		expect(stored.quote.lines).toEqual([
+			expect.objectContaining({ part: "base", quantity: 1, priceCents: 10000, costCents: 6000 }),
+			expect.objectContaining({ part: "partner", quantity: 2, priceCents: 6000, costCents: 4000 }),
+		]);
+	});
+
+	it("a total that differs from the order is price_mismatch (online) or cost_mismatch (counter) and reserves nothing", async () => {
+		const t = await pricedTenant("ord total mismatch");
+		const inputs = companyWith([partner()]);
+		const q = await quote(staff(t), "dossie_empresarial", 1);
+		const online = await placeOrder(buyerOf(t), inputs, { ...q, totalPriceCents: q.totalPriceCents - 1 });
+		expect(online).toEqual({ ok: false, reason: "price_mismatch" });
+		const counterPrice = await placeOrder(staff(t), inputs, { ...q, totalPriceCents: q.totalPriceCents + 100 });
+		expect(counterPrice).toEqual({ ok: false, reason: "price_mismatch" });
+		const counterCost = await placeOrder(staff(t), inputs, { ...q, totalCostCents: q.totalCostCents - 100 });
+		expect(counterCost).toEqual({ ok: false, reason: "cost_mismatch" });
+		expect(await clientWallet(t)).toEqual({ available: "1000.00", reserved: "0.00" });
+		expect(await bureauWallet(t)).toEqual({ available: "1000.00", reserved: "0.00" });
+		expect(await count("order_settlements", t)).toBe(0);
+	});
+
+	it("a failed order releases the whole reservation", async () => {
+		const t = await pricedTenant("ord total release");
+		const id = await placeOnline(t, companyWith([partner(), partner()]));
+		await withUserTransaction(staff(t), (c) => cancelOrder(c, staff(t), id, "cancelled_by_staff"));
+		expect(await clientWallet(t)).toEqual({ available: "1000.00", reserved: "0.00" });
 	});
 });

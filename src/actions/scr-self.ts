@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 
 import { getScrTermSettings } from "@/actions/settings";
+import { requestMeta } from "@/lib/account/request-meta";
 import { getRequiredSession } from "@/lib/auth/session";
 import { config } from "@/lib/config";
 import { generateScrCode } from "@/lib/scr/code";
@@ -47,8 +48,7 @@ export interface ConfirmResult { status: "authorized" | "refused" | "invalid_cod
 
 export async function confirmScrSelfAuthorization(token: string, code: string, decision: "authorize" | "refuse"): Promise<ConfirmResult> {
   const provided = code.trim().toUpperCase().replace(/\s+/g, "");
-  const requestHeaders = await headers();
-  const ip = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() || requestHeaders.get("x-real-ip") || null;
+  const { ip } = requestMeta(await headers());
   const result = await confirmPublicScrAuthorization(token, provided, decision, ip);
   revalidatePath("/scr");
   const messages = { authorized: "Autoriza\u00e7\u00e3o concedida. Obrigado!", refused: "Autoriza\u00e7\u00e3o recusada.", invalid_code: "C\u00f3digo incorreto. Confira o e-mail.", not_found: "Autoriza\u00e7\u00e3o n\u00e3o encontrada.", already: "Esta autoriza\u00e7\u00e3o j\u00e1 foi respondida.", expired: "Este pedido de autoriza\u00e7\u00e3o expirou. Pe\u00e7a um novo a quem solicitou a pesquisa." };
