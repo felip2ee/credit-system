@@ -76,6 +76,14 @@ mkdir -p /tmp/credit-system-documents
 
 O container do Postgres não volta sozinho, e o `/tmp` é apagado no reinício. Sem esses dois comandos, o `npm run dev` falha com `ECONNREFUSED ... 54329` ou o `/api/health/ready` responde 503.
 
+### Depois de `git pull` ou de trocar de branch
+
+```bash
+DATABASE_OWNER_URL=postgres://postgres:test@localhost:54329/credit_system npm run db:migrate
+```
+
+Aplica as migrations novas sem apagar dados. Sem isso, o app falha com erros como `relation "affiliate_codes" does not exist` ou o tick responde 500 (`42883`, função inexistente).
+
 ### Recriar o banco do zero
 
 ```bash
