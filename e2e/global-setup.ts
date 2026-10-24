@@ -95,8 +95,10 @@ export default async function globalSetup() {
 
     const product = await client.query<{ id: string }>("select id from products where code = $1", [E2E.product]);
     const productId = product.rows[0].id;
-    await seedBureauCost(owner, { bureauId, productId, cost: "5.00", setBy: staffId });
-    await seedCatalogItem(owner, { bureauId, productId, salePrice: E2E.salePrice, updatedBy: staffId });
+    // The catalog seeds the products inactive: the superadmin activates them before a Bureau can sell them.
+    await owner.query("update products set active = true where id = $1", [productId]);
+    await seedBureauCost(owner, { bureauId, productId, cost: "5.00", costPerPartner: "2.00", setBy: staffId });
+    await seedCatalogItem(owner, { bureauId, productId, salePrice: E2E.salePrice, salePricePerPartner: E2E.salePricePerPartner, updatedBy: staffId });
     await seedWalletTopup(owner, { bureauId, amount: "500.00", createdBy: staffId });
     await seedClientWalletTopup(owner, { clientProfileId: clientId, amount: "100.00", createdBy: staffId });
   } catch (error) {

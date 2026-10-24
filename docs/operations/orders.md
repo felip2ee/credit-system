@@ -15,7 +15,23 @@ Spec: [docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md](../sup
 | `completed` | capturado; aguarda parecer IA e/ou liberação | `released` |
 | `released` | entrega visível ao comprador | `completed` (revogação) |
 | `failed` | falha terminal; reserva liberada | — |
-| `cancelled` | recusa, expiração, prazo de pagamento ou cancelamento da equipe; reserva liberada | — |
+| `cancelled` | recusa, expiração, prazo de pagamento ou cancelamento da equipe ou do cliente; reserva liberada | — |
+
+### Fluxo do pedido no portal
+
+1. O cliente escolhe o dossiê, informa os dados e (se houver membros) marca a declaração do comprador. O valor total é reservado da carteira.
+2. Cada membro (responsável da empresa e sócios) recebe o pedido de autorização SCR. Quando um membro autoriza, a consulta dele passa a `processing` na hora.
+3. Quando todos autorizam, o pedido fica `ready` e o próximo tick o executa.
+
+### Estado do aceite por membro
+
+A página do pedido lista cada membro com o estado: pendente, autorizado, recusado ou vencido. Se um membro recusa ou deixa vencer, o pedido não roda e a página mostra o aviso.
+
+### Cancelamento pelo cliente
+
+- O cliente cancela o próprio pedido em `awaiting_authorization` ou `ready`, com o botão "Cancelar pedido".
+- O pedido vai para `cancelled` (`cancelled_by_client`), a reserva volta ao saldo e a auditoria registra o evento na mesma transação.
+- Depois de `executing`, o cliente não cancela.
 
 ## 2. Prazos
 
