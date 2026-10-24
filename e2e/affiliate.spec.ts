@@ -1,0 +1,145 @@
+import { expect, test, type Page } from "@playwright/test";
+
+import { CLIENT_STATE, dbAs, dbQuery, E2E, E2E_AFFILIATE_PCT, openOrder, resetRateLimit, runTick, SUPERADMIN_STATE, validCpf } from "./fixtures";
+
+// Margin of the e2e product: price - cost = (20 + 5) - (5 + 2) = 18. Commission = 50% of it.
+const COMMISSION = ((20 + 5 - (5 + 2)) * E2E_AFFILIATE_PCT) / 100;
+const CONVERTED = 4;
+const WITHDRAWN = COMMISSION - CONVERTED;
+
+// Smallest valid PDF: the receipt upload checks the file type and scans it with ClamAV.
+const RECEIPT_PDF = Buffer.from(
+  "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
+    "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R/Size 4>>\n%%EOF\n",
+);
+
+type Identity = { userId: string; role: "client"; bureauId: string };
+
+async function profileOf(email: string): Promise<Identity> {
+  const rows = await dbQuery<{ id: string; bureau_id: string }>("select id, bureau_id from profiles where email = $1", [email]);
+  return { userId: rows[0].id, role: "client", bureauId: rows[0].bureau_id };
+}
+
+const walletOf = async (profileId: string) =>
+  Number((await dbQuery<{ available: string }>("select available from affiliate_wallets where profile_id = $1", [profileId]))[0].available);
+
+const creditsOf = async (profileId: string) =>
+  Number((await dbQuery<{ available: string }>("select available from client_wallets where client_profile_id = $1", [profileId]))[0].available);
+
+async function registerThroughLink(page: Page, link: string, email: string) {
+  const url = new URL(link);
+  await resetRateLimit();
+  await page.goto(`${url.pathname}${url.search}`);
+  await page.getByLabel("Nome completo").fill("e2e Indicado");
+  await page.getByLabel("CPF").fill(validCpf());
+  await page.getByLabel("E-mail").fill(email);
+  await page.getByLabel("Celular (com DDD)").fill(`11 9${Math.floor(10_000_000 + Math.random() * 89_999_999)}`);
+  await page.getByLabel("Senha", { exact: true }).fill("e2e-referred-password-123");
+  await page.getByLabel("Confirmar senha").fill("e2e-referred-password-123");
+  await page.getByLabel(/Li e aceito os/).check();
+  await page.getByRole("button", { name: "Criar conta" }).click();
+  await expect(page).toHaveURL(/\/portal/);
+}
+
+test.use({ storageState: CLIENT_STATE, permissions: ["clipboard-read", "clipboard-write"] });
+
+test("referred client buys, commission waits the hold, then converts to credits and is paid out by the superadmin", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  const affiliate = await profileOf(E2E.client.email);
+  const referredEmail = `e2e-referred-${Date.now()}@example.test`;
+
+  // A copies the link.
+  await page.goto("/portal/afiliacao");
+  await page.getByRole("button", { name: "Copiar link de indicação" }).click();
+  await expect(page.getByRole("button", { name: "Copiar link de indicação" })).toHaveText(/Copiado/);
+  const link = await page.evaluate(() => navigator.clipboard.readText());
+  expect(link).toContain(`/b/${E2E.bureauSlug}/cadastro?ref=`);
+
+  // B registers through the link and buys online.
+  const referredContext = await browser.newContext();
+  try {
+    const referredPage = await referredContext.newPage();
+    await registerThroughLink(referredPage, link, referredEmail);
+    const referred = await profileOf(referredEmail);
+    const referrals = await dbQuery(
+      "select 1 from affiliate_referrals where affiliate_profile_id = $1 and referred_profile_id = $2",
+      [affiliate.userId, referred.userId],
+    );
+    expect(referrals).toHaveLength(1);
+
+    // Buying needs a confirmed e-mail and credits; the commission needs a confirmed phone. The run sets them directly.
+    await dbQuery('update "user" set email_verified = true where email = $1', [referredEmail]);
+    const [staff] = await dbQuery<{ id: string }>("select id from profiles where email = $1", [E2E.staff.email]);
+    await dbQuery("select * from client_wallet_post_entry($1, 'topup', 100, $2, 'seed', null, $3)", [referred.userId, `seed-${Date.now()}`, staff.id]);
+    await dbAs({ userId: referred.userId, role: "client", bureauId: referred.bureauId }, async (query) => {
+      await query("set local session_replication_role = replica");
+      await query("update profiles set phone_verified_at = now() where id = $1", [referred.userId]);
+    });
+    const dossierId = await openOrder(referredPage);
+
+    // The worker captures an order when its research ends: the run calls the same SQL function as the buyer.
+    await dbAs(referred, async (query) => {
+      const [captured] = await query("select ok, reason from capture_order($1)", [dossierId]);
+      expect(captured).toMatchObject({ ok: true });
+    });
+  } finally {
+    await referredContext.close();
+  }
+
+  // A sees the commission in the hold.
+  await page.goto("/portal/afiliacao");
+  await expect(page.getByText("Em carência").first()).toBeVisible();
+  await expect(page.getByText(/R\$\s*9,00/).first()).toBeVisible();
+  expect(await walletOf(affiliate.userId)).toBe(0);
+
+  // The hold ends: the run moves release_at to the past and calls the tick.
+  await dbQuery("update affiliate_commissions set release_at = now() - interval '1 day' where affiliate_profile_id = $1", [affiliate.userId]);
+  await expect
+    .poll(async () => {
+      await runTick(page.request);
+      return walletOf(affiliate.userId);
+    }, { message: "tick releases the commission", timeout: 90_000, intervals: [1_000] })
+    .toBe(COMMISSION);
+
+  // A converts part to credits.
+  const creditsBefore = await creditsOf(affiliate.userId);
+  await page.goto("/portal/afiliacao");
+  await page.getByLabel("Valor a converter (R$)").fill(CONVERTED.toFixed(2));
+  await page.getByRole("button", { name: "Usar como crédito" }).click();
+  await expect(page.getByText("Valor convertido em créditos.")).toBeVisible();
+  expect(await creditsOf(affiliate.userId)).toBeCloseTo(creditsBefore + CONVERTED, 2);
+
+  // A asks for a withdrawal of the rest.
+  await page.goto("/portal/afiliacao/saque");
+  await page.getByLabel("Valor (R$)").fill(WITHDRAWN.toFixed(2));
+  await page.getByLabel("Tipo da chave PIX").selectOption("email");
+  await page.getByLabel("Chave PIX", { exact: true }).fill(E2E.client.email);
+  await page.getByLabel("A chave PIX está no meu nome").check();
+  await page.getByRole("button", { name: "Solicitar saque" }).click();
+  await expect(page.getByText("Saque solicitado.")).toBeVisible();
+  expect(await walletOf(affiliate.userId)).toBe(0);
+
+  // The superadmin sees the queue and marks the withdrawal as paid with the receipt.
+  const adminContext = await browser.newContext({ storageState: SUPERADMIN_STATE });
+  try {
+    const admin = await adminContext.newPage();
+    await admin.goto("/superadmin/saques");
+    await admin.getByRole("link", { name: "Abrir saque de e2e Cliente" }).click();
+    await admin.getByLabel(/Comprovante do pagamento/).setInputFiles({ name: "comprovante.pdf", mimeType: "application/pdf", buffer: RECEIPT_PDF });
+    await admin.getByRole("button", { name: "Marcar como pago" }).click();
+    await admin.getByRole("alertdialog").getByRole("button", { name: "Confirmar pagamento" }).click();
+    await expect
+      .poll(async () => (await dbQuery<{ status: string }>("select status from affiliate_withdrawals where profile_id = $1", [affiliate.userId]))[0]?.status, {
+        message: "withdrawal is paid",
+      })
+      .toBe("paid");
+  } finally {
+    await adminContext.close();
+  }
+
+  await page.goto("/portal/afiliacao/saque");
+  await expect(page.getByText("Pago", { exact: true })).toBeVisible();
+});

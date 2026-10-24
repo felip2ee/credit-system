@@ -15,6 +15,7 @@ export const E2E = {
     cpf: "529.982.247-25",
     phone: "+5511999990001",
   },
+  superadmin: { email: "e2e-superadmin@example.test", password: "e2e-superadmin-password-123" },
   disabled: { email: "e2e-disabled@example.test", password: "e2e-disabled-password-123" },
   product: "dossie_empresarial",
   salePrice: "20.00",
@@ -28,6 +29,10 @@ export const AUTH_DIR = "e2e/.auth";
 export const STAFF_STATE = `${AUTH_DIR}/staff.json`;
 export const STAFF_SECRET_FILE = `${AUTH_DIR}/staff-secret.txt`;
 export const CLIENT_STATE = `${AUTH_DIR}/client.json`;
+export const SUPERADMIN_STATE = `${AUTH_DIR}/superadmin.json`;
+export const SUPERADMIN_SECRET_FILE = `${AUTH_DIR}/superadmin-secret.txt`;
+// Default affiliate commission (% of the Bureau margin) that global-setup sets for the e2e Bureau.
+export const E2E_AFFILIATE_PCT = 50;
 
 export const DATABASE_OWNER_URL =
   process.env.TEST_DATABASE_OWNER_URL ?? "postgres://postgres:test@127.0.0.1:54329/credit_system";
@@ -83,6 +88,28 @@ export async function authorizeScr(page: Page, request: APIRequestContext, dossi
   }
 }
 
+// Opens an order on /portal/pesquisas/nova (Dossiê Empresarial with 1 partner) and returns the dossier id.
+export async function openOrder(page: Page): Promise<string> {
+  const stamp = Date.now();
+  await page.goto("/portal/pesquisas/nova");
+  await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();
+  await page.getByLabel("CNPJ da empresa").fill(validCnpj());
+  await page.getByLabel("Razão social").fill("e2e Empresa Portal");
+  await page.getByLabel("E-mail do responsável").fill(`e2e-resp-${stamp}@example.test`);
+  await page.getByRole("button", { name: "Adicionar sócio" }).click();
+  await page.getByLabel("Nome do sócio 1").fill("e2e Sócio Portal");
+  await page.getByLabel("CPF do sócio 1").fill(validCpf());
+  await page.getByLabel("E-mail do sócio 1").fill(`e2e-partner-${stamp}@example.test`);
+  // The declaration is mandatory: the confirm button stays disabled until the buyer accepts it.
+  const confirm = page.getByRole("button", { name: "Confirmar pedido" });
+  await expect(confirm).toBeDisabled();
+  await page.getByLabel("Li e concordo com a declaração acima.").check();
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(page).toHaveURL(/\/portal\/pesquisas\/[0-9a-f-]{36}$/);
+  return page.url().split("/").pop() as string;
+}
+
 // better-auth limits sign-ins per IP (3 per 10 s) and every e2e request comes from 127.0.0.1.
 export async function resetRateLimit(): Promise<void> {
   await dbQuery("delete from rate_limit");
@@ -112,4 +139,30 @@ export function validCnpj(): string {
   digits.push(check(digits));
   digits.push(check(digits));
   return digits.join("").replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3.$4-$5");
+}
+
+// Runs `work` in one owner transaction with the app identity set, as withUserTransaction does for the app.
+export async function dbAs<T>(
+  identity: { userId: string; role: string; bureauId: string | null },
+  work: (query: (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>) => Promise<T>,
+): Promise<T> {
+  if (!pool) assertE2eDatabase(DATABASE_OWNER_URL);
+  pool ??= new Pool({ connectionString: DATABASE_OWNER_URL, max: 2 });
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query("select set_config('app.user_id', $1, true), set_config('app.user_role', $2, true), set_config('app.bureau_id', $3, true)", [
+      identity.userId,
+      identity.role,
+      identity.bureauId ?? "",
+    ]);
+    const result = await work(async (sql, params = []) => (await client.query(sql, params)).rows);
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }

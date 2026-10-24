@@ -10,7 +10,7 @@ import {
   seedClientWalletTopup,
   seedWalletTopup,
 } from "../src/test/seed";
-import { assertE2eDatabase, AUTH_DIR, DATABASE_OWNER_URL, E2E } from "./fixtures";
+import { assertE2eDatabase, AUTH_DIR, DATABASE_OWNER_URL, E2E, E2E_AFFILIATE_PCT } from "./fixtures";
 
 type Fk = { child: string; childCols: string[]; parentCols: string[] };
 
@@ -49,7 +49,7 @@ async function cleanup(client: PoolClient) {
   await client.query("commit");
 }
 
-async function insertUser(client: PoolClient, input: { email: string; password: string; name: string; role: string; bureauId: string }) {
+async function insertUser(client: PoolClient, input: { email: string; password: string; name: string; role: string; bureauId: string | null }) {
   const id = randomUUID();
   await client.query('insert into "user" (id, name, email, email_verified) values ($1, $2, $3, true)', [id, input.name, input.email]);
   await client.query(
@@ -75,6 +75,7 @@ export default async function globalSetup() {
     const bureau = await client.query<{ id: string }>("insert into bureaus (name, slug) values ('e2e Bureau', $1) returning id", [E2E.bureauSlug]);
     const bureauId = bureau.rows[0].id;
     const staffId = await insertUser(client, { ...E2E.staff, name: "e2e Operador", role: "operator", bureauId });
+    await insertUser(client, { ...E2E.superadmin, name: "e2e Superadmin", role: "superadmin", bureauId: null });
     const disabledId = await insertUser(client, { ...E2E.disabled, name: "e2e Desativado", role: "operator", bureauId });
     const clientId = await insertUser(client, { ...E2E.client, name: "e2e Cliente", role: "client", bureauId });
     await client.query(
@@ -91,6 +92,10 @@ export default async function globalSetup() {
     await client.query("set local session_replication_role = replica");
     await client.query("update profiles set phone_e164 = $2, phone_verified_at = now() where id = $1", [clientId, E2E.client.phone]);
     await client.query("update profiles set is_active = false where id = $1", [disabledId]);
+    await client.query(
+      "insert into bureau_affiliate_settings (bureau_id, default_pct, updated_by) values ($1, $2, $3)",
+      [bureauId, E2E_AFFILIATE_PCT, staffId],
+    );
     await client.query("commit");
 
     const product = await client.query<{ id: string }>("select id from products where code = $1", [E2E.product]);
