@@ -15,6 +15,8 @@ const KIND_LABEL: Record<ClientLedgerRow["kind"], string> = {
   release: "Liberação",
   reversal: "Estorno",
   commission_credit: "Comissão convertida",
+  adjustment_credit: "Ajuste do Bureau",
+  adjustment_debit: "Ajuste do Bureau",
 };
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
