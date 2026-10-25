@@ -66,7 +66,7 @@ export function CompleteConsultationPage({ full, header, frame, opinion }: Compl
         </Section>
       )}
 
-      <Text style={{ fontSize: 7, color: MUTED, marginTop: 20, textAlign: "right" }}>
+      <Text style={{ fontSize: 9, color: MUTED, marginTop: 20, textAlign: "right" }}>
         Documento gerado automaticamente · {BRAND_NAME}
       </Text>
     </Page>

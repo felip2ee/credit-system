@@ -9,6 +9,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { failureMessage } from "@/lib/ui/failure-message";
 import { CLIENT_TOPUP_SUGGESTIONS } from "@/lib/validators/wallet";
 import { parseTopupInput } from "@/lib/wallet/topup-input";
 import { formatCurrency } from "@/lib/utils";
@@ -34,6 +35,22 @@ interface Charge {
 interface ClientTopupDialogProps {
   // Estado efetivo das cobranças recentes, vindo do servidor a cada router.refresh().
   charges: { id: string; status: PixChargeStatus }[];
+}
+
+function TopupFailure({ what }: { what: string }) {
+  const msg = failureMessage({ what, money: "not_charged", next: "Confira o valor e tente de novo." });
+  return (
+    <StatusBanner
+      tone="attention"
+      title={msg.title}
+      description={
+        <>
+          <p>{msg.money}</p>
+          <p>{msg.next}</p>
+        </>
+      }
+    />
+  );
 }
 
 export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
@@ -159,9 +176,9 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
                 aria-describedby={error ? "topup-error" : undefined}
               />
               {error && (
-                <p id="topup-error" role="alert" className="text-base text-destructive">
-                  {error}
-                </p>
+                <div id="topup-error">
+                  <TopupFailure what={error} />
+                </div>
               )}
             </div>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

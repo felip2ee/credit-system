@@ -1,15 +1,17 @@
 import type { ReactNode } from "react";
 import { View, Text, StyleSheet } from "@react-pdf/renderer";
 
+import { BRAND_COLORS, STATE_COLORS } from "@/lib/brand/tokens";
+
 // Renderizador de parecer de IA compartilhado pelos dois PDFs (PF rico e PJ
 // simples). Inclui o conversor markdown→react-pdf (títulos, listas, **negrito**,
 // tabelas) e o bloco de decisão (selo APTO + perfil + limite).
 
-const teal = "#0F6E6E";
-const gold = "#9A6A00";
-const slate = "#475569";
-const muted = "#6b7280";
-const border = "#e5e7eb";
+const teal = BRAND_COLORS.primary;
+const gold = STATE_COLORS.waiting.fg;
+const slate = BRAND_COLORS.mutedForeground;
+const muted = BRAND_COLORS.mutedForeground;
+const border = BRAND_COLORS.border;
 const A4_W = 595.28;
 const PAD_X = 42;
 const CONTENT_W = A4_W - PAD_X * 2;
@@ -20,9 +22,9 @@ const brl = (n: number | null | undefined) =>
     : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
 
 const APTITUDE_META: Record<string, { label: string; color: string }> = {
-  apt: { label: "APTO", color: "#2F9E44" },
-  apt_with_caveats: { label: "APTO COM RESSALVAS", color: "#F08C00" },
-  inapt: { label: "INAPTO", color: "#C92A2A" },
+  apt: { label: "APTO", color: STATE_COLORS.success.border },
+  apt_with_caveats: { label: "APTO COM RESSALVAS", color: STATE_COLORS.attention.border },
+  inapt: { label: "INAPTO", color: STATE_COLORS.danger.border },
 };
 
 const m = StyleSheet.create({
@@ -223,7 +225,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
           {opinion.resumo ? <Text style={[m.li, { marginTop: 6 }]}>{opinion.resumo}</Text> : null}
           {opinion.pontosFortes.length > 0 && (
             <>
-              <Text style={[m.sh, { color: "#2F9E44" }]}>Pontos fortes</Text>
+              <Text style={[m.sh, { color: STATE_COLORS.success.fg }]}>Pontos fortes</Text>
               {opinion.pontosFortes.map((p, i) => (
                 <Text key={i} style={m.li}>
                   <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{p.title}</Text>
@@ -234,7 +236,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
           )}
           {opinion.pontosAtencao.length > 0 && (
             <>
-              <Text style={[m.sh, { color: "#C92A2A" }]}>Pontos de atenção</Text>
+              <Text style={[m.sh, { color: STATE_COLORS.danger.fg }]}>Pontos de atenção</Text>
               {opinion.pontosAtencao.map((p, i) => (
                 <Text key={i} style={m.li}>
                   <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{p.title}</Text>

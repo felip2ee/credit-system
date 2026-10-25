@@ -25,7 +25,7 @@ export const markdownComponents: Components = {
   ),
   table: ({ children }) => (
     <div className="my-3 overflow-x-auto">
-      <table className="w-full border-collapse text-xs">{children}</table>
+      <table className="w-full border-collapse text-base">{children}</table>
     </div>
   ),
   th: ({ children }) => (

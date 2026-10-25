@@ -7,6 +7,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 
 const mailer = vi.hoisted(() => ({ sendMail: vi.fn(), senderDomain: vi.fn() }));
 vi.mock("@/lib/email/mailer", () => mailer);
+const cfg = vi.hoisted(() => ({ betterAuthUrl: "" }));
+vi.mock("@/lib/config", () => ({ config: cfg }));
 
 import { BRAND_COLORS } from "@/lib/brand/tokens";
 import { contrastRatio } from "@/lib/brand/contrast";
@@ -156,7 +158,7 @@ describe("sendEmailNotification and the site URL", () => {
 	beforeEach(() => {
 		mailer.sendMail.mockReset().mockResolvedValue({ messageId: "<provider@id>" });
 		mailer.senderDomain.mockReset().mockReturnValue("rainha.example.test");
-		vi.stubEnv("BETTER_AUTH_URL", `${SITE_URL}/`);
+		cfg.betterAuthUrl = `${SITE_URL}/`;
 	});
 
 	afterEach(() => vi.unstubAllEnvs());
@@ -164,6 +166,11 @@ describe("sendEmailNotification and the site URL", () => {
 	it("fills {{siteUrl}} from BETTER_AUTH_URL without a trailing slash", async () => {
 		expect(await sendEmailNotification(notification)).toMatchObject({ ok: true });
 		expect(mailer.sendMail.mock.calls[0][0].html).toBe(`<img src="${SITE_URL}/logo.png"><p>Maria</p>`);
+	});
+
+	it("returns config_error when the site URL is empty", async () => {
+		cfg.betterAuthUrl = "";
+		expect(await sendEmailNotification(notification)).toMatchObject({ ok: false, code: "config_error" });
 	});
 
 	it("does not let a queued parameter replace the site URL", async () => {

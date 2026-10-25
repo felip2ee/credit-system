@@ -11,6 +11,7 @@ import {
 } from "@react-pdf/renderer";
 
 import { BRAND_NAME } from "@/lib/brand/brand";
+import { STATE_COLORS } from "@/lib/brand/tokens";
 import { PDF_PAGE_PADDING_BOTTOM, PDF_PAGE_PADDING_TOP, PdfBrandFrame, type PdfFrame } from "./brand-frame";
 import { OpinionBlock, type OpinionForPdf } from "./markdown-pdf";
 
@@ -352,7 +353,7 @@ function ConsultationDocument({
               <Text
                 style={[
                   s.badge,
-                  { backgroundColor: smart.aprovado ? "#2F9E44" : "#C92A2A" },
+                  { backgroundColor: smart.aprovado ? STATE_COLORS.success.border : STATE_COLORS.danger.border },
                 ]}
               >
                 {smart.aprovado ? "Aprovado" : "Reprovado"}
@@ -379,7 +380,7 @@ function ConsultationDocument({
           <Section title="Fatores Smart">
             <View style={s.twoCol}>
               <View style={[s.col, { marginRight: 12 }]}>
-                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: "#2F9E44", marginBottom: 3 }}>
+                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: STATE_COLORS.success.fg, marginBottom: 3 }}>
                   Pontos positivos
                 </Text>
                 {data.positivas.length === 0 && (
@@ -393,7 +394,7 @@ function ConsultationDocument({
                 ))}
               </View>
               <View style={s.col}>
-                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: "#C92A2A", marginBottom: 3 }}>
+                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: STATE_COLORS.danger.fg, marginBottom: 3 }}>
                   Pontos de atenção
                 </Text>
                 {data.negativas.length === 0 && (

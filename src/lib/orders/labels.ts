@@ -2,16 +2,6 @@ import { statusInfo } from "@/lib/ui/status";
 
 import type { OrderMode, OrderState, OrderStateReason } from "./types";
 
-const ORDER_STATES: OrderState[] = [
-	"awaiting_payment",
-	"awaiting_authorization",
-	"ready",
-	"executing",
-	"completed",
-	"released",
-	"failed",
-	"cancelled",
-];
 const ORDER_REASONS: OrderStateReason[] = [
 	"scr_refused",
 	"scr_expired",
@@ -25,10 +15,6 @@ const ORDER_REASONS: OrderStateReason[] = [
 ];
 
 // Rótulos vêm do vocabulário único (`@/lib/ui/status`). O motivo mostra a explicação, que diz o que houve.
-export const ORDER_STATE_LABEL = Object.fromEntries(
-	ORDER_STATES.map((s) => [s, statusInfo("order", s, "client").label]),
-) as Record<OrderState, string>;
-
 export const ORDER_REASON_LABEL = Object.fromEntries(
 	ORDER_REASONS.map((r) => [r, statusInfo("orderReason", r, "client").explanation]),
 ) as Record<OrderStateReason, string>;

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { failureMessage } from "@/lib/ui/failure-message";
 import { formatCurrency } from "@/lib/utils";
 
 import { withdrawalPreview, type WithdrawalFee } from "./affiliate-rules";
@@ -97,11 +98,27 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
           A chave PIX está no meu nome
         </Label>
       </div>
-      {error && <StatusBanner tone="attention" title={error} />}
+      {error && <WithdrawalFailure what={error} />}
       {done && <StatusBanner tone="success" title="Saque solicitado." description="Você será avisado quando o pagamento sair." />}
       <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={pending || !ownKey || !preview.valid}>
         {pending ? "Enviando..." : "Solicitar saque"}
       </Button>
     </form>
+  );
+}
+
+function WithdrawalFailure({ what }: { what: string }) {
+  const msg = failureMessage({ what, money: "not_charged", next: "Confira os dados e tente de novo." });
+  return (
+    <StatusBanner
+      tone="attention"
+      title={msg.title}
+      description={
+        <>
+          <p>{msg.money}</p>
+          <p>{msg.next}</p>
+        </>
+      }
+    />
   );
 }

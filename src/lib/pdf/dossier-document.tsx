@@ -58,7 +58,7 @@ function DossierDocument({
             <Text style={s.h}>Parecer do quadro societário</Text>
             <OpinionBlock opinion={data.report} />
           </View>
-          <Text style={{ fontSize: 7, color: muted, marginTop: 20, textAlign: "right" }}>
+          <Text style={{ fontSize: 9, color: muted, marginTop: 20, textAlign: "right" }}>
             Documento gerado automaticamente · {BRAND_NAME}
           </Text>
         </Page>

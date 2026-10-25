@@ -15,6 +15,7 @@ const publicPaths = [
   "/api/internal/orders/tick",
   "/api/health/live",
   "/api/health/ready",
+  "/manifest.webmanifest",
 ];
 
 const publicPrefixes = ["/b/", "/autorizacao-scr/", "/cadastro/"];

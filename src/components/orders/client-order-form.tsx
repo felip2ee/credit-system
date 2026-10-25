@@ -28,6 +28,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { toCents } from "@/lib/catalog/money";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { clientOrderSchema, MAX_PARTNERS } from "@/lib/validators/order";
+import { failureMessage } from "@/lib/ui/failure-message";
 import { formatCurrency } from "@/lib/utils";
 
 export interface ClientOrderProduct extends ProductPrices {
@@ -52,6 +53,22 @@ interface FormValues {
 	contactPhone: string;
 	partners: { name: string; document: string; email: string }[];
 	declarationAccepted: boolean;
+}
+
+function FailureBanner({ what, next }: { what: string; next: string }) {
+	const msg = failureMessage({ what, money: "not_charged", next });
+	return (
+		<StatusBanner
+			tone="attention"
+			title={msg.title}
+			description={
+				<>
+					<p>{msg.money}</p>
+					<p>{msg.next}</p>
+				</>
+			}
+		/>
+	);
 }
 
 export function ClientOrderForm({ products, holderType, selfDocumentMasked, available, declaration }: ClientOrderFormProps) {
@@ -312,7 +329,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 							description="Nada foi cobrado. Compre créditos e volte para confirmar."
 						/>
 					)}
-					{serverError && <StatusBanner tone="attention" title="Não foi possível abrir o pedido" description={serverError} />}
+					{serverError && <FailureBanner what={serverError} next="Revise os dados e tente de novo." />}
 				</CardContent>
 			</Card>
 			<div className="sticky bottom-20 z-30 md:bottom-4">

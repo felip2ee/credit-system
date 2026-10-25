@@ -17,6 +17,7 @@ describe("middleware public paths", () => {
     "/api/internal/orders/tick",
     "/api/health/live",
     "/api/health/ready",
+    "/manifest.webmanifest",
     "/termos",
     "/privacidade",
     "/cadastro/confirmar-email",

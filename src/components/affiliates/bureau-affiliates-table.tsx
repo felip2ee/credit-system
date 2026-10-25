@@ -96,7 +96,7 @@ function AffiliateRow({ affiliate }: { affiliate: BureauAffiliate }) {
             placeholder="padrão"
             aria-label={`% própria de ${affiliate.name}`}
             disabled={isPending}
-            className="h-8 w-24"
+            className="h-11 w-24"
           />
           <Button type="button" size="sm" variant="outline" onClick={save} disabled={isPending}>
             {isPending ? "Salvando..." : "Salvar"}
