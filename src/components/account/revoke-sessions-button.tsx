@@ -29,7 +29,7 @@ export function RevokeSessionsButton() {
 
   return (
     <div className="space-y-2">
-      <Button type="button" variant="outline" onClick={revoke} disabled={pending}>
+      <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={revoke} disabled={pending}>
         {pending ? "Desconectando..." : "Sair dos outros dispositivos"}
       </Button>
       {message && <StatusBanner tone={message.isError ? "attention" : "success"} title={message.text} />}

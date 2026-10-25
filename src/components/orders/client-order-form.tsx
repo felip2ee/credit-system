@@ -159,7 +159,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 							<label
 								key={p.code}
 								htmlFor={`product-${p.code}`}
-								className="flex min-h-12 cursor-pointer flex-col gap-1 rounded-md border-2 p-3 has-[[data-state=checked]]:border-primary sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+								className="flex min-h-12 cursor-pointer flex-col gap-1 rounded-card border border-input p-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-brand-soft sm:flex-row sm:items-center sm:justify-between sm:gap-3"
 							>
 								<span className="flex items-center gap-3">
 									<RadioGroupItem id={`product-${p.code}`} value={p.code} />
@@ -227,7 +227,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 					</CardHeader>
 					<CardContent className="space-y-4">
 						{fields.map((field, i) => (
-							<div key={field.id} className="space-y-3 rounded-md border-2 p-3">
+							<div key={field.id} className="space-y-3 rounded-card border border-border bg-muted p-3">
 								<div className="space-y-1">
 									<Label htmlFor={`partner-name-${i}`}>Nome do sócio {i + 1}</Label>
 									<Input
@@ -262,7 +262,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 									/>
 									{errors.partners?.[i]?.email && <p className="text-base text-destructive">{errors.partners[i]?.email?.message}</p>}
 								</div>
-								<Button type="button" variant="outline" onClick={() => remove(i)} aria-label={`Remover sócio ${i + 1}`}>
+								<Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => remove(i)} aria-label={`Remover sócio ${i + 1}`}>
 									<Trash2 aria-hidden />
 									Remover
 								</Button>
@@ -272,6 +272,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 						<Button
 							type="button"
 							variant="outline"
+							className="w-full sm:w-auto"
 							disabled={fields.length >= MAX_PARTNERS}
 							onClick={() => append({ name: "", document: "", email: "" })}
 						>
@@ -287,7 +288,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 				<CardContent className="space-y-4 p-6">
 					{hasMembers && (
 						<div className="space-y-2">
-							<p className="whitespace-pre-line rounded-md border-2 bg-muted/40 p-3 text-base" id="declaration-text">
+							<p className="whitespace-pre-line rounded-card border border-border bg-muted p-3 text-base" id="declaration-text">
 								{declaration.bodyMd}
 							</p>
 							<div className="flex min-h-12 items-start gap-3">
@@ -313,13 +314,13 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 					<dl className="grid grid-cols-2 gap-4">
 						<div>
 							<dt className="text-muted-foreground">Total</dt>
-							<dd className="text-2xl font-bold" aria-live="polite">
+							<dd className="text-2xl font-bold tabular-nums" aria-live="polite">
 								{formatCurrency(totalCents / 100)}
 							</dd>
 						</div>
 						<div>
 							<dt className="text-muted-foreground">Saldo disponível</dt>
-							<dd className="text-2xl font-bold">{formatCurrency(Number(available))}</dd>
+							<dd className="text-2xl font-bold tabular-nums">{formatCurrency(Number(available))}</dd>
 						</div>
 					</dl>
 					{insufficient && (
@@ -334,11 +335,11 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 			</Card>
 			<div className="sticky bottom-20 z-30 md:bottom-4">
 				{insufficient ? (
-					<Button asChild size="lg" className="w-full">
+					<Button asChild size="lg" glow className="w-full">
 						<Link href="/portal/credits">Comprar créditos</Link>
 					</Button>
 				) : (
-					<Button type="submit" size="lg" className="w-full" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
+					<Button type="submit" size="lg" glow className="w-full" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
 						{isPending && <Loader2 aria-hidden className="animate-spin" />}
 						{isPending ? "Enviando..." : "Confirmar pedido"}
 					</Button>

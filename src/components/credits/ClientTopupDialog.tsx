@@ -134,7 +134,9 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Recarregar</Button>
+      <Button variant="onBrand" size="lg" onClick={() => setOpen(true)}>
+        Recarregar
+      </Button>
       <Dialog
         open={open}
         onClose={close}
@@ -190,7 +192,7 @@ export function ClientTopupDialog({ charges }: ClientTopupDialogProps) {
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={isPending || value === ""}>
+              <Button type="submit" glow disabled={isPending || value === ""}>
                 {isPending ? "Gerando PIX..." : "Gerar PIX"}
               </Button>
             </div>

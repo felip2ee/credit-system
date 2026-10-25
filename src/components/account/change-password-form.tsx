@@ -8,8 +8,8 @@ import { z } from "zod";
 import { authClient } from "@/lib/auth/client";
 import { newPasswordSchema } from "@/lib/validators/password";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/auth/password-input";
+import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 
 const schema = newPasswordSchema.and(
@@ -53,24 +53,18 @@ export function ChangePasswordForm() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-      <div className="space-y-2">
-        <Label htmlFor="currentPassword">Senha atual</Label>
-        <Input id="currentPassword" type="password" autoComplete="current-password" {...register("currentPassword")} />
-        {errors.currentPassword && <p className="text-base text-destructive">{errors.currentPassword.message}</p>}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="password">Nova senha</Label>
-        <Input id="password" type="password" autoComplete="new-password" {...register("password")} />
-        {errors.password && <p className="text-base text-destructive">{errors.password.message}</p>}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="confirm">Confirmar nova senha</Label>
-        <Input id="confirm" type="password" autoComplete="new-password" {...register("confirm")} />
-        {errors.confirm && <p className="text-base text-destructive">{errors.confirm.message}</p>}
-      </div>
+      <Field id="currentPassword" label="Senha atual" error={errors.currentPassword?.message}>
+        {(a) => <PasswordInput autoComplete="current-password" {...a} {...register("currentPassword")} />}
+      </Field>
+      <Field id="password" label="Nova senha" error={errors.password?.message}>
+        {(a) => <PasswordInput {...a} {...register("password")} />}
+      </Field>
+      <Field id="confirm" label="Confirmar nova senha" error={errors.confirm?.message}>
+        {(a) => <PasswordInput {...a} {...register("confirm")} />}
+      </Field>
       {error && <StatusBanner tone="attention" title={error} />}
       {done && <StatusBanner tone="success" title="Senha alterada." description="Os outros dispositivos foram desconectados." />}
-      <Button type="submit" disabled={isSubmitting}>
+      <Button type="submit" className="w-full sm:w-auto" disabled={isSubmitting}>
         {isSubmitting ? "Salvando..." : "Alterar senha"}
       </Button>
     </form>

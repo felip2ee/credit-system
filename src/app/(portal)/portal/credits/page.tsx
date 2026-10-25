@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { QrCode } from "lucide-react";
 
 import { ClientBalance } from "@/components/credits/ClientBalance";
 import { ClientLedgerTable } from "@/components/credits/ClientLedgerTable";
 import { ClientTopupDialog } from "@/components/credits/ClientTopupDialog";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { ListRow } from "@/components/ui/list-row";
+import { SectionHeader } from "@/components/ui/section-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatusBanner } from "@/components/ui/status-banner";
 import type { StateTone } from "@/components/ui/state-tone";
@@ -59,37 +62,39 @@ export default async function ClientCreditsPage() {
             (data.status.emailVerified ? (
               <ClientTopupDialog charges={data.charges.map(({ id, status }) => ({ id, status }))} />
             ) : (
-              <p className="text-muted-foreground">Confirme seu e-mail para comprar créditos.</p>
+              <p className="text-base font-bold">Confirme seu e-mail para comprar créditos.</p>
             ))}
         </ClientBalance>
       ) : (
         <StatusBanner tone="attention" title="Não encontramos sua carteira." description="Fale com o suporte para resolver." />
       )}
       {data.charges.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-xl">Recargas recentes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="divide-y">
+        <section className="space-y-3">
+          <SectionHeader title="Recargas recentes" />
+          <Card>
+            <ul className="divide-y divide-border">
               {data.charges.slice(0, RECENT_CHARGES).map((c) => (
-                <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                  <span>
-                    {formatCurrency(Number(c.amount))} · {formatDateTime(c.createdAt)}
-                  </span>
-                  <span className="flex items-center gap-3">
-                    <StatusBadge tone={CHARGE_STATUS[c.status].tone} label={CHARGE_STATUS[c.status].label} />
-                    {c.status === "paid" && (
-                      <Link href={`/portal/credits/receipts/${c.id}`} className="inline-flex min-h-12 items-center underline">
-                        Recibo
-                      </Link>
-                    )}
-                  </span>
+                <li key={c.id}>
+                  <ListRow
+                    icon={QrCode}
+                    title={formatCurrency(Number(c.amount))}
+                    subtitle={
+                      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span>{formatDateTime(c.createdAt)}</span>
+                        <StatusBadge tone={CHARGE_STATUS[c.status].tone} label={CHARGE_STATUS[c.status].label} />
+                        {c.status === "paid" && (
+                          <Link href={`/portal/credits/receipts/${c.id}`} className="inline-flex min-h-12 items-center font-bold text-primary underline">
+                            Recibo
+                          </Link>
+                        )}
+                      </span>
+                    }
+                  />
                 </li>
               ))}
             </ul>
-          </CardContent>
-        </Card>
+          </Card>
+        </section>
       )}
       <ClientLedgerTable
         key={ledgerRows[0]?.id ?? "empty"}

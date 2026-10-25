@@ -7,15 +7,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Mail } from "lucide-react";
+
+import { AuthHeading } from "@/components/auth/auth-heading";
+import { IconInput } from "@/components/auth/icon-input";
+import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 
 const schema = z.object({
@@ -42,17 +38,12 @@ export default function ResetPasswordPage() {
     setSent(true);
   };
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl">Recuperar senha</CardTitle>
-        <CardDescription>
-          Enviaremos um link de redefinição por e-mail
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <section className="w-full max-w-md space-y-8">
+      <AuthHeading title="Recuperar senha" description="Enviaremos um link de redefinição por e-mail" />
+      <div>
         {sent ? (
           <div className="space-y-4 text-center">
-            <p className="text-base text-muted-foreground">
+            <p className="text-lg text-muted-foreground">
               Se houver uma conta com esse e-mail, um link de redefinição foi
               enviado. Verifique sua caixa de entrada.
             </p>
@@ -62,22 +53,11 @@ export default function ResetPasswordPage() {
           </div>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                {...register("email")}
-              />
-              {errors.email && (
-                <p className="text-base text-destructive">
-                  {errors.email.message}
-                </p>
-              )}
-            </div>
+            <Field id="email" label="E-mail" error={errors.email?.message}>
+              {(a) => <IconInput icon={Mail} type="email" autoComplete="email" {...a} {...register("email")} />}
+            </Field>
             {error && <StatusBanner tone="attention" title={error} />}
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" size="lg" glow className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Enviando..." : "Enviar link"}
             </Button>
             <Button asChild variant="ghost" className="w-full">
@@ -85,7 +65,7 @@ export default function ResetPasswordPage() {
             </Button>
           </form>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

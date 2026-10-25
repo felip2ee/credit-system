@@ -17,10 +17,10 @@ export default async function PortalOnboardingLayout({ children }: { children: R
   if (status.termsAccepted) redirect("/portal");
 
   return (
-    <div className="area-portal flex min-h-screen flex-col bg-muted/30">
+    <div className="area-portal flex min-h-screen flex-col bg-surface">
       <IdleTimeout />
-      <header className="border-b-2 bg-background">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
+      <header className="border-b border-border bg-background">
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-screen py-3">
           <BrandLogo variant="full" />
           <form action={signOut}>
             <Button type="submit" variant="outline">
@@ -30,7 +30,7 @@ export default async function PortalOnboardingLayout({ children }: { children: R
           </form>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-screen py-6">{children}</main>
       <Toaster />
     </div>
   );

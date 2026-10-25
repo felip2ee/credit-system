@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { OrderStateBadge } from "@/components/orders/client-order-list";
@@ -54,7 +55,8 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 
 	return (
 		<div className="space-y-6">
-			<Link href="/portal/pesquisas" className="inline-flex min-h-12 items-center underline">
+			<Link href="/portal/pesquisas" className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
+				<ArrowLeft aria-hidden className="size-5" />
 				Voltar às pesquisas
 			</Link>
 			<PageHeader title={order.subjectName} description={`${order.subjectDocumentMasked} · ${formatDateTime(order.createdAt)}`} />
@@ -63,7 +65,9 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 					{steps && <Stepper steps={steps} />}
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<OrderStateBadge state={order.state} reason={null} />
-						{order.price !== null && <p className="text-muted-foreground">Valor: {formatCurrency(Number(order.price))}</p>}
+						{order.price !== null && <p className="text-muted-foreground">
+							Valor: <span className="font-bold tabular-nums">{formatCurrency(Number(order.price))}</span>
+						</p>}
 					</div>
 					{!ended && orderStepLines(order).map((line) => <p key={line}>{line}</p>)}
 				</CardContent>

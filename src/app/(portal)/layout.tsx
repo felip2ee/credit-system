@@ -27,11 +27,11 @@ export default async function PortalLayout({ children }: { children: React.React
   const items = portalNavItems({ credits: canReadCredits, affiliates: hasPermission(session, "affiliates:read") });
 
   return (
-    <div className="area-portal flex min-h-screen flex-col bg-muted/30">
+    <div className="area-portal flex min-h-screen flex-col bg-surface">
       <IdleTimeout />
       <PortalHeader items={items} balance={headerBalance(canReadCredits, wallet)} />
       {!status.emailVerified && <EmailVerificationBanner />}
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 pb-28 md:max-w-5xl md:pb-6">{children}</main>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-screen py-6 pb-28 md:max-w-5xl md:pb-6">{children}</main>
       <BottomNav items={items} />
       <Toaster />
     </div>

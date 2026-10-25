@@ -30,9 +30,9 @@ export default async function ScrAuthorizationPage({
   return (
     <PublicShell width="3xl">
       <div className="space-y-6">
-        <h1 className="text-center text-2xl font-bold">Autorização de consulta SCR</h1>
+        <h1 className="text-center text-3xl font-bold">Autorização de consulta SCR</h1>
         <Card>
-          <CardContent className="space-y-4 p-6 leading-relaxed">
+          <CardContent className="space-y-4 p-6 text-lg leading-relaxed">
             {paragraphs.map((p, i) => (
               <p key={i}>{p}</p>
             ))}

@@ -67,7 +67,7 @@ export function PhoneVerificationForm({ phoneE164, phoneVerified }: PhoneVerific
         <Label htmlFor="phone">Celular com DDD</Label>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input id="phone" type="tel" autoComplete="tel" {...phoneForm.register("phone")} />
-          <Button type="submit" disabled={sending}>
+          <Button type="submit" className="w-full sm:w-auto" disabled={sending}>
             {sending ? "Enviando..." : "Enviar código"}
           </Button>
         </div>
@@ -86,7 +86,7 @@ export function PhoneVerificationForm({ phoneE164, phoneVerified }: PhoneVerific
               maxLength={6}
               {...codeForm.register("code")}
             />
-            <Button type="submit" disabled={confirming}>
+            <Button type="submit" className="w-full sm:w-auto" disabled={confirming}>
               {confirming ? "Confirmando..." : "Confirmar"}
             </Button>
           </div>

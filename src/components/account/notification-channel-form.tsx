@@ -44,7 +44,7 @@ export function NotificationChannelForm({ channel, phoneVerified }: Notification
             </SelectItem>
           </SelectContent>
         </Select>
-        <Button type="button" onClick={save} disabled={pending}>
+        <Button type="button" className="w-full sm:w-auto" onClick={save} disabled={pending}>
           {pending ? "Salvando..." : "Salvar"}
         </Button>
       </div>

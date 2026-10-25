@@ -1,4 +1,7 @@
+import { Building2, UserRound } from "lucide-react";
+
 import { blockedOrderMessage, orderIsBlocked } from "@/components/orders/order-rules";
+import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatusBanner } from "@/components/ui/status-banner";
 import type { OrderMember, OrderMemberRole } from "@/lib/orders/client-ops";
@@ -19,22 +22,27 @@ export function OrderMembers({ members, mode }: { members: OrderMember[]; mode: 
 			<h2 id="order-members-title" className="text-xl font-bold">
 				Autorizações
 			</h2>
-			<ul className="divide-y rounded-md border-2 bg-background">
+			<Card>
+			<ul className="divide-y divide-border">
 				{members.map((m) => {
 					const { tone, label } = statusInfo("member", m.scrStatus, "client");
 					return (
-						<li key={`${m.role}-${m.documentMasked}`} className="flex flex-wrap items-center justify-between gap-3 p-4">
-							<span className="min-w-0 space-y-0.5">
+						<li key={`${m.role}-${m.documentMasked}`} className="flex items-start gap-3 px-4 py-3">
+							<span aria-hidden className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-primary">
+								{m.role === "company" ? <Building2 className="size-5" /> : <UserRound className="size-5" />}
+							</span>
+							<span className="min-w-0 flex-1 space-y-1">
 								<span className="block break-words font-bold">{m.name ?? ROLE_LABEL[m.role]}</span>
 								<span className="block text-muted-foreground">
 									{ROLE_LABEL[m.role]} · {m.documentMasked}
 								</span>
+								<StatusBadge tone={tone} label={label} />
 							</span>
-							<StatusBadge tone={tone} label={label} />
 						</li>
 					);
 				})}
 			</ul>
+			</Card>
 			{orderIsBlocked(members.map((m) => m.scrStatus)) && (
 				<StatusBanner tone="attention" title={blockedOrderMessage(mode)} />
 			)}

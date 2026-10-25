@@ -19,7 +19,7 @@ export function EmailVerificationBanner() {
     });
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:max-w-5xl">
+    <div className="mx-auto w-full max-w-3xl px-screen pt-4 md:max-w-5xl">
       <StatusBanner
         tone="waiting"
         title="Confirme seu e-mail para comprar créditos."

@@ -5,15 +5,11 @@ import { useState } from "react";
 import { signOut } from "@/actions/auth";
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { KeyRound } from "lucide-react";
+
+import { AuthHeading } from "@/components/auth/auth-heading";
+import { IconInput } from "@/components/auth/icon-input";
+import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 
 export default function MfaVerifyPage() {
@@ -37,38 +33,34 @@ export default function MfaVerifyPage() {
   };
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl">Verificação em dois fatores</CardTitle>
-        <CardDescription>Digite o código do seu app autenticador</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="totp">Código de 6 dígitos</Label>
-          <Input
-            id="totp"
-            inputMode="numeric"
-            maxLength={6}
-            autoFocus
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="000000"
-          />
-        </div>
+    <section className="w-full max-w-md space-y-8">
+      <AuthHeading title="Verificação em dois fatores" description="Digite o código do seu app autenticador" />
+      <div className="space-y-5">
+        <Field id="totp" label="Código de 6 dígitos">
+          {(a) => (
+            <IconInput
+              icon={KeyRound}
+              inputMode="numeric"
+              maxLength={6}
+              autoFocus
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="000000"
+              className="tracking-widest tabular-nums"
+              {...a}
+            />
+          )}
+        </Field>
         {error && <StatusBanner tone="attention" title={error} />}
-        <Button
-          className="w-full"
-          onClick={verify}
-          disabled={busy || code.length < 6}
-        >
+        <Button size="lg" glow className="w-full" onClick={verify} disabled={busy || code.length < 6}>
           {busy ? "Verificando..." : "Verificar"}
         </Button>
         <form action={signOut}>
-          <Button type="submit" variant="outline" className="w-full">
+          <Button type="submit" variant="outline" size="lg" className="w-full">
             Sair
           </Button>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

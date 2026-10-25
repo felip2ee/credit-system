@@ -52,7 +52,7 @@ export function ConvertForm({ available }: ConvertFormProps) {
       </div>
       {error && <StatusBanner tone="attention" title={error} />}
       {done && <StatusBanner tone="success" title="Valor convertido em créditos." />}
-      <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={pending}>
+      <Button type="submit" size="lg" glow className="w-full sm:w-auto" disabled={pending}>
         {pending ? "Convertendo..." : "Usar como crédito"}
       </Button>
     </form>

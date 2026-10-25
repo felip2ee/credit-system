@@ -32,13 +32,13 @@ function OpinionReadOnly({ title, parecer }: { title: string; parecer: Parecer }
 			</CardHeader>
 			<CardContent className="space-y-4">
 				<p className="text-base text-muted-foreground">{parecer.resumo_executivo}</p>
-				<details className="rounded-md border">
+				<details className="rounded-input border border-input">
 					<summary className="cursor-pointer select-none px-4 py-2 text-base font-medium">Ver parecer técnico completo</summary>
-					<div className="border-t px-4 py-3 text-base text-muted-foreground">
+					<div className="border-t border-border px-4 py-3 text-base text-muted-foreground">
 						<MarkdownReport>{parecer.relatorio_markdown}</MarkdownReport>
 					</div>
 				</details>
-				<p className="border-t pt-3 text-base text-muted-foreground">{parecer.disclaimer}</p>
+				<p className="border-t border-border pt-3 text-base text-muted-foreground">{parecer.disclaimer}</p>
 			</CardContent>
 		</Card>
 	);
@@ -70,7 +70,7 @@ export function DeliveryView({ delivery }: { delivery: ClientDelivery }) {
 	return (
 		<div className="space-y-6">
 			<div className="flex sm:justify-end">
-				<Button asChild className="w-full sm:w-auto">
+				<Button asChild glow className="w-full sm:w-auto">
 					<a href={`/portal/pesquisas/${order.dossierId}/pdf`}>
 						<Download aria-hidden />
 						Baixar PDF

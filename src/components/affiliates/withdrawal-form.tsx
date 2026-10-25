@@ -66,7 +66,7 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
         <Label htmlFor="withdraw-amount">Valor (R$)</Label>
         <Input id="withdraw-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={pending} />
         {amount !== "" && (
-          <p className={preview.valid ? undefined : "text-destructive"}>
+          <p className={preview.valid ? "tabular-nums" : "font-bold text-destructive"}>
             {preview.valid
               ? `Taxa ${formatCurrency(Number(preview.fee))}. Você recebe ${formatCurrency(Number(preview.net))}.`
               : "Informe um valor maior que a taxa de saque."}
@@ -100,7 +100,7 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
       </div>
       {error && <WithdrawalFailure what={error} />}
       {done && <StatusBanner tone="success" title="Saque solicitado." description="Você será avisado quando o pagamento sair." />}
-      <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={pending || !ownKey || !preview.valid}>
+      <Button type="submit" size="lg" glow className="w-full sm:w-auto" disabled={pending || !ownKey || !preview.valid}>
         {pending ? "Enviando..." : "Solicitar saque"}
       </Button>
     </form>

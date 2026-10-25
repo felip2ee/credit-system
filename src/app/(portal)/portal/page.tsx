@@ -1,10 +1,14 @@
 import Link from "next/link";
-import { FolderOpen, HandCoins } from "lucide-react";
+import { FilePlus2, FolderOpen, HandCoins, Wallet } from "lucide-react";
 
 import { ClientOrderList } from "@/components/orders/client-order-list";
+import { BalanceCard } from "@/components/ui/balance-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ListRow } from "@/components/ui/list-row";
+import { QuickAction, QuickActions } from "@/components/ui/quick-actions";
+import { SectionHeader } from "@/components/ui/section-header";
 import { getCurrentProfile } from "@/lib/auth";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
@@ -23,72 +27,80 @@ export default async function PortalHomePage() {
   const firstName = profile?.full_name.split(" ")[0] ?? "";
   const showCredits = hasPermission(session, "credits:read");
   const showAffiliate = hasPermission(session, "affiliates:read");
+  const canTopup = hasPermission(session, "credits:topup");
   const { orders, wallet, affiliate } = await withUserTransaction(session, async (client) => ({
     orders: await listMyOrders(client, RECENT_ORDERS),
     wallet: showCredits ? await getClientWallet(client, session.userId) : null,
     affiliate: showAffiliate ? await getMyAffiliateSummary(client) : null,
   }));
-  const balances = [
-    ...(showCredits ? [{ label: "Créditos disponíveis", value: wallet?.available ?? "0", href: "/portal/credits" }] : []),
-    ...(affiliate
-      ? [
-          { label: "Comissão disponível", value: affiliate.wallet.available, href: "/portal/afiliacao" },
-          { label: "Comissão em carência", value: affiliate.wallet.pending, href: "/portal/afiliacao" },
-        ]
-      : []),
-  ];
-
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Olá{firstName ? `, ${firstName}` : ""}</h1>
-      </div>
-      <Button asChild size="lg" className="w-full sm:w-auto">
-        <Link href="/portal/pesquisas/nova">Nova pesquisa</Link>
-      </Button>
-      {balances.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-3">
-          {balances.map((b) => (
-            <Link key={b.label} href={b.href} className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <Card className="h-full transition-colors hover:bg-muted/50 focus-within:ring-2">
-                <CardHeader>
-                  <CardTitle className="text-base font-normal text-muted-foreground">{b.label}</CardTitle>
-                </CardHeader>
-                <CardContent className="text-3xl font-bold">{formatCurrency(Number(b.value))}</CardContent>
-              </Card>
-            </Link>
-          ))}
+      <section aria-labelledby="inicio-titulo" className="space-y-6 rounded-hero bg-background p-4 sm:p-6">
+        <h1 id="inicio-titulo" className="text-2xl font-bold">
+          Olá{firstName ? `, ${firstName}` : ""}
+        </h1>
+        {showCredits && wallet && (
+          <BalanceCard
+            label="Créditos disponíveis"
+            value={formatCurrency(Number(wallet.available))}
+            hideable
+            hint={Number(wallet.reserved) > 0 ? `Reservado em pedidos: ${formatCurrency(Number(wallet.reserved))}` : undefined}
+            action={
+              <Button asChild variant="onBrand" size="lg">
+                <Link href="/portal/credits">{canTopup ? "Recarregar" : "Ver extrato"}</Link>
+              </Button>
+            }
+          />
+        )}
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold">Pro dia a dia</h2>
+          <QuickActions>
+            <QuickAction icon={FilePlus2} label="Nova pesquisa" href="/portal/pesquisas/nova" active />
+            <QuickAction icon={FolderOpen} label="Pesquisas" href="/portal/pesquisas" />
+            {showCredits && <QuickAction icon={Wallet} label="Créditos" href="/portal/credits" />}
+            {affiliate && <QuickAction icon={HandCoins} label="Afiliação" href="/portal/afiliacao" />}
+          </QuickActions>
         </div>
-      )}
+      </section>
       {affiliate && (
-        <Button asChild variant="outline" size="lg" className="w-full justify-start">
-          <Link href="/portal/afiliacao">
-            <HandCoins aria-hidden />
-            Afiliação: seu link e suas comissões
-          </Link>
-        </Button>
+        <section className="space-y-3">
+          <SectionHeader title="Afiliação" link={{ href: "/portal/afiliacao", label: "Abrir" }} />
+          <Card>
+            <ul className="divide-y divide-border">
+              <li>
+                <ListRow
+                  icon={HandCoins}
+                  title="Comissão disponível"
+                  value={formatCurrency(Number(affiliate.wallet.available))}
+                  href="/portal/afiliacao"
+                />
+              </li>
+              <li>
+                <ListRow
+                  icon={HandCoins}
+                  title="Comissão em carência"
+                  value={formatCurrency(Number(affiliate.wallet.pending))}
+                  href="/portal/afiliacao"
+                />
+              </li>
+            </ul>
+          </Card>
+        </section>
       )}
-      <Card>
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-          <CardTitle className="text-xl">Suas pesquisas</CardTitle>
-          {orders.length > 0 && (
-            <Link href="/portal/pesquisas" className="inline-flex min-h-12 items-center underline">
-              Ver todas
-            </Link>
-          )}
-        </CardHeader>
-        <CardContent>
-          {orders.length > 0 ? (
-            <ClientOrderList orders={orders} />
-          ) : (
+      <section className="space-y-3">
+        <SectionHeader title="Suas pesquisas" link={orders.length > 0 ? { href: "/portal/pesquisas", label: "Ver todas" } : undefined} />
+        {orders.length > 0 ? (
+          <ClientOrderList orders={orders} />
+        ) : (
+          <Card>
             <EmptyState
               icon={FolderOpen}
               title="Você ainda não fez nenhuma pesquisa"
               description="Quando você fizer uma pesquisa, ela aparece aqui."
             />
-          )}
-        </CardContent>
-      </Card>
+          </Card>
+        )}
+      </section>
     </div>
   );
 }

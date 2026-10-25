@@ -41,7 +41,7 @@ export function ConfirmEmailButton({ token }: ConfirmEmailButtonProps) {
           <Link href="/login">Entrar</Link>
         </Button>
       ) : (
-        <Button type="button" size="lg" className="w-full" onClick={confirm} disabled={isPending}>
+        <Button type="button" size="lg" glow className="w-full" onClick={confirm} disabled={isPending}>
           {isPending ? "Confirmando..." : "Confirmar e-mail"}
         </Button>
       )}

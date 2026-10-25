@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PackageOpen } from "lucide-react";
+import { Building2, PackageOpen, UserRound } from "lucide-react";
 
 import { PublicShell } from "@/components/portal/public-shell";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ListRow } from "@/components/ui/list-row";
+import { SectionHeader } from "@/components/ui/section-header";
 import { getPublicBureau, getPublicCatalog } from "@/lib/bureaus/public";
 import { formatCurrency } from "@/lib/utils";
 
@@ -31,21 +34,29 @@ export default async function PublicBureauPage({
         {catalog.length === 0 ? (
           <EmptyState icon={PackageOpen} title="Catálogo em breve" description="Este Bureau ainda não colocou pesquisas à venda." />
         ) : (
-          <ul className="divide-y rounded-md border-2 bg-background text-left">
-            {catalog.map((item) => (
-              <li key={item.code} className="flex flex-col gap-1 px-4 py-4">
-                <span className="font-bold">{item.name}</span>
-                <span>
-                  {Number(item.salePricePerPartner) > 0
-                    ? `a partir de ${formatCurrency(Number(item.salePrice))} + ${formatCurrency(Number(item.salePricePerPartner))} por sócio`
-                    : formatCurrency(Number(item.salePrice))}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <section className="space-y-3">
+            <SectionHeader title="Pesquisas à venda" />
+            <Card>
+              <ul className="divide-y divide-border">
+                {catalog.map((item) => (
+                  <li key={item.code}>
+                    <ListRow
+                      icon={item.code === "dossie_empresarial" ? Building2 : UserRound}
+                      title={item.name}
+                      subtitle={
+                        Number(item.salePricePerPartner) > 0
+                          ? `a partir de ${formatCurrency(Number(item.salePrice))} + ${formatCurrency(Number(item.salePricePerPartner))} por sócio`
+                          : formatCurrency(Number(item.salePrice))
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </section>
         )}
         <div className="flex flex-col gap-3">
-          <Button asChild size="lg">
+          <Button asChild size="lg" glow>
             <Link href={`/b/${bureau.slug}/cadastro`}>Criar conta</Link>
           </Button>
           <Button asChild size="lg" variant="outline">

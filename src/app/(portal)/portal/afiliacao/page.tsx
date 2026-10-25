@@ -5,6 +5,7 @@ import { AffiliateLinkCard } from "@/components/affiliates/affiliate-link-card";
 import { CommissionTables } from "@/components/affiliates/commission-table";
 import { ConvertForm } from "@/components/affiliates/convert-form";
 import { PageHeader } from "@/components/layout/page-header";
+import { BalanceCard } from "@/components/ui/balance-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBanner } from "@/components/ui/status-banner";
@@ -45,20 +46,12 @@ export default async function AffiliatePage() {
     <div className="space-y-6">
       <PageHeader title="Afiliação" />
       <AffiliateLinkCard link={affiliateLink(data.slug, code)} />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-normal text-muted-foreground">Comissão disponível</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-bold">{formatCurrency(Number(wallet.available))}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-normal text-muted-foreground">Em carência</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-bold">{formatCurrency(Number(wallet.pending))}</CardContent>
-        </Card>
-      </div>
+      <BalanceCard
+        label="Comissão disponível"
+        value={formatCurrency(Number(wallet.available))}
+        hideable
+        hint={<p>Em carência: <span className="font-bold tabular-nums">{formatCurrency(Number(wallet.pending))}</span></p>}
+      />
       {hasAvailable && (
         <Card>
           <CardHeader>

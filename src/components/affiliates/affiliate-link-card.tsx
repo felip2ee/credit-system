@@ -43,7 +43,7 @@ export function AffiliateLinkCard({ link }: AffiliateLinkCardProps) {
             onFocus={(event) => event.currentTarget.select()}
             className="min-w-0 flex-1 bg-muted"
           />
-          <Button type="button" onClick={copy} aria-label="Copiar link de indicação">
+          <Button type="button" size="lg" glow onClick={copy} aria-label="Copiar link de indicação">
             {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
             {copied ? "Copiado" : "Copiar"}
           </Button>

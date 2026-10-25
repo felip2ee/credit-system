@@ -32,9 +32,9 @@ export function AcceptLegalForm({ termsVersion, privacyVersion }: AcceptLegalFor
     });
 
   return (
-    <div className="space-y-3 border-t pt-6">
+    <div className="space-y-3 rounded-card border border-border bg-background p-5">
       {serverError && <StatusBanner tone="attention" title={serverError} />}
-      <Button type="button" size="lg" className="w-full sm:w-auto" onClick={accept} disabled={isPending}>
+      <Button type="button" size="lg" glow className="w-full" onClick={accept} disabled={isPending}>
         {isPending ? "Aceitando..." : "Aceitar e continuar"}
       </Button>
     </div>

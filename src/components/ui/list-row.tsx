@@ -31,7 +31,7 @@ export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = fals
       </span>
       <span className="min-w-0 flex-1">
         <span className="block break-words text-base font-bold">{title}</span>
-        {subtitle && <span className="block break-words text-sm text-muted-foreground">{subtitle}</span>}
+        {subtitle && <span className="block break-words text-base text-muted-foreground">{subtitle}</span>}
       </span>
       {value && <span className="shrink-0 text-right text-base font-bold tabular-nums">{value}</span>}
     </>

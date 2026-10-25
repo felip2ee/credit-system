@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Banknote } from "lucide-react";
+import { ArrowLeft, Banknote } from "lucide-react";
 
 import { WithdrawalForm } from "@/components/affiliates/withdrawal-form";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ListRow } from "@/components/ui/list-row";
+import { SectionHeader } from "@/components/ui/section-header";
 import { getMyAffiliateSummary } from "@/lib/affiliates/queries";
 import { listMyWithdrawals, readWithdrawalFee } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
@@ -34,7 +35,8 @@ export default async function AffiliateWithdrawalPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Saque de comissão" />
-      <Link href="/portal/afiliacao" className="inline-flex min-h-12 items-center underline">
+      <Link href="/portal/afiliacao" className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
+        <ArrowLeft aria-hidden className="size-5" />
         Voltar para afiliação
       </Link>
       <Card>
@@ -52,44 +54,39 @@ export default async function AffiliateWithdrawalPage() {
           )}
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-xl">Seus saques</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {withdrawals.length === 0 ? (
+      <section className="space-y-3">
+        <SectionHeader title="Seus saques" />
+        {withdrawals.length === 0 ? (
+          <Card>
             <EmptyState icon={Banknote} title="Você ainda não pediu nenhum saque" />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Data</TableHead>
-                  <TableHead>Chave PIX</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                  <TableHead className="text-right">Líquido</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {withdrawals.map((w) => (
-                  <TableRow key={w.id}>
-                    <TableCell>{formatDateSP(w.createdAt)}</TableCell>
-                    <TableCell>{w.pixKeyMasked}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(Number(w.amount))}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(Number(w.net))}</TableCell>
-                    <TableCell>
-                      <StatusBadge tone={statusInfo("withdrawal", w.status, "client").tone} label={statusInfo("withdrawal", w.status, "client").label} />
-                      {w.status === "cancelled" && w.cancelReason && (
-                        <p className="mt-1 text-muted-foreground">{w.cancelReason}</p>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+          </Card>
+        ) : (
+          <Card>
+            <ul className="divide-y divide-border">
+              {withdrawals.map((w) => {
+                const info = statusInfo("withdrawal", w.status, "client");
+                return (
+                  <li key={w.id}>
+                    <ListRow
+                      icon={Banknote}
+                      title={`${formatCurrency(Number(w.amount))} · líquido ${formatCurrency(Number(w.net))}`}
+                      subtitle={
+                        <span className="block space-y-1">
+                          <span className="block">
+                            {formatDateSP(w.createdAt)} · Chave PIX {w.pixKeyMasked}
+                          </span>
+                          <StatusBadge tone={info.tone} label={info.label} />
+                          {w.status === "cancelled" && w.cancelReason && <span className="block">{w.cancelReason}</span>}
+                        </span>
+                      }
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        )}
+      </section>
     </div>
   );
 }

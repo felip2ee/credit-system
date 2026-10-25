@@ -9,15 +9,12 @@ import { z } from "zod";
 
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Mail } from "lucide-react";
+
+import { AuthHeading } from "@/components/auth/auth-heading";
+import { IconInput } from "@/components/auth/icon-input";
+import { PasswordInput } from "@/components/auth/password-input";
+import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 
 const loginSchema = z.object({
@@ -54,56 +51,39 @@ function LoginForm() {
     if (result.error) setServerError("E-mail ou senha inválidos.");
   };
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl">Entrar</CardTitle>
-        <CardDescription>Use o e-mail e a senha da sua conta</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">E-mail</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              {...register("email")}
-            />
-            {errors.email && (
-              <p className="text-base text-destructive">{errors.email.message}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Senha</Label>
-            <Input
-              id="password"
-              type="password"
+    <section className="w-full max-w-md space-y-8">
+      <AuthHeading title="Entrar" description="Use o e-mail e a senha da sua conta" />
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <Field id="email" label="E-mail" error={errors.email?.message}>
+          {(a) => <IconInput icon={Mail} type="email" autoComplete="email" {...a} {...register("email")} />}
+        </Field>
+        <Field id="password" label="Senha" error={errors.password?.message}>
+          {(a) => (
+            <PasswordInput
+              withIcon
+              toggleLabels={["Mostrar texto digitado", "Ocultar texto digitado"]}
               autoComplete="current-password"
+              {...a}
               {...register("password")}
             />
-            {errors.password && (
-              <p className="text-base text-destructive">
-                {errors.password.message}
-              </p>
-            )}
-          </div>
-          {serverError && (
-            <StatusBanner tone="attention" title={serverError} description="Confira os dados e tente de novo." />
           )}
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? "Entrando..." : "Entrar"}
-          </Button>
-          <div className="text-center">
-            <Link
-              href="/reset-password"
-              className="inline-flex min-h-12 items-center text-base underline underline-offset-4"
-            >
-              Esqueci minha senha
-            </Link>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+        </Field>
+        {serverError && (
+          <StatusBanner tone="attention" title={serverError} description="Confira os dados e tente de novo." />
+        )}
+        <Button type="submit" size="lg" glow className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? "Entrando..." : "Entrar"}
+        </Button>
+        <div className="text-center">
+          <Link
+            href="/reset-password"
+            className="inline-flex min-h-12 items-center text-base font-bold text-primary underline-offset-4 hover:underline"
+          >
+            Esqueci minha senha
+          </Link>
+        </div>
+      </form>
+    </section>
   );
 }
 

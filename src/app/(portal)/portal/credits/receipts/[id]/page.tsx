@@ -46,7 +46,7 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
           <div>
             <p className="text-muted-foreground">Valor</p>
-            <p className="text-3xl font-bold">{formatCurrency(Number(receipt.amount))}</p>
+            <p className="text-3xl font-bold tabular-nums">{formatCurrency(Number(receipt.amount))}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Data da cobrança</p>
@@ -60,7 +60,7 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
             <div className="sm:col-span-2">
               <p className="text-muted-foreground">Nota fiscal (NFS-e)</p>
               {note.kind === "link" ? (
-                <a href={note.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center underline">
+                <a href={note.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center font-bold text-primary underline">
                   Abrir nota fiscal
                 </a>
               ) : (
@@ -70,7 +70,7 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
           )}
         </CardContent>
       </Card>
-      <Link href="/portal/credits" className="inline-flex min-h-12 items-center underline">
+      <Link href="/portal/credits" className="inline-flex min-h-12 items-center font-bold text-primary underline">
         Voltar para créditos
       </Link>
     </div>

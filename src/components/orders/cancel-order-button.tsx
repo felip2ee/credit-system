@@ -33,7 +33,7 @@ export function CancelOrderButton({ dossierId }: CancelOrderButtonProps) {
 
 	return (
 		<>
-			<Button type="button" variant="outline" onClick={() => setOpen(true)}>
+			<Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(true)}>
 				Cancelar pedido
 			</Button>
 			<Dialog open={open} onClose={() => setOpen(false)} title="Cancelar pedido" role="alertdialog" dismissible={!isPending}>
