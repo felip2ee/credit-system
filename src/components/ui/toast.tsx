@@ -57,7 +57,7 @@ export function Toaster() {
             type={t.tone === "danger" || t.tone === "attention" ? "foreground" : "background"}
             style={toneStyle(t.tone)}
             onOpenChange={(open) => !open && dismiss(t.id)}
-            className={cn("flex items-start gap-3 rounded-lg border-2 p-4 shadow-lg")}
+            className={cn("flex items-start gap-3 rounded-card border p-4 shadow-lg")}
           >
             <Icon aria-hidden className="mt-0.5 size-6 shrink-0" />
             <div className="flex-1 space-y-1">

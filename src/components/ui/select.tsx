@@ -17,7 +17,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-12 w-full items-center justify-between gap-2 rounded-md border-2 border-input bg-background px-3 text-base ring-offset-background data-[placeholder]:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+      "flex h-12 w-full items-center justify-between gap-2 rounded-input border border-input bg-background px-3 text-base aria-[invalid=true]:border-destructive ring-offset-background data-[placeholder]:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
       className,
     )}
     {...props}
@@ -39,7 +39,7 @@ const SelectContent = React.forwardRef<
       ref={ref}
       position={position}
       className={cn(
-        "relative z-50 max-h-80 min-w-[8rem] overflow-hidden rounded-md border-2 border-input bg-popover text-popover-foreground shadow-md",
+        "relative z-50 max-h-80 min-w-[8rem] overflow-hidden rounded-card border border-border bg-popover text-popover-foreground shadow-lg",
         position === "popper" && "w-[var(--radix-select-trigger-width)]",
         className,
       )}
@@ -58,7 +58,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-11 cursor-pointer select-none items-center rounded-sm py-2 pl-9 pr-3 text-base outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-50",
+      "relative flex min-h-11 cursor-pointer select-none items-center rounded-input py-2 pl-9 pr-3 text-base outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-50",
       className,
     )}
     {...props}

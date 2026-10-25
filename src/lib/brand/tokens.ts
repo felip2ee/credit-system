@@ -1,4 +1,4 @@
-// Espelho em hex das variáveis CSS de src/app/globals.css. Mude os dois juntos.
+// Espelho em hex das variáveis CSS de src/app/globals.css. Mude os dois juntos (e tailwind.config.ts).
 export const BRAND_COLORS = {
 	brand: "#009C97",
 	cream: "#FCEDCE",
@@ -7,10 +7,32 @@ export const BRAND_COLORS = {
 	primaryForeground: "#FFFFFF",
 	background: "#FFFFFF",
 	foreground: "#122C2B",
-	muted: "#F4EFE4",
+	muted: "#F3F4F6",
 	mutedForeground: "#4A5E5D",
-	border: "#7D9291",
+	// Borda de controle (campo, caixa de seleção): >= 3:1 no branco.
+	controlBorder: "#7D9291",
+	// Borda de cartão plano: decorativa, sem texto nem controle dentro dela.
+	hairline: "#E5E7EB",
+	// Fundo de seção alternado com o branco.
+	surface: "#F5F7FA",
+	// Fundo de tag positiva e de item ativo; texto sobre ele usa brandSoftForeground.
+	brandSoft: "#E6F4F3",
+	brandSoftForeground: "#00514E",
 	focus: "#007A76",
+} as const;
+
+// Neutros (mesma escala do Tailwind gray). 400 só para ícone grande/inativo decorativo, nunca texto de leitura.
+export const NEUTRAL_COLORS = {
+	50: "#F9FAFB",
+	100: "#F3F4F6",
+	200: "#E5E7EB",
+	300: "#D1D5DB",
+	400: "#9CA3AF",
+	500: "#6B7280",
+	600: "#4B5563",
+	700: "#374151",
+	800: "#1F2937",
+	900: "#111827",
 } as const;
 
 export type StateName = "success" | "waiting" | "progress" | "attention" | "danger" | "neutral";

@@ -14,7 +14,7 @@ export function PublicShell({
 	children?: React.ReactNode;
 }) {
 	return (
-		<main className="area-portal min-h-screen bg-muted/30 px-4 py-8">
+		<main className="area-portal min-h-screen bg-surface px-screen py-8">
 			<div className={cn("mx-auto w-full space-y-6", width === "md" ? "max-w-md" : "max-w-3xl")}>
 				<header className="flex flex-col items-center gap-3 text-center">
 					<BrandLogo variant="full" />

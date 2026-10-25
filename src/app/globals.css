@@ -16,16 +16,23 @@
     --primary-foreground: 0 0% 100%;
     --secondary: 177 39% 90%;              /* #DDF0EF */
     --secondary-foreground: 178 42% 12%;
-    --muted: 41 42% 93%;                   /* #F4EFE4 */
+    --muted: 220 14% 96%;                  /* #F3F4F6 */
     --muted-foreground: 177 12% 33%;       /* #4A5E5D */
     --accent: 40 88% 90%;                  /* creme #FCEDCE */
     --accent-foreground: 178 42% 12%;
     --destructive: 4 76% 31%;              /* #8A1C14 */
     --destructive-foreground: 0 0% 100%;
-    --border: 177 9% 53%;                  /* #7D9291, >= 3:1 */
-    --input: 177 9% 53%;
+    --border: 220 13% 91%;                 /* #E5E7EB, borda plana de cartão (decorativa) */
+    --input: 177 9% 53%;                   /* #7D9291, borda de controle >= 3:1 */
     --ring: 178 100% 24%;                  /* anel de foco #007A76, >= 3:1 */
-    --radius: 0.5rem;
+    --surface: 216 33% 97%;                /* #F5F7FA, seção cinza alternada */
+    --brand-soft: 176 39% 93%;             /* #E6F4F3, tag positiva */
+    --brand-soft-foreground: 178 100% 16%; /* #00514E */
+    --ink: 178 42% 12%;                    /* #122C2B, botão escuro */
+    --radius: 0.75rem;                     /* 12 px: cartão (lg); md 10, sm 8 */
+    --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.12);
     --sidebar: 178 42% 12%;                /* #122C2B */
     --sidebar-foreground: 40 88% 90%;
     --sidebar-primary: 178 100% 31%;       /* #009C97 sobre escuro */
@@ -47,6 +54,7 @@
   body {
     @apply bg-background text-foreground;
     line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
   :focus-visible {
     outline: 3px solid hsl(var(--ring));
@@ -55,6 +63,18 @@
   /* Portal do cliente e páginas públicas: base 18 px. */
   .area-portal {
     font-size: 1.125rem;
+  }
+}
+
+@layer utilities {
+  /* Margem de tela: 16 px abaixo de 375 px, 20 px a partir daí. */
+  .px-screen {
+    padding-inline: 1rem;
+  }
+  @media (min-width: 375px) {
+    .px-screen {
+      padding-inline: 1.25rem;
+    }
   }
 }
 

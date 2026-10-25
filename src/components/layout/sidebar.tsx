@@ -49,7 +49,7 @@ export function Sidebar({ permissions }: { permissions: readonly Permission[] })
               aria-current={active ? "page" : undefined}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 min-h-11 rounded-md px-3 py-2 text-base font-bold transition-colors",
+                "flex items-center gap-3 min-h-11 rounded-full px-4 py-2 text-base font-bold transition-colors",
                 active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"

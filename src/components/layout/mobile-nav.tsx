@@ -59,7 +59,7 @@ export function MobileNav({ items, permissions = [] }: MobileNavProps) {
         onClose={() => setOpen(false)}
         // Clique no fundo escurecido chega ao próprio <dialog>.
         onClick={(e) => e.target === ref.current && setOpen(false)}
-        className="m-0 mr-auto h-full max-h-none w-72 max-w-[85vw] bg-sidebar p-0 text-sidebar-foreground backdrop:bg-black/50"
+        className="m-0 mr-auto h-full max-h-none w-72 max-w-[85vw] bg-sidebar p-0 text-sidebar-foreground backdrop:bg-ink/60"
       >
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
           <span className="text-lg font-bold">{BRAND_NAME}</span>
@@ -83,7 +83,7 @@ export function MobileNav({ items, permissions = [] }: MobileNavProps) {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex min-h-11 items-center rounded-md px-3 py-2 text-base font-bold",
+                  "flex min-h-11 items-center rounded-full px-4 py-2 text-base font-bold",
                   active
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",

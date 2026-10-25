@@ -6,7 +6,7 @@ import { stepperAnnouncement, type StepItem } from "./state-tone";
 
 const MARK_CLASS: Record<StepItem["state"], string> = {
   done: "border-primary bg-primary text-primary-foreground",
-  current: "border-primary bg-background text-primary",
+  current: "border-primary bg-brand-soft text-brand-soft-foreground",
   todo: "border-input bg-background text-muted-foreground",
   failed: "border-destructive bg-destructive text-destructive-foreground",
 };
@@ -27,7 +27,7 @@ export function Stepper({ steps }: { steps: StepItem[] }) {
           >
             <span
               className={cn(
-                "flex size-8 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold",
+                "flex size-9 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold",
                 MARK_CLASS[step.state],
               )}
             >

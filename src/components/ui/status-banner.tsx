@@ -18,7 +18,7 @@ export function StatusBanner({ tone, title, description, action, className }: St
     <div
       role={toneRole(tone)}
       style={toneStyle(tone)}
-      className={cn("flex flex-col gap-3 rounded-lg border-2 p-4 sm:flex-row sm:items-start", className)}
+      className={cn("flex flex-col gap-3 rounded-card border p-4 sm:flex-row sm:items-start", className)}
     >
       <Icon aria-hidden className={cn("mt-0.5 size-6 shrink-0", tone === "progress" && "motion-safe:animate-spin")} />
       <div className="flex-1 space-y-1">
