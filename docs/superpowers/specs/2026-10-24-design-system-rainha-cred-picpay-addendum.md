@@ -30,3 +30,14 @@ Este addendum **altera só a forma visual**. A spec `2026-10-24-design-system-ra
 - Barra inferior: 4–5 itens, ícone + rótulo; item ativo em círculo verde com ícone branco e rótulo. Cabeçalho do app: avatar/símbolo, busca opcional, saldo com olho, notificações.
 - Painéis (Bureau/superadmin): mesma linguagem (cartões planos, pílulas, cinza alternado), densidade maior no computador.
 - Telas de acompanhamento (pedido): etapas verticais com círculo, como no padrão de "central de segurança" (cartão com nível, lista de itens com tag "Ativo").
+
+## Referência de login e entrada (imagem 6 do dono)
+
+Arquivo de referência: `/private/tmp/claude-501/-Users-felipeborges-Documents-projetos-Eliane-Moreira-credit-system/0927bd3d-9f9e-44e9-97de-b5f7690af81a/images/6.jpg` (kit "Banking Mobile App UI Kit").
+
+Padrão a seguir nas telas `/login`, `/mfa`, `/b/[slug]`, cadastro e redefinição de senha:
+- Fundo claro e limpo, conteúdo em uma coluna centralizada, muito espaço; logo completa no topo; título grande e curto + uma linha de apoio.
+- Campos grandes com ícone à esquerda (usuário/e-mail, cadeado) e botão de mostrar/ocultar senha à direita (olho, com `aria-label`); o rótulo continua visível acima do campo (não só placeholder).
+- Botão principal em pílula, largura total no celular, texto em negrito; link "Esqueci a senha" e "Criar conta" como texto de apoio com alvo ≥ 48 px.
+- Entrada rápida opcional (biometria/código) só se já existir no produto; não inventar fluxo novo.
+- Cor: marca Rainha Cred (verde-azulado), não o azul da imagem; o azul da referência vale só como inspiração de layout e suavidade (cantos bem arredondados, sombra leve).
