@@ -1,13 +1,8 @@
-import Link from "next/link";
 import { ScrollText, ShieldCheck, Users } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { ListRow } from "@/components/ui/list-row";
 import { redirect } from "next/navigation";
 
 import { getRequiredSession } from "@/lib/auth/session";
@@ -23,47 +18,30 @@ export default async function SettingsPage() {
         description="Gestão da conta e da operação"
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Link href="/settings/security">
-          <Card className="h-full transition-colors hover:bg-muted/50">
-            <CardHeader>
-              <ShieldCheck className="mb-2 h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-lg">Segurança (MFA)</CardTitle>
-              <CardDescription>
-                Cadastre um autenticador TOTP para sua conta.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </Link>
-
+      <Card className="divide-y divide-border overflow-hidden">
+        <ListRow
+          href="/settings/security"
+          icon={ShieldCheck}
+          title="Segurança (MFA)"
+          subtitle="Cadastre um autenticador TOTP para sua conta."
+        />
         {admin && (
-          <Link href="/settings/users">
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardHeader>
-                <Users className="mb-2 h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-lg">Equipe</CardTitle>
-                <CardDescription>
-                  Convide e gerencie operadores e administradores.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </Link>
+          <ListRow
+            href="/settings/users"
+            icon={Users}
+            title="Equipe"
+            subtitle="Convide e gerencie operadores e administradores."
+          />
         )}
-
         {admin && (
-          <Link href="/settings/audit">
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardHeader>
-                <ScrollText className="mb-2 h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-lg">Auditoria</CardTitle>
-                <CardDescription>
-                  Trilha de acessos ao bureau (quem consultou o quê e quando).
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </Link>
+          <ListRow
+            href="/settings/audit"
+            icon={ScrollText}
+            title="Auditoria"
+            subtitle="Trilha de acessos ao bureau (quem consultou o quê e quando)."
+          />
         )}
-      </div>
+      </Card>
     </div>
   );
 }

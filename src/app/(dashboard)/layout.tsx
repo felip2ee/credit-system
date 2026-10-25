@@ -35,7 +35,7 @@ export default async function DashboardLayout({
     : null;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-surface">
       <IdleTimeout />
       <Sidebar permissions={permissions} />
       <div className="flex min-w-0 flex-1 flex-col">

@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Radix não aceita valor vazio.
@@ -32,7 +32,9 @@ export function HoldersFilters() {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
       <form onSubmit={onSearch} className="flex flex-1 gap-2">
-        <Input
+        <SearchInput
+          className="flex-1"
+          aria-label="Buscar por nome, CPF ou CNPJ"
           placeholder="Buscar por nome, CPF ou CNPJ..."
           value={q}
           onChange={(e) => setQ(e.target.value)}

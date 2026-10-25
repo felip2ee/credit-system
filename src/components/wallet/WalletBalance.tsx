@@ -1,24 +1,24 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import type { WalletBalance as WalletBalanceData } from "@/lib/wallet/queries";
 import { formatCurrency } from "@/lib/utils";
 
 export function WalletBalance({ wallet, children }: { wallet: WalletBalanceData; children?: React.ReactNode }) {
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-lg">Saldo</CardTitle>
+    <Card variant="hero" className="space-y-4 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-bold">Saldo</h2>
         {children}
-      </CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-2">
+      </div>
+      <dl className="grid gap-4 sm:grid-cols-2">
         <div>
-          <p className="text-sm text-muted-foreground">Disponível</p>
-          <p className="text-2xl font-semibold">{formatCurrency(Number(wallet.available))}</p>
+          <dt className="text-base">Disponível</dt>
+          <dd className="text-4xl font-bold leading-tight tabular-nums">{formatCurrency(Number(wallet.available))}</dd>
         </div>
         <div>
-          <p className="text-sm text-muted-foreground">Reservado</p>
-          <p className="text-2xl font-semibold">{formatCurrency(Number(wallet.reserved))}</p>
+          <dt className="text-base">Reservado</dt>
+          <dd className="text-2xl font-bold leading-tight tabular-nums">{formatCurrency(Number(wallet.reserved))}</dd>
         </div>
-      </CardContent>
+      </dl>
     </Card>
   );
 }

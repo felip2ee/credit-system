@@ -1,3 +1,4 @@
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { NotificationRow } from "@/lib/notifications/queries";
 import { formatDateTime } from "@/lib/utils";
@@ -15,6 +16,7 @@ export interface NotificationLogTableProps {
 export function NotificationLogTable({ rows, bureauNames, canWrite }: NotificationLogTableProps) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">Nenhuma notificação encontrada.</p>;
   return (
+    <Card className="overflow-hidden">
     <Table>
       <TableHeader>
         <TableRow>
@@ -58,5 +60,6 @@ export function NotificationLogTable({ rows, bureauNames, canWrite }: Notificati
         ))}
       </TableBody>
     </Table>
+    </Card>
   );
 }

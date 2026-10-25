@@ -2,6 +2,7 @@ import { CancelPayoutButton } from "@/components/payouts/CancelPayoutButton";
 import { MarkPaidForm } from "@/components/payouts/MarkPaidForm";
 import { PAYOUT_STATUS_LABEL, PAYOUT_STATUS_TONE } from "@/components/payouts/payout-labels";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Payout } from "@/lib/payouts/queries";
 import { formatCurrency, formatDateSP, formatDateTime } from "@/lib/utils";
@@ -16,6 +17,7 @@ interface PayoutTableProps {
 export function PayoutTable({ payouts, bureauNames, canManage = false }: PayoutTableProps) {
   if (payouts.length === 0) return <p className="text-sm text-muted-foreground">Nenhum repasse ainda.</p>;
   return (
+    <Card className="overflow-hidden">
     <Table>
       <TableHeader>
         <TableRow>
@@ -72,5 +74,6 @@ export function PayoutTable({ payouts, bureauNames, canManage = false }: PayoutT
         ))}
       </TableBody>
     </Table>
+    </Card>
   );
 }

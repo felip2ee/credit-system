@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { retryNfseAction } from "@/actions/nfse";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { StatusBanner } from "@/components/ui/status-banner";
@@ -47,6 +48,7 @@ function RetryButton({ chargeId, label }: { chargeId: string; label: string }) {
 export function NfseFailuresTable({ rows, canRetry }: { rows: NfseFailureView[]; canRetry: boolean }) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">Nenhuma nota fiscal com falha.</p>;
   return (
+    <Card className="overflow-hidden">
     <Table>
       <TableHeader>
         <TableRow>
@@ -75,5 +77,6 @@ export function NfseFailuresTable({ rows, canRetry }: { rows: NfseFailureView[];
         ))}
       </TableBody>
     </Table>
+    </Card>
   );
 }

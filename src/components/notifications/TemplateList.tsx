@@ -1,3 +1,4 @@
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { TemplateRow } from "@/lib/notifications/queries";
 
@@ -6,6 +7,7 @@ import { CHANNEL_LABEL } from "./notification-logic";
 export function TemplateList({ templates }: { templates: TemplateRow[] }) {
   if (templates.length === 0) return <p className="text-sm text-muted-foreground">Nenhum template ativo.</p>;
   return (
+    <Card className="overflow-hidden">
     <Table>
       <TableHeader>
         <TableRow>
@@ -30,5 +32,6 @@ export function TemplateList({ templates }: { templates: TemplateRow[] }) {
         ))}
       </TableBody>
     </Table>
+    </Card>
   );
 }

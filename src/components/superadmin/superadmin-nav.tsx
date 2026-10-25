@@ -12,7 +12,7 @@ export function SuperadminNav() {
           <Link
             key={item.href}
             href={item.href}
-            className="flex min-h-11 items-center rounded-md px-3 py-2 text-base font-bold hover:bg-sidebar-accent/60"
+            className="flex min-h-11 items-center rounded-full px-4 py-2 text-base font-bold hover:bg-sidebar-accent/60"
           >
             {item.label}
           </Link>

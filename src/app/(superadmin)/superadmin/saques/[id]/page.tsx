@@ -81,7 +81,7 @@ export default async function WithdrawalDetailPage({ params }: { params: { id: s
               </div>
             ))}
           </dl>
-          <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p role="note" className="rounded-card border border-border bg-muted p-3 text-base">
             Confira no banco se o nome do favorecido é o mesmo da conta.
           </p>
         </CardContent>

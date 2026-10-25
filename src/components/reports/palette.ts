@@ -11,7 +11,8 @@ export type Hue =
   | "red"
   | "slate"
   | "slateLight"
-  | "violet";
+  | "violet"
+  | "brand";
 
 export interface HueClasses {
   bar: string;
@@ -28,5 +29,6 @@ export const HUE: Record<Hue, HueClasses> = {
   red: { bar: "bg-red-500", fill: "fill-red-500", stroke: "stroke-red-500" },
   slate: { bar: "bg-slate-400", fill: "fill-slate-400", stroke: "stroke-slate-400" },
   slateLight: { bar: "bg-slate-300", fill: "fill-slate-300", stroke: "stroke-slate-300" },
+  brand: { bar: "bg-primary", fill: "fill-primary", stroke: "stroke-primary" },
   violet: { bar: "bg-violet-500", fill: "fill-violet-500", stroke: "stroke-violet-500" },
 };

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { listWithdrawalQueue } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession } from "@/lib/auth/session";
@@ -32,6 +33,7 @@ export default async function WithdrawalQueuePage() {
       {queue.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum saque em aberto.</p>
       ) : (
+        <Card className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -66,6 +68,7 @@ export default async function WithdrawalQueuePage() {
             ))}
           </TableBody>
         </Table>
+        </Card>
       )}
     </div>
   );

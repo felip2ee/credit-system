@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   Bot,
+  FilePlus2,
   HandCoins,
   Layers,
   Search,
@@ -18,6 +19,9 @@ import { LineChart } from "@/components/reports/line-chart";
 import { HUE, type Hue } from "@/components/reports/palette";
 import { PieChart } from "@/components/reports/pie-chart";
 import { Button } from "@/components/ui/button";
+import { BalanceCard } from "@/components/ui/balance-card";
+import { QuickAction, QuickActions } from "@/components/ui/quick-actions";
+import { SectionHeader } from "@/components/ui/section-header";
 import {
   Card,
   CardContent,
@@ -205,29 +209,6 @@ export default async function DashboardPage() {
     { label: "Pesquisas em andamento", value: String(counts.dossiersProcessing), hint: "Dossiês em análise", href: "/dossiers", icon: Layers },
   ];
 
-  const balanceCards = balances
-    ? [
-        {
-          label: "Saldo da carteira",
-          value: formatCurrency(Number(balances.wallet?.available ?? 0)),
-          hint: "Créditos pré-pagos disponíveis",
-          href: "/settings/wallet",
-          icon: Wallet,
-        },
-        ...(balances.payable === null
-          ? []
-          : [
-              {
-                label: "A receber",
-                value: formatCurrency(Number(balances.payable)),
-                hint: "Repasse pendente da Rainha Cred",
-                href: "/settings/payouts",
-                icon: HandCoins,
-              },
-            ]),
-      ]
-    : [];
-
   const pipeline = {
     completed: counts.cCompleted,
     pending_authorization: counts.cPending,
@@ -252,6 +233,15 @@ export default async function DashboardPage() {
     hue: PIPELINE_HUE[s] ?? "slate",
   }));
 
+  const quickActions = [
+    { href: "/consultations/new", label: "Nova consulta", icon: Search, show: hasPermission(session, "consultations:write"), active: true },
+    { href: "/dossiers/new", label: "Novo dossiê", icon: FilePlus2, show: hasPermission(session, "consultations:write") },
+    { href: "/dossiers", label: "Pedidos", icon: Layers, show: hasPermission(session, "consultations:read") },
+    { href: "/holders", label: "Titulares", icon: Users, show: hasPermission(session, "holders:read") },
+    { href: "/scr", label: "Autorizações SCR", icon: ShieldCheck, show: hasPermission(session, "consultations:read") },
+    { href: "/settings/wallet", label: "Carteira", icon: Wallet, show: hasPermission(session, "wallet:read") },
+  ].filter((a) => a.show);
+
   return (
     <div className="space-y-6">
       <PageHeader title="Dashboard" description="Visão geral da operação de crédito">
@@ -263,66 +253,69 @@ export default async function DashboardPage() {
         </Button>
       </PageHeader>
 
-      {/* KPIs primários */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {primary.map((m) => (
-          <Link key={m.label} href={m.href}>
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardDescription>{m.label}</CardDescription>
-                  <m.icon aria-hidden className="h-5 w-5 text-muted-foreground" />
+      {balances && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <BalanceCard
+            className="lg:col-span-2"
+            label="Saldo da carteira"
+            value={formatCurrency(Number(balances.wallet?.available ?? 0))}
+            hideable
+            hint="Créditos pré-pagos disponíveis"
+            action={
+              <Button asChild variant="onBrand">
+                <Link href="/settings/wallet">Ver carteira</Link>
+              </Button>
+            }
+          />
+          {balances.payable !== null && (
+            <Link href="/settings/payouts" className="rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Card className="flex h-full flex-col justify-between gap-3 p-5 transition-shadow hover:shadow-md">
+                <div className="flex items-center gap-3">
+                  <span aria-hidden className="flex size-11 items-center justify-center rounded-full bg-muted text-primary">
+                    <HandCoins className="size-5" />
+                  </span>
+                  <p className="text-base font-bold">A receber</p>
                 </div>
-                <CardTitle className="text-3xl">{m.value}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{m.hint}</p>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
+                <p className="text-3xl font-bold tabular-nums">{formatCurrency(Number(balances.payable))}</p>
+                <p className="text-base text-muted-foreground">Repasse pendente da Rainha Cred</p>
+              </Card>
+            </Link>
+          )}
+        </div>
+      )}
 
-      {balanceCards.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {balanceCards.map((m) => (
-            <Link key={m.label} href={m.href}>
-              <Card className="h-full transition-colors hover:bg-muted/50">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardDescription>{m.label}</CardDescription>
-                    <m.icon aria-hidden className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <CardTitle className="text-2xl">{m.value}</CardTitle>
-                </CardHeader>
-                <CardContent>
+      {quickActions.length > 0 && (
+        <section className="space-y-3">
+          <SectionHeader title="Ações rápidas" />
+          <Card className="p-5">
+            <QuickActions className="sm:grid-cols-6">
+              {quickActions.map((a) => (
+                <QuickAction key={a.href} href={a.href} label={a.label} icon={a.icon} active={a.active} />
+              ))}
+            </QuickActions>
+          </Card>
+        </section>
+      )}
+
+      <section className="space-y-3">
+        <SectionHeader title="Indicadores" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[...primary, ...secondary].map((m) => (
+            <Link key={m.label} href={m.href} className="rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Card className="flex h-full items-center gap-4 p-5 transition-shadow hover:shadow-md">
+                <span aria-hidden className="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-soft-foreground">
+                  <m.icon className="size-6" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-base text-muted-foreground">{m.label}</p>
+                  <p className="text-3xl font-bold leading-tight tabular-nums">{m.value}</p>
                   <p className="text-sm text-muted-foreground">{m.hint}</p>
-                </CardContent>
+                </div>
               </Card>
             </Link>
           ))}
         </div>
-      )}
-
-      {/* KPIs secundários */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {secondary.map((m) => (
-          <Link key={m.label} href={m.href}>
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardDescription>{m.label}</CardDescription>
-                  <m.icon aria-hidden className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <CardTitle className="text-2xl">{m.value}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{m.hint}</p>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
+      </section>
 
       {/* Consultas por mês — pizza (PF/PJ) + linha (6 meses) */}
       <Card>
@@ -339,7 +332,7 @@ export default async function DashboardPage() {
             <div className="grid grid-cols-1 items-center gap-6 lg:grid-cols-2">
               <PieChart
                 segments={[
-                  { label: "PF", value: totalPf, fillClass: HUE.violet.fill, barClass: HUE.violet.bar },
+                  { label: "PF", value: totalPf, fillClass: HUE.brand.fill, barClass: HUE.brand.bar },
                   { label: "PJ", value: totalPj, fillClass: HUE.sky.fill, barClass: HUE.sky.bar },
                 ]}
               />
@@ -349,9 +342,9 @@ export default async function DashboardPage() {
                   {
                     label: "PF",
                     points: monthData.map((m) => m.pf),
-                    strokeClass: HUE.violet.stroke,
-                    dotClass: HUE.violet.fill,
-                    chipClass: HUE.violet.bar,
+                    strokeClass: HUE.brand.stroke,
+                    dotClass: HUE.brand.fill,
+                    chipClass: HUE.brand.bar,
                   },
                   {
                     label: "PJ",
