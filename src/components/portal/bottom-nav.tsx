@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { CreditCard, FileSearch, Home, UserRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import type { PortalNavItem } from "./nav-items";
+import type { PortalNavIcon, PortalNavItem } from "./nav-items";
+
+const ICONS = { home: Home, search: FileSearch, credits: CreditCard, account: UserRound } satisfies Record<PortalNavIcon, unknown>;
 
 function isActive(pathname: string, href: string): boolean {
 	return href === "/portal" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
@@ -17,7 +20,8 @@ export function BottomNav({ items }: { items: PortalNavItem[] }) {
 	return (
 		<nav aria-label="Principal" className="fixed inset-x-0 bottom-0 z-40 border-t-2 bg-background pb-[env(safe-area-inset-bottom)] md:hidden">
 			<ul className="mx-auto flex max-w-3xl">
-				{items.map(({ href, label, icon: Icon }) => {
+				{items.map(({ href, label, icon }) => {
+					const Icon = ICONS[icon];
 					const active = isActive(pathname, href);
 					return (
 						<li key={href} className="flex-1">
@@ -46,7 +50,8 @@ export function InlineNav({ items }: { items: PortalNavItem[] }) {
 	return (
 		<nav aria-label="Principal" className="hidden md:block">
 			<ul className="flex items-center gap-2">
-				{items.map(({ href, label, icon: Icon }) => {
+				{items.map(({ href, label, icon }) => {
+					const Icon = ICONS[icon];
 					const active = isActive(pathname, href);
 					return (
 						<li key={href}>

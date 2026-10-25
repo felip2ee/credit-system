@@ -40,7 +40,7 @@ export default async function SuperadminPage() {
         {bureaus.map((b) => (
           <li key={b.bureauId} className="space-y-4 rounded-lg border-2 bg-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Link className="text-lg font-bold hover:underline" href={`/superadmin/bureaus/${b.bureauId}`}>
+              <Link className="inline-flex min-h-11 items-center text-lg font-bold hover:underline" href={`/superadmin/bureaus/${b.bureauId}`}>
                 {b.name}
               </Link>
               <BureauStatus status={b.status} />

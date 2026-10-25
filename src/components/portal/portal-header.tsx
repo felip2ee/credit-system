@@ -9,7 +9,7 @@ export function PortalHeader({ items, balance }: { items: PortalNavItem[]; balan
 	return (
 		<header className="border-b-2 bg-background">
 			<div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-2 md:max-w-5xl">
-				<Link href="/portal" aria-label="Rainha Cred, página inicial" className="shrink-0">
+				<Link href="/portal" aria-label="Rainha Cred, página inicial" className="flex min-h-12 min-w-12 shrink-0 items-center">
 					<BrandLogo variant="symbol" className="md:hidden" />
 					<BrandLogo variant="full" className="hidden md:block" />
 				</Link>
