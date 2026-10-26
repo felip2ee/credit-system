@@ -1,19 +1,21 @@
-export type WalletTab = "extrato" | "a-receber" | "balcao";
+export type WalletTab = "online" | "balcao" | "extrato" | "receber";
 
 export const WALLET_TAB_LABEL: Record<WalletTab, string> = {
-  extrato: "Extrato",
-  "a-receber": "A receber",
-  balcao: "Pagamentos de balcão",
+  online: "Pedidos online",
+  balcao: "Balcão",
+  extrato: "Extrato total",
+  receber: "A receber e saques",
 };
 
-const ORDER: readonly WalletTab[] = ["extrato", "a-receber", "balcao"];
+const ORDER: readonly WalletTab[] = ["online", "balcao", "extrato", "receber"];
 
-// Extrato sempre aparece; as outras abas dependem de permissão.
+// Pedidos online e Extrato total sempre aparecem; Balcão e A receber dependem de permissão.
 export function visibleWalletTabs(access: { payout: boolean; counter: boolean }): WalletTab[] {
-  return ORDER.filter((t) => t === "extrato" || (t === "a-receber" ? access.payout : access.counter));
+  return ORDER.filter((t) => (t === "receber" ? access.payout : t === "balcao" ? access.counter : true));
 }
 
-// Valor fora da lista (ou aba sem permissão) cai em "extrato".
+// Valor fora da lista (ou aba sem permissão) cai em "online". O nome antigo "a-receber" vale como "receber".
 export function parseWalletTab(raw: string | string[] | undefined, visible: readonly WalletTab[]): WalletTab {
-  return visible.find((t) => t === raw) ?? "extrato";
+  const value = raw === "a-receber" ? "receber" : raw;
+  return visible.find((t) => t === value) ?? "online";
 }

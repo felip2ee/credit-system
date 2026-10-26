@@ -150,7 +150,7 @@ export default async function DashboardPage({
           hint={`${orders} ${orders === 1 ? "pedido concluído" : "pedidos concluídos"} desde o início`}
         />
         {payable !== null && (
-          <Link href="/settings/wallet?aba=a-receber" className="rounded-[18px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Link href="/settings/wallet?aba=receber" className="rounded-[18px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Card className="flex h-full flex-col justify-between gap-3 p-4 transition-shadow hover:shadow-md">
               <div className="flex items-center gap-3">
                 <span aria-hidden className="flex size-9 items-center justify-center rounded-[10px] bg-brand-soft text-brand-soft-foreground">
