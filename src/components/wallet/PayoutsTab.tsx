@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { PayablesPanel } from "@/components/payouts/PayablesPanel";
+import { DebtNote } from "@/components/wallet/DebtNote";
 import { TabIntro } from "@/components/wallet/TabIntro";
 import type { RequiredSession } from "@/lib/auth/session";
 import type { PayableBuckets } from "@/lib/payables/queries";
@@ -34,9 +35,11 @@ export function PayoutsTab({
   return (
     <div className="space-y-4">
       <TabIntro>O lucro dos pedidos online fica em liberação e depois pode ser sacado. Aqui você vê cada valor e o histórico de repasses.</TabIntro>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <DebtNote debt={buckets.debt} />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Bucket title="Disponível para saque" value={buckets.released} note="Já liberado. Pode ser repassado a você agora." />
         <Bucket title="Em liberação" value={buckets.retained} note={retainedNote} />
+        <Bucket title="Em repasse" value={buckets.inPayout} note="Valor de um repasse já criado, ainda não pago." />
         <Bucket title="Já repassado" value={buckets.paid} note="Total que a Rainha Cred já pagou a você." />
       </div>
       <PayablesPanel session={session} bureauId={bureauId} />

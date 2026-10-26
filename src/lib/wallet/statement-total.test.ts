@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { toStatementLine, type StatementRow } from "./statement-total";
+import type { PoolClient } from "pg";
+
+import { listWalletStatement, toStatementLine, type StatementRow } from "./statement-total";
 
 const at = new Date("2026-10-20T12:00:00Z");
 const row = (source: StatementRow["source"], kind: string, amount: string, reason: string | null = null): StatementRow => ({
@@ -88,5 +90,27 @@ describe("toStatementLine", () => {
 
 	it("tipo desconhecido falha em vez de sumir", () => {
 		expect(() => toStatementLine(row("prepaid", "novo_tipo", "1.00"))).toThrow();
+	});
+});
+
+describe("listWalletStatement cursor", () => {
+	const ID = "00000000-0000-4000-8000-000000000001";
+	const never = { query: () => Promise.reject(new Error("must not reach the database")) } as unknown as PoolClient;
+	const run = (cursor: string) =>
+		listWalletStatement(never, {
+			bureauId: ID,
+			source: "all",
+			includePayable: true,
+			range: { start: "2026-01-01T00:00:00Z", end: "2026-02-01T00:00:00Z" },
+			cursor,
+		});
+
+	it.each([
+		["malformed uuid", `2026-10-20T12:00:00.000000Z|${"-".repeat(36)}`],
+		["month 13", `2026-13-20T12:00:00.000000Z|${ID}`],
+		["impossible day", `2026-02-30T12:00:00.000000Z|${ID}`],
+		["tampered text", "x'; drop table ledger_entries; --"],
+	])("rejects %s with RangeError before the query", async (_name, cursor) => {
+		await expect(run(cursor)).rejects.toThrow(RangeError);
 	});
 });

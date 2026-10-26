@@ -44,7 +44,7 @@ afterAll(async () => {
 const WIDE = { start: "2000-01-01T00:00:00Z", end: "2100-01-01T00:00:00Z" };
 
 const read = (identity: DbIdentity, bureauId: string, args: Partial<Parameters<typeof listWalletStatement>[1]> = {}) =>
-	withUserTransaction(identity, (c) => listWalletStatement(c, { bureauId, source: "all", range: WIDE, ...args }));
+	withUserTransaction(identity, (c) => listWalletStatement(c, { bureauId, source: "all", includePayable: true, range: WIDE, ...args }));
 
 const post = (bureauId: string, kind: string, amount: string, by: string) =>
 	owner.query("select * from wallet_post_entry($1, $2, $3, $4, null, null, $5)", [bureauId, kind, amount, `t-${randomUUID()}`, by]);
@@ -119,6 +119,16 @@ describe("listWalletStatement", () => {
 		expect((await read(t.bureauAdmin, t.bureau.id)).lines).toHaveLength(2);
 	});
 
+	it("sem includePayable (operador, sem payout:read) o A receber não sai do banco", async () => {
+		const t = await seedTenant(owner, "Stmt");
+		await seedWalletTopup(owner, { bureauId: t.bureau.id, amount: "30.00", createdBy: t.bureauAdmin.userId });
+		await seedPayableEntry(owner, { bureauId: t.bureau.id, kind: "accrual", amount: "9.00" });
+		const asOperator = await read(t.operator, t.bureau.id, { includePayable: false });
+		expect(asOperator.lines.map((l) => l.source)).toEqual(["prepaid"]);
+		expect((await read(t.operator, t.bureau.id, { includePayable: false, source: "payable" })).lines).toEqual([]);
+		expect((await read(t.bureauAdmin, t.bureau.id)).lines.map((l) => l.source).sort()).toEqual(["payable", "prepaid"]);
+	});
+
 	it("respeita o período: início incluído, fim excluído", async () => {
 		const t = await seedTenant(owner, "Stmt");
 		for (const d of ["2026-03-01T00:00:00Z", "2026-03-15T12:00:00Z", "2026-04-01T00:00:00Z"]) {
@@ -167,6 +177,9 @@ describe("listWalletStatement", () => {
 	it("recusa cursor e período inválidos", async () => {
 		const t = await seedTenant(owner, "Stmt");
 		await expect(read(t.bureauAdmin, t.bureau.id, { cursor: "x" })).rejects.toThrow(RangeError);
+		const id = randomUUID();
+		await expect(read(t.bureauAdmin, t.bureau.id, { cursor: `2026-13-01T00:00:00.000000Z|${id}` })).rejects.toThrow(RangeError);
+		await expect(read(t.bureauAdmin, t.bureau.id, { cursor: `2026-01-01T00:00:00.000000Z|${"-".repeat(36)}` })).rejects.toThrow(RangeError);
 		await expect(read(t.bureauAdmin, t.bureau.id, { range: { start: "nao-e-data", end: WIDE.end } })).rejects.toThrow(RangeError);
 	});
 });
