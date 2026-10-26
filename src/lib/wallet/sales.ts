@@ -5,6 +5,8 @@ import type { PoolClient } from "pg";
 
 import { derivePaymentState, type PaymentState } from "@/lib/counter-payments/overview";
 
+import { assertCursor, UUID_PATTERN } from "./cursor";
+
 export type SaleMode = "online" | "counter";
 
 export type SaleRow = {
@@ -44,6 +46,7 @@ export type RawSale = {
 	has_settlement: boolean;
 	fully_paid: boolean;
 	paid: string;
+	price: string | null;
 	cost: string | null;
 };
 
@@ -54,6 +57,8 @@ export type RawTotalsGroup = {
 	has_settlement: boolean;
 	fully_paid: boolean;
 	paid_sum: string;
+	// Soma do pago de cada pedido limitado ao preço: base da parte do Bureau (pagamento a mais não é lucro).
+	capped_paid_sum: string;
 	cost_sum: string;
 	missing_cost: number;
 };
@@ -87,6 +92,7 @@ export function buildSaleRow(r: RawSale): SaleRow {
 	if (r.has_settlement && r.cost === null) throw new Error(COST_UNAVAILABLE);
 	const status = statusOf(r);
 	const cost = r.cost ?? "0.00";
+	const shareBase = r.price !== null ? Math.min(toCents(r.paid), toCents(r.price)) : toCents(r.paid);
 	return {
 		orderRef: r.order_ref,
 		holderName: r.subject_name,
@@ -95,7 +101,7 @@ export function buildSaleRow(r: RawSale): SaleRow {
 		mode: r.mode,
 		paid: r.paid,
 		cost,
-		bureauShare: status === "paid" ? fromCents(toCents(r.paid) - toCents(cost)) : "0.00",
+		bureauShare: status === "paid" ? fromCents(shareBase - toCents(cost)) : "0.00",
 		status,
 	};
 }
@@ -106,22 +112,26 @@ export function buildTotals(groups: RawTotalsGroup[]): SaleTotals {
 	let cost = 0;
 	let share = 0;
 	for (const g of groups) {
-		if (g.missing_cost > 0) throw new Error(COST_UNAVAILABLE);
 		const status = statusOf(g);
 		if (status === "cancelled" || status === "refunded") continue;
+		if (g.missing_cost > 0) throw new Error(COST_UNAVAILABLE);
 		paid += toCents(g.paid_sum);
 		cost += toCents(g.cost_sum);
-		if (status === "paid") share += toCents(g.paid_sum) - toCents(g.cost_sum);
+		if (status === "paid") share += toCents(g.capped_paid_sum) - toCents(g.cost_sum);
 	}
 	return { paid: fromCents(paid), cost: fromCents(cost), bureauShare: fromCents(share) };
 }
 
 // Cursor "<created_at em texto do Postgres>|<order_ref>": o texto guarda os microssegundos que um Date perde.
-const CURSOR = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?[+-]\d{2}(?::\d{2})?)\|([0-9a-f-]{36})$/i;
+const CURSOR = new RegExp(`^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?[+-]\\d{2}(?::\\d{2})?)\\|(${UUID_PATTERN})$`, "i");
 
+// Sem cursor: null. Cursor adulterado: RangeError (a página volta ao início).
 export function parseSalesCursor(raw: string | null | undefined): { at: string; orderRef: string } | null {
-	const m = raw ? CURSOR.exec(raw) : null;
-	return m ? { at: m[1], orderRef: m[2] } : null;
+	if (!raw) return null;
+	const m = CURSOR.exec(raw);
+	if (!m) throw new RangeError("Cursor inválido.");
+	assertCursor(m[1], m[2]);
+	return { at: m[1], orderRef: m[2] };
 }
 
 // Online: o saldo do cliente já cobriu o preço (reservado ou cobrado). Balcão: soma dos pagamentos não anulados.
@@ -147,7 +157,7 @@ export async function listSales(client: PoolClient, args: SalesArgs): Promise<Sa
 		        o.created_at, o.created_at::text as cursor_at, o.mode, o.state, s.status as settlement_status,
 		        s.id is not null as has_settlement,
 		        (s.id is not null and coalesce(pp.paid, 0) >= s.price) as fully_paid,
-		        (${PAID_SQL})::text as paid, c.cost::text as cost
+		        (${PAID_SQL})::text as paid, s.price::text as price, c.cost::text as cost
 		 ${FROM_SQL}
 		   and ($4::timestamptz is null or (o.created_at, o.dossier_id) < ($4::timestamptz, $5::uuid))
 		 order by o.created_at desc, o.dossier_id desc
@@ -158,7 +168,8 @@ export async function listSales(client: PoolClient, args: SalesArgs): Promise<Sa
 	const groups = await client.query<RawTotalsGroup>(
 		`select o.mode, o.state, s.status as settlement_status, s.id is not null as has_settlement,
 		        (s.id is not null and coalesce(pp.paid, 0) >= s.price) as fully_paid,
-		        coalesce(sum(${PAID_SQL}), 0)::text as paid_sum, coalesce(sum(c.cost), 0)::text as cost_sum,
+		        coalesce(sum(${PAID_SQL}), 0)::text as paid_sum,
+		        coalesce(sum(least(${PAID_SQL}, s.price)), 0)::text as capped_paid_sum, coalesce(sum(c.cost), 0)::text as cost_sum,
 		        (count(*) filter (where s.id is not null and c.cost is null))::int as missing_cost
 		 ${FROM_SQL}
 		 group by 1, 2, 3, 4, 5`,

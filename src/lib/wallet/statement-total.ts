@@ -4,6 +4,7 @@
 // a linha do Bureau representa o ajuste inteiro e a do cliente só aparece se o par do Bureau não existir.
 import type { PoolClient } from "pg";
 
+import { assertCursor, UUID_PATTERN } from "./cursor";
 import {
 	CLIENT_STATEMENT_TEXT,
 	PAYABLE_STATEMENT_TEXT,
@@ -38,7 +39,11 @@ export type StatementRow = {
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
-const CURSOR_FORMAT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\|[0-9a-f-]{36}$/;
+const CURSOR_FORMAT = new RegExp(`^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z)\\|(${UUID_PATTERN})$`, "i");
+
+const PAYABLE_BRANCH = `union all
+		   select id, 'payable', kind, amount::text, null, created_at
+		     from bureau_payable_entries where bureau_id = $1`;
 
 const TEXTS: Record<StatementSource, Record<string, StatementText>> = {
 	prepaid: PREPAID_STATEMENT_TEXT,
@@ -78,6 +83,8 @@ export async function listWalletStatement(
 	args: {
 		bureauId: string;
 		source: StatementFilter;
+		// false: sem "A receber" (papel sem payout:read). A linha nem sai do banco.
+		includePayable: boolean;
 		range: { start: string; end: string };
 		cursor?: string | null;
 		limit?: number;
@@ -85,18 +92,21 @@ export async function listWalletStatement(
 ): Promise<StatementPage> {
 	const { start, end } = args.range;
 	if (Number.isNaN(Date.parse(start)) || Number.isNaN(Date.parse(end))) throw new RangeError("Período inválido.");
-	const cursor = args.cursor ?? null;
-	if (cursor !== null && !CURSOR_FORMAT.test(cursor)) throw new RangeError("Cursor inválido.");
-	const [cursorAt, cursorId] = cursor ? cursor.split("|") : [null, null];
+	let cursorAt: string | null = null;
+	let cursorId: string | null = null;
+	if (args.cursor != null) {
+		const m = CURSOR_FORMAT.exec(args.cursor);
+		if (!m) throw new RangeError("Cursor inválido.");
+		[, cursorAt, cursorId] = m;
+		assertCursor(cursorAt, cursorId);
+	}
 	const limit = Math.min(Math.max(Math.trunc(args.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
 
 	const { rows } = await client.query<QueryRow>(
 		`with lines as (
 		   select id, 'prepaid'::text as source, kind, amount::text as amount, reason, created_at as at
 		     from ledger_entries where bureau_id = $1
-		   union all
-		   select id, 'payable', kind, amount::text, null, created_at
-		     from bureau_payable_entries where bureau_id = $1
+		   ${args.includePayable ? PAYABLE_BRANCH : ""}
 		   union all
 		   select c.id, 'client', c.kind, c.amount::text, c.reason, c.created_at
 		     from client_ledger_entries c

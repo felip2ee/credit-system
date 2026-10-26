@@ -131,6 +131,15 @@ describe("listSales", () => {
 		expect(totals).toEqual({ paid: "20.00", cost: "30.00", bureauShare: "0.00" });
 	});
 
+	it("counter overpayment: share is capped at the price like the detail page", async () => {
+		const { tenant, admin } = await setup("Sales Over");
+		const ref = await place(tenant, "counter", "100.00", "40.00");
+		await payCounter(tenant, ref, "120.00");
+		const { rows, totals } = await withUserTransaction(admin, (c) => listSales(c, { mode: "counter", range: WIDE }));
+		expect(rows[0]).toMatchObject({ paid: "120.00", cost: "40.00", bureauShare: "60.00", status: "paid" });
+		expect(totals).toEqual({ paid: "120.00", cost: "40.00", bureauShare: "60.00" });
+	});
+
 	it("keeps a refunded online order in the list and out of the totals", async () => {
 		const { tenant, admin } = await setup("Sales C");
 		const kept = await place(tenant, "online", "50.00", "30.00");
@@ -142,6 +151,13 @@ describe("listSales", () => {
 		expect(rows).toHaveLength(2);
 		expect(rows.find((r) => r.orderRef === refunded)).toMatchObject({ status: "refunded", bureauShare: "0.00" });
 		expect(totals).toEqual({ paid: "50.00", cost: "30.00", bureauShare: "20.00" });
+	});
+
+	it("a tampered cursor throws RangeError", async () => {
+		const { admin } = await setup("Sales Cur");
+		await expect(
+			withUserTransaction(admin, (c) => listSales(c, { mode: "counter", range: WIDE, cursor: `2026-13-01 00:00:00+00|${randomUUID()}` })),
+		).rejects.toThrow(RangeError);
 	});
 
 	it("filters by period", async () => {

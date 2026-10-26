@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/layout/page-header";
+import { DebtNote } from "@/components/wallet/DebtNote";
 import { PayoutsTab } from "@/components/wallet/PayoutsTab";
 import { SalesTab } from "@/components/wallet/SalesTab";
 import { StatementTab } from "@/components/wallet/StatementTab";
@@ -20,21 +21,15 @@ import { formatMoney } from "@/lib/wallet/money";
 import { getWallet } from "@/lib/wallet/queries";
 import { listPixCharges } from "@/lib/wallet/pix-charges";
 import { listSales } from "@/lib/wallet/sales";
-import { listWalletStatement, type StatementFilter } from "@/lib/wallet/statement-total";
+import { payableOwed } from "@/lib/wallet/payable-summary";
+import { parseStatementSource, visibleStatementSources } from "@/lib/wallet/statement-source";
+import { listWalletStatement } from "@/lib/wallet/statement-total";
 import { parseWalletTab, visibleWalletTabs } from "@/lib/wallet/tabs";
 
 export const metadata = { title: "Carteira" };
 
 type Param = string | string[] | undefined;
-const SOURCES: { key: StatementFilter; label: string }[] = [
-  { key: "all", label: "Tudo" },
-  { key: "prepaid", label: "Saldo pré-pago" },
-  { key: "payable", label: "A receber" },
-];
 const first = (v: Param) => (Array.isArray(v) ? v[0] : v);
-
-// Soma em centavos inteiros: o texto do banco não passa por ponto flutuante.
-const sumCents = (a: string, b: string) => ((Math.round(Number(a) * 100) + Math.round(Number(b) * 100)) / 100).toFixed(2);
 
 export default async function WalletPage({
   searchParams,
@@ -65,8 +60,8 @@ export default async function WalletPage({
   const periodKey = parseRevenuePeriod(first(searchParams.periodo));
   const range = revenueRange(periodKey);
   const rawCursor = first(searchParams.cursor) ?? null;
-  const rawSource = first(searchParams.fonte);
-  const source = SOURCES.find((s) => s.key === rawSource)?.key ?? "all";
+  const sources = visibleStatementSources(roleCanPayout);
+  const source = parseStatementSource(first(searchParams.fonte), roleCanPayout);
 
   // Link da aba atual com os filtros; "mes" e "all" são os padrões e saem da URL.
   const link = (over: Record<string, string | null> = {}) =>
@@ -98,16 +93,17 @@ export default async function WalletPage({
           period={periodKey}
           nextHref={next(page.nextCursor)}
           startHref={startHref}
+          detailLinks={hasPermission(session, "counter:read")}
         />
       );
     } else if (tab === "extrato") {
       const page = await withUserTransaction(session, (client) =>
-        listWalletStatement(client, { bureauId, source, range, cursor: rawCursor }),
+        listWalletStatement(client, { bureauId, source, includePayable: roleCanPayout, range, cursor: rawCursor }),
       );
       content = (
         <StatementTab
           page={page}
-          sourceChips={SOURCES.map((s) => ({ ...s, href: link({ fonte: s.key === "all" ? null : s.key, cursor: null }) }))}
+          sourceChips={sources.map((s) => ({ ...s, href: link({ fonte: s.key === "all" ? null : s.key, cursor: null }) }))}
           source={source}
           periodChips={periodChips}
           period={periodKey}
@@ -148,9 +144,10 @@ export default async function WalletPage({
           <Card className="space-y-1 self-start p-5">
             <h2 className="text-base">A receber</h2>
             <p className="text-4xl font-bold leading-tight tabular-nums">
-              {formatMoney(sumCents(base.buckets.released, base.buckets.retained))}
+              {formatMoney(payableOwed(base.buckets))}
             </p>
             <p className="text-base text-muted-foreground">Lucro dos pedidos online que a Rainha Cred vai repassar a você.</p>
+            <DebtNote debt={base.buckets.debt} />
           </Card>
         )}
       </div>

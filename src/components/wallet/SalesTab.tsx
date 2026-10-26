@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ReceiptText } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
@@ -7,9 +8,9 @@ import { FilterChips, type Chip } from "@/components/wallet/FilterChips";
 import { MoreLinks } from "@/components/wallet/MoreLinks";
 import { TabIntro } from "@/components/wallet/TabIntro";
 import { statusInfo } from "@/lib/ui/status";
-import { formatDateSP } from "@/lib/utils";
+import { cn, formatDateSP } from "@/lib/utils";
 import { formatMoney } from "@/lib/wallet/money";
-import type { SaleMode, SalesPage } from "@/lib/wallet/sales";
+import type { SaleMode, SalesPage, SaleRow } from "@/lib/wallet/sales";
 
 const INTRO: Record<SaleMode, string> = {
   online: "Pedidos que seus clientes pagaram com o saldo do app. Você vê o que o cliente pagou, o custo e a sua parte.",
@@ -25,6 +26,30 @@ function Money({ label, value, strong = false }: { label: string; value: string;
   );
 }
 
+const ROW_CLASS = "block min-h-11 space-y-2 px-4 py-3";
+
+function SaleRowBody({ row: r }: { row: SaleRow }) {
+  const pay = statusInfo("payment", r.status, "staff");
+  return (
+    <>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-base font-bold">{r.holderName}</p>
+          <p className="text-sm text-muted-foreground">
+            {r.productName} · {formatDateSP(r.createdAt)}
+          </p>
+        </div>
+        <StatusBadge tone={pay.tone} label={pay.label} />
+      </div>
+      <dl className="grid grid-cols-3 gap-3">
+        <Money label="Cliente pagou" value={r.paid} />
+        <Money label="Custo" value={r.cost} />
+        <Money label="Sua parte" value={r.bureauShare} strong />
+      </dl>
+    </>
+  );
+}
+
 export function SalesTab({
   mode,
   page,
@@ -32,6 +57,7 @@ export function SalesTab({
   period,
   nextHref,
   startHref,
+  detailLinks,
 }: {
   mode: SaleMode;
   page: SalesPage;
@@ -39,6 +65,8 @@ export function SalesTab({
   period: string;
   nextHref: string | null;
   startHref: string | null;
+  // O detalhe do pedido exige counter:read; sem ele a linha fica sem link.
+  detailLinks: boolean;
 }) {
   const { rows, totals } = page;
   return (
@@ -59,27 +87,19 @@ export function SalesTab({
       ) : (
         <Card>
           <ul className="divide-y">
-            {rows.map((r) => {
-              const pay = statusInfo("payment", r.status, "staff");
-              return (
-                <li key={r.orderRef} className="space-y-2 px-4 py-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-base font-bold">{r.holderName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {r.productName} · {formatDateSP(r.createdAt)}
-                      </p>
-                    </div>
-                    <StatusBadge tone={pay.tone} label={pay.label} />
+            {rows.map((r) => (
+              <li key={r.orderRef}>
+                {detailLinks ? (
+                  <Link href={`/settings/counter-payments?dossier=${r.orderRef}`} className={cn(ROW_CLASS, "hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
+                    <SaleRowBody row={r} />
+                  </Link>
+                ) : (
+                  <div className={ROW_CLASS}>
+                    <SaleRowBody row={r} />
                   </div>
-                  <dl className="grid grid-cols-3 gap-3">
-                    <Money label="Cliente pagou" value={r.paid} />
-                    <Money label="Custo" value={r.cost} />
-                    <Money label="Sua parte" value={r.bureauShare} strong />
-                  </dl>
-                </li>
-              );
-            })}
+                )}
+              </li>
+            ))}
           </ul>
         </Card>
       )}
