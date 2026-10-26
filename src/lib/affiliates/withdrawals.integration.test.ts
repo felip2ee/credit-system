@@ -462,6 +462,10 @@ describe("PIX key exposure", () => {
 
 		await expect(app.query("select pix_key from affiliate_withdrawals")).rejects.toMatchObject({ code: "42501" });
 
+		// A fila lista só os 100 mais antigos: encerra saques abertos de execuções anteriores.
+		await owner.query(
+			"update affiliate_withdrawals set status = 'cancelled', cancel_reason = 'limpeza de teste' where status = 'open' and created_at < now() - interval '1 hour'",
+		);
 		const queue = await listWithdrawalQueue(asSuperadmin());
 		const item = queue.find((q) => q.id === id);
 		expect(item).toMatchObject({ pixKeyMasked: "c***@example.test", status: "open", bureauId: T.bureau.id });

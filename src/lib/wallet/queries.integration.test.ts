@@ -250,9 +250,12 @@ describe("listLedger", () => {
 	it("orders numerically across a seq digit boundary with no duplicates or gaps", async () => {
 		const { tenant, admin } = await fundedTenant("Wallet Q8n");
 		const bureauId = tenant.bureau.id;
-		// seq é uma identity global: avança-a para 55 antes da próxima potência de 10, para o teste cruzar 9..9 -> 10..0.
+		// seq é uma identity global que só cresce: avança-a para 55 antes da próxima potência de 10 até 1e6 (salto limitado),
+		// para o teste cruzar 9..9 -> 10..0. Acima disso não há salto e a identity já cruza fronteiras naturalmente.
 		await owner.query(
-			`select setval(s, (power(10, length(greatest((select last_value from ledger_entries_seq_seq), 10)::text))::bigint) - 55)
+			`select setval(s, (select min(power(10, g)::bigint) - 55
+			                     from generate_series(2, 6) g
+			                    where power(10, g)::bigint - 55 > (select last_value from ledger_entries_seq_seq)))
 			   from (select pg_get_serial_sequence('ledger_entries', 'seq') as s) x`,
 		);
 		await withUserTransaction(admin, async (c) => {
