@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-26-carteira-reorganizacao-design.md`
 
-**Pré-requisito:** o commit da migração `034_push_notifications.sql` (outro agente) vem antes da Wave 1. Esta migração usa o número 035; a Task 5 pode usar 036.
+**Pré-requisito:** o commit da migração `034_push_notifications.sql` (outro agente) vem antes da Wave 1. A 034 e a 035 (push) já estão commitadas. Esta migração usa o número 036; a Task 3 pode usar 037.
 
 ## Global Constraints
 
@@ -38,7 +38,7 @@
 ### Task 1: Retenção no banco
 
 **Files:**
-- Create: `db/migrations/035_payable_retention.sql`
+- Create: `db/migrations/036_payable_retention.sql`
 - Test: `src/lib/payables/retention.integration.test.ts`
 
 **Depends-on:** none (depois do commit da 034)
@@ -77,7 +77,7 @@
 **Files:**
 - Create: `src/lib/wallet/statement-total.ts`, `src/lib/wallet/statement-total.test.ts`, `src/lib/wallet/statement-total.integration.test.ts`
 - Modify: `src/lib/wallet/ledger-view.ts` (novos textos, sem quebrar os testes atuais)
-- Create (só se não houver chave comum): `db/migrations/036_ledger_adjustment_link.sql`
+- Create (só se não houver chave comum): `db/migrations/037_ledger_adjustment_link.sql`
 
 **Depends-on:** none
 
@@ -85,7 +85,7 @@
 - Produces:
   - `type StatementLine = { id: string; at: Date; source: "prepaid" | "payable" | "client"; title: string; detail: string; amount: string; tone: "in" | "out" | "neutral" }`
   - `listWalletStatement(client: PoolClient, args: { bureauId: string; source: "all" | "prepaid" | "payable"; range: { start: string; end: string }; cursor?: string | null; limit?: number }): Promise<{ lines: StatementLine[]; nextCursor: string | null }>`
-  - Junta `ledger_entries` (prepaid), `bureau_payable_entries` (payable) e os lançamentos de `client_ledger_entries` que vêm de ajuste do Bureau. Ordem por data decrescente, 50 por página. Um ajuste de conta é uma linha só: "Crédito dado a cliente. Saiu do saldo do Bureau e entrou no saldo do cliente (ajuste de conta)." Se não existir chave comum entre as duas tabelas, ligue pelo `reference`/`idempotency_key` do ajuste (veja `029_client_balance_adjustments.sql`); só crie a migração 036 se isso não bastar.
+  - Junta `ledger_entries` (prepaid), `bureau_payable_entries` (payable) e os lançamentos de `client_ledger_entries` que vêm de ajuste do Bureau. Ordem por data decrescente, 50 por página. Um ajuste de conta é uma linha só: "Crédito dado a cliente. Saiu do saldo do Bureau e entrou no saldo do cliente (ajuste de conta)." Se não existir chave comum entre as duas tabelas, ligue pelo `reference`/`idempotency_key` do ajuste (veja `029_client_balance_adjustments.sql`); só crie a migração 037 se isso não bastar.
   - Textos em pt-BR simples, um por tipo de lançamento. Venda online: "Sua parte entrou em A receber". Venda no balcão: "Custo saiu do saldo pré-pago". Recarga, estorno, repasse recebido, ajuste.
 
 - [ ] Testes: cada tipo de lançamento gera o título e o sinal certos; ajuste de conta vira uma linha; `source` filtra; paginação não repete nem perde linha na fronteira; Bureau B não lê o Bureau A.
