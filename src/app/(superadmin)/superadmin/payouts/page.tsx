@@ -2,13 +2,14 @@ import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { CreatePayoutForm } from "@/components/payouts/CreatePayoutForm";
-import { canManagePayouts, latestPayoutDate } from "@/components/payouts/payout-logic";
+import { canManagePayouts } from "@/components/payouts/payout-logic";
 import { PayoutTable } from "@/components/payouts/PayoutTable";
 import { getRequiredSession } from "@/lib/auth/session";
 import { listBureauMetrics } from "@/lib/bureaus/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getPayableBalances, getPayableRetentionDays } from "@/lib/payables/queries";
+import { latestPayoutDate } from "@/lib/payouts/cutoff";
 import { listPayouts } from "@/lib/payouts/queries";
 
 export const metadata = { title: "Repasses" };

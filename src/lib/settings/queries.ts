@@ -39,12 +39,27 @@ export interface UpsertSettingInput {
   description?: string | null;
 }
 
+export interface UpsertSettingsOptions {
+  // Receives the values stored before the write (read in the same transaction); the result joins the audit metadata.
+  auditChange?: (previous: Map<string, unknown>) => Record<string, unknown>;
+}
+
 export async function upsertSettings(
   identity: DbIdentity,
   entries: UpsertSettingInput[],
   auditAction: string,
+  options: UpsertSettingsOptions = {},
 ): Promise<void> {
   await withUserTransaction(platformIdentity(identity), async (client) => {
+    let change: Record<string, unknown> = {};
+    if (options.auditChange) {
+      // Lock the rows so "from" is the value this write replaces.
+      const { rows } = await client.query<{ key: string; value: unknown }>(
+        "select key, value from settings where key = any($1::text[]) for update",
+        [entries.map((e) => e.key)],
+      );
+      change = options.auditChange(new Map(rows.map((r) => [r.key, r.value])));
+    }
     for (const e of entries) {
       await client.query(
         `insert into settings (key, value, description, updated_by, updated_at)
@@ -61,7 +76,7 @@ export async function upsertSettings(
       actorId: identity.userId,
       action: auditAction,
       targetTable: "settings",
-      metadata: { keys: entries.map((e) => e.key) },
+      metadata: { keys: entries.map((e) => e.key), ...change },
     });
   });
 }

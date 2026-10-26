@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { latestPayoutDate } from "@/components/payouts/payout-logic";
 import { getRequiredSession, SessionAccessError, type RequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { getPayableRetentionDays } from "@/lib/payables/queries";
+import { brDate, DAY_MS, latestPayoutDate } from "@/lib/payouts/cutoff";
 import {
 	cancelPayout,
 	createPayout,
@@ -36,6 +36,7 @@ const FAILURE_MESSAGES: Record<PayoutFailure, string> = {
 	invalid_cutoff: "Data de corte inválida.",
 	not_found: "Repasse ou Bureau não encontrado.",
 	nothing_to_pay: "Não há valor a repassar até a data de corte.",
+	// Exigida pelo tipo PayoutFailure; createPayoutAction trata esse motivo antes, com a data limite.
 	cutoff_within_retention: "Esse valor ainda está em liberação.",
 	invalid_state: "O repasse não está em um estado que permita esta operação.",
 	already_paid: "Este repasse já foi pago com outro comprovante.",
@@ -84,12 +85,8 @@ async function payoutManager(step: string): Promise<{ session: RequiredSession }
 	return { session };
 }
 
-const DAY_MS = 86_400_000;
 // Folga contra diferença de relógio entre o app e o banco: o corte padrão nunca passa de now() − prazo no banco.
 const CLOCK_SKEW_MS = 60_000;
-
-// "AAAA-MM-DD" -> "DD/MM/AAAA".
-const brDate = (isoDate: string) => isoDate.split("-").reverse().join("/");
 
 const revalidate = () => {
 	revalidatePath("/superadmin/payouts");

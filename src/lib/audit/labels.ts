@@ -110,6 +110,8 @@ const KEY_LABEL: Record<string, string> = {
   status: "Situação",
   attempts: "Tentativas",
   keys: "Itens",
+  from: "Antes",
+  to: "Depois",
   model: "Modelo",
   promptVersion: "Versão do prompt",
   user_id: "Usuário",
