@@ -261,7 +261,14 @@ describe("getPayableBuckets", () => {
 
 		const buckets = await withUserTransaction({ ...tenant.bureauAdmin }, (c) => getPayableBuckets(c, tenant.bureau.id));
 
-		expect(buckets).toEqual({ released: "0.00", retained: "0.00", nextReleaseAt: null, paid: "0.00" });
+		expect(buckets).toEqual({
+			released: "0.00",
+			retained: "0.00",
+			debt: "0.00",
+			inPayout: "0.00",
+			nextReleaseAt: null,
+			paid: "0.00",
+		});
 	});
 
 	it("splits released from retained and dates the next release at created_at + retention", async () => {
@@ -272,12 +279,13 @@ describe("getPayableBuckets", () => {
 
 		const buckets = await withUserTransaction({ ...tenant.operator }, (c) => getPayableBuckets(c, tenant.bureau.id));
 
-		expect(buckets).toMatchObject({ released: "100.00", retained: "15.00", paid: "0.00" });
+		// O estorno de 3 dias conta na hora (abate o liberado) e nunca entra em retained.
+		expect(buckets).toMatchObject({ released: "90.00", retained: "25.00", debt: "0.00", paid: "0.00" });
 		const expected = daysAgo(5).getTime() + 30 * DAY_MS;
 		expect(Math.abs((buckets.nextReleaseAt as Date).getTime() - expected)).toBeLessThan(60_000);
 	});
 
-	it("never shows a negative bucket: a reversal after the release leaves the released at 0", async () => {
+	it("never shows a negative bucket: a net-negative released shows 0 and the rest is debt", async () => {
 		const tenant = await seedTenant(owner, "Buckets estorno");
 		await entry(tenant.bureau.id, "accrual", "20.00", 40);
 		await entry(tenant.bureau.id, "reversal", "50.00", 40);
@@ -285,7 +293,7 @@ describe("getPayableBuckets", () => {
 
 		const buckets = await withUserTransaction({ ...tenant.bureauAdmin }, (c) => getPayableBuckets(c, tenant.bureau.id));
 
-		expect(buckets).toMatchObject({ released: "0.00", retained: "0.00" });
+		expect(buckets).toMatchObject({ released: "0.00", retained: "0.00", debt: "60.00" });
 	});
 
 	it("matches what create_payout accepts, and counts the paid amount only after the payout is paid", async () => {
@@ -296,7 +304,7 @@ describe("getPayableBuckets", () => {
 		await entry(tenant.bureau.id, "accrual", "25.00", 5);
 		const admin: DbIdentity = { ...tenant.bureauAdmin };
 		const before = await withUserTransaction(admin, (c) => getPayableBuckets(c, tenant.bureau.id));
-		expect(before).toMatchObject({ released: "70.00", retained: "25.00", paid: "0.00" });
+		expect(before).toMatchObject({ released: "70.00", retained: "25.00", debt: "0.00", inPayout: "0.00", paid: "0.00" });
 
 		// Um corte dentro da retenção é recusado e não muda os números; o corte liberado paga exatamente "released".
 		const within = await createPayout({ userId: sa.userId, role: "superadmin", bureauId: null }, { bureauId: tenant.bureau.id, cutoffAt: daysAgo(10) });
@@ -305,11 +313,11 @@ describe("getPayableBuckets", () => {
 		expect(made).toMatchObject({ ok: true, amount: before.released });
 
 		const open = await withUserTransaction(admin, (c) => getPayableBuckets(c, tenant.bureau.id));
-		expect(open).toMatchObject({ released: "0.00", retained: "25.00", paid: "0.00" });
+		expect(open).toMatchObject({ released: "0.00", retained: "25.00", inPayout: "70.00", paid: "0.00" });
 		if (!made.ok) throw new Error("payout not created");
 		await markPayoutPaid({ userId: sa.userId, role: "superadmin", bureauId: null }, { payoutId: made.payoutId, receipt: receipt() });
 		const paid = await withUserTransaction(admin, (c) => getPayableBuckets(c, tenant.bureau.id));
-		expect(paid).toMatchObject({ released: "0.00", retained: "25.00", paid: "70.00" });
+		expect(paid).toMatchObject({ released: "0.00", retained: "25.00", inPayout: "0.00", paid: "70.00" });
 	});
 
 	it("refuses (never returns zeros) for a client, another Bureau and a superadmin in support", async () => {

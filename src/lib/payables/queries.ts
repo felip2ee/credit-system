@@ -39,6 +39,8 @@ export async function getPayableBalances(client: PoolClient): Promise<Map<string
 export type PayableBuckets = {
 	released: string;
 	retained: string;
+	debt: string;
+	inPayout: string;
 	nextReleaseAt: Date | null;
 	paid: string;
 };
@@ -51,16 +53,20 @@ export class PayableBucketsRefusedError extends Error {
 	}
 }
 
-// released: o que o create_payout aceitaria agora (mesma função SQL, mesma retenção). retained: ainda em liberação.
+// released: líquido que o create_payout pagaria agora (estorno conta na hora, acréscimo após a retenção; nunca negativo).
+// debt: estorno a compensar quando o líquido liberado é negativo. retained: só acréscimos ainda em liberação.
+// inPayout: valor em repasse aberto (entre create_payout e mark_payout_paid).
 // paid: soma dos lançamentos de repasse pago, em valor positivo.
 export async function getPayableBuckets(client: PoolClient, bureauId: string): Promise<PayableBuckets> {
 	const { rows } = await client.query<{
 		released: string;
 		retained: string;
+		debt: string;
+		in_payout: string;
 		next_release_at: Date | null;
 		paid: string;
 	}>(
-		`select b.released::text, b.retained::text, b.next_release_at,
+		`select b.released::text, b.retained::text, b.debt::text, b.in_payout::text, b.next_release_at,
 		        (select coalesce(-sum(e.amount), 0.00)::text
 		           from bureau_payable_entries e where e.bureau_id = $1 and e.kind = 'payout') as paid
 		   from payable_buckets($1) b`,
@@ -68,7 +74,14 @@ export async function getPayableBuckets(client: PoolClient, bureauId: string): P
 	);
 	const row = rows[0];
 	if (!row) throw new PayableBucketsRefusedError();
-	return { released: row.released, retained: row.retained, nextReleaseAt: row.next_release_at, paid: row.paid };
+	return {
+		released: row.released,
+		retained: row.retained,
+		debt: row.debt,
+		inPayout: row.in_payout,
+		nextReleaseAt: row.next_release_at,
+		paid: row.paid,
+	};
 }
 
 // Prazo de retenção em dias (settings.payable_retention_days; 30 se ausente ou inválido), lido pela função SQL.
