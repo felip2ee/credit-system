@@ -261,4 +261,25 @@ export function readNotificationsDispatchSecret(env: Environment): string {
   return secret;
 }
 
+export interface PushConfig {
+  publicKey: string;
+  privateKey: string;
+  subject: string;
+}
+
+// Lida sob demanda (fora de readConfig): só o worker de envio e a tela de inscrição precisam das chaves VAPID.
+// Chave pública e contato vazios = push desligado: null. A chave privada vem de um Docker secret que o Swarm exige
+// preenchido, então com o push desligado ela carrega um marcador e é ignorada. Config pela metade ou inválida falha
+// em vez de enviar com chave errada.
+export function readPushConfig(env: Environment): PushConfig | null {
+  const names = ["WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_PRIVATE_KEY", "WEB_PUSH_VAPID_SUBJECT"] as const;
+  if (!env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim() && !env.WEB_PUSH_VAPID_SUBJECT?.trim()) return null;
+
+  const [publicKey, privateKey, subject] = names.map((name) => required(env, name));
+  if (!/^[A-Za-z0-9_-]{87}$/.test(publicKey)) throw new Error("WEB_PUSH_VAPID_PUBLIC_KEY must be 87 base64url characters");
+  if (!/^[A-Za-z0-9_-]{43}$/.test(privateKey)) throw new Error("WEB_PUSH_VAPID_PRIVATE_KEY must be 43 base64url characters");
+  if (!/^(mailto:|https:\/\/)\S+$/.test(subject)) throw new Error("WEB_PUSH_VAPID_SUBJECT must start with mailto: or https://");
+  return { publicKey, privateKey, subject };
+}
+
 export const config = readConfig(hydrateSecretEnv(process.env));

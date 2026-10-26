@@ -16,6 +16,8 @@ const atkinson = Atkinson_Hyperlegible({
 export const metadata: Metadata = {
   title: { default: BRAND_NAME, template: `%s · ${BRAND_NAME}` },
   description: "Diagnóstico e consultoria de crédito para pessoas e empresas.",
+  appleWebApp: { capable: true, title: BRAND_NAME, statusBarStyle: "default" },
+  icons: { apple: "/brand/rainha-cred/icones/icone-fundo-branco-180.png" },
 };
 
 export const viewport: Viewport = {

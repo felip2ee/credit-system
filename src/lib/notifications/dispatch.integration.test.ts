@@ -24,11 +24,16 @@ vi.hoisted(() => {
 		WHATSAPP_PHONE_NUMBER_ID: "123456789",
 		WHATSAPP_APP_SECRET: "a".repeat(32),
 		WHATSAPP_VERIFY_TOKEN: "v".repeat(32),
+		WEB_PUSH_VAPID_PUBLIC_KEY: "A".repeat(87),
+		WEB_PUSH_VAPID_PRIVATE_KEY: "B".repeat(43),
+		WEB_PUSH_VAPID_SUBJECT: "mailto:ops@example.test",
 	});
 });
 
 const mailer = vi.hoisted(() => ({ sendMail: vi.fn(), senderDomain: vi.fn() }));
 vi.mock("@/lib/email/mailer", () => mailer);
+const webPush = vi.hoisted(() => ({ sendNotification: vi.fn() }));
+vi.mock("web-push", () => webPush);
 vi.mock("next/headers", () => ({
 	headers: () => {
 		throw new Error("no request scope");
@@ -40,8 +45,9 @@ import { withUserTransaction } from "@/lib/db/transaction";
 import { getDispatchPool } from "@/lib/db/dispatch-pool";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedTenant, type SeededTenant } from "@/test/seed";
+import { seedClientProfile, seedTenant, type SeededTenant } from "@/test/seed";
 
+import { registerPushSubscription } from "./push-subscriptions";
 import { acquireClaimLock, releaseClaimLock } from "./claim-lock.test-util";
 import { runDispatch } from "./dispatch";
 import { enqueueNotification } from "./queries";
@@ -86,6 +92,7 @@ beforeEach(() => {
 		return behavior ? behavior(to) : Promise.resolve({ messageId: `<mail-${rand()}@example.test>` });
 	});
 	mailer.senderDomain.mockReset().mockReturnValue("rainha.example.test");
+	webPush.sendNotification.mockReset().mockResolvedValue({ statusCode: 201 });
 	vi.spyOn(console, "info").mockImplementation(() => {});
 	vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -233,5 +240,57 @@ describe("runDispatch", () => {
 		const logged = JSON.stringify([...vi.mocked(console.warn).mock.calls, ...vi.mocked(console.info).mock.calls]);
 		expect(logged).not.toContain(recipient);
 		expect(logged).toContain("smtp_timeout");
+	});
+
+	describe("push", () => {
+		// Cliente com um aparelho inscrito e um aviso de comissão na fila (evento 3), enfileirado como o gatilho do banco faz.
+		async function queuedPush() {
+			const client = await seedClientProfile(owner, tenant.bureau.id);
+			const endpoint = `https://fcm.googleapis.com/fcm/send/${randomUUID()}`;
+			const identity = { userId: client.userId, role: "client" as const, bureauId: client.bureauId };
+			const registered = await withUserTransaction(identity, (c) =>
+				registerPushSubscription(c, {
+					endpoint,
+					p256dh: randomBytes(65).toString("base64url"),
+					auth: randomBytes(16).toString("base64url"),
+					userAgent: "test-agent",
+				}),
+			);
+			expect(registered).toEqual({ ok: true });
+			const reference = `test_push:${randomUUID()}`;
+			const { rows } = await owner.query<{ n: number }>(
+				"select enqueue_push_for_profile($1, 'commission_received', '/portal/afiliacao', $2, $3) as n",
+				[client.userId, reference, reference],
+			);
+			expect(rows[0].n).toBe(1);
+			const { rows: queued } = await owner.query<{ id: string }>("select id from notifications where reference = $1", [reference]);
+			created.push(queued[0].id);
+			return { id: queued[0].id, userId: client.userId, endpoint };
+		}
+		const subscriptionCount = async (userId: string) =>
+			Number((await owner.query("select count(*) as n from push_subscriptions where profile_id = $1", [userId])).rows[0].n);
+
+		it("sends a push notice: pending -> sent, no recipient kept", async () => {
+			const { id, endpoint } = await queuedPush();
+
+			const result = await runDispatch();
+
+			expect(result.sent).toBeGreaterThanOrEqual(1);
+			expect(await rowOf(id)).toMatchObject({ status: "sent", recipient: null, params: null, lease_id: null, provider_message_id: `push:${id}` });
+			const [subscription, payload, options] = webPush.sendNotification.mock.calls[0];
+			expect(subscription.endpoint).toBe(endpoint);
+			expect(JSON.parse(payload)).toEqual({ title: "Rainha Cred", body: "Você recebeu uma comissão", url: "/portal/afiliacao" });
+			expect(options).toMatchObject({ TTL: 86400 });
+		});
+
+		it("deletes the subscription and fails the notice as push_gone on a 410", async () => {
+			const { id, userId } = await queuedPush();
+			webPush.sendNotification.mockRejectedValue(Object.assign(new Error("gone"), { statusCode: 410 }));
+
+			await runDispatch();
+
+			expect(await rowOf(id)).toMatchObject({ status: "failed", last_error_code: "push_gone" });
+			expect(await subscriptionCount(userId)).toBe(0);
+		});
 	});
 });

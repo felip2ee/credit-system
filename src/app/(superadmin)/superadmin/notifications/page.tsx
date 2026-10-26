@@ -10,7 +10,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { listBureauNames } from "@/lib/bureaus/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { isValidNotificationCursor, listNotifications, listTemplates } from "@/lib/notifications/queries";
-import type { NotificationChannel, NotificationStatus } from "@/lib/notifications/types";
+import type { DeliveryChannel, NotificationStatus } from "@/lib/notifications/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const metadata = { title: "Notificações" };
@@ -41,7 +41,7 @@ export default async function SuperadminNotificationsPage({
   const canWrite = session.role === "superadmin" && !inSupport;
 
   const status = pick(searchParams.status, Object.keys(NOTIFICATION_BADGE) as NotificationStatus[]);
-  const channel = pick<NotificationChannel>(searchParams.channel, ["email", "whatsapp"]);
+  const channel = pick<DeliveryChannel>(searchParams.channel, ["email", "whatsapp", "push"]);
   const cursor = searchParams.cursor && isValidNotificationCursor(searchParams.cursor) ? searchParams.cursor : null;
 
   const [page, templates, names] = await Promise.all([
@@ -109,7 +109,7 @@ export default async function SuperadminNotificationsPage({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>Todos</SelectItem>
-                {(Object.keys(CHANNEL_LABEL) as NotificationChannel[]).map((c) => (
+                {(Object.keys(CHANNEL_LABEL) as DeliveryChannel[]).map((c) => (
                   <SelectItem key={c} value={c}>
                     {CHANNEL_LABEL[c]}
                   </SelectItem>

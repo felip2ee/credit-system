@@ -19,11 +19,17 @@ import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { toE164 } from "@/lib/notifications/recipient";
 import {
+	isPushSubscriptionActive,
+	registerPushSubscription,
+	removePushSubscription,
+} from "@/lib/notifications/push-subscriptions";
+import {
 	legalAcceptSchema,
 	notificationChannelSchema,
 	phoneCodeSchema,
 	phoneRequestSchema,
 } from "@/lib/validators/account";
+import { pushEndpointInputSchema, pushSubscriptionSchema } from "@/lib/validators/push";
 
 export interface ActionResult {
 	error: string | null;
@@ -168,4 +174,52 @@ export async function setNotificationChannelAction(values: unknown): Promise<Act
 		if (!result.error) revalidatePath("/portal/perfil");
 		return result;
 	});
+}
+
+const PUSH_PAGE = "/portal/notificacoes";
+
+export async function registerPushSubscriptionAction(values: unknown): Promise<ActionResult> {
+	const parsed = pushSubscriptionSchema.safeParse(values);
+	if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? NOT_ALLOWED };
+	const { endpoint, keys } = parsed.data;
+
+	return runAsClient("registerPushSubscriptionAction", async (session) => {
+		const { userAgent } = requestMeta(await headers());
+		const result = toActionResult(
+			await withUserTransaction(session, (client) =>
+				registerPushSubscription(client, { endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent }),
+			),
+		);
+		if (!result.error) revalidatePath(PUSH_PAGE);
+		return result;
+	});
+}
+
+export async function removePushSubscriptionAction(values: unknown): Promise<ActionResult> {
+	const parsed = pushEndpointInputSchema.safeParse(values);
+	if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? NOT_ALLOWED };
+
+	return runAsClient("removePushSubscriptionAction", async (session) => {
+		const result = toActionResult(
+			await withUserTransaction(session, (client) => removePushSubscription(client, parsed.data.endpoint)),
+		);
+		if (!result.error) revalidatePath(PUSH_PAGE);
+		return result;
+	});
+}
+
+// A tela só mostra "ligado" se o servidor confirma o endpoint do navegador. Endpoint inválido não é erro: não há o que consultar.
+export async function getPushSubscriptionStatusAction(values: unknown): Promise<{ error: string | null; subscribed: boolean }> {
+	const parsed = pushEndpointInputSchema.safeParse(values);
+	if (!parsed.success) return { error: null, subscribed: false };
+
+	const session = await requireClient();
+	if (!session) return { error: NOT_ALLOWED, subscribed: false };
+	try {
+		const subscribed = await withUserTransaction(session, (client) => isPushSubscriptionActive(client, parsed.data.endpoint));
+		return { error: null, subscribed };
+	} catch (error) {
+		logFailure("getPushSubscriptionStatusAction", error);
+		return { error: FAILED, subscribed: false };
+	}
 }

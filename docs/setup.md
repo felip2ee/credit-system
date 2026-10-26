@@ -80,6 +80,20 @@ Contagem bruta (com brancos e comentários): 27 arquivos acima de 350 linhas, 7 
 - **Vitest:** `include` cobre `src/**/*.test.ts` e `e2e/**/*.test.ts`; sem `.test.tsx` e sem cobertura mínima. Playwright (`npm run test:e2e`) roda na CI e em `verify:release`.
 - **Gatilhos de revisão futura:** nova versão do toolkit; upgrade de `next` ou `eslint`; mudança de hooks em `.claude/settings.json`; adoção de logger (remover `no-console` do baseline).
 
+## Variáveis de push (deploy)
+
+O push do portal usa chaves VAPID. Gere o par uma vez com `npx web-push generate-vapid-keys` e guarde a chave privada fora do repositório.
+
+| Variável | Valor |
+|---|---|
+| `WEB_PUSH_VAPID_PUBLIC_KEY` | Base64url, 87 caracteres. |
+| `WEB_PUSH_VAPID_PRIVATE_KEY` | Base64url, 43 caracteres. Em produção vem do Docker secret `web_push_vapid_private_key` (`WEB_PUSH_VAPID_PRIVATE_KEY_FILE`). |
+| `WEB_PUSH_VAPID_SUBJECT` | `mailto:` ou `https://` de contato. |
+
+Em produção, `docker-stack.yml` (serviço `reino_app`) recebe a chave pública e o contato como variáveis e a chave privada como o secret `web_push_vapid_private_key`: `printf %s "<chave-privada>" | docker secret create web_push_vapid_private_key -`. O Swarm não aceita secret vazio: com o push desligado, grave um marcador (`push-disabled`); `scripts/setup/setup_production.py` faz isso.
+
+Chave pública e contato vazios desligam o push (a chave privada é ignorada). Preencha as três: configuração pela metade ou inválida falha na leitura (`readPushConfig`).
+
 ## Repetir o setup
 
 1. Clone o toolkit em diretório temporário e anote a revisão.

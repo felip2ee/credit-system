@@ -3,7 +3,12 @@ import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
+import {
+	TEST_DATABASE_DISPATCH_URL,
+	TEST_DATABASE_OWNER_URL,
+	TEST_DATABASE_URL,
+	TEST_DATABASE_WEBHOOK_URL,
+} from "@/test/db-env";
 import {
 	randomCpf,
 	seedClientProfile,
@@ -2610,6 +2615,10 @@ describe("affiliate withdrawals (028)", () => {
 	});
 
 	it("only the superadmin outside support reads the queue and the detail", async () => {
+		// A fila lista só os 100 mais antigos: encerra saques abertos de execuções anteriores.
+		await owner.query(
+			"update affiliate_withdrawals set status = 'cancelled', cancel_reason = 'limpeza de teste' where status = 'open' and created_at < now() - interval '1 hour'",
+		);
 		const queue = await rows(ctxOf(sa), "select * from list_affiliate_withdrawal_queue()");
 		expect(queue.map((r) => r.id)).toContain(withdrawalId);
 		expect(JSON.stringify(queue)).not.toContain("rls-chave-pix");
@@ -2769,6 +2778,74 @@ describe("client balance adjustments (029)", () => {
 					T.bureauAdmin.userId,
 				]),
 			),
+		).rejects.toMatchObject({ code: "42501" });
+	});
+});
+
+describe("push_subscriptions", () => {
+	const webhook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 2 });
+	const dispatch = new Pool({ connectionString: TEST_DATABASE_DISPATCH_URL, max: 2 });
+	let T: SeededTenant;
+
+	beforeAll(async () => {
+		T = await seedTenant(owner, "push rls");
+		await owner.query(
+			"insert into push_subscriptions (bureau_id, profile_id, endpoint, p256dh, auth) values ($1, $2, $3, $4, $5)",
+			[
+				T.bureau.id,
+				T.client.userId,
+				`https://fcm.googleapis.com/fcm/send/${randomUUID()}`,
+				randomBytes(65).toString("base64url"),
+				randomBytes(16).toString("base64url"),
+			],
+		);
+	});
+
+	afterAll(async () => {
+		await Promise.all([webhook.end(), dispatch.end()]);
+	});
+
+	it("app_runtime with a client context has no table privilege", async () => {
+		const ctx = { userId: T.client.userId, role: "client", bureauId: T.bureau.id };
+		const statements = [
+			"select endpoint from push_subscriptions",
+			"insert into push_subscriptions (bureau_id, profile_id, endpoint, p256dh, auth) values ($1, $2, 'https://x.test/a', repeat('a', 87), repeat('a', 22))",
+			"update push_subscriptions set user_agent = 'x'",
+			"delete from push_subscriptions",
+		];
+		for (const sql of statements) {
+			const params = sql.startsWith("insert") ? [T.bureau.id, T.client.userId] : [];
+			await expect(withDbContext(app, ctx, (c) => c.query(sql, params))).rejects.toMatchObject({ code: "42501" });
+		}
+	});
+
+	it("app_webhook and app_dispatch cannot read the table", async () => {
+		for (const role of [webhook, dispatch]) {
+			await expect(role.query("select endpoint from push_subscriptions")).rejects.toMatchObject({ code: "42501" });
+		}
+	});
+
+	it("function grants follow the role boundary", async () => {
+		const can = async (role: string, fn: string) =>
+			(await owner.query<{ ok: boolean }>("select has_function_privilege($1, $2, 'execute') as ok", [role, fn])).rows[0].ok;
+		const delivery = "push_subscription_for_delivery(uuid, uuid)";
+		const gone = "delete_gone_push_subscription(uuid, uuid)";
+		const internal = "enqueue_push_for_profile(uuid, text, text, text, text)";
+		const register = "register_push_subscription(text, text, text, text)";
+
+		for (const fn of [delivery, gone, internal]) expect(await can("app_runtime", fn)).toBe(false);
+		for (const fn of [register, "remove_push_subscription(text)", "push_subscription_active(text)", internal]) {
+			expect(await can("app_dispatch", fn)).toBe(false);
+		}
+		expect(await can("app_dispatch", delivery)).toBe(true);
+		expect(await can("app_dispatch", gone)).toBe(true);
+		expect(await can("app_runtime", register)).toBe(true);
+		expect(await can("public", internal)).toBe(false);
+		await expect(
+			app.query("select * from push_subscription_for_delivery($1, $2)", [randomUUID(), randomUUID()]),
+		).rejects.toMatchObject({ code: "42501" });
+		await expect(
+			dispatch.query("select * from register_push_subscription('https://x.test/a', repeat('a', 87), repeat('a', 22), null)"),
 		).rejects.toMatchObject({ code: "42501" });
 	});
 });

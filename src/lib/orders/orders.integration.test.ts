@@ -1302,7 +1302,7 @@ describe("notification templates (022)", () => {
 	it("new templates are active", async () => {
 		const found = await rows<{ key: string; channel: string; version: number; status: string; params: string[]; wa_template_name: string | null; wa_language: string | null; email_subject: string | null }>(
 			`select key, channel, version, status, params, wa_template_name, wa_language, email_subject
-         from notification_templates where key in ('scr_authorization', 'research_released') and status = 'active' order by key, channel`,
+         from notification_templates where key in ('scr_authorization', 'research_released') and channel <> 'push' and status = 'active' order by key, channel`,
 			[],
 		);
 		expect(found).toEqual([

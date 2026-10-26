@@ -12,6 +12,9 @@ const state = vi.hoisted(() => ({
 	confirmPhone: vi.fn(),
 	acceptLegal: vi.fn(),
 	setChannel: vi.fn(),
+	pushRegister: vi.fn(),
+	pushRemove: vi.fn(),
+	pushActive: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -36,11 +39,20 @@ vi.mock("@/lib/account/queries", () => ({
 	setNotificationChannel: state.setChannel,
 }));
 
+vi.mock("@/lib/notifications/push-subscriptions", () => ({
+	registerPushSubscription: state.pushRegister,
+	removePushSubscription: state.pushRemove,
+	isPushSubscriptionActive: state.pushActive,
+}));
+
 import { revalidatePath } from "next/cache";
 
 import {
 	acceptLegalDocumentsAction,
 	confirmPhoneAction,
+	getPushSubscriptionStatusAction,
+	registerPushSubscriptionAction,
+	removePushSubscriptionAction,
 	requestPhoneVerificationAction,
 	resendEmailVerificationAction,
 	setNotificationChannelAction,
@@ -57,6 +69,9 @@ beforeEach(() => {
 	for (const fn of [state.requestEmail, state.requestPhone, state.confirmPhone, state.acceptLegal, state.setChannel]) {
 		fn.mockResolvedValue({ ok: true });
 	}
+	state.pushRegister.mockResolvedValue({ ok: true });
+	state.pushRemove.mockResolvedValue({ ok: true });
+	state.pushActive.mockResolvedValue(true);
 });
 
 const calls = {
@@ -241,5 +256,100 @@ describe("reason messages", () => {
 		expect(logged).not.toContain("123456");
 		expect(logged).not.toContain("+5563999991234");
 		spy.mockRestore();
+	});
+});
+
+describe("push subscription actions", () => {
+	const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
+	const subscription = { endpoint: ENDPOINT, keys: { p256dh: "B".repeat(87), auth: "a".repeat(22) } };
+	const actions = {
+		register: { call: () => registerPushSubscriptionAction(subscription), query: state.pushRegister },
+		remove: { call: () => removePushSubscriptionAction({ endpoint: ENDPOINT }), query: state.pushRemove },
+	};
+
+	it("registers with the keys and the request user agent, then revalidates", async () => {
+		expect(await registerPushSubscriptionAction({ ...subscription, expirationTime: null })).toEqual(OK);
+
+		expect(state.pushRegister).toHaveBeenCalledWith(TX_CLIENT, {
+			endpoint: ENDPOINT,
+			p256dh: subscription.keys.p256dh,
+			auth: subscription.keys.auth,
+			userAgent: "vitest-agent",
+		});
+		expect(revalidatePath).toHaveBeenCalledWith("/portal/notificacoes");
+	});
+
+	it("removes the endpoint, then revalidates", async () => {
+		expect(await removePushSubscriptionAction({ endpoint: ENDPOINT })).toEqual(OK);
+
+		expect(state.pushRemove).toHaveBeenCalledWith(TX_CLIENT, ENDPOINT);
+		expect(revalidatePath).toHaveBeenCalledWith("/portal/notificacoes");
+	});
+
+	it.each(Object.keys(actions) as (keyof typeof actions)[])("%s refuses an operator without a query", async (name) => {
+		state.role = "operator";
+
+		expect(await actions[name].call()).toEqual({ error: NOT_ALLOWED });
+		expect(actions[name].query).not.toHaveBeenCalled();
+		expect(revalidatePath).not.toHaveBeenCalled();
+	});
+
+	it.each([undefined, {}, { endpoint: "https://evil.com/x" }, { endpoint: "http://fcm.googleapis.com/x" }])(
+		"refuses the invalid input %j without a query",
+		async (values) => {
+			expect((await registerPushSubscriptionAction(values)).error).toBeTruthy();
+			expect((await removePushSubscriptionAction(values)).error).toBeTruthy();
+			expect(state.pushRegister).not.toHaveBeenCalled();
+			expect(state.pushRemove).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(Object.keys(actions) as (keyof typeof actions)[])("%s maps a SQL not_allowed to the pt-BR message", async (name) => {
+		actions[name].query.mockResolvedValue({ ok: false, reason: "not_allowed" });
+
+		expect(await actions[name].call()).toEqual({ error: NOT_ALLOWED });
+		expect(revalidatePath).not.toHaveBeenCalled();
+	});
+
+	it("maps a SQL invalid_input on register to the pt-BR message", async () => {
+		state.pushRegister.mockResolvedValue({ ok: false, reason: "invalid_input" });
+
+		expect(await actions.register.call()).toEqual({ error: NOT_ALLOWED });
+	});
+
+	it.each(Object.keys(actions) as (keyof typeof actions)[])("%s hides a thrown error behind the generic message", async (name) => {
+		actions[name].query.mockRejectedValue(new Error("db down"));
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+		expect(await actions[name].call()).toEqual({ error: GENERIC });
+	});
+
+	describe("getPushSubscriptionStatusAction", () => {
+		it("returns the SQL answer", async () => {
+			expect(await getPushSubscriptionStatusAction({ endpoint: ENDPOINT })).toEqual({ error: null, subscribed: true });
+			expect(state.pushActive).toHaveBeenCalledWith(TX_CLIENT, ENDPOINT);
+
+			state.pushActive.mockResolvedValue(false);
+			expect(await getPushSubscriptionStatusAction({ endpoint: ENDPOINT })).toEqual({ error: null, subscribed: false });
+		});
+
+		it.each([undefined, {}, { endpoint: "https://evil.com/x" }])("answers not subscribed for %j without a query", async (values) => {
+			expect(await getPushSubscriptionStatusAction(values)).toEqual({ error: null, subscribed: false });
+			expect(state.pushActive).not.toHaveBeenCalled();
+		});
+
+		it("refuses an operator without a query", async () => {
+			state.role = "operator";
+
+			expect(await getPushSubscriptionStatusAction({ endpoint: ENDPOINT })).toEqual({ error: NOT_ALLOWED, subscribed: false });
+			expect(state.pushActive).not.toHaveBeenCalled();
+		});
+
+		it("hides a thrown error behind the generic message", async () => {
+			state.pushActive.mockRejectedValue(new Error("db down"));
+			vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+			expect(await getPushSubscriptionStatusAction({ endpoint: ENDPOINT })).toEqual({ error: GENERIC, subscribed: false });
+		});
 	});
 });

@@ -1,10 +1,8 @@
 import { redirect } from "next/navigation";
-import { LogOut } from "lucide-react";
 
-import { signOut } from "@/actions/auth";
 import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { BrandLogo } from "@/components/portal/brand-logo";
-import { Button } from "@/components/ui/button";
+import { PortalSignOutButton } from "@/components/portal/sign-out-button";
 import { Toaster } from "@/components/ui/toaster";
 import { getClientAccountStatus } from "@/lib/account/queries";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
@@ -22,12 +20,7 @@ export default async function PortalOnboardingLayout({ children }: { children: R
       <header className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-screen py-3">
           <BrandLogo variant="full" />
-          <form action={signOut}>
-            <Button type="submit" variant="outline">
-              <LogOut aria-hidden />
-              Sair
-            </Button>
-          </form>
+          <PortalSignOutButton variant="outline" className="h-10 w-auto" />
         </div>
       </header>
       <main className="mx-auto w-full max-w-3xl flex-1 px-screen py-6">{children}</main>

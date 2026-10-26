@@ -16,6 +16,7 @@ const publicPaths = [
   "/api/health/live",
   "/api/health/ready",
   "/manifest.webmanifest",
+  "/sw.js",
 ];
 
 const publicPrefixes = ["/b/", "/autorizacao-scr/", "/cadastro/"];
