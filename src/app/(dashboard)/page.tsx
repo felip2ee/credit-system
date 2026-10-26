@@ -16,6 +16,7 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { cn, formatCurrency } from "@/lib/utils";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { canViewRevenue } from "@/lib/dashboard/access";
 import { getDashboardMetrics, getRevenueSummary } from "@/lib/dashboard/queries";
 import { parseRevenuePeriod, revenueRange, REVENUE_PERIODS } from "@/lib/dashboard/period";
 import { getPayableBalance } from "@/lib/payables/queries";
@@ -75,13 +76,16 @@ export default async function DashboardPage({
   const months = lastMonths(HISTORY_MONTHS);
   const queryMonths = months.slice(-QUERY_MONTHS);
 
+  const showRevenue = canViewRevenue(session);
   const [metrics, revenue] = await Promise.all([
     getDashboardMetrics(session, {
       startToday,
       startMonth,
       start6mo: monthStartISO(queryMonths[0].year, queryMonths[0].month),
     }),
-    getRevenueSummary(session, range, monthStartISO(months[0].year, months[0].month)),
+    showRevenue
+      ? getRevenueSummary(session, range, monthStartISO(months[0].year, months[0].month))
+      : Promise.resolve(null),
   ]);
   const { counts } = metrics;
 
@@ -96,7 +100,7 @@ export default async function DashboardPage({
   const payable = balances?.payable ?? null;
 
   // ── Histórico de faturamento (12 meses) ────────────────────
-  const revenueByMonth = new Map(revenue.monthly.map((r) => [r.month, r.amount]));
+  const revenueByMonth = new Map((revenue?.monthly ?? []).map((r) => [r.month, r.amount]));
   const history = months.map((m) => ({
     key: `${m.year}-${String(m.month + 1).padStart(2, "0")}`,
     label: m.label,
@@ -122,10 +126,11 @@ export default async function DashboardPage({
     }
   }
 
-  const orders = revenue.total.orders;
+  const orders = revenue?.total.orders ?? 0;
+  const indicatorCount = 2 + (revenue ? 1 : 0) + (balances ? 1 : 0);
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" description="Vendas, faturamento e repasse do seu Bureau">
+      <PageHeader title="Dashboard" description={showRevenue ? "Vendas, faturamento e repasse do seu Bureau" : "Consultas e carteira do seu Bureau"}>
         {hasPermission(session, "consultations:write") && (
           <Button asChild>
             <Link href="/dossiers/new">Novo pedido PF/PJ</Link>
@@ -133,6 +138,7 @@ export default async function DashboardPage({
         )}
       </PageHeader>
 
+      {revenue && (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <BalanceCard
           className={payable !== null ? "lg:col-span-2" : "lg:col-span-3"}
@@ -156,7 +162,9 @@ export default async function DashboardPage({
           </Link>
         )}
       </div>
+      )}
 
+      {revenue && (
       <section className="space-y-3">
         <SectionHeader title="Faturamento do período" />
         <nav aria-label="Período" className="flex flex-wrap gap-2">
@@ -186,11 +194,12 @@ export default async function DashboardPage({
           />
         </div>
       </section>
+      )}
 
       <section className="space-y-3">
         <SectionHeader title="Indicadores" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Clientes" value={String(revenue.clients)} hint="Cadastrados no portal" icon={Users} />
+        <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2", indicatorCount === 4 ? "lg:grid-cols-4" : indicatorCount === 3 ? "lg:grid-cols-3" : "")}>
+          {revenue && <Stat label="Clientes" value={String(revenue.clients)} hint="Cadastrados no portal" icon={Users} />}
           <Stat label="Consultas hoje" value={String(counts.today)} hint="Criadas hoje" icon={Search} href="/dossiers" />
           <Stat label="Consultas no mês" value={String(counts.month)} hint="Mês corrente" icon={Search} href="/dossiers" />
           {balances && (
@@ -239,6 +248,7 @@ export default async function DashboardPage({
         </CardContent>
       </Card>
 
+      {revenue && (
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Histórico de faturamento</CardTitle>
@@ -258,6 +268,7 @@ export default async function DashboardPage({
           </ul>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
