@@ -22,7 +22,7 @@ const FAILURE_MESSAGES: Record<CounterFailure, string> = {
 	reason_required: "Informe o motivo da anulação.",
 	already_voided: "Este pagamento já foi anulado.",
 	invalid_state: GENERIC_FAILURE,
-	online_settlement: "Este Dossiê é pago online pelo cliente; não aceita pagamento de balcão.",
+	online_order: "Este pedido é pago online pelo cliente; não aceita pagamento de balcão.",
 };
 
 // Só nome e código do erro: sem valores nem dados pessoais.
