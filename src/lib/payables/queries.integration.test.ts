@@ -42,12 +42,23 @@ import {
 	seedClientWalletTopup,
 	seedOrderCatalog,
 	seedOrderDossierForSession,
+	seedPayableEntry,
 	seedSuperadmin,
+	seedSupportSession,
 	seedTenant,
 	type SeededTenant,
 } from "@/test/seed";
 
-import { getPayableBalance, getPayableBalances, listPayableEntries } from "./queries";
+import { createPayout, markPayoutPaid } from "@/lib/payouts/queries";
+
+import {
+	getPayableBalance,
+	getPayableBalances,
+	getPayableBuckets,
+	getPayableRetentionDays,
+	listPayableEntries,
+	PayableBucketsRefusedError,
+} from "./queries";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 
@@ -229,5 +240,106 @@ describe("listPayableEntries", () => {
 			const fallback = await withUserTransaction(admin, (c) => listPayableEntries(c, tenant.bureau.id, { limit }));
 			expect(fallback.rows).toHaveLength(1);
 		}
+	});
+});
+
+// Retenção padrão de 30 dias. Idades longe da fronteira (40 e 5 dias) não dependem do relógio entre app e banco.
+const DAY_MS = 86_400_000;
+const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS);
+const entry = (bureauId: string, kind: "accrual" | "reversal", amount: string, ageDays: number) =>
+	seedPayableEntry(owner, {
+		bureauId,
+		kind,
+		amount: kind === "accrual" ? amount : `-${amount}`,
+		createdAt: daysAgo(ageDays).toISOString(),
+	});
+const receipt = () => ({ objectKey: `ab/${randomUUID()}`, mime: "application/pdf" as const, sha256: "a".repeat(64) });
+
+describe("getPayableBuckets", () => {
+	it("is zero, with no release date, for a Bureau without entries (not a refusal)", async () => {
+		const tenant = await seedTenant(owner, "Buckets vazio");
+
+		const buckets = await withUserTransaction({ ...tenant.bureauAdmin }, (c) => getPayableBuckets(c, tenant.bureau.id));
+
+		expect(buckets).toEqual({ released: "0.00", retained: "0.00", nextReleaseAt: null, paid: "0.00" });
+	});
+
+	it("splits released from retained and dates the next release at created_at + retention", async () => {
+		const tenant = await seedTenant(owner, "Buckets split");
+		await entry(tenant.bureau.id, "accrual", "100.00", 40);
+		await entry(tenant.bureau.id, "accrual", "25.00", 5);
+		await entry(tenant.bureau.id, "reversal", "10.00", 3);
+
+		const buckets = await withUserTransaction({ ...tenant.operator }, (c) => getPayableBuckets(c, tenant.bureau.id));
+
+		expect(buckets).toMatchObject({ released: "100.00", retained: "15.00", paid: "0.00" });
+		const expected = daysAgo(5).getTime() + 30 * DAY_MS;
+		expect(Math.abs((buckets.nextReleaseAt as Date).getTime() - expected)).toBeLessThan(60_000);
+	});
+
+	it("never shows a negative bucket: a reversal after the release leaves the released at 0", async () => {
+		const tenant = await seedTenant(owner, "Buckets estorno");
+		await entry(tenant.bureau.id, "accrual", "20.00", 40);
+		await entry(tenant.bureau.id, "reversal", "50.00", 40);
+		await entry(tenant.bureau.id, "reversal", "30.00", 2);
+
+		const buckets = await withUserTransaction({ ...tenant.bureauAdmin }, (c) => getPayableBuckets(c, tenant.bureau.id));
+
+		expect(buckets).toMatchObject({ released: "0.00", retained: "0.00" });
+	});
+
+	it("matches what create_payout accepts, and counts the paid amount only after the payout is paid", async () => {
+		const tenant = await seedTenant(owner, "Buckets payout");
+		const sa = await seedSuperadmin(owner);
+		await entry(tenant.bureau.id, "accrual", "100.00", 40);
+		await entry(tenant.bureau.id, "reversal", "30.00", 35);
+		await entry(tenant.bureau.id, "accrual", "25.00", 5);
+		const admin: DbIdentity = { ...tenant.bureauAdmin };
+		const before = await withUserTransaction(admin, (c) => getPayableBuckets(c, tenant.bureau.id));
+		expect(before).toMatchObject({ released: "70.00", retained: "25.00", paid: "0.00" });
+
+		// Um corte dentro da retenção é recusado e não muda os números; o corte liberado paga exatamente "released".
+		const within = await createPayout({ userId: sa.userId, role: "superadmin", bureauId: null }, { bureauId: tenant.bureau.id, cutoffAt: daysAgo(10) });
+		expect(within).toEqual({ ok: false, reason: "cutoff_within_retention" });
+		const made = await createPayout({ userId: sa.userId, role: "superadmin", bureauId: null }, { bureauId: tenant.bureau.id, cutoffAt: daysAgo(31) });
+		expect(made).toMatchObject({ ok: true, amount: before.released });
+
+		const open = await withUserTransaction(admin, (c) => getPayableBuckets(c, tenant.bureau.id));
+		expect(open).toMatchObject({ released: "0.00", retained: "25.00", paid: "0.00" });
+		if (!made.ok) throw new Error("payout not created");
+		await markPayoutPaid({ userId: sa.userId, role: "superadmin", bureauId: null }, { payoutId: made.payoutId, receipt: receipt() });
+		const paid = await withUserTransaction(admin, (c) => getPayableBuckets(c, tenant.bureau.id));
+		expect(paid).toMatchObject({ released: "0.00", retained: "25.00", paid: "70.00" });
+	});
+
+	it("refuses (never returns zeros) for a client, another Bureau and a superadmin in support", async () => {
+		const a = await seedTenant(owner, "Buckets A");
+		const b = await seedTenant(owner, "Buckets B");
+		const sa = await seedSuperadmin(owner);
+		await entry(a.bureau.id, "accrual", "50.00", 40);
+		const supportSessionId = await seedSupportSession(owner, { superadminId: sa.userId, bureauId: a.bureau.id });
+
+		const attempts: [DbIdentity, string][] = [
+			[{ ...a.client }, a.bureau.id],
+			[{ ...b.bureauAdmin }, a.bureau.id],
+			[{ userId: sa.userId, role: "superadmin", bureauId: a.bureau.id, supportSessionId }, a.bureau.id],
+		];
+		for (const [identity, bureauId] of attempts) {
+			await expect(withUserTransaction(identity, (c) => getPayableBuckets(c, bureauId))).rejects.toBeInstanceOf(
+				PayableBucketsRefusedError,
+			);
+		}
+		const ok = await withUserTransaction({ userId: sa.userId, role: "superadmin", bureauId: null }, (c) =>
+			getPayableBuckets(c, a.bureau.id),
+		);
+		expect(ok.released).toBe("50.00");
+	});
+});
+
+describe("getPayableRetentionDays", () => {
+	it("reads the retention in days", async () => {
+		const sa = await seedSuperadmin(owner);
+
+		expect(await getPayableRetentionDays({ userId: sa.userId, role: "superadmin", bureauId: null })).toBe(30);
 	});
 });

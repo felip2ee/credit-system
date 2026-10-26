@@ -11,6 +11,7 @@ import {
 	TEST_DATABASE_WEBHOOK_URL,
 } from "@/test/db-env";
 import {
+	ageBureauPayableEntries,
 	seedBureauCost,
 	seedCatalogItem,
 	seedClientWalletTopup,
@@ -205,8 +206,9 @@ describe("A1: estorno de PIX do cliente reverte o valor a repassar", () => {
 		]);
 		expect(await chargeRow(charge.id)).toEqual({ status: "refunded", refund_shortfall: "30.00" });
 		expect(await payableBalance(t.bureau.id)).toBe("0.00");
+		await ageBureauPayableEntries(owner, t.bureau.id);
 		const paid = await committed(superadminCtx(), (c) =>
-			c.query("select * from create_payout($1, now())", [t.bureau.id]).then((r) => r.rows[0]),
+			c.query("select * from create_payout($1, now() - interval '31 days')", [t.bureau.id]).then((r) => r.rows[0]),
 		);
 		expect(paid).toMatchObject({ ok: false, reason: "nothing_to_pay" });
 	});
@@ -239,9 +241,10 @@ describe("A1: estorno de PIX do cliente reverte o valor a repassar", () => {
 	it("never reverses more than the unpaid balance (a paid-out accrual is not clawed back)", async () => {
 		const { t, charge } = await setup("A1 pago", "100.00", "100.00");
 		await placeAndCapture(t, "100.00", "30.00");
+		await ageBureauPayableEntries(owner, t.bureau.id);
 		const payout = await committed(superadminCtx(), async (c) => {
 			const made = await c
-				.query<{ payout_id: string }>("select * from create_payout($1, now() + interval '1 day')", [t.bureau.id])
+				.query<{ payout_id: string }>("select * from create_payout($1, now() - interval '31 days')", [t.bureau.id])
 				.then((r) => r.rows[0]);
 			await c.query("select * from mark_payout_paid($1, $2, 'application/pdf', $3)", [
 				made.payout_id,
@@ -262,9 +265,10 @@ describe("A1: estorno de PIX do cliente reverte o valor a repassar", () => {
 	it("never reverses an accrual already selected into an open payout, and keeps the whole shortfall", async () => {
 		const { t, charge } = await setup("A1 aberto", "100.00", "100.00");
 		await placeAndCapture(t, "100.00", "30.00"); // +70
+		await ageBureauPayableEntries(owner, t.bureau.id);
 		const open = await committed(superadminCtx(), (c) =>
 			c
-				.query<{ payout_id: string; amount: string }>("select * from create_payout($1, now() + interval '1 day')", [
+				.query<{ payout_id: string; amount: string }>("select * from create_payout($1, now() - interval '31 days')", [
 					t.bureau.id,
 				])
 				.then((r) => r.rows[0]),
@@ -291,8 +295,9 @@ describe("A1: estorno de PIX do cliente reverte o valor a repassar", () => {
 	it("reverses only the part of the balance that no payout holds", async () => {
 		const { t, charge } = await setup("A1 misto", "200.00", "100.00");
 		await placeAndCapture(t, "100.00", "30.00"); // +70, vai para o repasse aberto
+		await ageBureauPayableEntries(owner, t.bureau.id);
 		await committed(superadminCtx(), (c) =>
-			c.query("select * from create_payout($1, now() + interval '1 day')", [t.bureau.id]),
+			c.query("select * from create_payout($1, now() - interval '31 days')", [t.bureau.id]),
 		);
 		await placeAndCapture(t, "100.00", "50.00"); // +50, livre
 
@@ -312,11 +317,12 @@ describe("A1: estorno de PIX do cliente reverte o valor a repassar", () => {
 		await placeAndCapture(t, "100.00", "30.00"); // +70
 		await placeAndCapture(t, "100.00", "50.00"); // +50
 		expect(await refund(charge.asaasPaymentId)).toBe("refunded"); // -100
+		await ageBureauPayableEntries(owner, t.bureau.id);
 
 		const first = await committed(superadminCtx(), (c) =>
 			c
 				.query<{ ok: boolean; payout_id: string; amount: string }>(
-					"select * from create_payout($1, now() + interval '1 day')",
+					"select * from create_payout($1, now() - interval '31 days')",
 					[t.bureau.id],
 				)
 				.then((r) => r.rows[0]),
@@ -332,9 +338,10 @@ describe("A1: estorno de PIX do cliente reverte o valor a repassar", () => {
 		// Nova venda e segundo repasse: só o acréscimo novo entra, o estorno já tem repasse.
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "40.00", createdBy: t.client.userId });
 		await placeAndCapture(t, "40.00", "30.00"); // +10
+		await ageBureauPayableEntries(owner, t.bureau.id);
 		const second = await committed(superadminCtx(), (c) =>
 			c
-				.query<{ ok: boolean; amount: string }>("select * from create_payout($1, now() + interval '1 day')", [
+				.query<{ ok: boolean; amount: string }>("select * from create_payout($1, now() - interval '31 days')", [
 					t.bureau.id,
 				])
 				.then((r) => r.rows[0]),

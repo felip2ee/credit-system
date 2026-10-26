@@ -3,6 +3,8 @@
 // A RLS deixa o operator ler a tabela; quem barra o operator é a permissão payout:read na Server Action.
 import type { PoolClient } from "pg";
 
+import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+
 export type PayableEntry = {
 	id: string;
 	kind: "accrual" | "reversal" | "payout";
@@ -32,6 +34,49 @@ export async function getPayableBalances(client: PoolClient): Promise<Map<string
 		"select bureau_id, coalesce(sum(amount), 0.00)::text as balance from bureau_payable_entries group by bureau_id",
 	);
 	return new Map(rows.map((r) => [r.bureau_id, r.balance]));
+}
+
+export type PayableBuckets = {
+	released: string;
+	retained: string;
+	nextReleaseAt: Date | null;
+	paid: string;
+};
+
+// payable_buckets devolve zero linhas para quem não pode ver o Bureau. Isso não é "zero reais": é recusa.
+export class PayableBucketsRefusedError extends Error {
+	constructor() {
+		super("Sem acesso ao valor a receber deste Bureau.");
+		this.name = "PayableBucketsRefusedError";
+	}
+}
+
+// released: o que o create_payout aceitaria agora (mesma função SQL, mesma retenção). retained: ainda em liberação.
+// paid: soma dos lançamentos de repasse pago, em valor positivo.
+export async function getPayableBuckets(client: PoolClient, bureauId: string): Promise<PayableBuckets> {
+	const { rows } = await client.query<{
+		released: string;
+		retained: string;
+		next_release_at: Date | null;
+		paid: string;
+	}>(
+		`select b.released::text, b.retained::text, b.next_release_at,
+		        (select coalesce(-sum(e.amount), 0.00)::text
+		           from bureau_payable_entries e where e.bureau_id = $1 and e.kind = 'payout') as paid
+		   from payable_buckets($1) b`,
+		[bureauId],
+	);
+	const row = rows[0];
+	if (!row) throw new PayableBucketsRefusedError();
+	return { released: row.released, retained: row.retained, nextReleaseAt: row.next_release_at, paid: row.paid };
+}
+
+// Prazo de retenção em dias (settings.payable_retention_days; 30 se ausente ou inválido), lido pela função SQL.
+export function getPayableRetentionDays(identity: DbIdentity): Promise<number> {
+	return withUserTransaction(identity, async (client) => {
+		const { rows } = await client.query<{ days: number }>("select payable_retention_days() as days");
+		return rows[0].days;
+	});
 }
 
 type EntryRow = {

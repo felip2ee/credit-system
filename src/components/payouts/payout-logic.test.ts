@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canManagePayouts, cutoffFromDate, MAX_RECEIPT_BYTES, validateReceiptFile } from "./payout-logic";
+import { canManagePayouts, cutoffFromDate, latestPayoutDate, MAX_RECEIPT_BYTES, validateReceiptFile } from "./payout-logic";
 
 describe("validateReceiptFile", () => {
   it("exige arquivo", () => {
@@ -48,5 +48,25 @@ describe("cutoffFromDate", () => {
     expect(cutoffFromDate("")).toBeNull();
     expect(cutoffFromDate("14/10/2026")).toBeNull();
     expect(cutoffFromDate("2026-13-45")).toBeNull();
+  });
+});
+
+describe("latestPayoutDate", () => {
+  it("devolve o último dia inteiro que a retenção já liberou", () => {
+    // 25/11 10:00 em São Paulo, 30 dias antes: 26/10 10:00. O corte de 26/10 (23:59:59) passaria; o de 25/10 não.
+    expect(latestPayoutDate(30, new Date("2026-11-25T13:00:00Z"))).toBe("2026-10-25");
+  });
+  it("com prazo 0 devolve ontem, porque o corte de hoje ainda é futuro", () => {
+    expect(latestPayoutDate(0, new Date("2026-10-26T15:00:00Z"))).toBe("2026-10-25");
+  });
+  it("o corte da data devolvida cabe no limite e o do dia seguinte não", () => {
+    for (const iso of ["2026-11-25T02:30:00Z", "2026-11-25T03:00:00Z", "2026-11-25T23:59:59Z", "2026-12-01T12:00:00Z"]) {
+      const now = new Date(iso);
+      const limit = now.getTime() - 30 * 86_400_000;
+      const latest = latestPayoutDate(30, now);
+      const next = new Date(new Date(`${latest}T12:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
+      expect(new Date(cutoffFromDate(latest) as string).getTime()).toBeLessThanOrEqual(limit);
+      expect(new Date(cutoffFromDate(next) as string).getTime()).toBeGreaterThan(limit);
+    }
   });
 });

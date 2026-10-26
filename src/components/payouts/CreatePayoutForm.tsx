@@ -9,18 +9,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatCurrency, todayInSaoPaulo } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface CreatePayoutFormProps {
   bureaus: { id: string; name: string; payable: string }[];
+  // Última data (AAAA-MM-DD) cujo corte a retenção já liberou. Depois dela o banco recusa o repasse.
+  latestDate: string;
 }
 
-export function CreatePayoutForm({ bureaus }: CreatePayoutFormProps) {
+const brDate = (isoDate: string) => isoDate.split("-").reverse().join("/");
+
+export function CreatePayoutForm({ bureaus, latestDate }: CreatePayoutFormProps) {
   const router = useRouter();
   const [bureauId, setBureauId] = useState(bureaus[0]?.id ?? "");
-  const [cutoff, setCutoff] = useState(todayInSaoPaulo);
+  const [cutoff, setCutoff] = useState(latestDate);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -31,6 +35,7 @@ export function CreatePayoutForm({ bureaus }: CreatePayoutFormProps) {
     const cutoffAt = cutoffFromDate(cutoff);
     if (!bureauId) return setError("Escolha o Bureau.");
     if (!cutoffAt) return setError("Informe a data de corte.");
+    if (cutoff > latestDate) return setError(`Esse valor ainda está em liberação. Escolha uma data até ${brDate(latestDate)}.`);
     setError(null);
     setDone(false);
     startTransition(async () => {
@@ -80,9 +85,13 @@ export function CreatePayoutForm({ bureaus }: CreatePayoutFormProps) {
                 setCutoff(e.target.value);
                 setDone(false);
               }}
+              max={latestDate}
               disabled={isPending}
               className="w-44"
             />
+            <p className="text-xs text-muted-foreground">
+              O valor só pode ser repassado depois da retenção. Escolha uma data até {brDate(latestDate)}.
+            </p>
           </div>
           {selected && (
             <p className="text-sm text-muted-foreground">

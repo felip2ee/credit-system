@@ -15,6 +15,7 @@ export type PayoutFailure =
 	| "invalid_cutoff"
 	| "not_found"
 	| "nothing_to_pay"
+	| "cutoff_within_retention"
 	| "invalid_state"
 	| "already_paid"
 	| "invalid_receipt";
