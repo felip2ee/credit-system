@@ -49,6 +49,8 @@ def answers(**overrides):
         "WHATSAPP_DRIVER": "",
         "WHATSAPP_PHONE_NUMBER_ID": "",
         "WHATSAPP_GRAPH_VERSION": "v21.0",
+        "WEB_PUSH_VAPID_PUBLIC_KEY": "",
+        "WEB_PUSH_VAPID_SUBJECT": "",
         "REINO_IMAGE_OWNER": "felip2ee",
         "REINO_IMAGE_DIGEST": "",
         "REINO_BACKUP_DIGEST": "",
@@ -131,6 +133,18 @@ class Building(unittest.TestCase):
         self.assertEqual(values["whatsapp_access_token"], sp.WHATSAPP_OFF_PLACEHOLDER)
         self.assertEqual(values["whatsapp_app_secret"], sp.WHATSAPP_OFF_PLACEHOLDER)
 
+    def test_push_private_key_is_a_secret_with_off_placeholder(self):
+        self.assertIn("web_push_vapid_private_key", sp.SECRET_NAMES)
+        self.assertEqual(sp.build_secrets(PROVIDED)["web_push_vapid_private_key"], sp.PUSH_OFF_PLACEHOLDER)
+        key = "k" * 43
+        self.assertEqual(sp.build_secrets({**PROVIDED, "web_push_vapid_private_key": key})["web_push_vapid_private_key"], key)
+        self.assertTrue(sp.valid_vapid_private("") and sp.valid_vapid_private(key) and not sp.valid_vapid_private("curta"))
+        self.assertTrue(sp.valid_vapid_public("B" * 87) and not sp.valid_vapid_public("B" * 86))
+        self.assertTrue(sp.valid_vapid_subject("mailto:a@b.com") and not sp.valid_vapid_subject("http://x"))
+        for k in ("WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_SUBJECT"):
+            self.assertIn(k, sp.ENV_KEYS)
+        self.assertNotIn("WEB_PUSH_VAPID_PRIVATE_KEY", sp.ENV_KEYS)
+
     def test_env_keys_have_whatsapp_settings(self):
         for key in ("WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION"):
             self.assertIn(key, sp.ENV_KEYS)
@@ -204,7 +218,7 @@ class S3Backup(unittest.TestCase):
             seen[key] = text
             return "" if key == "OPS_ALERT_TO" else given[key]
 
-        env_values, _ = sp.collect(FakeRunner(), input_fn, lambda _: "x" * 12)
+        env_values, _ = sp.collect(FakeRunner(), input_fn, lambda prompt: "k" * 43 if "VAPID" in prompt else "x" * 12)
         self.assertIn("[backup@exemplo.com.br]", seen["OPS_ALERT_TO"])
         self.assertEqual(env_values["OPS_ALERT_TO"], "backup@exemplo.com.br")
 

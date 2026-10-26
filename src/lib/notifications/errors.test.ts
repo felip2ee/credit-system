@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyGraphError, classifySmtpError, TemplateRenderError } from "./errors";
+import { classifyGraphError, classifyPushError, classifySmtpError, TemplateRenderError } from "./errors";
 
 const graphBody = (code: number) => ({ error: { message: "x", type: "OAuthException", code } });
 
@@ -93,5 +93,42 @@ describe("TemplateRenderError", () => {
 		const error = new TemplateRenderError("x");
 		expect(error).toMatchObject({ permanent: true, code: "template_render_error" });
 		expect(error).toBeInstanceOf(Error);
+	});
+});
+
+describe("classifyPushError", () => {
+	it.each([404, 410])("%i means the subscription is gone (permanent push_gone)", (statusCode) => {
+		expect(classifyPushError({ statusCode })).toEqual({ permanent: true, code: "push_gone" });
+	});
+
+	it("429 is a transient rate limit", () => {
+		expect(classifyPushError({ statusCode: 429 })).toEqual({ permanent: false, code: "rate_limited" });
+	});
+
+	it("503 is transient provider_unavailable", () => {
+		expect(classifyPushError({ statusCode: 503 })).toEqual({ permanent: false, code: "provider_unavailable" });
+	});
+
+	it.each([400, 413, 302])("%i is a permanent provider_rejected (a redirect is never followed)", (statusCode) => {
+		expect(classifyPushError({ statusCode })).toEqual({ permanent: true, code: "provider_rejected" });
+	});
+
+	it.each([401, 403])("%i is our VAPID configuration: transient config_error", (statusCode) => {
+		expect(classifyPushError({ statusCode })).toEqual({ permanent: false, code: "config_error" });
+	});
+
+	it("a network failure is transient network_error", () => {
+		expect(classifyPushError({ code: "ECONNRESET" })).toEqual({ permanent: false, code: "network_error" });
+	});
+
+	it.each([{ name: "TimeoutError" }, { name: "AbortError" }, { code: "ETIMEDOUT" }])(
+		"a timeout is transient provider_timeout: %j",
+		(error) => {
+			expect(classifyPushError(error)).toEqual({ permanent: false, code: "provider_timeout" });
+		},
+	);
+
+	it("an unknown value is network_error", () => {
+		expect(classifyPushError("boom")).toEqual({ permanent: false, code: "network_error" });
 	});
 });

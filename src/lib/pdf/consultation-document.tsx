@@ -4,13 +4,15 @@ import {
   Page,
   View,
   Text,
-  Image,
   Svg,
   Polygon,
   StyleSheet,
   renderToBuffer,
 } from "@react-pdf/renderer";
 
+import { BRAND_NAME } from "@/lib/brand/brand";
+import { STATE_COLORS } from "@/lib/brand/tokens";
+import { PDF_PAGE_PADDING_BOTTOM, PDF_PAGE_PADDING_TOP, PdfBrandFrame, type PdfFrame } from "./brand-frame";
 import { OpinionBlock, type OpinionForPdf } from "./markdown-pdf";
 
 // ── Dados ────────────────────────────────────────────────────────────────
@@ -69,7 +71,6 @@ export interface ConsultationPdfData {
 // ── Constantes ─────────────────────────────────────────────────────────
 
 const A4_W = 595.28;
-const A4_H = 841.89;
 const PAD_X = 42;
 const CONTENT_W = A4_W - PAD_X * 2; // ~511
 
@@ -106,20 +107,19 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 const s = StyleSheet.create({
   page: {
-    fontFamily: "Helvetica",
-    fontSize: 9,
+    fontFamily: "Atkinson",
+    fontSize: 10,
     color: text,
-    paddingTop: 118,
-    paddingBottom: 58,
+    paddingTop: PDF_PAGE_PADDING_TOP,
+    paddingBottom: PDF_PAGE_PADDING_BOTTOM,
     paddingHorizontal: PAD_X,
   },
-  bg: { position: "absolute", top: 0, left: 0, width: A4_W, height: A4_H },
-  title: { fontSize: 16, fontFamily: "Helvetica-Bold", color: darkGreen },
+  title: { fontSize: 16, fontFamily: "Atkinson", fontWeight: 700, color: darkGreen },
   subtitle: { fontSize: 9, color: muted, marginTop: 2 },
   section: { marginTop: 14 },
   sectionTitle: {
     fontSize: 11,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Atkinson", fontWeight: 700,
     color: teal,
     marginBottom: 6,
     paddingBottom: 3,
@@ -128,7 +128,7 @@ const s = StyleSheet.create({
   },
   infoGrid: { flexDirection: "row", flexWrap: "wrap" },
   infoItem: { width: CONTENT_W / 2, marginBottom: 4 },
-  infoLabel: { fontSize: 7.5, color: muted },
+  infoLabel: { fontSize: 9.5, color: muted },
   infoValue: { fontSize: 10 },
   row: { flexDirection: "row" },
   barTrack: { flexDirection: "row", height: 16, borderRadius: 2, overflow: "hidden" },
@@ -141,14 +141,14 @@ const s = StyleSheet.create({
     padding: 8,
     marginRight: 8,
   },
-  cardLabel: { fontSize: 7.5, color: muted },
-  cardValue: { fontSize: 13, fontFamily: "Helvetica-Bold", marginTop: 2 },
+  cardLabel: { fontSize: 9.5, color: muted },
+  cardValue: { fontSize: 13, fontFamily: "Atkinson", fontWeight: 700, marginTop: 2 },
   twoCol: { flexDirection: "row" },
   col: { flex: 1 },
   factorLine: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
   badge: {
-    fontSize: 8,
-    fontFamily: "Helvetica-Bold",
+    fontSize: 9,
+    fontFamily: "Atkinson", fontWeight: 700,
     color: "#fff",
     paddingVertical: 2,
     paddingHorizontal: 6,
@@ -191,7 +191,7 @@ function ScoreBar({ valor }: { valor: number | null }) {
             style={{
               width: ((b.to - b.from) / 700) * CONTENT_W,
               textAlign: "center",
-              fontSize: 6.5,
+              fontSize: 9,
               color: muted,
             }}
           >
@@ -221,7 +221,7 @@ function SmartScale({ classificacao }: { classificacao: string | null }) {
               justifyContent: "center",
             }}
           >
-            <Text style={{ fontSize: 7, color: "#fff", fontFamily: "Helvetica-Bold" }}>
+            <Text style={{ fontSize: 9, color: "#fff", fontFamily: "Atkinson", fontWeight: 700 }}>
               {lvl}
             </Text>
           </View>
@@ -236,8 +236,8 @@ function ProgressBar({ pct, label }: { pct: number; label: string }) {
   return (
     <View style={{ marginTop: 4 }}>
       <View style={s.factorLine}>
-        <Text style={{ fontSize: 8, color: muted }}>{label}</Text>
-        <Text style={{ fontSize: 8 }}>{w}%</Text>
+        <Text style={{ fontSize: 9, color: muted }}>{label}</Text>
+        <Text style={{ fontSize: 9 }}>{w}%</Text>
       </View>
       <View style={{ height: 8, backgroundColor: border, borderRadius: 4 }}>
         <View
@@ -292,19 +292,18 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function ConsultationDocument({
   data,
-  letterhead,
+  frame,
   opinion,
 }: {
   data: ConsultationPdfData;
-  letterhead: string;
+  frame: PdfFrame;
   opinion?: OpinionForPdf | null;
 }) {
   const { header, score, smart } = data;
   return (
     <Document>
       <Page size="A4" style={s.page}>
-        {/* eslint-disable-next-line jsx-a11y/alt-text */}
-        <Image src={letterhead} style={s.bg} fixed />
+        <PdfBrandFrame frame={frame} />
 
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
           <View>
@@ -327,7 +326,7 @@ function ConsultationDocument({
 
         <Section title="Score">
           <View style={{ flexDirection: "row", alignItems: "baseline", marginBottom: 6 }}>
-            <Text style={{ fontSize: 26, fontFamily: "Helvetica-Bold", color: darkGreen }}>
+            <Text style={{ fontSize: 26, fontFamily: "Atkinson", fontWeight: 700, color: darkGreen }}>
               {score.valor ?? "—"}
             </Text>
             <Text style={{ fontSize: 11, marginLeft: 8, color: muted }}>
@@ -336,7 +335,7 @@ function ConsultationDocument({
           </View>
           <ScoreBar valor={score.valor} />
           {score.descricao && (
-            <Text style={{ fontSize: 8.5, color: muted, marginTop: 6 }}>
+            <Text style={{ fontSize: 9.5, color: muted, marginTop: 6 }}>
               {score.descricao}
             </Text>
           )}
@@ -347,14 +346,14 @@ function ConsultationDocument({
 
         <Section title="Classificação Smart">
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-            <Text style={{ fontSize: 12, fontFamily: "Helvetica-Bold" }}>
+            <Text style={{ fontSize: 12, fontFamily: "Atkinson", fontWeight: 700 }}>
               {smart.classificacao ?? "—"}
             </Text>
             {smart.aprovado != null && (
               <Text
                 style={[
                   s.badge,
-                  { backgroundColor: smart.aprovado ? "#2F9E44" : "#C92A2A" },
+                  { backgroundColor: smart.aprovado ? STATE_COLORS.success.border : STATE_COLORS.danger.border },
                 ]}
               >
                 {smart.aprovado ? "Aprovado" : "Reprovado"}
@@ -365,12 +364,12 @@ function ConsultationDocument({
           <View style={{ marginTop: 8 }}>
             <Text style={{ fontSize: 9 }}>
               Limite sugerido:{" "}
-              <Text style={{ fontFamily: "Helvetica-Bold" }}>
+              <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>
                 {brl(smart.limiteSugerido)}
               </Text>
             </Text>
             {smart.motivo && (
-              <Text style={{ fontSize: 8.5, color: muted, marginTop: 2 }}>
+              <Text style={{ fontSize: 9.5, color: muted, marginTop: 2 }}>
                 {smart.motivo}
               </Text>
             )}
@@ -381,30 +380,30 @@ function ConsultationDocument({
           <Section title="Fatores Smart">
             <View style={s.twoCol}>
               <View style={[s.col, { marginRight: 12 }]}>
-                <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", color: "#2F9E44", marginBottom: 3 }}>
+                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: STATE_COLORS.success.fg, marginBottom: 3 }}>
                   Pontos positivos
                 </Text>
                 {data.positivas.length === 0 && (
-                  <Text style={{ fontSize: 8, color: muted }}>—</Text>
+                  <Text style={{ fontSize: 9, color: muted }}>—</Text>
                 )}
                 {data.positivas.map((p, i) => (
                   <View key={i} style={s.factorLine}>
-                    <Text style={{ fontSize: 8 }}>{p.descricao}</Text>
-                    <Text style={{ fontSize: 8, color: muted }}>+{p.pontuacao}</Text>
+                    <Text style={{ fontSize: 9 }}>{p.descricao}</Text>
+                    <Text style={{ fontSize: 9, color: muted }}>+{p.pontuacao}</Text>
                   </View>
                 ))}
               </View>
               <View style={s.col}>
-                <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", color: "#C92A2A", marginBottom: 3 }}>
+                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: STATE_COLORS.danger.fg, marginBottom: 3 }}>
                   Pontos de atenção
                 </Text>
                 {data.negativas.length === 0 && (
-                  <Text style={{ fontSize: 8, color: muted }}>—</Text>
+                  <Text style={{ fontSize: 9, color: muted }}>—</Text>
                 )}
                 {data.negativas.map((n, i) => (
                   <View key={i} style={s.factorLine}>
-                    <Text style={{ fontSize: 8 }}>{n.descricao}</Text>
-                    <Text style={{ fontSize: 8, color: muted }}>{n.pontuacao}</Text>
+                    <Text style={{ fontSize: 9 }}>{n.descricao}</Text>
+                    <Text style={{ fontSize: 9, color: muted }}>{n.pontuacao}</Text>
                   </View>
                 ))}
               </View>
@@ -447,13 +446,13 @@ function ConsultationDocument({
             </View>
             {data.pj.socios.length > 0 && (
               <View style={{ marginTop: 6 }}>
-                <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", marginBottom: 3 }}>
+                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, marginBottom: 3 }}>
                   Quadro societário
                 </Text>
                 {data.pj.socios.map((soc, i) => (
                   <View key={i} style={s.factorLine}>
-                    <Text style={{ fontSize: 8 }}>{soc.nome}</Text>
-                    <Text style={{ fontSize: 8, color: muted }}>
+                    <Text style={{ fontSize: 9 }}>{soc.nome}</Text>
+                    <Text style={{ fontSize: 9, color: muted }}>
                       {soc.cargo ?? ""}
                       {soc.participacao != null ? ` · ${soc.participacao}%` : ""}
                     </Text>
@@ -473,8 +472,8 @@ function ConsultationDocument({
           </View>
         )}
 
-        <Text style={{ fontSize: 7, color: muted, marginTop: 16 }} fixed>
-          Documento gerado automaticamente · Reino do Crédito
+        <Text style={{ fontSize: 9, color: muted, marginTop: 16 }} fixed>
+          Documento gerado automaticamente · {BRAND_NAME}
         </Text>
       </Page>
     </Document>
@@ -483,10 +482,10 @@ function ConsultationDocument({
 
 export function renderConsultationPdf(
   data: ConsultationPdfData,
-  letterhead: string,
+  frame: PdfFrame,
   opinion?: OpinionForPdf | null
 ): Promise<Buffer> {
   return renderToBuffer(
-    <ConsultationDocument data={data} letterhead={letterhead} opinion={opinion} />
+    <ConsultationDocument data={data} frame={frame} opinion={opinion} />
   );
 }

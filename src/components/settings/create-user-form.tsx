@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { refineOptionalNewPassword } from "@/lib/validators/password";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const schema = z
   .object({
@@ -36,6 +38,8 @@ export function CreateUserForm() {
     handleSubmit,
     reset,
     resetField,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -89,14 +93,15 @@ export function CreateUserForm() {
 
         <div className="space-y-2">
           <Label htmlFor="role">Perfil</Label>
-          <select
-            id="role"
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            {...register("role")}
-          >
-            <option value="operator">Operador</option>
-            <option value="bureau_admin">Administrador</option>
-          </select>
+          <Select value={watch("role")} onValueChange={(value) => setValue("role", value as FormValues["role"])}>
+            <SelectTrigger id="role">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="operator">Operador</SelectItem>
+              <SelectItem value="bureau_admin">Administrador</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-2">
@@ -115,7 +120,7 @@ export function CreateUserForm() {
           )}
         </div>
 
-        <p className="text-xs text-muted-foreground sm:col-span-2">
+        <p className="text-sm text-muted-foreground sm:col-span-2">
           Deixe em branco para enviar o convite por e-mail. Com senha, o usuário troca
           a senha no primeiro acesso.
         </p>
@@ -125,19 +130,18 @@ export function CreateUserForm() {
         </Button>
       </form>
 
-      {serverError && <p className="text-sm text-destructive">{serverError}</p>}
+      {serverError && <StatusBanner tone="danger" title={serverError} />}
 
       {created && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm">
-          <p className="font-medium text-emerald-900">
-            {created.invited ? "Convite enviado" : "Usuário criado"}
-          </p>
-          <p className="mt-1 text-emerald-800">
-            {created.invited
+        <StatusBanner
+          tone="success"
+          title={created.invited ? "Convite enviado" : "Usuário criado"}
+          description={
+            created.invited
               ? `Um link para definir a senha foi enviado para ${created.email}.`
-              : "Ele troca a senha no primeiro acesso. Informe a senha por um canal seguro."}
-          </p>
-        </div>
+              : "Ele troca a senha no primeiro acesso. Informe a senha por um canal seguro."
+          }
+        />
       )}
     </div>
   );

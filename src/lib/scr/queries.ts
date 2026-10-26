@@ -2,6 +2,7 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { pool } from "@/lib/db/pool";
 import { enqueueNotification, type EnqueueFailure } from "@/lib/notifications/queries";
 import { toE164 } from "@/lib/notifications/recipient";
+import type { ScrSendRecord } from "@/lib/scr/send-history";
 import type { EntityKind, ScrAuthorization, ScrStatus } from "@/types/app";
 
 export async function markScrPending(identity: DbIdentity, id: string, email?: string | null): Promise<void> {
@@ -19,6 +20,27 @@ export async function listScrAuthorizations(identity: DbIdentity, status?: ScrSt
          where reference = 'scr_authorization:' || s.id::text order by created_at desc, id desc limit 1) n on true
        where ($1::text is null or s.status::text=$1) order by s.requested_at desc limit 200`, [status ?? null]);
     return rows;
+  });
+}
+
+// Histórico de envios do código SCR. O vínculo é notifications.reference = 'scr_authorization:<id>'.
+// O join com scr_authorizations aplica a RLS do Bureau nas duas tabelas; destino já mascarado (recipient_masked).
+export async function listScrSendHistory(identity: DbIdentity, id: string): Promise<ScrSendRecord[]> {
+  return withUserTransaction(identity, async (client) => {
+    const { rows } = await client.query<{
+      id: string; channel: ScrSendRecord["channel"]; recipient_masked: string; status: ScrSendRecord["status"];
+      attempts: number; last_error_code: string | null; created_at: string; sent_at: string | null;
+    }>(
+      `select n.id, n.channel, n.recipient_masked, n.status, n.attempts, n.last_error_code,
+              n.created_at::text, n.sent_at::text
+         from scr_authorizations s
+         join notifications n on n.reference = 'scr_authorization:' || s.id::text
+        where s.id = $1
+        order by n.created_at desc, n.id desc limit 50`, [id]);
+    return rows.map((r) => ({
+      id: r.id, channel: r.channel, recipientMasked: r.recipient_masked, status: r.status, attempts: r.attempts,
+      lastErrorCode: r.last_error_code, createdAt: r.created_at, sentAt: r.sent_at,
+    }));
   });
 }
 

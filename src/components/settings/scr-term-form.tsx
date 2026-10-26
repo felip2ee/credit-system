@@ -14,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
   const router = useRouter();
@@ -56,7 +57,7 @@ export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
               value={values.authorizedName}
               onChange={set("authorizedName")}
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Quem o titular autoriza a consultar o SCR (ex.: o escritório/consultor).
             </p>
           </div>
@@ -68,7 +69,7 @@ export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
               onChange={set("authorizedDocument")}
               placeholder="00.000.000/0000-00"
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Opcional — quando preenchido, entra no termo junto ao nome.
             </p>
           </div>
@@ -86,7 +87,7 @@ export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
-          {msg && <p className="text-sm text-emerald-600">{msg}</p>}
+          {msg && <StatusBanner tone="success" title={msg} />}
 
           <Button type="submit" disabled={isPending}>
             {isPending ? "Salvando..." : "Salvar"}

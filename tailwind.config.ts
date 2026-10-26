@@ -2,7 +2,6 @@ import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
 
 const config: Config = {
-  darkMode: ["class"],
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -50,6 +49,12 @@ const config: Config = {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
         },
+        surface: "hsl(var(--surface))",
+        ink: "hsl(var(--ink))",
+        "brand-soft": {
+          DEFAULT: "hsl(var(--brand-soft))",
+          foreground: "hsl(var(--brand-soft-foreground))",
+        },
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
@@ -69,6 +74,18 @@ const config: Config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        input: "8px",
+        card: "12px",
+        hero: "16px",
+        modal: "24px",
+      },
+      boxShadow: {
+        sm: "var(--shadow-low)",
+        DEFAULT: "var(--shadow-low)",
+        md: "var(--shadow-mid)",
+        lg: "var(--shadow-high)",
+        // Brilho só no CTA principal da tela.
+        glow: "0 4px 14px rgba(0, 122, 118, 0.35)",
       },
       keyframes: {
         "accordion-down": {

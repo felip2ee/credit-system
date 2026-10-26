@@ -38,7 +38,7 @@ export type WalletBalance = { available: string; reserved: string };
 export type LedgerEntry = {
 	id: string;
 	seq: string;
-	kind: "topup" | "reserve" | "capture" | "release" | "adjustment" | "reversal";
+	kind: "topup" | "reserve" | "capture" | "release" | "adjustment" | "reversal" | "client_adjustment_out" | "client_adjustment_in";
 	amount: string;
 	availableAfter: string;
 	reservedAfter: string;

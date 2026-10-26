@@ -3,7 +3,12 @@ import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
+import {
+	TEST_DATABASE_DISPATCH_URL,
+	TEST_DATABASE_OWNER_URL,
+	TEST_DATABASE_URL,
+	TEST_DATABASE_WEBHOOK_URL,
+} from "@/test/db-env";
 import {
 	randomCpf,
 	seedClientProfile,
@@ -2396,9 +2401,10 @@ describe("affiliates (026)", () => {
 			"insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $2, $3)",
 			[referred.userId, affiliate.userId, T.bureau.id],
 		);
+		// Vencimento futuro: commission.integration.test.ts roda release_due_commissions() em paralelo, para todos os Bureaus.
 		await owner.query(
 			`insert into affiliate_commissions (order_ref, bureau_id, affiliate_profile_id, referred_profile_id, pct, margin, amount, release_at)
-			 values ($1, $2, $3, $4, 10, 100, 10, now())`,
+			 values ($1, $2, $3, $4, 10, 100, 10, now() + interval '30 days')`,
 			[randomUUID(), T.bureau.id, affiliate.userId, referred.userId],
 		);
 		await owner.query("select affiliate_wallet_post_entry($1, 'commission', 10, $2, 'seed', $1)", [affiliate.userId, randomUUID()]);
@@ -2609,6 +2615,10 @@ describe("affiliate withdrawals (028)", () => {
 	});
 
 	it("only the superadmin outside support reads the queue and the detail", async () => {
+		// A fila lista só os 100 mais antigos: encerra saques abertos de execuções anteriores.
+		await owner.query(
+			"update affiliate_withdrawals set status = 'cancelled', cancel_reason = 'limpeza de teste' where status = 'open' and created_at < now() - interval '1 hour'",
+		);
 		const queue = await rows(ctxOf(sa), "select * from list_affiliate_withdrawal_queue()");
 		expect(queue.map((r) => r.id)).toContain(withdrawalId);
 		expect(JSON.stringify(queue)).not.toContain("rls-chave-pix");
@@ -2658,5 +2668,184 @@ describe("affiliate withdrawals (028)", () => {
 		await expect(owner.query("update affiliate_withdrawals set status = 'cancelled' where id = $1", [withdrawalId])).rejects.toMatchObject({
 			code: "23514",
 		});
+	});
+});
+
+describe("client balance adjustments (029)", () => {
+	const REASON = "Ajuste de teste do isolamento";
+	let T: SeededTenant;
+	let foreign: SeededTenant;
+	let stranger: { userId: string; role: "client"; bureauId: string };
+	let adjustmentId: string;
+
+	const rows = (actor: Actor, sql: string, params: unknown[] = []) =>
+		withDbContext(app, actor, async (client) => (await client.query(sql, params)).rows);
+
+	beforeAll(async () => {
+		[T, foreign] = await Promise.all([seedTenant(owner, "tenant adjust"), seedTenant(owner, "tenant adjust foreign")]);
+		stranger = { ...(await seedClientProfile(owner, T.bureau.id)), role: "client" as const };
+		await owner.query("select * from wallet_post_entry($1, 'topup', 100, $2, 'seed', null, $3)", [T.bureau.id, randomUUID(), T.bureauAdmin.userId]);
+		// withDbContext faz rollback: o ajuste que os testes leem precisa de commit.
+		const client = await app.connect();
+		try {
+			await client.query("begin");
+			await client.query(
+				"select set_config('app.user_id', $1, true), set_config('app.user_role', 'bureau_admin', true), set_config('app.bureau_id', $2, true), set_config('app.support_session_id', '', true)",
+				[T.bureauAdmin.userId, T.bureau.id],
+			);
+			const { rows: result } = await client.query("select * from adjust_client_balance($1, 'credit', 10, $2, $3)", [T.client.userId, REASON, randomUUID()]);
+			adjustmentId = result[0].adjustment_id;
+			await client.query("commit");
+		} finally {
+			client.release();
+		}
+	});
+
+	it("the table forces row level security and is append-only for the owner", async () => {
+		const { rows: result } = await owner.query(
+			"select relrowsecurity, relforcerowsecurity from pg_class where relname = 'client_balance_adjustments'",
+		);
+		expect(result).toEqual([{ relrowsecurity: true, relforcerowsecurity: true }]);
+		await expect(owner.query("update client_balance_adjustments set amount = 1")).rejects.toMatchObject({ code: "23514" });
+		await expect(owner.query("delete from client_balance_adjustments")).rejects.toMatchObject({ code: "23514" });
+		await expect(owner.query("truncate client_balance_adjustments")).rejects.toMatchObject({ code: "23514" });
+	});
+
+	it("staff of the Bureau and the client owner read the row; other Bureaus and other clients do not", async () => {
+		const sql = "select id, direction, amount::text, reason from client_balance_adjustments where id = $1";
+		for (const actor of [T.bureauAdmin, T.operator, T.client]) {
+			expect(await rows(ctxOf(actor), sql, [adjustmentId])).toEqual([{ id: adjustmentId, direction: "credit", amount: "10.00", reason: REASON }]);
+		}
+		for (const actor of [stranger, foreign.bureauAdmin, foreign.operator, foreign.client, sa]) {
+			expect(await rows(ctxOf(actor), sql, [adjustmentId])).toHaveLength(0);
+		}
+	});
+
+	it("nobody reads created_by or writes the table directly in the app", async () => {
+		for (const actor of [T.bureauAdmin, T.operator, T.client, foreign.bureauAdmin]) {
+			await expect(withDbContext(app, ctxOf(actor), (c) => c.query("select created_by from client_balance_adjustments"))).rejects.toMatchObject({ code: "42501" });
+			await expect(withDbContext(app, ctxOf(actor), (c) => c.query("select * from client_balance_adjustments"))).rejects.toMatchObject({ code: "42501" });
+		}
+		for (const sql of [
+			"update client_balance_adjustments set amount = 1",
+			"delete from client_balance_adjustments",
+			"insert into client_balance_adjustments (bureau_id, client_profile_id, direction, amount, reason, created_by) select bureau_id, client_profile_id, 'credit', 1, 'motivo valido', created_by from client_balance_adjustments",
+		]) {
+			for (const actor of [T.bureauAdmin, T.client, foreign.bureauAdmin]) {
+				await expect(withDbContext(app, ctxOf(actor), (c) => c.query(sql))).rejects.toMatchObject({ code: "42501" });
+			}
+		}
+	});
+
+	it("only the Bureau staff lists the history with the author; other Bureaus and clients get nothing", async () => {
+		const sql = "select * from list_client_balance_adjustments($1)";
+		for (const actor of [T.bureauAdmin, T.operator]) {
+			const result = await rows(ctxOf(actor), sql, [T.client.userId]);
+			expect(result).toHaveLength(1);
+			expect(result[0].author_name).toEqual(expect.any(String));
+		}
+		for (const actor of [T.client, stranger, foreign.bureauAdmin, sa]) {
+			expect(await rows(ctxOf(actor), sql, [T.client.userId])).toHaveLength(0);
+		}
+	});
+
+	it("the adjustment function is not public and refuses a client of another Bureau", async () => {
+		const { rows: priv } = await owner.query<{ allowed: boolean }>(
+			"select has_function_privilege('app_runtime', 'adjust_client_balance(uuid, text, numeric, text, uuid)', 'execute') as allowed, has_function_privilege('public', 'adjust_client_balance(uuid, text, numeric, text, uuid)', 'execute') as pub",
+		);
+		expect(priv[0]).toMatchObject({ allowed: true, pub: false });
+		const denied = await rows(ctxOf(foreign.bureauAdmin), "select ok, reason from adjust_client_balance($1, 'credit', 1, $2, $3)", [T.client.userId, REASON, randomUUID()]);
+		expect(denied).toEqual([{ ok: false, reason: "not_found" }]);
+	});
+
+	it("the audit event is visible to the Bureau admin and not to another Bureau", async () => {
+		const sql = "select count(*)::int as n from audit_logs where action = 'client_wallet.adjust' and record_id = $1";
+		expect(await rows(ctxOf(T.bureauAdmin), sql, [adjustmentId])).toEqual([{ n: 1 }]);
+		expect(await rows(ctxOf(foreign.bureauAdmin), sql, [adjustmentId])).toEqual([{ n: 0 }]);
+	});
+
+	it("auth_profile_lookup has no BYPASSRLS, so the gateway policies of the adjustment tables are required", async () => {
+		const { rows: role } = await owner.query("select rolbypassrls from pg_roles where rolname = 'auth_profile_lookup'");
+		expect(role).toEqual([{ rolbypassrls: false }]);
+	});
+
+	it("an app role cannot post the new kinds into the ledgers directly", async () => {
+		await expect(
+			withDbContext(app, ctxOf(T.bureauAdmin), (c) =>
+				c.query("insert into client_ledger_entries (bureau_id, client_profile_id, kind, amount, available_after, reserved_after, idempotency_key, reason, created_by) values ($1, $2, 'adjustment_credit', 1, 1, 0, 'k', 'motivo valido', $3)", [
+					T.bureau.id,
+					T.client.userId,
+					T.bureauAdmin.userId,
+				]),
+			),
+		).rejects.toMatchObject({ code: "42501" });
+	});
+});
+
+describe("push_subscriptions", () => {
+	const webhook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 2 });
+	const dispatch = new Pool({ connectionString: TEST_DATABASE_DISPATCH_URL, max: 2 });
+	let T: SeededTenant;
+
+	beforeAll(async () => {
+		T = await seedTenant(owner, "push rls");
+		await owner.query(
+			"insert into push_subscriptions (bureau_id, profile_id, endpoint, p256dh, auth) values ($1, $2, $3, $4, $5)",
+			[
+				T.bureau.id,
+				T.client.userId,
+				`https://fcm.googleapis.com/fcm/send/${randomUUID()}`,
+				randomBytes(65).toString("base64url"),
+				randomBytes(16).toString("base64url"),
+			],
+		);
+	});
+
+	afterAll(async () => {
+		await Promise.all([webhook.end(), dispatch.end()]);
+	});
+
+	it("app_runtime with a client context has no table privilege", async () => {
+		const ctx = { userId: T.client.userId, role: "client", bureauId: T.bureau.id };
+		const statements = [
+			"select endpoint from push_subscriptions",
+			"insert into push_subscriptions (bureau_id, profile_id, endpoint, p256dh, auth) values ($1, $2, 'https://x.test/a', repeat('a', 87), repeat('a', 22))",
+			"update push_subscriptions set user_agent = 'x'",
+			"delete from push_subscriptions",
+		];
+		for (const sql of statements) {
+			const params = sql.startsWith("insert") ? [T.bureau.id, T.client.userId] : [];
+			await expect(withDbContext(app, ctx, (c) => c.query(sql, params))).rejects.toMatchObject({ code: "42501" });
+		}
+	});
+
+	it("app_webhook and app_dispatch cannot read the table", async () => {
+		for (const role of [webhook, dispatch]) {
+			await expect(role.query("select endpoint from push_subscriptions")).rejects.toMatchObject({ code: "42501" });
+		}
+	});
+
+	it("function grants follow the role boundary", async () => {
+		const can = async (role: string, fn: string) =>
+			(await owner.query<{ ok: boolean }>("select has_function_privilege($1, $2, 'execute') as ok", [role, fn])).rows[0].ok;
+		const delivery = "push_subscription_for_delivery(uuid, uuid)";
+		const gone = "delete_gone_push_subscription(uuid, uuid)";
+		const internal = "enqueue_push_for_profile(uuid, text, text, text, text)";
+		const register = "register_push_subscription(text, text, text, text)";
+
+		for (const fn of [delivery, gone, internal]) expect(await can("app_runtime", fn)).toBe(false);
+		for (const fn of [register, "remove_push_subscription(text)", "push_subscription_active(text)", internal]) {
+			expect(await can("app_dispatch", fn)).toBe(false);
+		}
+		expect(await can("app_dispatch", delivery)).toBe(true);
+		expect(await can("app_dispatch", gone)).toBe(true);
+		expect(await can("app_runtime", register)).toBe(true);
+		expect(await can("public", internal)).toBe(false);
+		await expect(
+			app.query("select * from push_subscription_for_delivery($1, $2)", [randomUUID(), randomUUID()]),
+		).rejects.toMatchObject({ code: "42501" });
+		await expect(
+			dispatch.query("select * from register_push_subscription('https://x.test/a', repeat('a', 87), repeat('a', 22), null)"),
+		).rejects.toMatchObject({ code: "42501" });
 	});
 });

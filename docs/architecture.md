@@ -40,7 +40,7 @@ src/
   lib/deps/              Cliente do bureau DEPS Mix V3 (sem mock; fixtures em __fixtures__/).
   lib/ai/                Parecer de crédito (OpenAI), validado por src/types/ai.ts.
   lib/pdf/ documents/ email/   PDFs, armazenamento com varredura ClamAV, nodemailer.
-  lib/notifications/     Fila (outbox), render, despacho, canais (email, whatsapp), webhook da Meta.
+  lib/notifications/     Fila (outbox), render, despacho, canais (email, whatsapp, push), webhook da Meta.
   lib/validators/        Schemas zod.
   components/            Pastas por funcionalidade + ui/ (shadcn).
   types/ test/

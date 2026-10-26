@@ -38,7 +38,7 @@ import { enqueueNotification } from "@/lib/notifications/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { randomCpf, seedTenant, type SeededTenant } from "@/test/seed";
 
-import { issueSelfScrAuthorization, listScrAuthorizations, resolveScrContact } from "./queries";
+import { issueSelfScrAuthorization, listScrAuthorizations, listScrSendHistory, resolveScrContact } from "./queries";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const OLD_CODE = "OLDCOD";
@@ -299,5 +299,21 @@ describe("listScrAuthorizations", () => {
 
 		expect(rows.find((row) => row.id === withMail)?.lastNotificationStatus).toBe("pending");
 		expect(rows.find((row) => row.id === withoutMail)?.lastNotificationStatus).toBeNull();
+	});
+});
+
+describe("listScrSendHistory", () => {
+	it("lists e-mail and WhatsApp sends with masked destinations, only for the own Bureau", async () => {
+		const id = await seedScr(tenantA);
+		await issueSelfScrAuthorization(tenantA.operator, id, input({ recipient: "titular@example.test", phone: "+5511987655615" }));
+
+		const history = await listScrSendHistory(tenantA.operator, id);
+
+		expect(history.map((h) => [h.channel, h.recipientMasked]).sort()).toEqual([
+			["email", "t***@example.test"],
+			["whatsapp", "+55*******5615"],
+		]);
+		expect(JSON.stringify(history)).not.toContain("titular@example.test");
+		expect(await listScrSendHistory(tenantB.operator, id)).toEqual([]);
 	});
 });

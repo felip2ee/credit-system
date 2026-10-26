@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 interface MarkPaidFormProps {
   payoutId: string;
@@ -73,9 +74,7 @@ export function MarkPaidForm({
         className="h-auto max-w-xs"
       />
       {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
+        <StatusBanner tone="danger" title={error} />
       )}
       <Button
         type="submit"

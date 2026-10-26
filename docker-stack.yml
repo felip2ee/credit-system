@@ -51,7 +51,11 @@ services:
       WHATSAPP_APP_SECRET_FILE: /run/secrets/whatsapp_app_secret
       WHATSAPP_VERIFY_TOKEN_FILE: /run/secrets/whatsapp_verify_token
       NOTIFICATIONS_DISPATCH_SECRET_FILE: /run/secrets/notifications_dispatch_secret
-    secrets: [database_url, database_webhook_url, dispatch_database_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret]
+      # Web Push (VAPID). Public key and contact empty = push off (the private key secret then holds a placeholder).
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_SUBJECT: ${WEB_PUSH_VAPID_SUBJECT:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY_FILE: /run/secrets/web_push_vapid_private_key
+    secrets: [database_url, database_webhook_url, dispatch_database_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret, web_push_vapid_private_key]
     volumes:
       - documents:/var/lib/reino/documents
     healthcheck:
@@ -294,6 +298,7 @@ secrets:
   whatsapp_app_secret: { external: true }
   whatsapp_verify_token: { external: true }
   notifications_dispatch_secret: { external: true }
+  web_push_vapid_private_key: { external: true }
   postgres_password: { external: true }
   schema_owner_password: { external: true }
   app_runtime_password: { external: true }

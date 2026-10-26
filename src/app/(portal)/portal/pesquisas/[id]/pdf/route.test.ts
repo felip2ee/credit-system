@@ -22,7 +22,8 @@ vi.mock("@/lib/db/transaction", () => ({
 	withUserTransaction: async (_identity: unknown, work: (client: unknown) => unknown) => work(TX_CLIENT),
 }));
 vi.mock("@/lib/orders/client-queries", () => ({ getMyDelivery: state.getMyDelivery }));
-vi.mock("@/lib/pdf/letterhead", () => ({ letterheadDataUri: () => "data:image/png;base64,AAAA" }));
+vi.mock("@/lib/bureaus/queries", () => ({ getOwnBureauName: async () => "Bureau Exemplo" }));
+vi.mock("@/lib/config", () => ({ config: { supportEmail: "suporte@rainhacred.com.br" } }));
 vi.mock("@/lib/pdf/dossier-document", () => ({ renderDossierPdf: state.render }));
 vi.mock("@/lib/consultations/full-view", () => ({
 	toConsultationContent: (payload: unknown, canonical: { name: string } | null) => ({
@@ -114,8 +115,8 @@ describe("client pdf route", () => {
 	it("renders the company first, skips members without result and masks the dossier header", async () => {
 		await call();
 
-		const [data, letterhead] = state.render.mock.calls[0];
-		expect(letterhead).toBe("data:image/png;base64,AAAA");
+		const [data, frame] = state.render.mock.calls[0];
+		expect(frame).toMatchObject({ bureauName: "Bureau Exemplo", supportEmail: "suporte@rainhacred.com.br" });
 		expect(data.title).toBe("Maria Souza");
 		expect(data.subtitle).toBe("***.533.447-** · 2 consulta(s)");
 		expect(data.entries.map((e: { role: string }) => e.role)).toEqual(["Empresa", "Sócio"]);

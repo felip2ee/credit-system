@@ -43,6 +43,7 @@ COPY --from=builder --chown=1001:1001 /app/.next/static ./.next/static
 COPY --from=builder --chown=1001:1001 /app/scripts/db/migrate.mjs ./scripts/db/migrate.mjs
 COPY --from=builder --chown=1001:1001 /app/db/migrations ./db/migrations
 COPY --from=builder --chown=1001:1001 /app/src/lib/runtime-secrets.mjs ./src/lib/runtime-secrets.mjs
+COPY --from=builder --chown=1001:1001 /app/src/lib/pdf/fonts ./src/lib/pdf/fonts
 COPY --from=builder --chown=1001:1001 /app/scripts/notifications-cron.mjs ./scripts/notifications-cron.mjs
 COPY --from=builder --chown=1001:1001 /app/node_modules/nodemailer ./node_modules/nodemailer
 COPY --chown=1001:1001 docker/app-entrypoint.sh ./app-entrypoint.sh

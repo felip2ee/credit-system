@@ -1290,6 +1290,7 @@ describe("seeds", () => {
 			authorizedName: "Empresa X",
 			code: "123456",
 			url: "https://x.test/a/abc",
+			siteUrl: "https://x.test",
 		};
 		const render = (s: string) =>
 			s.replace(/\{\{(\w+)\}\}/g, (_, k: keyof typeof values) => values[k]);
@@ -1301,8 +1302,7 @@ describe("seeds", () => {
 			"",
 			"Autorize em: https://x.test/a/abc",
 			"",
-			"Eliane Moreira — Rainha do Crédito",
-			"(63) 9 9234-5615 · contato@rainhadocredito.com · @elianerainhadocredito",
+			"Rainha Cred · suporte@rainhacred.com.br",
 		].join("\n");
 		const html = render(rows[0].email_html);
 		expect(rows[0].params).toEqual([
@@ -1312,7 +1312,7 @@ describe("seeds", () => {
 			"url",
 		]);
 		expect(rows[0].email_subject).toBe(
-			"Autorização de consulta SCR — Rainha do Crédito",
+			"Autorização de consulta SCR — Rainha Cred",
 		);
 		expect(html).toContain("Olá Maria,");
 		expect(html).toContain("A Empresa X gostaria");

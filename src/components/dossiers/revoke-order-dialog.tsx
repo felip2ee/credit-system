@@ -46,7 +46,7 @@ export function RevokeOrderDialog({ dossierId, open, onClose }: RevokeOrderDialo
     <Dialog open={open} onClose={onClose} title="Revogar entrega" role="alertdialog" dismissible={!isPending}>
       <form onSubmit={submit} noValidate className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          O cliente perde o acesso à pesquisa. O pedido volta para &quot;Concluída&quot; e o cliente não é avisado.
+          O cliente perde o acesso à pesquisa. O pedido volta para &quot;Pronto, aguardando liberação do Bureau&quot; e o cliente não é avisado.
         </p>
         <div className="space-y-2">
           <Label htmlFor="revoke-reason">Motivo da revogação</Label>

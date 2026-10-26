@@ -47,7 +47,7 @@ export function FullConsultationResult({ view }: { view: FullConsultationView })
             {view.generic.map((block) => (
               <div key={block.key} className="space-y-2">
                 <h3 className="text-sm font-medium">{block.title}</h3>
-                {block.note && <p className="text-xs text-muted-foreground">{block.note}</p>}
+                {block.note && <p className="text-sm text-muted-foreground">{block.note}</p>}
                 <GenericValueView value={block.value} />
               </div>
             ))}

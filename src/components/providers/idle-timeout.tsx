@@ -16,6 +16,7 @@ export function IdleTimeout() {
     const reset = () => {
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => {
+        // Sessão expirada não remove o push do aparelho: só o botão "Sair" faz isso.
         void signOut();
       }, IDLE_MS);
     };

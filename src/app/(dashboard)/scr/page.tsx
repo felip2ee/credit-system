@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { ScrStatusBadge } from "@/components/scr/scr-status-badge";
+import { ScrHistoryRow, ScrSendHistory } from "@/components/scr/scr-send-history";
 import { NotificationStatusBadge } from "@/components/notifications/NotificationStatusBadge";
 import { ScrRowActions } from "@/components/scr/scr-row-actions";
 import { Card, CardContent } from "@/components/ui/card";
@@ -52,7 +52,7 @@ export default async function ScrPage({
     <div className="space-y-6">
       <PageHeader
         title="Autorizações SCR"
-        description="Consentimento dos consultados — autogestão Rainha do Crédito (termo + código por e-mail)"
+        description="Consentimento dos consultados — autogestão Rainha Cred (termo + código por e-mail)"
       />
 
       <div className="flex gap-1 border-b">
@@ -82,6 +82,7 @@ export default async function ScrPage({
                 <TableHead>Tipo</TableHead>
                 {tab === "pending" && (
                   <>
+                    <TableHead>Status</TableHead>
                     <TableHead>Enviado em</TableHead>
                     <TableHead>Aguardando</TableHead>
                     <TableHead>Último envio</TableHead>
@@ -90,6 +91,7 @@ export default async function ScrPage({
                 )}
                 {tab === "granted" && (
                   <>
+                    <TableHead>Status</TableHead>
                     <TableHead>Aceite em</TableHead>
                     <TableHead>Validade</TableHead>
                   </>
@@ -107,7 +109,7 @@ export default async function ScrPage({
               {rows.map((r) => {
                 const waiting = daysSince(r.requested_at);
                 return (
-                  <TableRow key={r.id}>
+                  <ScrHistoryRow key={r.id} id={r.id}>
                     <TableCell className="font-mono">
                       {fmtDoc(r.type, r.document)}
                     </TableCell>
@@ -116,6 +118,7 @@ export default async function ScrPage({
 
                     {tab === "pending" && (
                       <>
+                        <TableCell><ScrSendHistory status={r.status} /></TableCell>
                         <TableCell>{formatDate(r.requested_at)}</TableCell>
                         <TableCell
                           className={cn(waiting > 3 && "text-destructive")}
@@ -135,6 +138,7 @@ export default async function ScrPage({
 
                     {tab === "granted" && (
                       <>
+                        <TableCell><ScrSendHistory status={r.status} /></TableCell>
                         <TableCell>{formatDate(r.authorized_at)}</TableCell>
                         <TableCell>{formatDate(r.expires_at)}</TableCell>
                       </>
@@ -143,13 +147,13 @@ export default async function ScrPage({
                     {tab === "history" && (
                       <>
                         <TableCell>
-                          <ScrStatusBadge status={r.status} />
+                          <ScrSendHistory status={r.status} />
                         </TableCell>
                         <TableCell>{formatDate(r.requested_at)}</TableCell>
                         <TableCell>{formatDate(r.last_checked_at)}</TableCell>
                       </>
                     )}
-                  </TableRow>
+                  </ScrHistoryRow>
                 );
               })}
               {rows.length === 0 && (

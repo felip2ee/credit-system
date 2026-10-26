@@ -15,7 +15,7 @@ const smtpEnv = {
 	SMTP_HOST: "smtp.example.test",
 	SMTP_USER: "no-reply@example.test",
 	SMTP_PASS: "secret",
-	SMTP_FROM: "Rainha do Crédito <no-reply@rainha.example.test>",
+	SMTP_FROM: "Rainha Cred <no-reply@rainha.example.test>",
 };
 
 beforeEach(() => {

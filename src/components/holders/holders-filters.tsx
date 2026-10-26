@@ -4,7 +4,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+// Radix não aceita valor vazio.
+const ALL = "todos";
 
 export function HoldersFilters() {
   const router = useRouter();
@@ -25,13 +29,12 @@ export function HoldersFilters() {
     update({ q });
   };
 
-  const selectClass =
-    "h-10 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
-
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
       <form onSubmit={onSearch} className="flex flex-1 gap-2">
-        <Input
+        <SearchInput
+          className="flex-1"
+          aria-label="Buscar por nome, CPF ou CNPJ"
           placeholder="Buscar por nome, CPF ou CNPJ..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -41,16 +44,16 @@ export function HoldersFilters() {
         </Button>
       </form>
 
-      <select
-        aria-label="Tipo de titular"
-        className={selectClass}
-        value={params.get("type") ?? ""}
-        onChange={(e) => update({ type: e.target.value })}
-      >
-        <option value="">Todos os tipos</option>
-        <option value="PF">Pessoa Física</option>
-        <option value="PJ">Pessoa Jurídica</option>
-      </select>
+      <Select value={params.get("type") || ALL} onValueChange={(value) => update({ type: value === ALL ? "" : value })}>
+        <SelectTrigger aria-label="Tipo de titular" className="sm:w-56">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>Todos os tipos</SelectItem>
+          <SelectItem value="PF">Pessoa Física</SelectItem>
+          <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   );
 }

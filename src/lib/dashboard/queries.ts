@@ -106,3 +106,55 @@ export async function getTopbarEmail(
     return rows[0]?.email ?? null;
   });
 }
+
+export interface RevenueSummary {
+  total: { amount: number; orders: number };
+  period: { amount: number; orders: number };
+  monthly: { month: string; amount: number }[]; // "YYYY-MM", em Brasília
+  clients: number;
+}
+
+// Faturamento = preço dos pedidos capturados (order_settlements.price, por data de captura).
+// A RLS limita ao Bureau do usuário.
+export async function getRevenueSummary(
+  identity: DbIdentity,
+  range: { start: string; end: string },
+  seriesStart: string,
+): Promise<RevenueSummary> {
+  return withUserTransaction(identity, async (client) => {
+    const sums = await client.query<{
+      total_amount: number;
+      total_orders: number;
+      period_amount: number;
+      period_orders: number;
+    }>(
+      `select
+         coalesce(sum(price), 0)::float8 as total_amount,
+         count(*)::int as total_orders,
+         coalesce(sum(price) filter (where closed_at >= $1 and closed_at < $2), 0)::float8 as period_amount,
+         (count(*) filter (where closed_at >= $1 and closed_at < $2))::int as period_orders
+       from order_settlements
+      where status = 'captured'`,
+      [range.start, range.end],
+    );
+    const monthly = await client.query<{ month: string; amount: number }>(
+      `select to_char(closed_at at time zone 'America/Sao_Paulo', 'YYYY-MM') as month,
+              sum(price)::float8 as amount
+         from order_settlements
+        where status = 'captured' and closed_at >= $1
+        group by 1
+        order by 1`,
+      [seriesStart],
+    );
+    const clients = await client.query<{ n: number }>(
+      "select count(*)::int as n from profiles where role = 'client'",
+    );
+    const s = sums.rows[0];
+    return {
+      total: { amount: s.total_amount, orders: s.total_orders },
+      period: { amount: s.period_amount, orders: s.period_orders },
+      monthly: monthly.rows,
+      clients: clients.rows[0].n,
+    };
+  });
+}

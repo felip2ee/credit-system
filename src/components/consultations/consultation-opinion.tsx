@@ -8,6 +8,8 @@ import { Bot, Loader2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 
 import { generateOpinion } from "@/actions/ai";
 import { Badge } from "@/components/ui/badge";
+import { AptitudeBadge } from "@/components/dossiers/dossier-badges";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -28,15 +30,6 @@ interface Props {
   report: OpinionData | null;
 }
 
-const APTITUDE: Record<
-  string,
-  { label: string; variant: "success" | "secondary" | "destructive" | "muted" }
-> = {
-  apt: { label: "Apto", variant: "success" },
-  apt_with_caveats: { label: "Apto com ressalvas", variant: "secondary" },
-  inapt: { label: "Inapto", variant: "destructive" },
-  pending: { label: "Pendente", variant: "muted" },
-};
 
 const markdownComponents: Components = {
   h1: ({ children }) => (
@@ -58,7 +51,7 @@ const markdownComponents: Components = {
   ),
   table: ({ children }) => (
     <div className="my-3 overflow-x-auto">
-      <table className="w-full border-collapse text-xs">{children}</table>
+      <table className="w-full border-collapse text-sm">{children}</table>
     </div>
   ),
   th: ({ children }) => (
@@ -68,18 +61,11 @@ const markdownComponents: Components = {
 };
 
 function NotaPill({ label, value }: { label: string; value: number }) {
-  const tone =
-    value >= 7
-      ? "bg-emerald-100 text-emerald-800"
-      : value >= 5
-        ? "bg-amber-100 text-amber-800"
-        : "bg-red-100 text-red-800";
+  const [tone, level] = value >= 7 ? (["success", "boa"] as const) : value >= 5 ? (["attention", "média"] as const) : (["danger", "baixa"] as const);
   return (
     <div className="flex flex-col items-center rounded-md border p-2">
-      <span className={cn("rounded-full px-2 py-0.5 text-sm font-bold", tone)}>
-        {value.toFixed(1)}
-      </span>
-      <span className="mt-1 text-center text-[11px] text-muted-foreground">{label}</span>
+      <StatusBadge tone={tone} label={`${value.toFixed(1)} (${level})`} />
+      <span className="mt-1 text-center text-sm text-muted-foreground">{label}</span>
     </div>
   );
 }
@@ -154,7 +140,6 @@ export function ConsultationOpinion({ queryId, report }: Props) {
 
   // ── Estado: parecer pronto ──
   const parecer = report!.full_report!;
-  const apt = APTITUDE[report!.aptitude_status] ?? APTITUDE.pending;
 
   const notas = parecer.notas;
 
@@ -165,7 +150,7 @@ export function ConsultationOpinion({ queryId, report }: Props) {
           <Bot className="h-5 w-5" /> Parecer de IA
         </CardTitle>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={apt.variant}>{apt.label}</Badge>
+          <AptitudeBadge status={report!.aptitude_status} />
           <Badge variant="outline">{parecer.classificacao_perfil}</Badge>
           <Button
             variant="ghost"
@@ -209,9 +194,9 @@ export function ConsultationOpinion({ queryId, report }: Props) {
                     <span className="font-medium">{o.linha}</span>
                     <Badge variant="muted">{o.probabilidade_aprovacao_estimada}</Badge>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{o.observacao}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{o.observacao}</p>
                   {o.limite_potencial && o.limite_potencial !== "Não informado" && (
-                    <p className="mt-1 text-xs">Limite potencial: {o.limite_potencial}</p>
+                    <p className="mt-1 text-sm">Limite potencial: {o.limite_potencial}</p>
                   )}
                 </div>
               ))}
@@ -234,7 +219,7 @@ export function ConsultationOpinion({ queryId, report }: Props) {
         )}
 
         {/* Rodapé: disclaimer + metadados */}
-        <div className="space-y-1 border-t pt-3 text-[11px] text-muted-foreground">
+        <div className="space-y-1 border-t pt-3 text-sm text-muted-foreground">
           <p>{parecer.disclaimer}</p>
           {report!.model_used && (
             <p>

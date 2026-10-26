@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mailer = vi.hoisted(() => ({ sendMail: vi.fn(), senderDomain: vi.fn() }));
 vi.mock("@/lib/email/mailer", () => mailer);
+vi.mock("@/lib/config", () => ({ config: { betterAuthUrl: "http://localhost:3000" } }));
 
 import type { ClaimedNotification } from "../types";
 import { sendEmailNotification } from "./email";

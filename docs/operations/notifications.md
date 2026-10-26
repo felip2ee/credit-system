@@ -1,6 +1,6 @@
-# Notificações (e-mail e WhatsApp)
+# Notificações (e-mail, WhatsApp e push)
 
-O M4 envia e-mail e WhatsApp por uma fila no Postgres (outbox). O serviço `notifications_cron` chama a rota de despacho a cada 60 s.
+O M4 envia e-mail, WhatsApp e push por uma fila no Postgres (outbox). O serviço `notifications_cron` chama a rota de despacho a cada 60 s.
 
 ## 1. Criar o app e o número na Meta
 
@@ -95,3 +95,29 @@ Confirme o nome da tabela e da coluna na migration antes de rodar. Registre o mo
 - `docker service logs reino_notifications_cron` mostra `status=200` a cada minuto.
 - Um e-mail SCR real chega.
 - Um WhatsApp de teste chega e o status `delivered` volta pelo webhook.
+
+## 9. Push no aparelho
+
+O canal `push` avisa o cliente do portal no celular ou no computador (Web Push). O worker usa a biblioteca `web-push` e as chaves VAPID.
+
+1. Gere o par de chaves uma vez: `npx web-push generate-vapid-keys`.
+2. Defina as 3 variáveis no deploy. O arquivo é `docker-stack.yml`, serviço `reino_app`:
+   - `WEB_PUSH_VAPID_PUBLIC_KEY` (base64url, 87 caracteres; variável do `.env.production`);
+   - `WEB_PUSH_VAPID_PRIVATE_KEY` (base64url, 43 caracteres; é secreta): Docker secret `web_push_vapid_private_key`, montado em `WEB_PUSH_VAPID_PRIVATE_KEY_FILE`. Crie com `printf %s "<chave-privada>" | docker secret create web_push_vapid_private_key -`;
+   - `WEB_PUSH_VAPID_SUBJECT` (`mailto:` ou `https://` de contato; variável do `.env.production`).
+3. Com a chave pública e o contato vazios, o push fica desligado (o secret da chave privada guarda o marcador `push-disabled`, porque o Swarm não aceita secret vazio): o envio falha como `channel_not_configured` (permanente). Config pela metade ou inválida falha como `config_error` (transitório).
+4. Não troque o par de chaves depois que há inscrições: as inscrições antigas deixam de valer: o serviço de push recusa o envio (esperado 401/403, que viram `config_error`; não conferido em produção).
+5. iPhone: o aviso só chega com o app instalado na tela inicial (iOS 16.4 ou mais novo). No Safari comum não há push.
+6. O endpoint do aparelho só é aceito se o host está na lista de serviços de push (`src/lib/notifications/push-endpoint.ts`). O worker confere de novo antes de enviar; host fora da lista falha como `invalid_endpoint` (permanente), sem chamada de rede. O envio não segue redirecionamento.
+7. Códigos de erro:
+   - `push_gone`: o serviço respondeu 404 ou 410. A inscrição é apagada na hora. A notificação vai para `failed`.
+   - `subscription_gone`: a inscrição já não existe (logout, desligar o aviso, conta encerrada ou aparelho de outro perfil). A notificação vai para `failed`.
+   - `invalid_endpoint`: endpoint fora da lista.
+   - `rate_limited` (429), `provider_unavailable` (5xx), `provider_timeout`, `network_error`: transitórios, com a mesma espera das outras vias.
+   - `provider_rejected`: outro 4xx ou 3xx. Permanente.
+8. A inscrição é removida quando a conta é encerrada e quando o cliente toca em "Sair" (botão do portal e da tela de aceite). Sair por outra página, sessão expirada ou inatividade (30 min) mantém a inscrição até o caminho 410 (`push_gone`) apagá-la. Aparelho compartilhado fica protegido: quem se inscreve depois assume o endpoint (upsert) e o perfil anterior deixa de receber.
+   - Evento 1 (sócio autorizou o SCR): não há push quando o sócio é o próprio comprador (mesmo e-mail do perfil, sem diferença de caixa): ele acabou de autorizar.
+   - Se enfileirar o aviso falhar, o banco registra um `warning` (`push enqueue failed (<template>): sqlstate <código>`, sem dado pessoal) e a operação de origem (captura, liberação de comissão ou de entrega, autorização SCR) segue.
+9. O texto do aviso é fixo no código (`src/lib/notifications/push-payload.ts`): título com o nome da marca e uma frase curta. Nunca CPF, CNPJ, valor ou nome.
+
+(post-deploy) Com as chaves reais: ligue o aviso no portal pelo aparelho, gere um evento (por exemplo, a liberação de uma pesquisa) e confirme que o aviso chega. No iPhone, repita com o app instalado. Em `reino_notifications_cron`, o lote não mostra `push_gone` nem `config_error` para esse aparelho.

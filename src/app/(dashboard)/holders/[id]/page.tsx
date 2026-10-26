@@ -13,6 +13,7 @@ import { HolderTimeline } from "@/components/holders/holder-timeline";
 import { LgpdActions } from "@/components/holders/lgpd-actions";
 import { PartnerSection, type PartnerItem } from "@/components/holders/partner-section";
 import { PortalAccessButton } from "@/components/holders/portal-access-button";
+import { ClientBalanceCard } from "@/components/credits/ClientBalanceCard";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
+import { withUserTransaction } from "@/lib/db/transaction";
 import { getHolderDetail } from "@/lib/holders/queries";
+import { getClientAdjustmentLimits, listClientAdjustments } from "@/lib/wallet/client-adjustment";
+import { getClientWallet, listClientLedger } from "@/lib/wallet/client-queries";
+import { getWallet } from "@/lib/wallet/queries";
 import { formatCNPJ, formatCPF, formatDate, formatDateSP } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
 import type { EntityKind, QueryStatus } from "@/types/app";
@@ -32,7 +37,7 @@ const formatDocument = (type: EntityKind, document: string | null) =>
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dt className="text-sm text-muted-foreground">{label}</dt>
       <dd className="text-sm">{value || "—"}</dd>
     </div>
   );
@@ -50,6 +55,27 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
   const canInvite = hasPermission(session, "users:manage");
   const canManageLgpd = hasPermission(session, "lgpd:manage");
   const isAnonymized = holder.anonymized_at !== null;
+  const canAdjust = hasPermission(session, "credits:adjust");
+  const clientProfileId = holder.client_profile_id;
+  const clientBalance =
+    clientProfileId && hasPermission(session, "wallet:read")
+      ? await withUserTransaction(session, async (client) => {
+          const wallet = await getClientWallet(client, clientProfileId);
+          const [ledger, adjustments, bureauWallet, limits] = await Promise.all([
+            listClientLedger(client, clientProfileId),
+            listClientAdjustments(client, clientProfileId),
+            canAdjust && session.bureauId ? getWallet(client, session.bureauId) : null,
+            canAdjust ? getClientAdjustmentLimits(client, clientProfileId) : null,
+          ]);
+          return {
+            wallet: wallet ?? { available: "0.00", reserved: "0.00" },
+            rows: ledger.rows,
+            authors: Object.fromEntries(adjustments.map((a) => [a.id, a.authorName])),
+            bureauAvailable: canAdjust ? (bureauWallet?.available ?? "0.00") : null,
+            maxDebit: limits?.maxDebit ?? "0.00",
+          };
+        })
+      : null;
 
   const partnerItems: PartnerItem[] = partners.map((p) => ({
     id: p.holder_id,
@@ -85,7 +111,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
           />
         )}
         {canWrite && !isAnonymized && (
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" className="min-h-11">
             <Link href={`/holders/${holder.id}/edit`}>
               <Pencil className="h-4 w-4" />
               Editar
@@ -165,6 +191,8 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
             </Card>
           )}
 
+          {clientBalance && <ClientBalanceCard holderId={holder.id} {...clientBalance} />}
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-lg">
@@ -192,7 +220,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                           <p className="truncate text-sm font-medium">
                             {isDossierKind(d.kind) ? DOSSIER_KIND_LABEL[d.kind] : d.kind}
                           </p>
-                          <p className="text-xs text-muted-foreground">{formatDate(d.created_at)}</p>
+                          <p className="text-sm text-muted-foreground">{formatDate(d.created_at)}</p>
                         </div>
                         {d.kind === "PJ_FULL" && d.report_status === "completed" && (
                           <AptitudeBadge status={d.aptitude_status} />
@@ -228,7 +256,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                           <p className="truncate text-sm font-medium">
                             {c.document_name || formatDocument(c.type, c.document)}
                           </p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm text-muted-foreground">
                             {[c.product, formatDate(c.consulted_at ?? c.created_at)]
                               .filter(Boolean)
                               .join(" · ")}
@@ -262,7 +290,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                   {notes.map((n) => (
                     <li key={n.id} className="rounded-md border p-3 text-sm">
                       <p className="whitespace-pre-wrap">{n.content}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{formatDate(n.created_at)}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{formatDate(n.created_at)}</p>
                     </li>
                   ))}
                 </ul>

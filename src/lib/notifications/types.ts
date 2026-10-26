@@ -1,5 +1,8 @@
 export type NotificationChannel = "email" | "whatsapp";
 
+// Canal de entrega do worker: "push" só nasce dos gatilhos do banco, nunca da preferência do perfil.
+export type DeliveryChannel = NotificationChannel | "push";
+
 export type NotificationStatus =
 	| "pending"
 	| "sending"
@@ -14,7 +17,7 @@ export type NotificationStatus =
 export interface ClaimedNotification {
 	id: string;
 	lease_id: string;
-	channel: NotificationChannel;
+	channel: DeliveryChannel;
 	recipient: string;
 	params: Record<string, string>;
 	attempts: number;

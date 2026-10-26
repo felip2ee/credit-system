@@ -31,6 +31,7 @@ import {
   readDispatchDatabaseUrl,
   readNfseConfig,
   readNotificationsDispatchSecret,
+  readPushConfig,
   readWebhookDatabaseUrl,
   readWhatsappConfig,
 } from "./config";
@@ -128,7 +129,13 @@ describe("readConfig", () => {
     expect(config.smtpSecure).toBe(true);
     expect(config.smtpUser).toBe("credit-system");
     expect(config.smtpPass).toBe("test-password");
-    expect(config.smtpFrom).toBe("Rainha do Crédito <credit-system>");
+    expect(config.smtpFrom).toBe("Rainha Cred <credit-system>");
+  });
+
+  it("defaults the support e-mail and reads SUPPORT_EMAIL when set", () => {
+    expect(readConfig(valid).supportEmail).toBe("suporte@rainhacred.com.br");
+    expect(readConfig({ ...valid, SUPPORT_EMAIL: " ajuda@example.test " }).supportEmail).toBe("ajuda@example.test");
+    expect(readConfig({ ...valid, SUPPORT_EMAIL: " " }).supportEmail).toBe("suporte@rainhacred.com.br");
   });
 
   it.each(["yes", "1", "TRUE"])("rejects non-boolean SMTP_SECURE %s", (secure) => {
@@ -437,5 +444,52 @@ describe("readNotificationsDispatchSecret", () => {
     expect(() => readNotificationsDispatchSecret({ ...env, NODE_ENV: "production" })).toThrow(
       "NOTIFICATIONS_DISPATCH_SECRET must not be the .env.example placeholder",
     );
+  });
+});
+
+describe("readPushConfig", () => {
+  const push = {
+    WEB_PUSH_VAPID_PUBLIC_KEY: "B".repeat(87),
+    WEB_PUSH_VAPID_PRIVATE_KEY: "k".repeat(43),
+    WEB_PUSH_VAPID_SUBJECT: "mailto:contato@rainhadocredito.com",
+  };
+
+  it("returns null when the three values are empty or missing", () => {
+    expect(readPushConfig({})).toBeNull();
+    expect(
+      readPushConfig({ WEB_PUSH_VAPID_PUBLIC_KEY: "", WEB_PUSH_VAPID_PRIVATE_KEY: " ", WEB_PUSH_VAPID_SUBJECT: "" }),
+    ).toBeNull();
+  });
+
+  it("returns null when only the private key is set (Docker secret placeholder)", () => {
+    expect(readPushConfig({ WEB_PUSH_VAPID_PRIVATE_KEY: "push-disabled" })).toBeNull();
+  });
+
+  it("returns the trimmed config", () => {
+    expect(readPushConfig({ ...push, WEB_PUSH_VAPID_SUBJECT: ` ${push.WEB_PUSH_VAPID_SUBJECT} ` })).toEqual({
+      publicKey: push.WEB_PUSH_VAPID_PUBLIC_KEY,
+      privateKey: push.WEB_PUSH_VAPID_PRIVATE_KEY,
+      subject: push.WEB_PUSH_VAPID_SUBJECT,
+    });
+  });
+
+  it("accepts an https subject", () => {
+    expect(readPushConfig({ ...push, WEB_PUSH_VAPID_SUBJECT: "https://rainhadocredito.com" })?.subject).toBe(
+      "https://rainhadocredito.com",
+    );
+  });
+
+  it("rejects a partial config", () => {
+    expect(() => readPushConfig({ WEB_PUSH_VAPID_PUBLIC_KEY: push.WEB_PUSH_VAPID_PUBLIC_KEY })).toThrow(
+      "WEB_PUSH_VAPID_PRIVATE_KEY is required",
+    );
+  });
+
+  it.each([
+    [{ WEB_PUSH_VAPID_PUBLIC_KEY: "B".repeat(86) }, "WEB_PUSH_VAPID_PUBLIC_KEY must be 87 base64url characters"],
+    [{ WEB_PUSH_VAPID_PRIVATE_KEY: `${"k".repeat(42)}+` }, "WEB_PUSH_VAPID_PRIVATE_KEY must be 43 base64url characters"],
+    [{ WEB_PUSH_VAPID_SUBJECT: "http://x" }, "WEB_PUSH_VAPID_SUBJECT must start with mailto: or https://"],
+  ])("rejects an invalid value %j", (override, message) => {
+    expect(() => readPushConfig({ ...push, ...override })).toThrow(message);
   });
 });

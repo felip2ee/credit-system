@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { nonNegativeMoneyError, normalizeMoney } from "@/lib/catalog/money-input";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function ProductVersionForm({
   productId,
@@ -87,7 +88,7 @@ export function ProductVersionForm({
         </div>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {saved && <p className="text-sm text-emerald-600">Nova versão criada.</p>}
+      {saved && <StatusBanner tone="success" title="Nova versão criada." />}
       <Button type="submit" disabled={isPending}>
         {isPending ? "Salvando..." : "Criar nova versão"}
       </Button>

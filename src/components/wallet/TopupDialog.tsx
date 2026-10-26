@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { parseTopupInput } from "@/lib/wallet/topup-input";
 import type { PixChargeStatus } from "@/lib/wallet/pix-charges";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const POLL_MS = 5000;
 
@@ -99,19 +100,19 @@ export function TopupDialog({ charges }: TopupDialogProps) {
 
   return (
     <>
-      <Button ref={openerRef} onClick={() => setOpen(true)}>
+      <Button ref={openerRef} variant="onBrand" onClick={() => setOpen(true)}>
         Recarregar
       </Button>
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4"
           onKeyDown={(e) => e.key === "Escape" && !isPending && close()}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="topup-title"
-            className="w-full max-w-md space-y-4 rounded-lg bg-background p-6 shadow-lg"
+            className="w-full max-w-md space-y-4 rounded-modal bg-background p-6 shadow-lg"
           >
             <h2 id="topup-title" className="text-lg font-semibold">
               Recarregar carteira
@@ -165,9 +166,7 @@ export function TopupDialog({ charges }: TopupDialogProps) {
                         {copied ? "Copiado" : "Copiar código"}
                       </Button>
                       {error && (
-                        <p role="alert" className="text-sm text-destructive">
-                          {error}
-                        </p>
+                        <StatusBanner tone="danger" title={error} />
                       )}
                     </div>
                     <p role="status" className="text-sm text-muted-foreground">

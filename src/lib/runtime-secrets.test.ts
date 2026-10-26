@@ -74,6 +74,15 @@ describe("hydrateSecretEnv", () => {
     expect(env.NOTIFICATIONS_DISPATCH_SECRET).toBe("dispatch-secret");
   });
 
+  // Catches: the VAPID private key reaching config as a file path.
+  it("reads WEB_PUSH_VAPID_PRIVATE_KEY from its secret file", () => {
+    const env = { WEB_PUSH_VAPID_PRIVATE_KEY_FILE: secretFile("vapid-private") } as unknown as NodeJS.ProcessEnv;
+
+    hydrateSecretEnv(env);
+
+    expect(env.WEB_PUSH_VAPID_PRIVATE_KEY).toBe("vapid-private");
+  });
+
   // Catches: a missing Docker Secret allowing the service to start with an empty credential.
   it("fails closed when a configured secret file is empty", () => {
     expect(() => hydrateSecretEnv({ BETTER_AUTH_SECRET_FILE: secretFile("") } as unknown as NodeJS.ProcessEnv)).toThrow(

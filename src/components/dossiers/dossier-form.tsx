@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { countBillablePartners, orderTotalCents } from "@/components/orders/order-rules";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { formatCurrency } from "@/lib/utils";
@@ -36,7 +38,6 @@ interface DossierFormProps {
 
 const EMPRESARIAL_PRODUCT = "dossie_empresarial";
 const PF_PRODUCT = "dossie_pf";
-const SELECT_CLASS = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 export function DossierForm({ products }: DossierFormProps) {
   const router = useRouter();
@@ -110,9 +111,11 @@ export function DossierForm({ products }: DossierFormProps) {
 
   if (products.length === 0) {
     return (
-      <p role="alert" className="text-sm text-destructive">
-        Nenhum produto à venda no catálogo. Ative um produto em Configurações &gt; Catálogo.
-      </p>
+      <StatusBanner
+        tone="attention"
+        title="Nenhum produto à venda no catálogo."
+        description="Ative um produto em Configurações > Catálogo."
+      />
     );
   }
 
@@ -127,16 +130,25 @@ export function DossierForm({ products }: DossierFormProps) {
           <div className="space-y-3 rounded-md border p-4">
             <div className="space-y-1">
               <Label htmlFor="productCode">Produto</Label>
-              <select id="productCode" className={SELECT_CLASS} disabled={isPending} {...register("productCode")}>
-                {products.map((p) => (
-                  <option key={p.code} value={p.code}>
-                    {p.name} — {formatCurrency(Number(p.price))}
-                    {p.code === EMPRESARIAL_PRODUCT ? ` + ${formatCurrency(Number(p.pricePerPartner))} por sócio` : ""}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={productCode}
+                onValueChange={(value) => setValue("productCode", value as OrderFormValues["productCode"], { shouldValidate: true })}
+                disabled={isPending}
+              >
+                <SelectTrigger id="productCode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {products.map((p) => (
+                    <SelectItem key={p.code} value={p.code}>
+                      {p.name} — {formatCurrency(Number(p.price))}
+                      {p.code === EMPRESARIAL_PRODUCT ? ` + ${formatCurrency(Number(p.pricePerPartner))} por sócio` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {errors.productCode && (
-                <p className="text-xs text-destructive">{errors.productCode.message}</p>
+                <p className="text-sm text-destructive">{errors.productCode.message}</p>
               )}
             </div>
             <p className="text-sm" aria-live="polite">
@@ -168,10 +180,10 @@ export function DossierForm({ products }: DossierFormProps) {
                   )}
                 </div>
                 {errors.subject?.document && (
-                  <p className="text-xs text-destructive">{errors.subject.document.message}</p>
+                  <p className="text-sm text-destructive">{errors.subject.document.message}</p>
                 )}
                 {lookupMsg && (
-                  <p className="text-xs text-muted-foreground" aria-live="polite">
+                  <p className="text-sm text-muted-foreground" aria-live="polite">
                     {lookupMsg}
                   </p>
                 )}
@@ -184,7 +196,7 @@ export function DossierForm({ products }: DossierFormProps) {
                   disabled={isPending}
                   {...register("subject.name")}
                 />
-                {errors.subject?.name && <p className="text-xs text-destructive">{errors.subject.name.message}</p>}
+                {errors.subject?.name && <p className="text-sm text-destructive">{errors.subject.name.message}</p>}
               </div>
               <div className="space-y-1">
                 <Label htmlFor="contactEmail">E-mail do titular</Label>
@@ -196,7 +208,7 @@ export function DossierForm({ products }: DossierFormProps) {
                   disabled={isPending}
                   {...register("contactEmail")}
                 />
-                {errors.contactEmail && <p className="text-xs text-destructive">{errors.contactEmail.message}</p>}
+                {errors.contactEmail && <p className="text-sm text-destructive">{errors.contactEmail.message}</p>}
               </div>
               <div className="space-y-1">
                 <Label htmlFor="contactPhone">Celular do titular</Label>
@@ -208,10 +220,10 @@ export function DossierForm({ products }: DossierFormProps) {
                   disabled={isPending}
                   {...register("contactPhone")}
                 />
-                {errors.contactPhone && <p className="text-xs text-destructive">{errors.contactPhone.message}</p>}
+                {errors.contactPhone && <p className="text-sm text-destructive">{errors.contactPhone.message}</p>}
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               O titular recebe o pedido de autorização para consultar o SCR por e-mail e celular.
             </p>
           </div>
@@ -244,7 +256,7 @@ export function DossierForm({ products }: DossierFormProps) {
                       {...register(`partners.${i}.document`)}
                     />
                     {errors.partners?.[i]?.document && (
-                      <p className="text-xs text-destructive">{errors.partners[i]?.document?.message}</p>
+                      <p className="text-sm text-destructive">{errors.partners[i]?.document?.message}</p>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -256,7 +268,7 @@ export function DossierForm({ products }: DossierFormProps) {
                       {...register(`partners.${i}.name`)}
                     />
                     {errors.partners?.[i]?.name && (
-                      <p className="text-xs text-destructive">{errors.partners[i]?.name?.message}</p>
+                      <p className="text-sm text-destructive">{errors.partners[i]?.name?.message}</p>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -269,7 +281,7 @@ export function DossierForm({ products }: DossierFormProps) {
                       {...register(`partners.${i}.email`)}
                     />
                     {errors.partners?.[i]?.email && (
-                      <p className="text-xs text-destructive">{errors.partners[i]?.email?.message}</p>
+                      <p className="text-sm text-destructive">{errors.partners[i]?.email?.message}</p>
                     )}
                   </div>
                   <Button
@@ -285,8 +297,8 @@ export function DossierForm({ products }: DossierFormProps) {
                   </Button>
                 </div>
               ))}
-              {errors.partners?.message && <p className="text-xs text-destructive">{errors.partners.message}</p>}
-              <p className="text-xs text-muted-foreground">
+              {errors.partners?.message && <p className="text-sm text-destructive">{errors.partners.message}</p>}
+              <p className="text-sm text-muted-foreground">
                 Digite o CPF completo de cada sócio: o bureau mascara o CPF no quadro societário.
               </p>
             </div>

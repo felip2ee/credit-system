@@ -15,6 +15,8 @@ const publicPaths = [
   "/api/internal/orders/tick",
   "/api/health/live",
   "/api/health/ready",
+  "/manifest.webmanifest",
+  "/sw.js",
 ];
 
 const publicPrefixes = ["/b/", "/autorizacao-scr/", "/cadastro/"];
@@ -32,7 +34,10 @@ export function middleware(request: NextRequest) {
   ) {
     return NextResponse.next();
   }
-  if (!hasSessionCookie(request)) {
+  // Server Action sem sessão: não redireciona (o 307 vira POST em /login e o cliente recebe undefined).
+  // Toda action confere a própria sessão e devolve { error }.
+  const isServerAction = request.method === "POST" && request.headers.has("next-action");
+  if (!hasSessionCookie(request) && !isServerAction) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   return NextResponse.next();

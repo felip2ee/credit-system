@@ -7,7 +7,7 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
 import { maskRecipient, normalizeEmail, toE164 } from "./recipient";
 import { validateWhatsappParams } from "./render";
-import type { NotificationChannel, NotificationStatus } from "./types";
+import type { DeliveryChannel, NotificationChannel, NotificationStatus } from "./types";
 
 export type EnqueueInput = {
 	templateKey: string;
@@ -100,7 +100,7 @@ export type NotificationRow = {
 	templateId: string;
 	// Nulo para quem não lê notification_templates (só o superadmin fora de suporte lê).
 	templateKey: string | null;
-	channel: NotificationChannel;
+	channel: DeliveryChannel;
 	recipientMasked: string;
 	reference: string | null;
 	status: NotificationStatus;
@@ -118,7 +118,7 @@ export type NotificationRow = {
 
 export type ListNotificationsInput = {
 	status?: NotificationStatus;
-	channel?: NotificationChannel;
+	channel?: DeliveryChannel;
 	limit: number;
 	// Valor de nextCursor da página anterior.
 	cursor?: string | null;
@@ -162,7 +162,7 @@ export async function listNotifications(
 			bureau_id: string | null;
 			template_id: string;
 			template_key: string | null;
-			channel: NotificationChannel;
+			channel: DeliveryChannel;
 			recipient_masked: string;
 			reference: string | null;
 			status: NotificationStatus;
@@ -226,7 +226,7 @@ export async function listNotifications(
 
 export type TemplateRow = {
 	key: string;
-	channel: NotificationChannel;
+	channel: DeliveryChannel;
 	version: number;
 	status: "active" | "retired";
 	waTemplateName: string | null;
@@ -241,7 +241,7 @@ export async function listTemplates(
 	return withUserTransaction(identity, async (client) => {
 		const { rows } = await client.query<{
 			key: string;
-			channel: NotificationChannel;
+			channel: DeliveryChannel;
 			version: number;
 			status: "active" | "retired";
 			wa_template_name: string | null;

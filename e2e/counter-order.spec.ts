@@ -12,7 +12,9 @@ test("staff opens a counter Dossiê Empresarial with 2 partners, registers the p
   test.setTimeout(TICK_POLL_TIMEOUT_MS * 2);
   const stamp = Date.now();
   await page.goto("/dossiers/new");
-  await page.getByLabel("Produto").selectOption(E2E.product);
+  // Select do Radix: abre pelo rótulo e escolhe a opção pelo nome do produto.
+  await page.getByLabel("Produto").click();
+  await page.getByRole("option", { name: /Dossiê Empresarial/ }).click();
   await page.getByLabel("CNPJ").fill(validCnpj());
   await page.getByLabel("Razão social").fill("e2e Empresa Balcão");
   await page.getByLabel("E-mail do titular").fill(`e2e-holder-${stamp}@example.test`);

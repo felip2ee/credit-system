@@ -1,3 +1,4 @@
+import { PublicShell } from "@/components/portal/public-shell";
 import { LegalDocumentView } from "@/components/legal/legal-document";
 import { getCurrentLegalDocuments } from "@/lib/account/queries";
 
@@ -11,8 +12,8 @@ export async function generateMetadata() {
 export default async function LegalPage() {
   const { privacy } = await getCurrentLegalDocuments();
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10">
+    <PublicShell width="3xl">
       <LegalDocumentView document={privacy} />
-    </main>
+    </PublicShell>
   );
 }

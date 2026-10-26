@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { BureauSummary } from "@/lib/bureaus/queries";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function BureauEditForm({ bureau }: { bureau: BureauSummary }) {
   const router = useRouter();
@@ -57,7 +58,7 @@ export function BureauEditForm({ bureau }: { bureau: BureauSummary }) {
         <Input id="bureau-name" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {saved && <p className="text-sm text-emerald-600">Salvo.</p>}
+      {saved && <StatusBanner tone="success" title="Salvo." />}
       <Button type="submit" disabled={isPending}>
         {isPending ? "Salvando..." : "Salvar nome"}
       </Button>

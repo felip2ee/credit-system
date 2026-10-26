@@ -82,3 +82,19 @@ export function classifyGraphError(
 	if (status === 401 || status === 403) return { permanent: false, code: "config_error" };
 	return { permanent: true, code: "provider_rejected" };
 }
+
+// web-push lança WebPushError com statusCode quando o serviço de push responde. 404/410: o navegador cancelou a inscrição.
+// 401/403: a chave VAPID é nossa, então tenta de novo depois do ajuste. Redirecionamento (3xx) não é seguido: vira rejeição.
+export function classifyPushError(error: unknown): ErrorClassification {
+	const info = asRecord(error);
+	const statusCode = typeof info?.statusCode === "number" ? info.statusCode : null;
+	if (statusCode === null) {
+		const isTimeout = info?.name === "TimeoutError" || info?.name === "AbortError" || info?.code === "ETIMEDOUT";
+		return { permanent: false, code: isTimeout ? "provider_timeout" : "network_error" };
+	}
+	if (statusCode === 404 || statusCode === 410) return { permanent: true, code: "push_gone" };
+	if (statusCode === 429) return { permanent: false, code: "rate_limited" };
+	if (statusCode >= 500) return { permanent: false, code: "provider_unavailable" };
+	if (statusCode === 401 || statusCode === 403) return { permanent: false, code: "config_error" };
+	return { permanent: true, code: "provider_rejected" };
+}

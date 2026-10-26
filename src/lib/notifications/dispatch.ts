@@ -3,6 +3,7 @@
 import { getDispatchPool } from "@/lib/db/dispatch-pool";
 
 import { sendEmailNotification } from "./channels/email";
+import { sendPushNotification } from "./channels/push";
 import { sendWhatsappNotification } from "./channels/whatsapp";
 import type { ClaimedNotification, SendResult } from "./types";
 
@@ -30,9 +31,14 @@ type Outcome = "sent" | "retry" | "failed" | "suppressed";
 
 async function send(notification: ClaimedNotification): Promise<SendResult> {
 	try {
-		return notification.channel === "email"
-			? await sendEmailNotification(notification)
-			: await sendWhatsappNotification(notification);
+		switch (notification.channel) {
+			case "email":
+				return await sendEmailNotification(notification);
+			case "whatsapp":
+				return await sendWhatsappNotification(notification);
+			case "push":
+				return await sendPushNotification(notification);
+		}
 	} catch (error) {
 		// Só o nome da classe: a mensagem pode trazer destinatário, parâmetro ou token.
 		console.warn("[notifications] erro inesperado no envio", {

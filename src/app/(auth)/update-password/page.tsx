@@ -9,15 +9,10 @@ import type { z } from "zod";
 import { authClient } from "@/lib/auth/client";
 import { newPasswordSchema } from "@/lib/validators/password";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { AuthHeading } from "@/components/auth/auth-heading";
+import { PasswordInput } from "@/components/auth/password-input";
+import { Field } from "@/components/ui/field";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 type FormValues = z.infer<typeof newPasswordSchema>;
 
@@ -52,48 +47,21 @@ function UpdatePasswordForm() {
   };
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl">Definir nova senha</CardTitle>
-        <CardDescription>Escolha uma senha forte</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="password">Nova senha</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              {...register("password")}
-            />
-            {errors.password && (
-              <p className="text-sm text-destructive">
-                {errors.password.message}
-              </p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirm">Confirmar senha</Label>
-            <Input
-              id="confirm"
-              type="password"
-              autoComplete="new-password"
-              {...register("confirm")}
-            />
-            {errors.confirm && (
-              <p className="text-sm text-destructive">
-                {errors.confirm.message}
-              </p>
-            )}
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? "Salvando..." : "Salvar nova senha"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <section className="w-full max-w-md space-y-8">
+      <AuthHeading title="Definir nova senha" description="Escolha uma senha forte" />
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <Field id="password" label="Nova senha" error={errors.password?.message}>
+          {(a) => <PasswordInput withIcon {...a} {...register("password")} />}
+        </Field>
+        <Field id="confirm" label="Confirmar senha" error={errors.confirm?.message}>
+          {(a) => <PasswordInput withIcon {...a} {...register("confirm")} />}
+        </Field>
+        {error && <StatusBanner tone="attention" title={error} />}
+        <Button type="submit" size="lg" glow className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? "Salvando..." : "Salvar nova senha"}
+        </Button>
+      </form>
+    </section>
   );
 }
 

@@ -10,15 +10,10 @@ import { signOut } from "@/actions/auth";
 import { authClient } from "@/lib/auth/client";
 import { newPasswordSchema } from "@/lib/validators/password";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { AuthHeading } from "@/components/auth/auth-heading";
+import { PasswordInput } from "@/components/auth/password-input";
+import { Field } from "@/components/ui/field";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 const schema = newPasswordSchema.and(
   z.object({ currentPassword: z.string().min(1, "Informe a senha atual.") }),
@@ -64,62 +59,31 @@ export default function ChangePasswordPage() {
   };
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl">Defina uma nova senha</CardTitle>
-        <CardDescription>
-          Sua senha foi definida por um administrador. Crie uma senha pessoal para continuar.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="currentPassword">Senha atual</Label>
-            <Input
-              id="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              {...register("currentPassword")}
-            />
-            {errors.currentPassword && (
-              <p className="text-sm text-destructive">{errors.currentPassword.message}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Nova senha</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              {...register("password")}
-            />
-            {errors.password && (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirm">Confirmar nova senha</Label>
-            <Input
-              id="confirm"
-              type="password"
-              autoComplete="new-password"
-              {...register("confirm")}
-            />
-            {errors.confirm && (
-              <p className="text-sm text-destructive">{errors.confirm.message}</p>
-            )}
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? "Salvando..." : "Salvar nova senha"}
-          </Button>
-        </form>
-        <form action={signOut}>
-          <Button type="submit" variant="ghost" size="sm" className="w-full">
-            Sair
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <section className="w-full max-w-md space-y-8">
+      <AuthHeading
+        title="Defina uma nova senha"
+        description="Sua senha foi definida por um administrador. Crie uma senha pessoal para continuar."
+      />
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <Field id="currentPassword" label="Senha atual" error={errors.currentPassword?.message}>
+          {(a) => <PasswordInput withIcon autoComplete="current-password" {...a} {...register("currentPassword")} />}
+        </Field>
+        <Field id="password" label="Nova senha" error={errors.password?.message}>
+          {(a) => <PasswordInput withIcon {...a} {...register("password")} />}
+        </Field>
+        <Field id="confirm" label="Confirmar nova senha" error={errors.confirm?.message}>
+          {(a) => <PasswordInput withIcon {...a} {...register("confirm")} />}
+        </Field>
+        {error && <StatusBanner tone="attention" title={error} />}
+        <Button type="submit" size="lg" glow className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? "Salvando..." : "Salvar nova senha"}
+        </Button>
+      </form>
+      <form action={signOut}>
+        <Button type="submit" variant="outline" size="lg" className="w-full">
+          Sair
+        </Button>
+      </form>
+    </section>
   );
 }

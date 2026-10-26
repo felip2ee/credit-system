@@ -1,16 +1,8 @@
-import { Badge, type BadgeProps } from "@/components/ui/badge";
-import { QUERY_STATUS_LABEL, type QueryStatus } from "@/types/app";
-
-const VARIANT: Record<QueryStatus, BadgeProps["variant"]> = {
-  pending_authorization: "secondary",
-  authorized: "default",
-  processing: "secondary",
-  completed: "success",
-  payload_incompatible: "destructive",
-  error: "destructive",
-  rejected: "muted",
-};
+import { StatusBadge } from "@/components/ui/status-badge";
+import { statusInfo } from "@/lib/ui/status";
+import type { QueryStatus } from "@/types/app";
 
 export function QueryStatusBadge({ status }: { status: QueryStatus }) {
-  return <Badge variant={VARIANT[status]}>{QUERY_STATUS_LABEL[status]}</Badge>;
+  const { tone, label } = statusInfo("consultation", status, "staff");
+  return <StatusBadge tone={tone} label={label} />;
 }

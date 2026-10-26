@@ -5,6 +5,9 @@ import { Check, Copy } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { toast } from "@/components/ui/toaster";
 
 interface AffiliateLinkCardProps {
   link: string;
@@ -19,6 +22,7 @@ export function AffiliateLinkCard({ link }: AffiliateLinkCardProps) {
       await navigator.clipboard.writeText(link);
       setFailed(false);
       setCopied(true);
+      toast({ tone: "success", title: "Link copiado." });
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setFailed(true);
@@ -28,23 +32,23 @@ export function AffiliateLinkCard({ link }: AffiliateLinkCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Seu link de indicação</CardTitle>
+        <CardTitle className="text-xl">Seu link de indicação</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
         <div className="flex flex-col gap-2 sm:flex-row">
-          <input
+          <Input
             readOnly
             value={link}
             aria-label="Link de indicação"
             onFocus={(event) => event.currentTarget.select()}
-            className="h-10 min-w-0 flex-1 rounded-md border bg-muted px-3 text-sm"
+            className="min-w-0 flex-1 bg-muted"
           />
-          <Button type="button" onClick={copy} aria-label="Copiar link de indicação">
-            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          <Button type="button" size="lg" glow onClick={copy} aria-label="Copiar link de indicação">
+            {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
             {copied ? "Copiado" : "Copiar"}
           </Button>
         </div>
-        {failed && <p className="text-sm text-destructive">Não foi possível copiar. Selecione o link e copie.</p>}
+        {failed && <StatusBanner tone="attention" title="Não foi possível copiar." description="Selecione o link e copie." />}
       </CardContent>
     </Card>
   );

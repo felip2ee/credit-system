@@ -1,32 +1,18 @@
 import Link from "next/link";
 
-const ITEMS = [
-  { href: "/superadmin", label: "Bureaus" },
-  { href: "/superadmin/products", label: "Produtos" },
-  { href: "/superadmin/payouts", label: "Repasses" },
-  { href: "/superadmin/saques", label: "Saques" },
-  { href: "/superadmin/nfse", label: "NFS-e" },
-  { href: "/superadmin/notifications", label: "Notificações" },
-  { href: "/superadmin/settings/prompts", label: "Prompts da IA" },
-  { href: "/superadmin/settings/scr", label: "Termo SCR" },
-  { href: "/superadmin/settings/afiliados", label: "Afiliados" },
-];
+import { SidebarBrand } from "@/components/layout/brand-mark";
+import { SUPERADMIN_NAV_ITEMS } from "@/components/layout/nav-items";
 
 export function SuperadminNav() {
   return (
     <aside className="hidden w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex">
-      <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6 text-lg font-semibold">
-        <span className="h-2.5 w-2.5 rounded-full bg-sidebar-primary" />
-        <span>
-          Superadmin <span className="text-sidebar-primary">Reino</span>
-        </span>
-      </div>
+      <SidebarBrand label="Superadmin" />
       <nav className="flex-1 space-y-1 p-3">
-        {ITEMS.map((item) => (
+        {SUPERADMIN_NAV_ITEMS.map((item) => (
           <Link
             key={item.href}
             href={item.href}
-            className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-sidebar-border/40"
+            className="flex min-h-11 items-center rounded-full px-4 py-2 text-base font-bold hover:bg-sidebar-accent/60"
           >
             {item.label}
           </Link>

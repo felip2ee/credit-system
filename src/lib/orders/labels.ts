@@ -1,27 +1,23 @@
+import { statusInfo } from "@/lib/ui/status";
+
 import type { OrderMode, OrderState, OrderStateReason } from "./types";
 
-export const ORDER_STATE_LABEL: Record<OrderState, string> = {
-	awaiting_payment: "Aguardando pagamento",
-	awaiting_authorization: "Aguardando autorização do titular",
-	ready: "Na fila",
-	executing: "Em consulta",
-	completed: "Concluída",
-	released: "Liberada",
-	failed: "Não concluída",
-	cancelled: "Cancelada",
-};
+const ORDER_REASONS: OrderStateReason[] = [
+	"scr_refused",
+	"scr_expired",
+	"payment_timeout",
+	"cancelled_by_staff",
+	"cancelled_by_client",
+	"deps_no_data",
+	"deps_incompatible",
+	"deps_unavailable",
+	"reservation_clawed_back",
+];
 
-export const ORDER_REASON_LABEL: Record<OrderStateReason, string> = {
-	scr_refused: "Autorização recusada",
-	scr_expired: "Autorização expirada",
-	payment_timeout: "Pagamento não recebido no prazo",
-	cancelled_by_staff: "Cancelada pela equipe",
-	cancelled_by_client: "Cancelada pelo cliente",
-	deps_no_data: "Sem dados na consulta",
-	deps_incompatible: "Resposta incompatível",
-	deps_unavailable: "Serviço indisponível",
-	reservation_clawed_back: "Pagamento estornado",
-};
+// Rótulos vêm do vocabulário único (`@/lib/ui/status`). O motivo mostra a explicação, que diz o que houve.
+export const ORDER_REASON_LABEL = Object.fromEntries(
+	ORDER_REASONS.map((r) => [r, statusInfo("orderReason", r, "client").explanation]),
+) as Record<OrderStateReason, string>;
 
 const REFUNDED = "A reserva foi devolvida ao seu saldo.";
 

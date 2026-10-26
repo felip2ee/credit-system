@@ -1302,26 +1302,26 @@ describe("notification templates (022)", () => {
 	it("new templates are active", async () => {
 		const found = await rows<{ key: string; channel: string; version: number; status: string; params: string[]; wa_template_name: string | null; wa_language: string | null; email_subject: string | null }>(
 			`select key, channel, version, status, params, wa_template_name, wa_language, email_subject
-         from notification_templates where key in ('scr_authorization', 'research_released') order by key, channel`,
+         from notification_templates where key in ('scr_authorization', 'research_released') and channel <> 'push' and status = 'active' order by key, channel`,
 			[],
 		);
 		expect(found).toEqual([
-			{ key: "research_released", channel: "email", version: 1, status: "active", params: ["clientName", "url"], wa_template_name: null, wa_language: null, email_subject: "Sua pesquisa está disponível" },
+			{ key: "research_released", channel: "email", version: 2, status: "active", params: ["clientName", "url"], wa_template_name: null, wa_language: null, email_subject: "Sua pesquisa está disponível" },
 			{ key: "research_released", channel: "whatsapp", version: 1, status: "active", params: ["clientName", "url"], wa_template_name: "research_released", wa_language: "pt_BR", email_subject: null },
-			{ key: "scr_authorization", channel: "email", version: 1, status: "active", params: ["clientName", "authorizedName", "code", "url"], wa_template_name: null, wa_language: null, email_subject: "Autorização de consulta SCR — Rainha do Crédito" },
+			{ key: "scr_authorization", channel: "email", version: 2, status: "active", params: ["clientName", "authorizedName", "code", "url"], wa_template_name: null, wa_language: null, email_subject: "Autorização de consulta SCR — Rainha Cred" },
 			{ key: "scr_authorization", channel: "whatsapp", version: 1, status: "active", params: ["clientName", "authorizedName", "code", "url"], wa_template_name: "scr_authorization", wa_language: "pt_BR", email_subject: null },
 		]);
 	});
 
 	it("research_released e-mail has the placeholders and no stray marker", async () => {
 		const [tpl] = await rows<{ email_html: string; email_text: string }>(
-			"select email_html, email_text from notification_templates where key = 'research_released' and channel = 'email'",
+			"select email_html, email_text from notification_templates where key = 'research_released' and channel = 'email' and status = 'active'",
 			[],
 		);
 		for (const body of [tpl.email_html, tpl.email_text]) {
 			expect(body).toContain("{{clientName}}");
 			expect(body).toContain("{{url}}");
-			expect((body.match(/\{\{\w+\}\}/g) ?? []).every((m) => ["{{clientName}}", "{{url}}"].includes(m))).toBe(true);
+			expect((body.match(/\{\{\w+\}\}/g) ?? []).every((m) => ["{{clientName}}", "{{url}}", "{{siteUrl}}"].includes(m))).toBe(true);
 		}
 	});
 });

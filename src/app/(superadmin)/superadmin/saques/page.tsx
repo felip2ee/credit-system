@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { listWithdrawalQueue } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession } from "@/lib/auth/session";
@@ -32,6 +33,7 @@ export default async function WithdrawalQueuePage() {
       {queue.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum saque em aberto.</p>
       ) : (
+        <Card className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -54,7 +56,7 @@ export default async function WithdrawalQueuePage() {
                 <TableCell>{formatCurrency(Number(w.amount))}</TableCell>
                 <TableCell>{formatCurrency(Number(w.fee))}</TableCell>
                 <TableCell className="font-semibold">{formatCurrency(Number(w.net))}</TableCell>
-                <TableCell className="font-mono text-xs">{w.pixKeyMasked}</TableCell>
+                <TableCell className="font-mono text-sm">{w.pixKeyMasked}</TableCell>
                 <TableCell>
                   <Button asChild size="sm" variant="outline">
                     <Link href={`/superadmin/saques/${w.id}`} aria-label={`Abrir saque de ${w.holderName}`}>
@@ -66,6 +68,7 @@ export default async function WithdrawalQueuePage() {
             ))}
           </TableBody>
         </Table>
+        </Card>
       )}
     </div>
   );

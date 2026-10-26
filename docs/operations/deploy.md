@@ -39,7 +39,7 @@ python3 scripts/setup/setup_production.py
 
 O script pede os valores e as senhas (entrada oculta). Ele:
 
-- cria os 22 secrets do Docker (a lista está na seção `secrets` de `docker-stack.yml`);
+- cria os 23 secrets do Docker (a lista está na seção `secrets` de `docker-stack.yml`);
 - grava `.env.production` com as variáveis não secretas, inclusive `RESTIC_S3_ENDPOINT`, `RESTIC_S3_BUCKET` e `OPS_ALERT_TO`;
 - grava `credenciais-GUARDAR.txt` com as senhas geradas e as duas chaves S3.
 

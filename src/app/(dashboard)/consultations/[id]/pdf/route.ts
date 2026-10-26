@@ -3,7 +3,9 @@ import { hasPermission } from "@/lib/db/permissions";
 import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { getConsultation, getConsultationReport } from "@/lib/consultations/queries";
 import { toConsultationContent } from "@/lib/consultations/full-view";
-import { letterheadDataUri } from "@/lib/pdf/letterhead";
+import { config } from "@/lib/config";
+import { getOwnBureauName } from "@/lib/bureaus/queries";
+import { BRAND_NAME } from "@/lib/brand/brand";
 import { renderCompleteConsultationPdf } from "@/lib/pdf/complete-consultation-document";
 import type { FullPdfHeader, OpinionForPdf } from "@/lib/pdf/consultation-full-document";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
@@ -79,15 +81,16 @@ export async function GET(
     docLabel: query.type === "PJ" ? "CNPJ" : "CPF",
     produto: query.product ?? (query.type === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
     data: new Date(query.consulted_at ?? query.created_at).toLocaleString("pt-BR"),
-    consultante: "Reino do Crédito",
+    consultante: BRAND_NAME,
     usuario: session.userId,
     endereco: content.view?.subject.location ?? undefined,
   };
 
+  const frame = { bureauName: (await getOwnBureauName(session)) ?? BRAND_NAME, supportEmail: config.supportEmail, issuedAt: new Date() };
   const pdf = await renderCompleteConsultationPdf(
     content,
     header,
-    letterheadDataUri(),
+    frame,
     opinion
   );
 

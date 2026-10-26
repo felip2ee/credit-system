@@ -12,6 +12,7 @@ import {
 import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
 import { firstPasswordError } from "@/lib/validators/password";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 interface UserRowActionsProps {
   userId: string;
@@ -171,8 +172,8 @@ export function UserRowActions({
           </div>
         </form>
       )}
-      {message && <p className="text-xs text-emerald-600">{message}</p>}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {message && <StatusBanner tone="success" title={message} />}
+      {error && <p className="text-sm text-destructive">{error}</p>}
     </div>
   );
 }

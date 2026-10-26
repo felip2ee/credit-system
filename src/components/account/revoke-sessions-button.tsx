@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function RevokeSessionsButton() {
   const [pending, setPending] = useState(false);
@@ -28,14 +29,10 @@ export function RevokeSessionsButton() {
 
   return (
     <div className="space-y-2">
-      <Button type="button" variant="outline" onClick={revoke} disabled={pending}>
+      <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={revoke} disabled={pending}>
         {pending ? "Desconectando..." : "Sair dos outros dispositivos"}
       </Button>
-      {message && (
-        <p role="status" className={message.isError ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>
-          {message.text}
-        </p>
-      )}
+      {message && <StatusBanner tone={message.isError ? "attention" : "success"} title={message.text} />}
     </div>
   );
 }

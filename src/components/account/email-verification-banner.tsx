@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 
 import { resendEmailVerificationAction } from "@/actions/account";
 import { Button } from "@/components/ui/button";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function EmailVerificationBanner() {
   const [pending, startTransition] = useTransition();
@@ -18,16 +19,22 @@ export function EmailVerificationBanner() {
     });
 
   return (
-    <div role="status" className="border-b bg-amber-50 text-amber-950">
-      <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
-        <span>Confirme seu e-mail para comprar créditos. Enviamos um link para o seu e-mail.</span>
-        <span className="flex items-center gap-3">
-          {message && <span className={message.isError ? "text-destructive" : undefined}>{message.text}</span>}
-          <Button type="button" size="sm" variant="outline" onClick={resend} disabled={pending}>
+    <div className="mx-auto w-full max-w-3xl px-screen pt-4 md:max-w-5xl">
+      <StatusBanner
+        tone="waiting"
+        title="Confirme seu e-mail para comprar créditos."
+        description={
+          <>
+            <p>Enviamos um link para o seu e-mail.</p>
+            {message && <p className="font-bold">{message.text}</p>}
+          </>
+        }
+        action={
+          <Button type="button" variant="outline" onClick={resend} disabled={pending}>
             {pending ? "Enviando..." : "Reenviar e-mail"}
           </Button>
-        </span>
-      </div>
+        }
+      />
     </div>
   );
 }

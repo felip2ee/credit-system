@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { formatBRL } from "@/components/superadmin/money";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -34,6 +35,7 @@ export default async function ProductsPage() {
           </Button>
         )}
       </PageHeader>
+      <Card className="overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>
@@ -66,6 +68,7 @@ export default async function ProductsPage() {
           ))}
         </TableBody>
       </Table>
+      </Card>
     </div>
   );
 }

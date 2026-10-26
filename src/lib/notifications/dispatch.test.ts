@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ query: vi.fn(), sendEmail: vi.fn() }));
+const state = vi.hoisted(() => ({ query: vi.fn(), sendEmail: vi.fn(), sendPush: vi.fn() }));
 vi.mock("@/lib/db/dispatch-pool", () => ({ getDispatchPool: () => ({ query: state.query }) }));
 vi.mock("./channels/email", () => ({ sendEmailNotification: state.sendEmail }));
+vi.mock("./channels/push", () => ({ sendPushNotification: state.sendPush }));
 vi.mock("./channels/whatsapp", () => ({ sendWhatsappNotification: vi.fn() }));
 
 import { runDispatch } from "./dispatch";
@@ -72,5 +73,21 @@ describe("runDispatch unexpected errors", () => {
 		const logged = JSON.stringify(warn.mock.calls);
 		expect(logged).toContain("resultado não gravado");
 		expect(logged).not.toContain("envio falhou");
+	});
+
+	it("routes a push row to the push channel and stores its provider id", async () => {
+		state.query.mockReset();
+		state.query
+			.mockResolvedValueOnce({ rows: [{ ...claimed, channel: "push", recipient: "sub-1" }] })
+			.mockResolvedValueOnce({ rows: [{ result: "applied" }] })
+			.mockResolvedValueOnce({ rows: [] });
+		state.sendPush.mockResolvedValue({ ok: true, providerMessageId: "push:n-1" });
+
+		const result = await runDispatch({ budgetMs: 1_000 });
+
+		expect(result.sent).toBe(1);
+		expect(state.sendPush).toHaveBeenCalledTimes(1);
+		expect(state.sendEmail).not.toHaveBeenCalled();
+		expect(state.query.mock.calls[1][1]).toEqual(["n-1", "l-1", "sent", "push:n-1", null]);
 	});
 });

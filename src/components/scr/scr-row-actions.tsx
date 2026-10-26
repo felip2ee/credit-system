@@ -15,7 +15,7 @@ export function ScrRowActions({ id }: ScrRowActionsProps) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
 
-  // Autogestão Rainha do Crédito: envia o nosso próprio termo + código por
+  // Autogestão Rainha Cred: envia o nosso próprio termo + código por
   // e-mail. A gestão pela deps foi descontinuada (consultas usam autorizacaoScr).
   const selfSend = () => {
     setMsg(null);

@@ -1,7 +1,11 @@
 import { isIP } from "node:net";
 import path from "node:path";
 
+import { BRAND_NAME } from "@/lib/brand/brand";
+
 import { hydrateSecretEnv } from "./runtime-secrets.mjs";
+
+const DEFAULT_SUPPORT_EMAIL = "suporte@rainhacred.com.br";
 
 type Environment = Record<string, string | undefined>;
 
@@ -92,8 +96,9 @@ export function readConfig(env: Environment) {
     smtpSecure: smtpSecure === "true",
     smtpUser,
     smtpPass: required(env, "SMTP_PASS"),
-    smtpFrom: env.SMTP_FROM?.trim() || `Rainha do Crédito <${smtpUser}>`,
+    smtpFrom: env.SMTP_FROM?.trim() || `${BRAND_NAME} <${smtpUser}>`,
     traefikProxyCidr: traefikProxyCidr || undefined,
+    supportEmail: env.SUPPORT_EMAIL?.trim() || DEFAULT_SUPPORT_EMAIL,
   });
 }
 
@@ -254,6 +259,27 @@ export function readNotificationsDispatchSecret(env: Environment): string {
     throw new Error("NOTIFICATIONS_DISPATCH_SECRET must not be the .env.example placeholder");
   }
   return secret;
+}
+
+export interface PushConfig {
+  publicKey: string;
+  privateKey: string;
+  subject: string;
+}
+
+// Lida sob demanda (fora de readConfig): só o worker de envio e a tela de inscrição precisam das chaves VAPID.
+// Chave pública e contato vazios = push desligado: null. A chave privada vem de um Docker secret que o Swarm exige
+// preenchido, então com o push desligado ela carrega um marcador e é ignorada. Config pela metade ou inválida falha
+// em vez de enviar com chave errada.
+export function readPushConfig(env: Environment): PushConfig | null {
+  const names = ["WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_PRIVATE_KEY", "WEB_PUSH_VAPID_SUBJECT"] as const;
+  if (!env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim() && !env.WEB_PUSH_VAPID_SUBJECT?.trim()) return null;
+
+  const [publicKey, privateKey, subject] = names.map((name) => required(env, name));
+  if (!/^[A-Za-z0-9_-]{87}$/.test(publicKey)) throw new Error("WEB_PUSH_VAPID_PUBLIC_KEY must be 87 base64url characters");
+  if (!/^[A-Za-z0-9_-]{43}$/.test(privateKey)) throw new Error("WEB_PUSH_VAPID_PRIVATE_KEY must be 43 base64url characters");
+  if (!/^(mailto:|https:\/\/)\S+$/.test(subject)) throw new Error("WEB_PUSH_VAPID_SUBJECT must start with mailto: or https://");
+  return { publicKey, privateKey, subject };
 }
 
 export const config = readConfig(hydrateSecretEnv(process.env));

@@ -2,7 +2,7 @@
 
 ## Problema e objetivo
 
-O sistema nasceu como ferramenta interna do Reino do Crédito. Agora ele vira uma plataforma multi-tenant. Bureaus vendem diagnósticos de crédito a pessoas físicas (PF) e jurídicas (PJ). A plataforma detém o contrato com o fornecedor de dados (DEPS) e revende a consulta aos Bureaus.
+O sistema nasceu como ferramenta interna do Rainha Cred. Agora ele vira uma plataforma multi-tenant. Bureaus vendem diagnósticos de crédito a pessoas físicas (PF) e jurídicas (PJ). A plataforma detém o contrato com o fornecedor de dados (DEPS) e revende a consulta aos Bureaus.
 
 Fonte: [spec de produto](docs/superpowers/specs/2026-10-13-plataforma-bureau-produto-design.md). O roadmap tem os milestones M0 a M7.
 
@@ -24,7 +24,7 @@ Fonte: [spec de produto](docs/superpowers/specs/2026-10-13-plataforma-bureau-pro
 - **Autoatendimento:** o cliente escolhe o produto, informa o titular, reserva saldo, o titular autoriza o SCR, a consulta roda e o resultado é entregue.
 - **Terceiros:** o titular sempre autoriza o SCR antes da consulta.
 - **Assistido (balcão):** o operador cadastra o cliente, registra o pagamento, envia a autorização, executa a consulta e libera o resultado.
-- **Entrega:** relatório na tela, PDF, parecer IA (se comprado) e aviso por e-mail e WhatsApp.
+- **Entrega:** relatório na tela, PDF, parecer IA (incluso em todo pedido) e aviso por e-mail, WhatsApp e push no aparelho (portal do cliente, opcional).
 - **Cadastro do cliente** em `/b/<slug>`: confirmação de e-mail, validação de CPF/CNPJ, aceite de termos (LGPD) e confirmação do telefone por código no WhatsApp.
 
 ## MVP
@@ -61,10 +61,11 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - **Venda de balcão:** o cliente paga o Bureau. O custo da consulta sai do saldo pré-pago do Bureau, comprado via Asaas.
 - **Reserva, captura e estorno:** o valor é reservado ao pedir. É capturado quando a consulta DEPS retorna sucesso. É liberado se a consulta falha.
 - **Livro-razão:** todo movimento é um lançamento imutável. O saldo nunca é editável.
-- **Catálogo:** o superadmin cadastra dois produtos base: Dossiê Pessoa Física e Dossiê Empresarial Estruturado, mapeados aos produtos DEPS. Os dois nascem inativos. O superadmin define o custo e ativa. O Bureau escolhe o que vende e o preço.
+- **Catálogo:** o superadmin cadastra dois produtos base: Dossiê Pessoa Física e Dossiê Empresarial, mapeados aos produtos DEPS. Os dois nascem inativos. O superadmin define o custo e ativa. O Bureau escolhe o que vende e o preço.
 - **Preço:** total = valor base + valor por sócio × sócios distintos (por CPF, de 0 a 20). O valor por sócio só vale no Dossiê Empresarial. O preço de venda de cada campo não pode ficar abaixo do custo do mesmo campo.
 - **Parecer IA:** todo pedido inclui o parecer, gerado pela OpenAI. Não há adicional nem preço próprio. O custo fica no valor base.
 - **Portal:** a conta PF compra o Dossiê Pessoa Física só para si. A conta PJ informa CPF, nome e e-mail do responsável. O Dossiê Empresarial vale para qualquer CNPJ, com sócios. Pedido com membros exige a declaração do comprador. A página do pedido mostra o estado do aceite SCR de cada membro. O cliente cancela antes da execução e o valor volta ao saldo.
+- **Avisos no aparelho (portal):** em Conta › Notificações (`/portal/notificacoes`) o cliente liga os avisos push neste aparelho e vê como instalar o app. Sair remove o aparelho.
 - **Afiliados:** todo cliente tem um link de indicação (`/b/<slug>/cadastro?ref=<código>`). O vínculo nasce só no cadastro. A comissão é uma % da margem do Bureau (preço menos custo), definida pelo Bureau por afiliado ou como padrão. Ela nasce na captura de um pedido online. O indicado precisa ter o celular verificado. A comissão fica em carência (dias definidos pelo superadmin) e depois fica disponível. A afiliada converte o saldo em créditos ou pede saque por PIX com taxa. O superadmin paga fora do sistema e anexa o comprovante. O estorno do pedido reverte a comissão. Runbook: [docs/operations/affiliates.md](docs/operations/affiliates.md). Spec: [docs/superpowers/specs/2026-10-24-programa-de-afiliados-design.md](docs/superpowers/specs/2026-10-24-programa-de-afiliados-design.md).
 - **SCR:** consulta de terceiros exige autorização do próprio titular, com trilha auditável.
 - **Auditoria:** eventos append-only, na mesma transação da mutação. Nunca grave CPF/CNPJ completo.

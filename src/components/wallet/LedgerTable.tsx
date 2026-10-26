@@ -3,22 +3,21 @@
 import { useState, useTransition } from "react";
 
 import { loadMoreLedgerAction } from "@/actions/wallet-ledger";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { LedgerEntry } from "@/lib/wallet/queries";
-import { formatCurrency } from "@/lib/utils";
+import { ArrowDownLeft, ArrowUpRight, ReceiptText } from "lucide-react";
 
-const KIND_LABEL: Record<LedgerEntry["kind"], string> = {
-  topup: "Recarga",
-  reserve: "Reserva",
-  capture: "Cobrança",
-  release: "Liberação",
-  adjustment: "Ajuste",
-  reversal: "Estorno",
-};
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ListRow } from "@/components/ui/list-row";
+import { SectionHeader } from "@/components/ui/section-header";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { cn, formatCurrency } from "@/lib/utils";
+import { ledgerView, type LedgerTone } from "@/lib/wallet/ledger-view";
+import type { LedgerEntry } from "@/lib/wallet/queries";
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
+const ICON = { in: ArrowDownLeft, out: ArrowUpRight, neutral: ReceiptText } as const;
+const VALUE_CLASS: Record<LedgerTone, string> = { in: "text-success", out: "", neutral: "text-muted-foreground" };
 
 interface LedgerTableProps {
   bureauId: string;
@@ -47,50 +46,36 @@ export function LedgerTable({ bureauId, initialRows, initialCursor }: LedgerTabl
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Extrato</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhum lançamento ainda.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Data</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Valor</TableHead>
-                <TableHead>Disponível após</TableHead>
-                <TableHead>Reservado após</TableHead>
-                <TableHead>Motivo</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{dateFormat.format(new Date(row.createdAt))}</TableCell>
-                  <TableCell>{KIND_LABEL[row.kind]}</TableCell>
-                  <TableCell>{formatCurrency(Number(row.amount))}</TableCell>
-                  <TableCell>{formatCurrency(Number(row.availableAfter))}</TableCell>
-                  <TableCell>{formatCurrency(Number(row.reservedAfter))}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.reason ?? "—"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        {error && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {cursor && (
-          <Button variant="outline" className="mt-4" onClick={loadMore} disabled={isPending}>
-            {isPending ? "Carregando..." : "Carregar mais"}
-          </Button>
-        )}
-      </CardContent>
-    </Card>
+    <section className="space-y-3">
+      <SectionHeader title="Extrato" />
+      {rows.length === 0 ? (
+        <EmptyState icon={ReceiptText} title="Nenhum lançamento ainda." />
+      ) : (
+        <Card>
+          <ul className="divide-y divide-border">
+            {rows.map((row) => {
+              const v = ledgerView(row);
+              const date = dateFormat.format(new Date(row.createdAt));
+              return (
+                <li key={row.id}>
+                  <ListRow
+                    icon={ICON[v.tone]}
+                    title={v.title}
+                    subtitle={v.detail ? `${date} · ${v.detail}` : date}
+                    value={<span className={cn(VALUE_CLASS[v.tone])}>{[v.sign, formatCurrency(Math.abs(Number(row.amount)))].filter(Boolean).join(" ")}</span>}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+      {error && <StatusBanner tone="attention" title={error} />}
+      {cursor && (
+        <Button variant="outline" onClick={loadMore} disabled={isPending}>
+          {isPending ? "Carregando..." : "Carregar mais"}
+        </Button>
+      )}
+    </section>
   );
 }

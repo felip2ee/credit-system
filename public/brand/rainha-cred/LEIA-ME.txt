@@ -1,0 +1,24 @@
+RAINHA CRÉD — ARQUIVOS PARA SAAS
+
+Origem: página 13 do PDF fornecido. Extração direta dos elementos vetoriais.
+Cor original do arquivo: #009C97.
+
+Nenhum redesenho, troca de fonte, recoloração ou rearranjo dos elementos da logo.
+SVGs com os contornos originais das letras, sem depender de fontes instaladas.
+As variações de fundo apenas acrescentam uma superfície atrás da marca.
+O símbolo é o C coroado já presente na marca, extraído como componente separado.
+A composição completa continua exatamente como no PDF, sem criar versão horizontal.
+
+PASTAS
+logo-completa: composição integral, SVG + PNG + WebP; rasters com 2048 px de largura.
+simbolo-original: apenas o C coroado original; SVG + PNG + WebP.
+icones: símbolo em canvas quadrado, SVG, PNG 32/64/180/192/512 e favicon.ico.
+
+USO
+Logo completa: login, cabeçalho e materiais institucionais.
+Símbolo: sidebar recolhida e ícone do aplicativo.
+SVG transparente: opção principal para o site, com escala proporcional.
+PNG: compatibilidade geral. WebP lossless: uso web.
+Fundo escuro: mantém o verde original; verificar legibilidade no tamanho final.
+Não esticar. Usar width/height proporcionais e object-fit: contain.
+Não foram criadas versões branca/preta da marca para preservar sua cor original.

@@ -39,7 +39,7 @@ export function TestNotificationForm() {
           id="test-channel"
           value={channel}
           onChange={(e) => setChannel(e.target.value as "email" | "whatsapp")}
-          className="flex h-10 rounded-md border border-input bg-background px-3 text-sm"
+          className="flex h-11 rounded-md border border-input bg-background px-3 text-sm"
         >
           <option value="email">E-mail</option>
           <option value="whatsapp">WhatsApp</option>

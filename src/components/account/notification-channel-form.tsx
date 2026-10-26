@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { setNotificationChannelAction } from "@/actions/account";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export interface NotificationChannelFormProps {
   channel: "email" | "whatsapp";
@@ -30,30 +32,26 @@ export function NotificationChannelForm({ channel, phoneVerified }: Notification
   return (
     <div className="space-y-2">
       <Label htmlFor="channel">Canal de avisos</Label>
-      <div className="flex gap-2">
-        <select
-          id="channel"
-          value={value}
-          onChange={(e) => setValue(e.target.value === "whatsapp" ? "whatsapp" : "email")}
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          <option value="email">E-mail</option>
-          <option value="whatsapp" disabled={!phoneVerified}>
-            WhatsApp
-          </option>
-        </select>
-        <Button type="button" onClick={save} disabled={pending}>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Select value={value} onValueChange={(v) => setValue(v === "whatsapp" ? "whatsapp" : "email")}>
+          <SelectTrigger id="channel">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="email">E-mail</SelectItem>
+            <SelectItem value="whatsapp" disabled={!phoneVerified}>
+              WhatsApp
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <Button type="button" className="w-full sm:w-auto" onClick={save} disabled={pending}>
           {pending ? "Salvando..." : "Salvar"}
         </Button>
       </div>
       {!phoneVerified && (
-        <p className="text-sm text-muted-foreground">Confirme o telefone para usar o WhatsApp.</p>
+        <p className="text-base text-muted-foreground">Confirme o telefone para usar o WhatsApp.</p>
       )}
-      {message && (
-        <p role="status" className={message.isError ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>
-          {message.text}
-        </p>
-      )}
+      {message && <StatusBanner tone={message.isError ? "attention" : "success"} title={message.text} />}
     </div>
   );
 }

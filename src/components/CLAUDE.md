@@ -11,7 +11,7 @@ Belongs here: shadcn primitives in `ui/` (`button.tsx`, `badge.tsx`, `card.tsx`,
 - Forms: `"use client"` + `useForm` with `zodResolver(holderFormSchema)` in `holders/holder-form.tsx`. Submit runs `startTransition` over a Server Action, then `router.push` and `router.refresh()`.
 - Action result is `{ error, id? }`: `HolderForm` keeps `serverError` in state and renders it as `<p className="text-sm text-destructive">`.
 - Filters (`holders/holders-filters.tsx`) keep state in the URL with `useSearchParams` and `useRouter`.
-- Status badges (`consultations/query-status-badge.tsx`) are server components. They map a status to a `Badge` variant with `Record<QueryStatus, BadgeProps["variant"]>` and take labels from `QUERY_STATUS_LABEL` in `@/types/app`.
+- Status badges (`consultations/query-status-badge.tsx`) are server components. They render `StatusBadge` (`ui/status-badge.tsx`) with the tone and label from `statusInfo(domain, status, audience)` in `@/lib/ui/status`, the single status vocabulary. Alerts use `StatusBanner`; action notices use `toast` (`<Toaster />` is mounted in the dashboard and superadmin layouts).
 - `ui/` follows shadcn: `cva` variants, `React.forwardRef`, `cn()` from `@/lib/utils`, `asChild` via Radix `Slot` (`ui/button.tsx`). Config in `components.json` (style `default`, base color `slate`, lucide icons, `rsc: true`).
 - `providers/query-provider.tsx` is the only `QueryClient` (staleTime 60s, `retry: 1`); no component here calls `useQuery`.
 

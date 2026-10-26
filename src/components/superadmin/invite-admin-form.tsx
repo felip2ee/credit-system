@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { firstPasswordError } from "@/lib/validators/password";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function InviteAdminForm({ bureauId }: { bureauId: string }) {
   const [name, setName] = useState("");
@@ -62,7 +63,7 @@ export function InviteAdminForm({ bureauId }: { bureauId: string }) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Deixe em branco para enviar o convite por e-mail. Com senha, o administrador
           troca a senha no primeiro acesso.
         </p>
@@ -77,11 +78,9 @@ export function InviteAdminForm({ bureauId }: { bureauId: string }) {
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       {sent && (
-        <p className="text-sm text-emerald-600">
-          {sent === "password"
+        <StatusBanner tone="success" title={sent === "password"
             ? "Administrador criado. Informe a senha por um canal seguro. Ele troca a senha no primeiro acesso."
-            : "Convite enviado."}
-        </p>
+            : "Convite enviado."} />
       )}
       <Button type="submit" disabled={isPending}>
         {isPending ? "Enviando..." : "Enviar convite"}

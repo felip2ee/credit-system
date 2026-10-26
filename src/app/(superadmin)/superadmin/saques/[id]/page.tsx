@@ -3,9 +3,10 @@ import { notFound, redirect } from "next/navigation";
 
 import { WithdrawalActions } from "@/components/affiliates/withdrawal-actions";
 import { PageHeader } from "@/components/layout/page-header";
-import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { statusInfo } from "@/lib/ui/status";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getWithdrawalDetail, type PixKeyType, type WithdrawalStatus } from "@/lib/affiliates/withdrawals";
+import { getWithdrawalDetail, type PixKeyType } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
@@ -13,12 +14,6 @@ import { isUuid } from "@/lib/validators/id";
 
 export const metadata = { title: "Saque de afiliada" };
 
-const STATUS_LABEL: Record<WithdrawalStatus, string> = { open: "Aberto", paid: "Pago", cancelled: "Cancelado" };
-const STATUS_VARIANT: Record<WithdrawalStatus, BadgeProps["variant"]> = {
-  open: "secondary",
-  paid: "success",
-  cancelled: "muted",
-};
 const KEY_TYPE_LABEL: Record<PixKeyType, string> = {
   document: "CPF/CNPJ",
   email: "E-mail",
@@ -55,7 +50,7 @@ export default async function WithdrawalDetailPage({ params }: { params: { id: s
   return (
     <div className="space-y-6">
       <PageHeader title="Saque de afiliada" description={w.holderName}>
-        <Badge variant={STATUS_VARIANT[w.status]}>{STATUS_LABEL[w.status]}</Badge>
+        <StatusBadge tone={statusInfo("withdrawal", w.status, "staff").tone} label={statusInfo("withdrawal", w.status, "staff").label} />
         <Link href="/superadmin/saques" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
           Voltar à fila
         </Link>
@@ -86,7 +81,7 @@ export default async function WithdrawalDetailPage({ params }: { params: { id: s
               </div>
             ))}
           </dl>
-          <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p role="note" className="rounded-card border border-border bg-muted p-3 text-base">
             Confira no banco se o nome do favorecido é o mesmo da conta.
           </p>
         </CardContent>

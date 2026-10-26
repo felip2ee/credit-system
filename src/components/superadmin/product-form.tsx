@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { nonNegativeMoneyError, normalizeMoney } from "@/lib/catalog/money-input";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const PARTNER_CODE = "dossie_empresarial";
 
@@ -53,7 +55,7 @@ export function ProductForm() {
       <div className="space-y-2">
         <Label htmlFor="product-code">Código</Label>
         <Input id="product-code" value={code} onChange={(e) => setCode(e.target.value)} />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Letras minúsculas, números e _. Não muda depois de criado.
         </p>
       </div>
@@ -64,7 +66,7 @@ export function ProductForm() {
       <div className="space-y-2">
         <Label htmlFor="product-deps">Nome DEPS</Label>
         <Input id="product-deps" value={depsProduct} onChange={(e) => setDepsProduct(e.target.value)} />
-        <p className="text-xs text-muted-foreground">Deixe em branco se o produto não consulta o DEPS.</p>
+        <p className="text-sm text-muted-foreground">Deixe em branco se o produto não consulta o DEPS.</p>
       </div>
       <div className="space-y-2">
         <Label htmlFor="product-cost">{hasPartner ? "Custo padrão da empresa (R$)" : "Custo padrão (R$)"}</Label>
@@ -90,7 +92,7 @@ export function ProductForm() {
           {partnerCostError && <p className="text-sm text-destructive">{partnerCostError}</p>}
         </div>
       )}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <StatusBanner tone="danger" title={error} />}
       <Button type="submit" disabled={isPending} className="w-fit">
         {isPending ? "Criando..." : "Criar produto"}
       </Button>
@@ -131,12 +133,12 @@ export function ProductEditForm({
         <Label htmlFor="edit-name">Nome</Label>
         <Input id="edit-name" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+      <label className="flex items-center gap-3 text-base">
+        <Checkbox checked={active} onCheckedChange={(checked) => setActive(checked === true)} />
         Produto ativo
       </label>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      {saved && <p className="text-sm text-emerald-600">Salvo.</p>}
+      {error && <StatusBanner tone="danger" title={error} />}
+      {saved && <StatusBanner tone="success" title="Salvo." />}
       <Button type="submit" disabled={isPending}>
         {isPending ? "Salvando..." : "Salvar"}
       </Button>

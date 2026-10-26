@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { cancelMyOrderAction } from "@/actions/orders-client";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 interface CancelOrderButtonProps {
 	dossierId: string;
@@ -32,20 +33,16 @@ export function CancelOrderButton({ dossierId }: CancelOrderButtonProps) {
 
 	return (
 		<>
-			<Button type="button" variant="outline" onClick={() => setOpen(true)}>
+			<Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(true)}>
 				Cancelar pedido
 			</Button>
 			<Dialog open={open} onClose={() => setOpen(false)} title="Cancelar pedido" role="alertdialog" dismissible={!isPending}>
 				<div className="space-y-4">
-					<p className="text-sm text-muted-foreground">
+					<p className="text-base text-muted-foreground">
 						O pedido é cancelado e o valor reservado volta ao seu saldo. Esta ação não pode ser desfeita.
 					</p>
-					{error && (
-						<p role="alert" className="text-sm text-destructive">
-							{error}
-						</p>
-					)}
-					<div className="flex justify-end gap-2">
+					{error && <StatusBanner tone="attention" title="Não foi possível cancelar" description={error} />}
+					<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
 						<Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
 							Voltar
 						</Button>

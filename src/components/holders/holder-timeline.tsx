@@ -19,7 +19,7 @@ export function HolderTimeline({ events }: { events: TimelineEvent[] }) {
           <Circle className="absolute -left-[31px] top-1 h-3 w-3 fill-primary text-primary" />
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-sm font-medium">{event.title}</p>
-            <time className="shrink-0 text-xs text-muted-foreground">
+            <time className="shrink-0 text-sm text-muted-foreground">
               {formatDate(event.created_at)}
             </time>
           </div>

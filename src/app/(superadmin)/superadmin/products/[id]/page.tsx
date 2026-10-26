@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { formatBRL } from "@/components/superadmin/money";
 import { ProductEditForm } from "@/components/superadmin/product-form";
 import { ProductVersionForm } from "@/components/superadmin/product-version-form";
+import { Card } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -38,6 +39,7 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
       {canWrite && <ProductEditForm product={product} />}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Versões</h2>
+        <Card className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -62,6 +64,7 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
             ))}
           </TableBody>
         </Table>
+        </Card>
       </section>
       {canWrite && (
         <section className="space-y-3">

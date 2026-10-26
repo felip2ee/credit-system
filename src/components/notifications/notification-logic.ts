@@ -18,4 +18,4 @@ export function canRetryNotification(status: NotificationStatus, canWrite: boole
   return canWrite && status === "failed" && retryable;
 }
 
-export const CHANNEL_LABEL = { email: "E-mail", whatsapp: "WhatsApp" } as const;
+export const CHANNEL_LABEL = { email: "E-mail", whatsapp: "WhatsApp", push: "Push" } as const;

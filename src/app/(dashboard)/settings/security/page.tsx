@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export default function SecurityPage() {
   const [done, setDone] = useState(false);
@@ -33,9 +34,7 @@ export default function SecurityPage() {
         </CardHeader>
         <CardContent>
           {done ? (
-            <p className="text-sm text-emerald-700">
-              Autenticador confirmado com sucesso.
-            </p>
+            <StatusBanner tone="success" title="Autenticador confirmado com sucesso." />
           ) : (
             <MfaEnrollment onComplete={() => setDone(true)} />
           )}

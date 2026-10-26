@@ -98,7 +98,7 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
                     {p.voidedAt ? (
                       <span className="space-y-1">
                         <Badge variant="secondary">Anulado</Badge>
-                        {p.voidReason && <span className="block text-xs text-muted-foreground">{p.voidReason}</span>}
+                        {p.voidReason && <span className="block text-sm text-muted-foreground">{p.voidReason}</span>}
                       </span>
                     ) : (
                       <Badge variant="outline">Válido</Badge>

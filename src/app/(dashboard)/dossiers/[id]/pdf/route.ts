@@ -3,7 +3,9 @@ import { getDossierPdfDetail } from "@/lib/dossiers/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { toConsultationContent } from "@/lib/consultations/full-view";
-import { letterheadDataUri } from "@/lib/pdf/letterhead";
+import { config } from "@/lib/config";
+import { getOwnBureauName } from "@/lib/bureaus/queries";
+import { BRAND_NAME } from "@/lib/brand/brand";
 import {
   renderDossierPdf,
   type DossierEntry,
@@ -59,7 +61,7 @@ export async function GET(
       docLabel: m.type === "PJ" ? "CNPJ" : "CPF",
       produto: m.product ?? (m.type === "PJ" ? DEPS_PRODUCT_PJ : DEPS_PRODUCT_PF),
       data: new Date(m.consulted_at ?? m.created_at).toLocaleString("pt-BR"),
-      consultante: "Reino do Crédito",
+      consultante: BRAND_NAME,
       usuario: session.userId,
       endereco: content.view?.subject.location ?? undefined,
     };
@@ -84,6 +86,7 @@ export async function GET(
     };
   }
 
+  const frame = { bureauName: (await getOwnBureauName(session)) ?? BRAND_NAME, supportEmail: config.supportEmail, issuedAt: new Date() };
   const pdf = await renderDossierPdf(
     {
       title: dossier.holder_name,
@@ -91,7 +94,7 @@ export async function GET(
       entries,
       report: opinion,
     },
-    letterheadDataUri()
+    frame
   );
 
   const filename = `pesquisa-${dossier.holder_document}.pdf`;

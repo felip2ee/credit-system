@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/actions/catalog", () => ({ upsertCatalogItem: vi.fn() }));
 
-import { CatalogForm } from "@/components/settings/catalog-form";
+import { CatalogEditForm, CatalogForm } from "@/components/settings/catalog-form";
 import type { CatalogEntry } from "@/lib/catalog/queries";
 
 const entry: CatalogEntry = {
@@ -32,18 +32,22 @@ const empresarial: CatalogEntry = {
   onSale: true,
 };
 
-const render = (canWrite: boolean, entries: CatalogEntry[] = [entry]) =>
+const renderList = (canWrite: boolean, entries: CatalogEntry[] = [entry]) =>
   renderToStaticMarkup(createElement(CatalogForm, { entries, canWrite }));
+const render = (_canWrite: boolean, entries: CatalogEntry[] = [entry]) =>
+  renderToStaticMarkup(createElement(CatalogEditForm, { entry: entries[0], onDone: vi.fn() }));
 
 describe("CatalogForm", () => {
   it("shows warning when price is below cost", () => {
     expect(render(true)).toContain("Preço abaixo do custo");
   });
 
-  it("disables controls without catalog:write", () => {
-    const html = render(false);
-    expect(html).not.toContain("Salvar");
-    expect(html.match(/disabled=""/g)?.length).toBe(2); // price input + switch
+  it("list is read-only: shows prices, no inputs; Editar only with catalog:write", () => {
+    const html = renderList(true);
+    expect(html).toContain("Dossiê Pessoa Física");
+    expect(html).toContain("Editar");
+    expect(html).not.toContain("<input");
+    expect(renderList(false)).not.toContain("Editar");
   });
 
   it("does not warn when the cost is 0.00 (zero cost is valid)", () => {

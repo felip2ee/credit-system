@@ -1,6 +1,8 @@
 import "server-only";
 import nodemailer from "nodemailer";
 
+import { BRAND_NAME } from "@/lib/brand/brand";
+
 // Envio de e-mail via SMTP (Hostinger). Credenciais só no .env.local (server).
 // Nunca importar este módulo em código client-side.
 
@@ -26,7 +28,7 @@ function readConfig() {
   const secure = process.env.SMTP_SECURE
     ? process.env.SMTP_SECURE === "true"
     : port === 465;
-  const from = process.env.SMTP_FROM || `Rainha do Crédito <${user}>`;
+  const from = process.env.SMTP_FROM || `${BRAND_NAME} <${user}>`;
   return { host, port, secure, user, pass, from };
 }
 

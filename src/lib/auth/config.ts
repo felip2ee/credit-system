@@ -3,6 +3,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { twoFactor } from "better-auth/plugins";
 
+import { BRAND_NAME } from "@/lib/brand/brand";
 import { config } from "@/lib/config";
 import { pool } from "@/lib/db/pool";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/validators/password";
@@ -19,7 +20,7 @@ function changedPasswordUserId(returned: unknown): string | null {
 }
 
 export const authConfig = {
-  appName: "Rainha do Crédito",
+  appName: BRAND_NAME,
   baseURL: config.betterAuthUrl,
   secret: config.betterAuthSecret,
   database: pool,
@@ -124,7 +125,7 @@ export const authConfig = {
   },
   plugins: [
     twoFactor({
-      issuer: "Rainha do Crédito",
+      issuer: BRAND_NAME,
       twoFactorTable: "two_factor",
       schema: {
         user: {

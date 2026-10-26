@@ -2,11 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AffiliateLinkCard } from "@/components/affiliates/affiliate-link-card";
+import { HowItWorks } from "@/components/affiliates/how-it-works";
 import { CommissionTables } from "@/components/affiliates/commission-table";
 import { ConvertForm } from "@/components/affiliates/convert-form";
 import { PageHeader } from "@/components/layout/page-header";
+import { BalanceCard } from "@/components/ui/balance-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { affiliateLink } from "@/lib/affiliates/rates";
 import { getMyAffiliateSummary } from "@/lib/affiliates/queries";
 import { readWithdrawalFee } from "@/lib/affiliates/withdrawals";
@@ -31,7 +34,7 @@ export default async function AffiliatePage() {
     return (
       <div className="space-y-6">
         <PageHeader title="Afiliação" />
-        <p className="text-sm text-muted-foreground">Seu código de afiliado ainda não está disponível.</p>
+        <StatusBanner tone="neutral" title="Seu código de afiliado ainda não está disponível." description="Tente de novo mais tarde." />
       </div>
     );
   }
@@ -43,39 +46,32 @@ export default async function AffiliatePage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Afiliação" />
+      <HowItWorks fee={fee} />
       <AffiliateLinkCard link={affiliateLink(data.slug, code)} />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Comissão disponível</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatCurrency(Number(wallet.available))}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Em carência</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatCurrency(Number(wallet.pending))}</CardContent>
-        </Card>
-      </div>
+      <BalanceCard
+        label="Comissão disponível"
+        value={formatCurrency(Number(wallet.available))}
+        hideable
+        hint={<p>Em carência: <span className="font-bold tabular-nums">{formatCurrency(Number(wallet.pending))}</span></p>}
+      />
       {hasAvailable && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Usar a comissão</CardTitle>
+            <CardTitle className="text-xl">Usar a comissão</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <ConvertForm available={wallet.available} />
             {fee ? (
               <>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-muted-foreground">
                   Taxa de saque: {formatCurrency(Number(fee.fixed))} + {fee.percent}%
                 </p>
-                <Button asChild variant="outline">
+                <Button asChild variant="outline" size="lg" className="w-full sm:w-auto">
                   <Link href="/portal/afiliacao/saque">Sacar por PIX</Link>
                 </Button>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">Saque disponível em breve.</p>
+              <p className="text-muted-foreground">Saque disponível em breve.</p>
             )}
           </CardContent>
         </Card>

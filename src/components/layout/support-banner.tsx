@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 
 import { endSupportSession } from "@/actions/support";
 import { Button } from "@/components/ui/button";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export function SupportBanner({
   bureauName,
@@ -33,17 +34,21 @@ export function SupportBanner({
   }).format(new Date(expiresAt));
 
   return (
-    <div
-      role="status"
-      className="flex flex-wrap items-center justify-between gap-2 bg-amber-100 px-6 py-2 text-sm text-amber-900"
-    >
-      <span>
-        Modo suporte: <strong>{bureauName}</strong>. Expira às {time}.
-        {error && <span className="ml-2 text-destructive">{error}</span>}
-      </span>
-      <Button type="button" size="sm" variant="outline" onClick={onEnd} disabled={isPending}>
-        {isPending ? "Encerrando..." : "Encerrar suporte"}
-      </Button>
-    </div>
+    <StatusBanner
+      tone="attention"
+      className="rounded-none border-x-0 border-t-0"
+      title={`Modo suporte: ${bureauName}`}
+      description={
+        <>
+          Expira às {time}.
+          {error && <span className="ml-2 font-bold">{error}</span>}
+        </>
+      }
+      action={
+        <Button type="button" size="sm" variant="outline" onClick={onEnd} disabled={isPending}>
+          {isPending ? "Encerrando..." : "Encerrar suporte"}
+        </Button>
+      }
+    />
   );
 }

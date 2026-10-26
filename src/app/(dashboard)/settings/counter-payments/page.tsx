@@ -6,75 +6,48 @@ import { CounterPaymentList } from "@/components/counter-payments/CounterPayment
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { toCents } from "@/lib/catalog/money";
+import { CounterPaymentsOverview } from "@/components/counter-payments/CounterPaymentsOverview";
 import { listCounterPayments } from "@/lib/counter-payments/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
-import { getDossierDetail, listDossiers } from "@/lib/dossiers/queries";
-import { formatCurrency, formatDateSP } from "@/lib/utils";
+import { getDossierDetail } from "@/lib/dossiers/queries";
+import { formatCurrency } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
+import { StatusBanner } from "@/components/ui/status-banner";
 
 export const metadata = { title: "Pagamentos de balcão" };
-
-const MAX_DOSSIERS = 20;
 
 export default async function CounterPaymentsPage({
   searchParams,
 }: {
-  searchParams: { dossier?: string; q?: string };
+  searchParams: { dossier?: string; q?: string; filter?: string };
 }) {
   const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
   if (!hasPermission(session, "counter:read")) redirect("/");
   // Superadmin em suporte lê, mas não grava.
   const canWrite = hasPermission(session, "counter:write") && !session.supportSessionId;
 
+  // Lista sem dossiê: vive na Carteira. Com ?dossier= (mesmo inválido) segue aqui.
+  if (!searchParams.dossier) {
+    const params = new URLSearchParams({ aba: "balcao" });
+    if (searchParams.filter) params.set("filter", searchParams.filter);
+    if (searchParams.q) params.set("q", searchParams.q);
+    redirect(`/settings/wallet?${params}`);
+  }
+
   const dossierId = isUuid(searchParams.dossier) ? searchParams.dossier : null;
   const detail = dossierId ? await getDossierDetail(session, dossierId) : null;
 
   if (!dossierId || !detail) {
-    const dossiers = (await listDossiers(session, { q: searchParams.q })).slice(0, MAX_DOSSIERS);
     return (
       <div className="space-y-6">
-        <PageHeader title="Pagamentos de balcão" description="Escolha o Dossiê para ver ou registrar pagamentos" />
+        <PageHeader title="Pagamentos de balcão" description="Veja como cada pedido foi pago. Escolha um para ver ou registrar pagamentos" />
         {dossierId && !detail && (
-          <p role="alert" className="text-sm text-destructive">
-            Dossiê não encontrado.
-          </p>
+          <StatusBanner tone="danger" title="Dossiê não encontrado." />
         )}
-        <form action="/settings/counter-payments" className="flex max-w-md gap-2">
-          <Input
-            name="q"
-            aria-label="Buscar por nome, CPF ou CNPJ"
-            placeholder="Buscar por nome, CPF ou CNPJ..."
-            defaultValue={searchParams.q ?? ""}
-          />
-          <Button type="submit" variant="secondary">
-            Buscar
-          </Button>
-        </form>
-        <Card>
-          <CardContent className="p-0">
-            {dossiers.length === 0 ? (
-              <p className="p-6 text-center text-sm text-muted-foreground">Nenhuma pesquisa encontrada.</p>
-            ) : (
-              <ul className="divide-y">
-                {dossiers.map((d) => (
-                  <li key={d.id}>
-                    <Link
-                      href={`/settings/counter-payments?dossier=${d.id}`}
-                      className="flex items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-muted/50"
-                    >
-                      <span className="truncate font-medium">{d.holder_name}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">{formatDateSP(d.created_at)}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+        <CounterPaymentsOverview session={session} filterParam={searchParams.filter} qParam={searchParams.q} />
       </div>
     );
   }
@@ -95,7 +68,7 @@ export default async function CounterPaymentsPage({
     <div className="space-y-6">
       <PageHeader title="Pagamentos de balcão" description={detail.dossier.holder_name}>
         <Button asChild variant="outline">
-          <Link href="/settings/counter-payments">Outro Dossiê</Link>
+          <Link href="/settings/wallet?aba=balcao">Outro Dossiê</Link>
         </Button>
       </PageHeader>
       <Card>

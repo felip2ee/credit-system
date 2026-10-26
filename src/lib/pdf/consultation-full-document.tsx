@@ -3,14 +3,15 @@ import {
   Page,
   View,
   Text,
-  Image,
   Svg,
   Polygon,
   StyleSheet,
 } from "@react-pdf/renderer";
 
+import { BRAND_NAME } from "@/lib/brand/brand";
 import type { ConsultationView } from "@/lib/consultations/view-model";
 
+import { PDF_PAGE_PADDING_BOTTOM, PDF_PAGE_PADDING_TOP, PdfBrandFrame, type PdfFrame } from "./brand-frame";
 import { OpinionBlock } from "./markdown-pdf";
 import type { OpinionForPdf } from "./markdown-pdf";
 
@@ -31,7 +32,6 @@ export interface FullPdfHeader {
 // ── Constantes / estilo ──────────────────────────────────────────────────
 
 const A4_W = 595.28;
-const A4_H = 841.89;
 const PAD_X = 42;
 const CONTENT_W = A4_W - PAD_X * 2;
 const HEADER_W = 340;
@@ -57,41 +57,40 @@ const orDash = (v: string | number | null | undefined) =>
 
 const s = StyleSheet.create({
   page: {
-    fontFamily: "Helvetica",
-    fontSize: 7.5,
-    lineHeight: 1.35,
+    fontFamily: "Atkinson",
+    fontSize: 10,
+    lineHeight: 1.4,
     color: "#1f2937",
-    paddingTop: 140,
-    paddingBottom: 78,
+    paddingTop: PDF_PAGE_PADDING_TOP,
+    paddingBottom: PDF_PAGE_PADDING_BOTTOM,
     paddingHorizontal: PAD_X,
   },
-  bg: { position: "absolute", top: 0, left: 0, width: A4_W, height: A4_H },
   header: { maxWidth: HEADER_W },
-  title: { fontSize: 14, fontFamily: "Helvetica-Bold", color: darkGreen, lineHeight: 1.2 },
-  sub: { fontSize: 7, color: muted, marginTop: 2, lineHeight: 1.3 },
+  title: { fontSize: 14, fontFamily: "Atkinson", fontWeight: 700, color: darkGreen, lineHeight: 1.2 },
+  sub: { fontSize: 9, color: muted, marginTop: 2, lineHeight: 1.3 },
   section: { marginTop: 10 },
   h: {
     fontSize: 10.5,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Atkinson", fontWeight: 700,
     color: teal,
     marginBottom: 5,
     paddingBottom: 3,
     borderBottomWidth: 1,
     borderBottomColor: border,
   },
-  sh: { fontSize: 9, fontFamily: "Helvetica-Bold", color: gold, marginTop: 5, marginBottom: 3 },
-  ssh: { fontSize: 8.5, fontFamily: "Helvetica-Bold", color: slate, marginTop: 4, marginBottom: 2 },
+  sh: { fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: gold, marginTop: 5, marginBottom: 3 },
+  ssh: { fontSize: 9.5, fontFamily: "Atkinson", fontWeight: 700, color: slate, marginTop: 4, marginBottom: 2 },
   grid: { flexDirection: "row", flexWrap: "wrap" },
   gItem: { width: CONTENT_W / 2, marginBottom: 5 },
-  label: { fontSize: 6.5, color: muted },
-  val: { fontSize: 8, lineHeight: 1.3 },
+  label: { fontSize: 9, color: muted },
+  val: { fontSize: 10, lineHeight: 1.3 },
   tr: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: border, paddingVertical: 3 },
-  th: { fontSize: 7, fontFamily: "Helvetica-Bold", color: muted },
-  td: { fontSize: 7.5, lineHeight: 1.25 },
-  li: { fontSize: 8, marginBottom: 2, lineHeight: 1.3 },
+  th: { fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: muted },
+  td: { fontSize: 9.5, lineHeight: 1.25 },
+  li: { fontSize: 10, marginBottom: 2, lineHeight: 1.3 },
   card: { borderWidth: 1, borderColor: border, borderRadius: 4, padding: 6 },
-  cardLabel: { fontSize: 7, color: muted },
-  cardValue: { fontSize: 12, fontFamily: "Helvetica-Bold", marginTop: 2 },
+  cardLabel: { fontSize: 9, color: muted },
+  cardValue: { fontSize: 12, fontFamily: "Atkinson", fontWeight: 700, marginTop: 2 },
 });
 
 // ── Helpers visuais ─────────────────────────────────────────────────────
@@ -125,7 +124,7 @@ export function ScoreBar({ valor }: { valor: number }) {
             key={b.label}
             style={{
               width: ((b.to - b.from) / 700) * CONTENT_W,
-              fontSize: 6.5,
+              fontSize: 9,
               color: muted,
               textAlign: "center",
             }}
@@ -189,11 +188,6 @@ export function Table({ cols, widths, rows }: { cols: string[]; widths: number[]
   );
 }
 
-export function Bg({ letterhead }: { letterhead: string }) {
-  // eslint-disable-next-line jsx-a11y/alt-text
-  return <Image src={letterhead} style={s.bg} fixed />;
-}
-
 // Estilos compartilhados com o PDF do processamento de empresa.
 export const pdfStyles = s;
 
@@ -202,21 +196,21 @@ export const pdfStyles = s;
 export interface FullConsultationPageProps {
   view: ConsultationView;
   header: FullPdfHeader;
-  letterhead: string;
+  frame: PdfFrame;
   opinion?: OpinionForPdf | null;
 }
 
 export function FullConsultationPage({
   view,
   header,
-  letterhead,
+  frame,
   opinion,
 }: FullConsultationPageProps) {
   const { subject, score } = view;
 
   return (
     <Page size="A4" style={s.page}>
-      <Bg letterhead={letterhead} />
+      <PdfBrandFrame frame={frame} />
 
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
         <View style={s.header}>
@@ -231,18 +225,18 @@ export function FullConsultationPage({
         <Section title="Score">
           <View wrap={false}>
             <View style={{ flexDirection: "row", alignItems: "flex-end", height: 26 }}>
-              <Text style={{ fontSize: 22, fontFamily: "Helvetica-Bold", color: darkGreen, lineHeight: 1 }}>{score.value}</Text>
+              <Text style={{ fontSize: 22, fontFamily: "Atkinson", fontWeight: 700, color: darkGreen, lineHeight: 1 }}>{score.value}</Text>
               <Text style={{ fontSize: 10, marginLeft: 8, marginBottom: 2, color: muted }}>{orDash(score.riskBand)}</Text>
             </View>
-            <Text style={{ fontSize: 7.5, color: muted, marginTop: 4 }}>
+            <Text style={{ fontSize: 9.5, color: muted, marginTop: 4 }}>
               Faixa de risco de crédito — quanto maior o score, menor o risco de inadimplência.
             </Text>
             <ScoreBar valor={score.value} />
             {score.description ? (
-              <Text style={{ fontSize: 8, color: muted, marginTop: 6 }}>{score.description}</Text>
+              <Text style={{ fontSize: 9, color: muted, marginTop: 6 }}>{score.description}</Text>
             ) : null}
             {score.paymentProbability != null ? (
-              <Text style={{ fontSize: 8, color: muted, marginTop: 2 }}>
+              <Text style={{ fontSize: 9, color: muted, marginTop: 2 }}>
                 Probabilidade de pagamento: {score.paymentProbability}%
               </Text>
             ) : null}
@@ -435,8 +429,8 @@ export function FullConsultationPage({
         </Section>
       )}
 
-      <Text style={{ fontSize: 7, color: muted, marginTop: 20, textAlign: "right" }}>
-        Documento gerado automaticamente · Reino do Crédito
+      <Text style={{ fontSize: 9, color: muted, marginTop: 20, textAlign: "right" }}>
+        Documento gerado automaticamente · {BRAND_NAME}
       </Text>
     </Page>
   );

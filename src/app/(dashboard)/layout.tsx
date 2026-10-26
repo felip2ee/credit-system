@@ -1,9 +1,13 @@
 import { redirect } from "next/navigation";
 
+import { signOut } from "@/actions/auth";
 import { IdleTimeout } from "@/components/providers/idle-timeout";
+import { DASHBOARD_NAV_ITEMS } from "@/components/layout/nav-items";
+import { Toaster } from "@/components/ui/toaster";
 import { Sidebar } from "@/components/layout/sidebar";
 import { SupportBanner } from "@/components/layout/support-banner";
-import { Topbar } from "@/components/layout/topbar";
+import { MobileBrand } from "@/components/layout/brand-mark";
+import { MobileNav } from "@/components/layout/mobile-nav";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { permissionsFor } from "@/lib/db/permissions";
 import { getBureau } from "@/lib/bureaus/queries";
@@ -26,24 +30,29 @@ export default async function DashboardLayout({
     redirect("/superadmin");
   }
 
+  const permissions = permissionsFor(session);
   const email = await getTopbarEmail(session);
   const supportBureau = session.support
     ? await getBureau(session, session.support.bureauId)
     : null;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-surface">
       <IdleTimeout />
-      <Sidebar permissions={permissionsFor(session)} />
-      <div className="flex flex-1 flex-col">
+      <Sidebar permissions={permissions} name={session.name} email={email} />
+      <div className="flex min-w-0 flex-1 flex-col">
         {session.support && (
           <SupportBanner
             bureauName={supportBureau?.name ?? "Bureau"}
             expiresAt={session.support.expiresAt.toISOString()}
           />
         )}
-        <Topbar email={email} />
-        <main className="flex-1 p-6">{children}</main>
+        <header className="flex min-h-16 items-center justify-between gap-2 border-b border-border bg-background px-4 md:hidden">
+          <MobileBrand />
+          <MobileNav items={DASHBOARD_NAV_ITEMS} permissions={permissions} signOutAction={signOut} />
+        </header>
+        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <Toaster />
       </div>
     </div>
   );

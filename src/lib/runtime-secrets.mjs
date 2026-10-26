@@ -17,6 +17,7 @@ const secretNames = [
   "WHATSAPP_APP_SECRET",
   "WHATSAPP_VERIFY_TOKEN",
   "NOTIFICATIONS_DISPATCH_SECRET",
+  "WEB_PUSH_VAPID_PRIVATE_KEY",
 ];
 
 export function hydrateSecretEnv(env = process.env) {

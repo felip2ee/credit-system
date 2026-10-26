@@ -35,6 +35,7 @@ ENV_KEYS = [
     "OPENAI_MODEL", "BACKUP_ALERT_TO", "OPS_ALERT_TO",
     "RESTIC_S3_ENDPOINT", "RESTIC_S3_BUCKET",
     "WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION",
+    "WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_SUBJECT",
 ]
 
 SECRET_NAMES = [
@@ -44,7 +45,7 @@ SECRET_NAMES = [
     "better_auth_secret", "smtp_pass", "deps_api_password", "openai_api_key",
     "restic_password", "restic_s3_access_key", "restic_s3_secret_key", "superadmin_password",
     "whatsapp_access_token", "whatsapp_app_secret", "whatsapp_verify_token",
-    "notifications_dispatch_secret",
+    "notifications_dispatch_secret", "web_push_vapid_private_key",
 ]
 
 _DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
@@ -90,6 +91,18 @@ def valid_digest(v: str) -> bool:
     return v == "" or bool(_DIGEST.match(v))
 
 
+def valid_vapid_public(v: str) -> bool:
+    return v == "" or re.fullmatch(r"[A-Za-z0-9_-]{87}", v) is not None
+
+
+def valid_vapid_private(v: str) -> bool:
+    return v == "" or re.fullmatch(r"[A-Za-z0-9_-]{43}", v) is not None
+
+
+def valid_vapid_subject(v: str) -> bool:
+    return v == "" or re.fullmatch(r"(mailto:|https://)\S+", v) is not None
+
+
 def valid_superadmin_password(v: str) -> bool:
     return 12 <= len(v) <= 128
 
@@ -129,6 +142,8 @@ QUESTIONS: list[tuple[str, str, str, Callable[[str], bool]]] = [
     ("WHATSAPP_DRIVER", "Driver do WhatsApp (vazio = desligado; meta = Cloud API)", "", lambda v: v in ("", "meta")),
     ("WHATSAPP_PHONE_NUMBER_ID", "ID do número do WhatsApp (vazio = WhatsApp desligado)", "", _any),
     ("WHATSAPP_GRAPH_VERSION", "Versão da Graph API da Meta", "v21.0", _nonempty),
+    ("WEB_PUSH_VAPID_PUBLIC_KEY", "Chave pública VAPID do push (87 caracteres base64url; vazio = push desligado)", "", valid_vapid_public),
+    ("WEB_PUSH_VAPID_SUBJECT", "Contato VAPID (mailto: ou https://; vazio = push desligado)", "", valid_vapid_subject),
     ("REINO_IMAGE_OWNER", "Dono das imagens no GHCR", "felip2ee", _nonempty),
     ("REINO_IMAGE_DIGEST", "Digest sha256 da imagem do app (64 hex; vazio = preencher depois)", "", valid_digest),
     ("REINO_BACKUP_DIGEST", "Digest sha256 da imagem de backup (64 hex; vazio = preencher depois)", "", valid_digest),
@@ -144,10 +159,13 @@ SECRET_QUESTIONS: list[tuple[str, str, Callable[[str], bool], bool]] = [
     ("restic_s3_secret_key", "Chave secreta S3 do backup", _nonempty, False),
     ("whatsapp_access_token", "Token de sistema do WhatsApp (vazio = WhatsApp desligado)", _any, False),
     ("whatsapp_app_secret", "App secret da Meta (vazio = WhatsApp desligado)", _any, False),
+    ("web_push_vapid_private_key", "Chave privada VAPID do push (43 caracteres base64url; vazio = push desligado)", valid_vapid_private, False),
 ]
 
 # Docker secrets não aceitam valor vazio: WhatsApp desligado grava este marcador.
 WHATSAPP_OFF_PLACEHOLDER = "whatsapp-disabled"
+# Idem para o push: com chave pública e contato vazios o app ignora a chave privada (readPushConfig).
+PUSH_OFF_PLACEHOLDER = "push-disabled"
 
 
 def gen_hex(nbytes: int = 24) -> str:
@@ -183,6 +201,7 @@ def build_secrets(provided: dict[str, str]) -> dict[str, str]:
         "whatsapp_app_secret": provided.get("whatsapp_app_secret") or WHATSAPP_OFF_PLACEHOLDER,
         "whatsapp_verify_token": gen_hex(32),
         "notifications_dispatch_secret": gen_hex(32),
+        "web_push_vapid_private_key": provided.get("web_push_vapid_private_key") or PUSH_OFF_PLACEHOLDER,
     }
 
 

@@ -12,6 +12,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { WithdrawalStatus } from "@/lib/affiliates/withdrawals";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { Textarea } from "@/components/ui/textarea";
 
 const MAX_REASON_LENGTH = 500;
 
@@ -97,9 +99,7 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
               className="h-auto"
             />
             {payError && (
-              <p role="alert" className="text-sm text-destructive">
-                {payError}
-              </p>
+              <StatusBanner tone="danger" title={payError} />
             )}
             <Button type="submit" disabled={isPending}>
               Marcar como pago
@@ -116,19 +116,16 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
         <CardContent>
           <form onSubmit={reviewCancel} className="space-y-3" noValidate>
             <Label htmlFor="cancel-reason">Motivo do cancelamento</Label>
-            <textarea
+            <Textarea
               id="cancel-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               maxLength={MAX_REASON_LENGTH}
               rows={3}
               disabled={isPending}
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             {cancelError && (
-              <p role="alert" className="text-sm text-destructive">
-                {cancelError}
-              </p>
+              <StatusBanner tone="danger" title={cancelError} />
             )}
             <Button type="submit" variant="outline" disabled={isPending}>
               Cancelar saque

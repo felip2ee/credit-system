@@ -11,13 +11,14 @@ const schema = z.object({ cursor: z.string().regex(/^\d{1,18}$/) });
 
 const NOT_ALLOWED = "Você não tem permissão para ver o extrato.";
 
-// Só as colunas que a tela mostra: sem seq, referência nem autor.
+// Só as colunas que a tela usa: sem seq nem autor. A referência liga a recarga paga ao recibo.
 export type ClientLedgerRow = {
   id: string;
   kind: ClientLedgerEntry["kind"];
   amount: string;
   availableAfter: string;
   reservedAfter: string;
+  reference: string | null;
   reason: string | null;
   createdAt: Date;
 };
@@ -56,6 +57,7 @@ export async function loadMoreClientLedgerAction(values: unknown): Promise<Clien
           amount: r.amount,
           availableAfter: r.availableAfter,
           reservedAfter: r.reservedAfter,
+          reference: r.reference,
           reason: r.reason,
           createdAt: r.createdAt,
         })),

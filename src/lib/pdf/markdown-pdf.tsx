@@ -1,15 +1,17 @@
 import type { ReactNode } from "react";
 import { View, Text, StyleSheet } from "@react-pdf/renderer";
 
+import { BRAND_COLORS, STATE_COLORS } from "@/lib/brand/tokens";
+
 // Renderizador de parecer de IA compartilhado pelos dois PDFs (PF rico e PJ
 // simples). Inclui o conversor markdown→react-pdf (títulos, listas, **negrito**,
 // tabelas) e o bloco de decisão (selo APTO + perfil + limite).
 
-const teal = "#0F6E6E";
-const gold = "#9A6A00";
-const slate = "#475569";
-const muted = "#6b7280";
-const border = "#e5e7eb";
+const teal = BRAND_COLORS.primary;
+const gold = STATE_COLORS.waiting.fg;
+const slate = BRAND_COLORS.mutedForeground;
+const muted = BRAND_COLORS.mutedForeground;
+const border = BRAND_COLORS.controlBorder;
 const A4_W = 595.28;
 const PAD_X = 42;
 const CONTENT_W = A4_W - PAD_X * 2;
@@ -20,15 +22,15 @@ const brl = (n: number | null | undefined) =>
     : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
 
 const APTITUDE_META: Record<string, { label: string; color: string }> = {
-  apt: { label: "APTO", color: "#2F9E44" },
-  apt_with_caveats: { label: "APTO COM RESSALVAS", color: "#F08C00" },
-  inapt: { label: "INAPTO", color: "#C92A2A" },
+  apt: { label: "APTO", color: STATE_COLORS.success.border },
+  apt_with_caveats: { label: "APTO COM RESSALVAS", color: STATE_COLORS.attention.border },
+  inapt: { label: "INAPTO", color: STATE_COLORS.danger.border },
 };
 
 const m = StyleSheet.create({
   h: {
     fontSize: 10.5,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Atkinson", fontWeight: 700,
     color: teal,
     marginTop: 8,
     marginBottom: 5,
@@ -36,16 +38,16 @@ const m = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: border,
   },
-  sh: { fontSize: 9.5, fontFamily: "Helvetica-Bold", color: gold, marginTop: 6, marginBottom: 3 },
-  ssh: { fontSize: 8.5, fontFamily: "Helvetica-Bold", color: slate, marginTop: 4, marginBottom: 2 },
-  li: { fontSize: 8, marginBottom: 2, lineHeight: 1.3 },
-  p: { fontSize: 8, marginBottom: 3, lineHeight: 1.3 },
+  sh: { fontSize: 9.5, fontFamily: "Atkinson", fontWeight: 700, color: gold, marginTop: 6, marginBottom: 3 },
+  ssh: { fontSize: 9.5, fontFamily: "Atkinson", fontWeight: 700, color: slate, marginTop: 4, marginBottom: 2 },
+  li: { fontSize: 10, marginBottom: 2, lineHeight: 1.3 },
+  p: { fontSize: 10, marginBottom: 3, lineHeight: 1.3 },
   tr: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: border, paddingVertical: 3 },
-  th: { fontSize: 7, fontFamily: "Helvetica-Bold", color: muted },
-  td: { fontSize: 7.5, lineHeight: 1.25 },
+  th: { fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: muted },
+  td: { fontSize: 9.5, lineHeight: 1.25 },
   badge: {
     fontSize: 9,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Atkinson", fontWeight: 700,
     color: "#fff",
     paddingVertical: 3.5,
     paddingHorizontal: 8,
@@ -84,7 +86,7 @@ function mdInline(text: string, keyBase: string): ReactNode[] {
     .filter((p) => p !== "")
     .map((p, i) =>
       p.startsWith("**") && p.endsWith("**") ? (
-        <Text key={`${keyBase}-${i}`} style={{ fontFamily: "Helvetica-Bold" }}>
+        <Text key={`${keyBase}-${i}`} style={{ fontFamily: "Atkinson", fontWeight: 700 }}>
           {p.slice(2, -2)}
         </Text>
       ) : (
@@ -209,7 +211,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
         ) : null}
         {opinion.limiteSugerido != null ? (
           <Text style={{ fontSize: 9, marginLeft: 8 }}>
-            Limite sugerido <Text style={{ fontFamily: "Helvetica-Bold" }}>{brl(opinion.limiteSugerido)}</Text>
+            Limite sugerido <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{brl(opinion.limiteSugerido)}</Text>
           </Text>
         ) : null}
       </View>
@@ -223,10 +225,10 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
           {opinion.resumo ? <Text style={[m.li, { marginTop: 6 }]}>{opinion.resumo}</Text> : null}
           {opinion.pontosFortes.length > 0 && (
             <>
-              <Text style={[m.sh, { color: "#2F9E44" }]}>Pontos fortes</Text>
+              <Text style={[m.sh, { color: STATE_COLORS.success.fg }]}>Pontos fortes</Text>
               {opinion.pontosFortes.map((p, i) => (
                 <Text key={i} style={m.li}>
-                  <Text style={{ fontFamily: "Helvetica-Bold" }}>{p.title}</Text>
+                  <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{p.title}</Text>
                   {p.description ? ` — ${p.description}` : ""}
                 </Text>
               ))}
@@ -234,10 +236,10 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
           )}
           {opinion.pontosAtencao.length > 0 && (
             <>
-              <Text style={[m.sh, { color: "#C92A2A" }]}>Pontos de atenção</Text>
+              <Text style={[m.sh, { color: STATE_COLORS.danger.fg }]}>Pontos de atenção</Text>
               {opinion.pontosAtencao.map((p, i) => (
                 <Text key={i} style={m.li}>
-                  <Text style={{ fontFamily: "Helvetica-Bold" }}>{p.title}</Text>
+                  <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{p.title}</Text>
                   {p.severity ? ` (${p.severity})` : ""}
                   {p.description ? ` — ${p.description}` : ""}
                 </Text>
@@ -249,7 +251,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
               <Text style={m.sh}>Plano de ação</Text>
               {opinion.planoAcao.map((a, i) => (
                 <Text key={i} style={m.li}>
-                  {i + 1}. <Text style={{ fontFamily: "Helvetica-Bold" }}>{a.step}</Text>
+                  {i + 1}. <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{a.step}</Text>
                   {a.priority ? ` [${a.priority}]` : ""}
                   {a.description ? ` — ${a.description}` : ""}
                 </Text>
@@ -263,7 +265,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
       )}
 
       {opinion.modelo ? (
-        <Text style={{ fontSize: 7, color: muted, marginTop: 6 }}>
+        <Text style={{ fontSize: 9, color: muted, marginTop: 6 }}>
           Gerado por IA ({opinion.modelo}). Sujeito a validação humana.
         </Text>
       ) : null}

@@ -14,7 +14,7 @@ import { maskDocument } from "@/lib/mask-document";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { listDossiers, type DossierKindFilter } from "@/lib/dossiers/queries";
@@ -23,7 +23,6 @@ import { cn, formatDate } from "@/lib/utils";
 const TABS: { kind: DossierKindFilter | undefined; label: string }[] = [
   { kind: undefined, label: "Todos" },
   { kind: "PF", label: "PF" },
-  { kind: "PJ", label: "PJ" },
   { kind: "PJ_FULL", label: "PJ completo" },
 ];
 
@@ -63,7 +62,7 @@ export default async function DossiersPage({
       </PageHeader>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav aria-label="Tipo de pesquisa" className="flex gap-1 border-b">
+        <nav aria-label="Tipo de pesquisa" className="flex flex-wrap gap-2">
           {TABS.map((t) => {
             const active = t.kind === kind;
             return (
@@ -72,10 +71,10 @@ export default async function DossiersPage({
                 href={tabHref(t.kind, searchParams.q)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "border-b-2 px-4 py-2 text-sm font-medium",
+                  "inline-flex min-h-11 items-center rounded-full border px-4 text-base font-bold",
                   active
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-input bg-card text-foreground hover:bg-brand-soft"
                 )}
               >
                 {t.label}
@@ -83,9 +82,10 @@ export default async function DossiersPage({
             );
           })}
         </nav>
-        <form action="/dossiers" className="flex gap-2">
+        <form action="/dossiers" className="flex gap-2 sm:w-96">
           {kind && <input type="hidden" name="tipo" value={dossierFilterParam(kind)} />}
-          <Input
+          <SearchInput
+            className="flex-1"
             name="q"
             aria-label="Buscar por nome, CPF ou CNPJ"
             placeholder="Buscar por nome, CPF ou CNPJ..."
@@ -100,41 +100,45 @@ export default async function DossiersPage({
       <Card>
         <CardContent className="p-0">
           {dossiers.length === 0 ? (
-            <p className="p-6 text-center text-sm text-muted-foreground">Nenhuma pesquisa encontrada.</p>
+            <p className="p-6 text-center text-base text-muted-foreground">Nenhuma pesquisa encontrada.</p>
           ) : (
             <ul className="divide-y">
               {dossiers.map((d) => (
                 <li key={d.id}>
                   <details className="group">
-                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 hover:bg-muted/50">
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{d.holder_name}</p>
-                        <p className="text-xs text-muted-foreground">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 hover:bg-muted/50 sm:items-center">
+                      <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 sm:mt-0" />
+                      <div className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] sm:basis-0">
+                        <p className="truncate text-base font-bold">{d.holder_name}</p>
+                        <p className="text-sm text-muted-foreground">
                           {DOSSIER_KIND_LABEL[d.kind]} · {d.members.length}{" "}
                           {d.members.length === 1 ? "consulta" : "consultas"} · {formatDate(d.created_at)}
                         </p>
                       </div>
-                      {d.kind === "PJ_FULL" && d.report_status === "completed" && (
-                        <AptitudeBadge status={d.aptitude_status} />
-                      )}
-                      {d.order_state && <OrderStateBadge state={d.order_state} />}
-                      <DossierStatusBadge status={d.status} />
+                      <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0">
+                        {d.kind === "PJ_FULL" && d.report_status === "completed" && (
+                          <AptitudeBadge status={d.aptitude_status} />
+                        )}
+                        {d.order_state && <OrderStateBadge state={d.order_state} />}
+                        <DossierStatusBadge status={d.status} />
+                      </div>
                     </summary>
-                    <div className="space-y-2 border-t bg-muted/20 px-4 py-3 pl-11">
+                    <div className="space-y-2 border-t bg-muted/20 px-4 py-3 sm:pl-11">
                       <ul className="space-y-2">
                         {d.members.map((m) => (
-                          <li key={m.id} className="flex items-center gap-3 text-sm">
-                            <span className="w-24 shrink-0 text-xs text-muted-foreground">
+                          <li key={m.id} className="grid grid-cols-1 gap-1 text-sm sm:flex sm:items-center sm:gap-3">
+                            <span className="sm:w-24 sm:shrink-0 text-sm text-muted-foreground">
                               {m.type === "PJ" ? "Empresa" : d.kind === "PF" ? "Titular" : "Sócio"}
                             </span>
                             <Link href={`/consultations/${m.id}`} className="min-w-0 flex-1 truncate hover:underline">
                               {m.document_name ?? "—"}
                             </Link>
-                            <span className="font-mono text-xs text-muted-foreground">
+                            <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
                               {maskDocument(m.type, m.document)}
                             </span>
-                            <QueryStatusBadge status={m.status} />
+                            <span className="justify-self-start">
+                              <QueryStatusBadge status={m.status} />
+                            </span>
                           </li>
                         ))}
                       </ul>

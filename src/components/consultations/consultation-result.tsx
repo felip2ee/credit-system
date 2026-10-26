@@ -94,7 +94,7 @@ export function ConsultationUnavailable({
     <Card>
       <CardContent className="space-y-2 p-6">
         <p className="text-sm text-muted-foreground">{message}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Código da consulta: <span className="font-mono">{consultationId}</span>
         </p>
       </CardContent>
@@ -105,7 +105,7 @@ export function ConsultationUnavailable({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
       <p className="text-lg font-semibold">{value}</p>
     </div>
   );

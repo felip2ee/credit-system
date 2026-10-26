@@ -139,6 +139,14 @@ export async function getBureau(
 	});
 }
 
+// Nome do Bureau da sessão (RLS limita ao próprio Bureau); nulo se a sessão não tem Bureau.
+export async function getOwnBureauName(identity: DbIdentity): Promise<string | null> {
+	return withUserTransaction(identity, async (client) => {
+		const { rows } = await client.query<{ name: string }>("select name from bureaus where id = app_bureau_id()");
+		return rows[0]?.name ?? null;
+	});
+}
+
 // Só id e nome (RLS: o superadmin vê todos); para rotular listas sem pagar o custo das métricas.
 export async function listBureauNames(identity: DbIdentity): Promise<Map<string, string>> {
 	return withUserTransaction(identity, async (client) => {
