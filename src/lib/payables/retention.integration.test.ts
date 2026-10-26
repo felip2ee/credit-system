@@ -1,7 +1,8 @@
-// Migration 036: retenção do valor a receber (payable_retention_days, payable_buckets, create_payout).
-// O prazo é uma configuração global: cada teste que o muda devolve o padrão (30) no fim.
+// Migrations 036 e 037: retenção do valor a receber (payable_retention_days, payable_buckets, create_payout).
+// O prazo é uma configuração global compartilhada com outros arquivos de teste em paralelo: quem o muda faz isso
+// numa transação que volta atrás (withRetention). Nenhum commit altera a configuração.
 import { Pool, type PoolClient } from "pg";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
 import {
@@ -29,10 +30,11 @@ const ctxOf = (id: Ctx): Ctx => ({
 	bureauId: id.bureauId,
 });
 
-// Faz commit: as chamadas concorrentes e a mudança do prazo precisam de transações reais.
+// Faz commit (ou rollback, com `rollback: true`): as chamadas concorrentes precisam de transações reais.
 async function committed<T>(
 	ctx: Ctx,
 	work: (client: PoolClient) => Promise<T>,
+	{ rollback = false }: { rollback?: boolean } = {},
 ): Promise<T> {
 	const client = await app.connect();
 	try {
@@ -45,7 +47,7 @@ async function committed<T>(
 			[ctx.userId, ctx.role, ctx.bureauId ?? ""],
 		);
 		const result = await work(client);
-		await client.query("commit");
+		await client.query(rollback ? "rollback" : "commit");
 		return result;
 	} catch (error) {
 		await client.query("rollback");
@@ -58,21 +60,23 @@ async function committed<T>(
 const asSuperadmin = <T>(work: (c: PoolClient) => Promise<T>) =>
 	committed(superadminCtx(), work);
 
-// Só o superadmin escreve em settings (política settings_superadmin_write).
-const setRetention = (value: string) =>
-	asSuperadmin((c) =>
-		c.query(
-			"update settings set value = $1::jsonb where key = 'payable_retention_days'",
-			[value],
-		),
+// Só o superadmin escreve em settings (política settings_superadmin_write). As funções SQL leem o prazo na mesma
+// transação, então `work` enxerga o novo valor; o rollback no fim deixa a configuração global intacta.
+const withRetention = <T>(value: string, work: (c: PoolClient) => Promise<T>) =>
+	committed(
+		superadminCtx(),
+		async (c) => {
+			await c.query(
+				"update settings set value = $1::jsonb where key = 'payable_retention_days'",
+				[value],
+			);
+			return work(c);
+		},
+		{ rollback: true },
 	);
 
 beforeAll(async () => {
 	superadmin = await seedSuperadmin(owner);
-});
-
-afterEach(async () => {
-	await setRetention("30");
 });
 
 afterAll(async () => {
@@ -91,6 +95,8 @@ type CreateRow = {
 type BucketRow = {
 	released: string;
 	retained: string;
+	debt: string;
+	in_payout: string;
 	next_release_at: Date | null;
 };
 
@@ -107,7 +113,7 @@ const BOUNDARY = "now() - make_interval(days => payable_retention_days())";
 const buckets = (c: PoolClient, bureauId: string) =>
 	c
 		.query<BucketRow>(
-			"select released::text, retained::text, next_release_at from payable_buckets($1)",
+			"select released::text, retained::text, debt::text, in_payout::text, next_release_at from payable_buckets($1)",
 			[bureauId],
 		)
 		.then((r) => r.rows);
@@ -139,15 +145,10 @@ const payoutCount = async (bureauId: string) =>
 
 describe("payable_retention_days", () => {
 	it("defaults to 30 and follows the setting", async () => {
-		const read = () =>
-			asSuperadmin((c) =>
-				c
-					.query<{ d: number }>("select payable_retention_days() as d")
-					.then((r) => r.rows[0].d),
-			);
-		expect(await read()).toBe(30);
-		await setRetention("7");
-		expect(await read()).toBe(7);
+		const read = (c: PoolClient) =>
+			c.query<{ d: number }>("select payable_retention_days() as d").then((r) => r.rows[0].d);
+		expect(await asSuperadmin(read)).toBe(30);
+		expect(await withRetention("7", read)).toBe(7);
 	});
 
 	it("falls back to 30 when the setting row is missing", async () => {
@@ -167,7 +168,9 @@ describe("payable_retention_days", () => {
 	it.each(["-1", "1.5", '"30"', "3651", "null"])(
 		"refuses the invalid value %s in the setting",
 		async (value) => {
-			await expect(setRetention(value)).rejects.toThrow(/settings_payable_retention_days_check/);
+			await expect(withRetention(value, async () => undefined)).rejects.toThrow(
+				/settings_payable_retention_days_check/,
+			);
 		},
 	);
 });
@@ -208,8 +211,7 @@ describe("create_payout retention", () => {
 	it("releases everything at once when the retention is 0", async () => {
 		const t = await newTenant();
 		await seed(t.bureau.id, "accrual", "80.00", 0);
-		await setRetention("0");
-		const res = await asSuperadmin((c) => createPayoutAt(c, t.bureau.id, "now()"));
+		const res = await withRetention("0", (c) => createPayoutAt(c, t.bureau.id, "now()"));
 		expect(res).toMatchObject({ ok: true, amount: "80.00" });
 	});
 
@@ -232,6 +234,49 @@ describe("create_payout retention", () => {
 	});
 });
 
+describe("reversals count immediately", () => {
+	it("pays nothing when a fresh reversal cancels an old accrual of the same value", async () => {
+		const t = await newTenant();
+		await seed(t.bureau.id, "accrual", "100.00", 40);
+		await seed(t.bureau.id, "reversal", "100.00", 2);
+		const [row] = await asSuperadmin((c) => buckets(c, t.bureau.id));
+		expect(row).toMatchObject({ released: "0.00", debt: "0.00", retained: "0.00", in_payout: "0.00" });
+		const res = await asSuperadmin((c) => createPayoutAt(c, t.bureau.id, BOUNDARY));
+		expect(res).toMatchObject({ ok: false, reason: "nothing_to_pay" });
+		expect(await payoutCount(t.bureau.id)).toBe(0);
+	});
+
+	it("pays the net when the fresh reversal is smaller than the old accrual", async () => {
+		const t = await newTenant();
+		await seed(t.bureau.id, "accrual", "100.00", 40);
+		await seed(t.bureau.id, "reversal", "30.00", 2);
+		const [row] = await asSuperadmin((c) => buckets(c, t.bureau.id));
+		expect(row).toMatchObject({ released: "70.00", debt: "0.00", retained: "0.00" });
+		const res = await asSuperadmin((c) => createPayoutAt(c, t.bureau.id, BOUNDARY));
+		expect(res).toMatchObject({ ok: true, amount: "70.00" });
+	});
+
+	it("pays nothing at day 31 when the accrual (25 days) is still retained and a reversal (10 days) exists", async () => {
+		const t = await newTenant();
+		await seed(t.bureau.id, "accrual", "50.00", 25);
+		await seed(t.bureau.id, "reversal", "20.00", 10);
+		const [row] = await asSuperadmin((c) => buckets(c, t.bureau.id));
+		expect(row).toMatchObject({ released: "0.00", debt: "20.00", retained: "50.00" });
+		const res = await asSuperadmin((c) => createPayoutAt(c, t.bureau.id, `now() - interval '31 days'`));
+		expect(res).toMatchObject({ ok: false, reason: "nothing_to_pay" });
+	});
+
+	it("takes a reversal created after the cutoff in the payout", async () => {
+		const t = await newTenant();
+		await seed(t.bureau.id, "accrual", "100.00", 40);
+		await seed(t.bureau.id, "reversal", "10.00", 1);
+		const res = await asSuperadmin((c) => createPayoutAt(c, t.bureau.id, `now() - interval '35 days'`));
+		expect(res).toMatchObject({ ok: true, amount: "90.00" });
+		const [row] = await asSuperadmin((c) => buckets(c, t.bureau.id));
+		expect(row).toMatchObject({ released: "0.00", debt: "0.00", in_payout: "90.00" });
+	});
+});
+
 describe("payable_buckets", () => {
 	it("splits released and retained and finds the next release", async () => {
 		const t = await newTenant();
@@ -241,29 +286,38 @@ describe("payable_buckets", () => {
 		await seed(t.bureau.id, "accrual", "20.00", 10);
 		const rows = await asSuperadmin((c) => buckets(c, t.bureau.id));
 		expect(rows).toHaveLength(1);
-		expect(rows[0].released).toBe("70.00");
-		expect(rows[0].retained).toBe("70.00");
-		// Liberação mais próxima: o lançamento retido mais antigo (10 dias) + 30 dias.
+		expect(rows[0]).toMatchObject({ released: "70.00", retained: "70.00", debt: "0.00", in_payout: "0.00" });
+		// Liberação mais próxima: o acréscimo retido mais antigo (10 dias) + 30 dias.
 		const expected = Date.now() + 20 * DAY_MS;
 		expect(Math.abs(rows[0].next_release_at!.getTime() - expected)).toBeLessThan(60_000);
 	});
 
-	it("never returns a negative amount", async () => {
+	it("never returns a negative amount: a net-negative released shows 0 and becomes debt", async () => {
 		const t = await newTenant();
 		await seed(t.bureau.id, "accrual", "10.00", 5);
 		await seed(t.bureau.id, "reversal", "25.00", 40);
 		await seed(t.bureau.id, "reversal", "4.00", 2);
 		const [row] = await asSuperadmin((c) => buckets(c, t.bureau.id));
-		expect(row.released).toBe("0.00");
-		expect(row.retained).toBe("6.00");
-		const [onlyReversal] = await (async () => {
-			const u = await newTenant();
-			await seed(u.bureau.id, "accrual", "5.00", 50);
-			await seed(u.bureau.id, "reversal", "9.00", 3);
-			return asSuperadmin((c) => buckets(c, u.bureau.id));
-		})();
-		expect(onlyReversal.retained).toBe("0.00");
-		expect(onlyReversal.released).toBe("5.00");
+		expect(row).toMatchObject({ released: "0.00", debt: "29.00", retained: "10.00" });
+		const u = await newTenant();
+		await seed(u.bureau.id, "accrual", "5.00", 50);
+		await seed(u.bureau.id, "reversal", "9.00", 3);
+		const [onlyReversal] = await asSuperadmin((c) => buckets(c, u.bureau.id));
+		// Estorno nunca entra em retained; o líquido liberado (5 - 9) é dívida de 4.
+		expect(onlyReversal).toMatchObject({ released: "0.00", debt: "4.00", retained: "0.00" });
+	});
+
+	it("shows the amount in an open payout as in_payout, and gives it back when the payout is cancelled", async () => {
+		const t = await newTenant();
+		await seed(t.bureau.id, "accrual", "100.00", 40);
+		await seed(t.bureau.id, "accrual", "25.00", 5);
+		const made = await asSuperadmin((c) => createPayoutAt(c, t.bureau.id, BOUNDARY));
+		expect(made).toMatchObject({ ok: true, amount: "100.00" });
+		const [open] = await asSuperadmin((c) => buckets(c, t.bureau.id));
+		expect(open).toMatchObject({ released: "0.00", retained: "25.00", debt: "0.00", in_payout: "100.00" });
+		await asSuperadmin((c) => c.query("select * from cancel_payout($1)", [made.payout_id]));
+		const [cancelled] = await asSuperadmin((c) => buckets(c, t.bureau.id));
+		expect(cancelled).toMatchObject({ released: "100.00", retained: "25.00", in_payout: "0.00" });
 	});
 
 	it("ignores entries that a payout already took", async () => {
@@ -272,23 +326,23 @@ describe("payable_buckets", () => {
 		await asSuperadmin((c) => createPayoutAt(c, t.bureau.id, BOUNDARY));
 		await seed(t.bureau.id, "accrual", "15.00", 35);
 		const [row] = await asSuperadmin((c) => buckets(c, t.bureau.id));
-		expect(row).toMatchObject({ released: "15.00", retained: "0.00", next_release_at: null });
+		expect(row).toMatchObject({ released: "15.00", retained: "0.00", in_payout: "90.00", next_release_at: null });
 	});
 
 	it("returns zeros and no date for a Bureau without entries", async () => {
 		const t = await newTenant();
 		const rows = await asSuperadmin((c) => buckets(c, t.bureau.id));
-		expect(rows).toEqual([{ released: "0.00", retained: "0.00", next_release_at: null }]);
+		expect(rows).toEqual([
+			{ released: "0.00", retained: "0.00", debt: "0.00", in_payout: "0.00", next_release_at: null },
+		]);
 	});
 
 	it("follows the retention setting", async () => {
 		const t = await newTenant();
 		await seed(t.bureau.id, "accrual", "10.00", 10);
-		await setRetention("5");
-		const [short] = await asSuperadmin((c) => buckets(c, t.bureau.id));
+		const [short] = await withRetention("5", (c) => buckets(c, t.bureau.id));
 		expect(short).toMatchObject({ released: "10.00", retained: "0.00" });
-		await setRetention("20");
-		const [long] = await asSuperadmin((c) => buckets(c, t.bureau.id));
+		const [long] = await withRetention("20", (c) => buckets(c, t.bureau.id));
 		expect(long).toMatchObject({ released: "0.00", retained: "10.00" });
 	});
 
