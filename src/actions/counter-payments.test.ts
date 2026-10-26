@@ -134,6 +134,14 @@ describe("registerCounterPaymentAction validation", () => {
 		expect(revalidatePath).not.toHaveBeenCalled();
 	});
 
+	it("refuses an online order with a clear message and revalidates nothing", async () => {
+		state.registerCounterPayment.mockResolvedValue({ ok: false, reason: "online_order" });
+		expect(await registerCounterPaymentAction(form)).toEqual({
+			error: "Este pedido é pago online pelo cliente; não aceita pagamento de balcão.",
+		});
+		expect(revalidatePath).not.toHaveBeenCalled();
+	});
+
 	it("maps an unknown or missing failure reason to a generic error, never undefined", async () => {
 		for (const reason of ["invalid_state", "surprise", undefined]) {
 			state.registerCounterPayment.mockResolvedValue({ ok: false, reason });

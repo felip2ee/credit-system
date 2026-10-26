@@ -53,6 +53,7 @@ export default async function CounterPaymentsPage({
   }
 
   const view = await withUserTransaction(session, (client) => listCounterPayments(client, dossierId));
+  const online = view.mode === "online";
   const remaining = view.price === null ? null : toCents(view.price) - toCents(view.paidTotal);
   const payments = view.payments.map((p) => ({
     id: p.id,
@@ -63,6 +64,18 @@ export default async function CounterPaymentsPage({
     voidedAt: p.voidedAt,
     voidReason: p.voidReason,
   }));
+  const money = (value: string | null) => (value === null ? "—" : formatCurrency(Number(value)));
+  const situation = online
+    ? view.paidOnline !== null
+      ? "Quitado"
+      : view.price === null
+        ? "Sem liquidação ainda"
+        : "Sem cobrança"
+    : remaining === null
+      ? "Sem liquidação ainda"
+      : remaining > 0
+        ? `Falta ${formatCurrency(remaining / 100)}`
+        : "Quitado";
 
   return (
     <div className="space-y-6">
@@ -72,29 +85,33 @@ export default async function CounterPaymentsPage({
         </Button>
       </PageHeader>
       <Card>
-        <CardContent className="grid gap-4 pt-6 sm:grid-cols-3">
+        <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <p className="text-sm text-muted-foreground">Pago no balcão</p>
-            <p className="text-2xl font-semibold">{formatCurrency(Number(view.paidTotal))}</p>
+            <p className="text-sm text-muted-foreground">{online ? "Pago pelo app (saldo do cliente)" : "Pago no balcão"}</p>
+            <p className="text-2xl font-semibold">
+              {online ? money(view.paidOnline) : formatCurrency(Number(view.paidTotal))}
+            </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Preço da liquidação</p>
-            <p className="text-2xl font-semibold">{view.price === null ? "—" : formatCurrency(Number(view.price))}</p>
+            <p className="text-2xl font-semibold">{money(view.price)}</p>
           </div>
           <div>
+            <p className="text-sm text-muted-foreground">Custo</p>
+            <p className="text-2xl font-semibold">{money(view.cost)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Parte do Bureau</p>
+            <p className="text-2xl font-semibold">{money(view.bureauShare)}</p>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-4">
             <p className="text-sm text-muted-foreground">Situação</p>
-            <p className="text-lg">
-              {remaining === null
-                ? "Sem liquidação ainda"
-                : remaining > 0
-                  ? `Falta ${formatCurrency(remaining / 100)}`
-                  : "Quitado"}
-            </p>
+            <p className="text-lg">{situation}</p>
           </div>
         </CardContent>
       </Card>
-      {canWrite && <CounterPaymentForm dossierId={dossierId} />}
-      <CounterPaymentList key={payments[0]?.id ?? "empty"} payments={payments} canWrite={canWrite} />
+      {canWrite && !online && <CounterPaymentForm dossierId={dossierId} />}
+      {!online && <CounterPaymentList key={payments[0]?.id ?? "empty"} payments={payments} canWrite={canWrite} />}
     </div>
   );
 }
