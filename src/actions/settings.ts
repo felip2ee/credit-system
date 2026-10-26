@@ -240,6 +240,12 @@ export async function savePayableRetentionAction(values: unknown): Promise<SaveR
       identity,
       [{ key: PAYABLE_RETENTION_KEY, value: parsed.data.days }],
       "settings.payable_retention",
+      {
+        auditChange: (previous) => {
+          const from = previous.get(PAYABLE_RETENTION_KEY);
+          return { from: typeof from === "number" ? from : null, to: parsed.data.days };
+        },
+      },
     );
   } catch {
     return { error: "Falha ao salvar o prazo dos repasses." };

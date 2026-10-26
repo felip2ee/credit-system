@@ -4,11 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { createPayoutAction } from "@/actions/payouts";
-import { cutoffFromDate } from "@/components/payouts/payout-logic";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { brDate, cutoffFromDate } from "@/lib/payouts/cutoff";
 import { formatCurrency } from "@/lib/utils";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,8 +18,6 @@ interface CreatePayoutFormProps {
   // Última data (AAAA-MM-DD) cujo corte a retenção já liberou. Depois dela o banco recusa o repasse.
   latestDate: string;
 }
-
-const brDate = (isoDate: string) => isoDate.split("-").reverse().join("/");
 
 export function CreatePayoutForm({ bureaus, latestDate }: CreatePayoutFormProps) {
   const router = useRouter();

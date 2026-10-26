@@ -501,10 +501,11 @@ export async function ageBureauPayableEntries(owner: Pool, bureauId: string, day
 	try {
 		await client.query("begin");
 		await client.query("set local session_replication_role = replica");
-		await client.query(
+		const aged = await client.query(
 			"update bureau_payable_entries set created_at = created_at - make_interval(days => $2) where bureau_id = $1",
 			[bureauId, days],
 		);
+		if (!aged.rowCount) throw new Error(`ageBureauPayableEntries: bureau ${bureauId} has no payable entries to age`);
 		await client.query("commit");
 	} catch (error) {
 		await client.query("rollback");

@@ -79,7 +79,7 @@ async function committed<T>(
 }
 
 // Corte fora da retenção (30 dias): os lançamentos do teste têm datas fixas de 2026-01 e 2026-02, bem mais antigas.
-const FAR_FUTURE = new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString();
+const RELEASED_CUTOFF = new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString();
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 
 type CreateRow = {
@@ -217,12 +217,12 @@ describe("create_payout", () => {
 		const t = await newTenant();
 		await seedEntry(t.bureau.id, "accrual", "10.00");
 		const first = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 		const later = await seedEntry(t.bureau.id, "accrual", "25.00");
 
 		const second = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 
 		expect(first.amount).toBe("10.00");
@@ -233,14 +233,14 @@ describe("create_payout", () => {
 	it("refuses nothing_to_pay when the sum is zero, negative or the list is empty", async () => {
 		const empty = await newTenant();
 		expect(
-			await asSuperadmin((c) => createPayout(c, empty.bureau.id, FAR_FUTURE)),
+			await asSuperadmin((c) => createPayout(c, empty.bureau.id, RELEASED_CUTOFF)),
 		).toMatchObject({ ok: false, reason: "nothing_to_pay", payout_id: null });
 
 		const zero = await newTenant();
 		await seedEntry(zero.bureau.id, "accrual", "10.00");
 		await seedEntry(zero.bureau.id, "reversal", "10.00");
 		expect(
-			await asSuperadmin((c) => createPayout(c, zero.bureau.id, FAR_FUTURE)),
+			await asSuperadmin((c) => createPayout(c, zero.bureau.id, RELEASED_CUTOFF)),
 		).toMatchObject({ ok: false, reason: "nothing_to_pay" });
 
 		const negative = await newTenant();
@@ -248,7 +248,7 @@ describe("create_payout", () => {
 		await seedEntry(negative.bureau.id, "reversal", "30.00");
 		expect(
 			await asSuperadmin((c) =>
-				createPayout(c, negative.bureau.id, FAR_FUTURE),
+				createPayout(c, negative.bureau.id, RELEASED_CUTOFF),
 			),
 		).toMatchObject({ ok: false, reason: "nothing_to_pay" });
 
@@ -268,7 +268,7 @@ describe("create_payout", () => {
 		);
 		await seedEntry(t.bureau.id, "accrual", "100.00", "2026-02-05T00:00:00Z");
 		const next = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 
 		expect(refused.reason).toBe("nothing_to_pay");
@@ -277,7 +277,7 @@ describe("create_payout", () => {
 
 	it("rejects a missing bureau and a null cutoff", async () => {
 		expect(
-			await asSuperadmin((c) => createPayout(c, randomUUID(), FAR_FUTURE)),
+			await asSuperadmin((c) => createPayout(c, randomUUID(), RELEASED_CUTOFF)),
 		).toMatchObject({ ok: false, reason: "not_found" });
 		const t = await newTenant();
 		const res = await asSuperadmin((c) =>
@@ -303,7 +303,7 @@ describe("create_payout", () => {
 
 			const results = await Promise.all(
 				Array.from({ length: 4 }, () =>
-					asSuperadmin((c) => createPayout(c, t.bureau.id, FAR_FUTURE)),
+					asSuperadmin((c) => createPayout(c, t.bureau.id, RELEASED_CUTOFF)),
 				),
 			);
 
@@ -366,7 +366,7 @@ describe("mark_payout_paid", () => {
 	async function openPayout(t: SeededTenant, amount = "50.00") {
 		await seedEntry(t.bureau.id, "accrual", amount);
 		const res = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 		return res.payout_id!;
 	}
@@ -516,7 +516,7 @@ describe("cancel_payout", () => {
 		const a = await seedEntry(t.bureau.id, "accrual", "15.00");
 		const b = await seedEntry(t.bureau.id, "accrual", "25.00");
 		const first = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 
 		const res = await asSuperadmin((c) => cancelPayout(c, first.payout_id!));
@@ -525,7 +525,7 @@ describe("cancel_payout", () => {
 		expect(await itemIds(first.payout_id!)).toEqual([]);
 		expect((await payoutRow(first.payout_id!)).status).toBe("cancelled");
 		const second = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 		expect(second).toMatchObject({ ok: true, amount: "40.00" });
 		expect(await itemIds(second.payout_id!)).toEqual([a, b].sort());
@@ -536,7 +536,7 @@ describe("cancel_payout", () => {
 		const t = await newTenant();
 		await seedEntry(t.bureau.id, "accrual", "15.00");
 		const open = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 		await asSuperadmin((c) => cancelPayout(c, open.payout_id!));
 		expect(
@@ -548,7 +548,7 @@ describe("cancel_payout", () => {
 
 		await seedEntry(t.bureau.id, "accrual", "20.00");
 		const paid = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 		await asSuperadmin((c) => markPaid(c, paid.payout_id!));
 		const refused = await asSuperadmin((c) => cancelPayout(c, paid.payout_id!));
@@ -573,7 +573,7 @@ describe("cancel_payout", () => {
 			const t = await newTenant();
 			await seedEntry(t.bureau.id, "accrual", "10.00");
 			const made = await asSuperadmin((c) =>
-				createPayout(c, t.bureau.id, FAR_FUTURE),
+				createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 			);
 			const [paid, cancelled] = await Promise.all([
 				asSuperadmin((c) => markPaid(c, made.payout_id!)),
@@ -605,7 +605,7 @@ describe("immutability", () => {
 		const t = await newTenant();
 		await seedEntry(t.bureau.id, "accrual", "30.00");
 		const made = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 		const payoutId = made.payout_id!;
 
@@ -651,11 +651,11 @@ describe("immutability", () => {
 		const t = await newTenant();
 		const entry = await seedEntry(t.bureau.id, "accrual", "30.00");
 		const made = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 		await seedEntry(t.bureau.id, "accrual", "5.00");
 		const second = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 
 		await expect(
@@ -693,7 +693,7 @@ describe("immutability", () => {
 		const t = await newTenant();
 		await seedEntry(t.bureau.id, "accrual", "30.00");
 		const made = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 
 		const orderRef = randomUUID();
@@ -750,7 +750,7 @@ describe("reconciliation", () => {
 		await ageBureauPayableEntries(owner, t.bureau.id);
 
 		const made = await asSuperadmin((c) =>
-			createPayout(c, t.bureau.id, FAR_FUTURE),
+			createPayout(c, t.bureau.id, RELEASED_CUTOFF),
 		);
 		expect(made.amount).toBe("80.00");
 		expect(await payableBalance(t.bureau.id)).toBe("80.00");
@@ -784,10 +784,10 @@ describe("isolation", () => {
 		await seedEntry(a.bureau.id, "accrual", "10.00");
 		await seedEntry(b.bureau.id, "accrual", "20.00");
 		const pa = (
-			await asSuperadmin((c) => createPayout(c, a.bureau.id, FAR_FUTURE))
+			await asSuperadmin((c) => createPayout(c, a.bureau.id, RELEASED_CUTOFF))
 		).payout_id!;
 		const pb = (
-			await asSuperadmin((c) => createPayout(c, b.bureau.id, FAR_FUTURE))
+			await asSuperadmin((c) => createPayout(c, b.bureau.id, RELEASED_CUTOFF))
 		).payout_id!;
 		return { a, b, pa, pb };
 	}
@@ -878,7 +878,7 @@ describe("isolation", () => {
 		];
 		for (const [label, ctx] of denied) {
 			await withDbContext(app, ctx, async (c) => {
-				const created = await createPayout(c, a.bureau.id, FAR_FUTURE);
+				const created = await createPayout(c, a.bureau.id, RELEASED_CUTOFF);
 				expect(created, label).toMatchObject({
 					ok: false,
 					reason: "not_allowed",
@@ -899,7 +899,7 @@ describe("isolation", () => {
 		try {
 			const { rows } = await bare.query<CreateRow>(
 				"select * from create_payout($1, $2::timestamptz)",
-				[a.bureau.id, FAR_FUTURE],
+				[a.bureau.id, RELEASED_CUTOFF],
 			);
 			expect(rows[0]).toMatchObject({ ok: false, reason: "not_allowed" });
 		} finally {
@@ -943,7 +943,7 @@ describe("isolation", () => {
 			await expect(
 				hookClient.query("select * from create_payout($1, $2::timestamptz)", [
 					a.bureau.id,
-					FAR_FUTURE,
+					RELEASED_CUTOFF,
 				]),
 			).rejects.toThrow(/permission denied/);
 		} finally {

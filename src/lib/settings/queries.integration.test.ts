@@ -64,4 +64,19 @@ describe("settings writes", () => {
 			{ action: "settings.update", bureau_id: null, support_session_id: null },
 		]);
 	});
+
+	it("auditChange gets the stored value and its result joins the audit metadata", async () => {
+		const superadmin = await seedSuperadmin(owner);
+		const key = `test.change.${superadmin.userId}`;
+		const change = (previous: Map<string, unknown>) => ({ from: previous.get(key) ?? null, to: 2 });
+
+		await upsertSettings(superadmin, [{ key, value: 1 }], "settings.update");
+		await upsertSettings(superadmin, [{ key, value: 2 }], "settings.payable_retention", { auditChange: change });
+
+		const { rows } = await owner.query(
+			"select metadata from audit_logs where user_id = $1 and action = 'settings.payable_retention'",
+			[superadmin.userId],
+		);
+		expect(rows[0].metadata).toEqual({ keys: [key], from: 1, to: 2 });
+	});
 });

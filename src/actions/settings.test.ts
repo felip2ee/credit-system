@@ -114,7 +114,23 @@ describe("payable retention", () => {
       expect.objectContaining({ role: "superadmin" }),
       [{ key: "payable_retention_days", value: days }],
       "settings.payable_retention",
+      { auditChange: expect.any(Function) },
     );
+  });
+
+  it.each([
+    [45, 30, { from: 45, to: 30 }],
+    [undefined, 30, { from: null, to: 30 }],
+    ["abc", 0, { from: null, to: 0 }],
+  ])("audit metadata has old and new days (previous %j)", async (previous, days, expected) => {
+    state.session = identity;
+    await savePayableRetentionAction({ days });
+
+    const options = (state.upsertSettings.mock.calls[0] as unknown[])[3] as {
+      auditChange: (previous: Map<string, unknown>) => Record<string, unknown>;
+    };
+    const map = new Map<string, unknown>(previous === undefined ? [] : [["payable_retention_days", previous]]);
+    expect(options.auditChange(map)).toEqual(expected);
   });
 
   it.each([{ days: 30.5 }, { days: -1 }, { days: 3651 }, { days: "abc" }, { days: "30" }, {}, null])(
