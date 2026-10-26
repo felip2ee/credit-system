@@ -62,6 +62,7 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
       "catalog:write",
       "wallet:read",
       "wallet:topup",
+      "credits:adjust",
       "users:manage",
       "audit:read",
       "portal:read",

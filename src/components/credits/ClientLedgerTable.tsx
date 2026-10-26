@@ -6,16 +6,8 @@ import { loadMoreClientLedgerAction, type ClientLedgerRow } from "@/actions/cred
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CLIENT_KIND_LABEL, clientLedgerAmount } from "@/components/credits/client-ledger-labels";
 import { formatCurrency } from "@/lib/utils";
-
-const KIND_LABEL: Record<ClientLedgerRow["kind"], string> = {
-  topup: "Recarga",
-  reserve: "Reserva",
-  capture: "Cobrança",
-  release: "Liberação",
-  reversal: "Estorno",
-  commission_credit: "Comissão convertida",
-};
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 
@@ -69,8 +61,8 @@ export function ClientLedgerTable({ initialRows, initialCursor }: ClientLedgerTa
               {rows.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell>{dateFormat.format(new Date(row.createdAt))}</TableCell>
-                  <TableCell>{KIND_LABEL[row.kind]}</TableCell>
-                  <TableCell>{formatCurrency(Number(row.amount))}</TableCell>
+                  <TableCell>{CLIENT_KIND_LABEL[row.kind]}</TableCell>
+                  <TableCell>{clientLedgerAmount(row.kind, row.amount)}</TableCell>
                   <TableCell>{formatCurrency(Number(row.availableAfter))}</TableCell>
                   <TableCell>{formatCurrency(Number(row.reservedAfter))}</TableCell>
                   <TableCell className="text-muted-foreground">{row.reason ?? "—"}</TableCell>

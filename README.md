@@ -43,7 +43,7 @@ DATABASE_OWNER_URL=postgres://postgres:test@localhost:54329/credit_system npm ru
 - O Postgres de dev escuta em `127.0.0.1:54329` e o ClamAV em `127.0.0.1:3310`.
 - Os scripts de banco (`db:migrate`, `db:reset`) não leem o `.env.local`: passe o `DATABASE_OWNER_URL` na linha de comando, como acima.
 
-### 3. Rodar o app e o worker (2 terminais)
+### 3. Rodar o app e o cron de e-mails e pedidos (2 terminais)
 
 ```bash
 # terminal 1
