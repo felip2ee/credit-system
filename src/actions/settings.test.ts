@@ -16,9 +16,9 @@ vi.mock("@/lib/settings/queries", () => ({
   deleteSettings: vi.fn(),
 }));
 
-import { readAffiliateSettings } from "@/lib/settings/readers";
+import { readAffiliateSettings, readPayableRetentionDays } from "@/lib/settings/readers";
 
-import { getAiPrompt, getAiPrompts, getScrTermSettings, saveAffiliateSettings } from "./settings";
+import { getAiPrompt, getAiPrompts, getScrTermSettings, saveAffiliateSettings, savePayableRetentionAction } from "./settings";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -100,5 +100,47 @@ describe("affiliate settings", () => {
     const result = await saveAffiliateSettings(values);
     expect(result.error).toBeTruthy();
     expect(state.upsertSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("payable retention", () => {
+  const identity = { userId: "u1", role: "superadmin", bureauId: null };
+
+  it.each([0, 30, 3650])("saves %s days and audits settings.payable_retention", async (days) => {
+    state.session = identity;
+    await expect(savePayableRetentionAction({ days })).resolves.toEqual({ error: null });
+
+    expect(state.upsertSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "superadmin" }),
+      [{ key: "payable_retention_days", value: days }],
+      "settings.payable_retention",
+    );
+  });
+
+  it.each([{ days: 30.5 }, { days: -1 }, { days: 3651 }, { days: "abc" }, { days: "30" }, {}, null])(
+    "rejects invalid values %j",
+    async (values) => {
+      state.session = identity;
+      const result = await savePayableRetentionAction(values);
+      expect(result.error).toBeTruthy();
+      expect(state.upsertSettings).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["bureau_admin", "operator", "client"])("refuses %s", async (role) => {
+    state.session = { userId: "u2", role, bureauId: "b1" };
+    const result = await savePayableRetentionAction({ days: 30 });
+    expect(result.error).toBeTruthy();
+    expect(state.upsertSettings).not.toHaveBeenCalled();
+  });
+
+  it("reader returns the stored value", async () => {
+    state.readSetting.mockResolvedValueOnce(45 as never);
+    await expect(readPayableRetentionDays(identity as never)).resolves.toBe(45);
+  });
+
+  it.each([null, 30.5, -1, 3651, "30"])("reader falls back to 30 for %j", async (stored) => {
+    state.readSetting.mockResolvedValueOnce(stored as never);
+    await expect(readPayableRetentionDays(identity as never)).resolves.toBe(30);
   });
 });

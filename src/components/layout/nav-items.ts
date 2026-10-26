@@ -33,6 +33,7 @@ export const SUPERADMIN_NAV_ITEMS: readonly NavItem[] = [
   { href: "/superadmin/settings/prompts", label: "Prompts da IA" },
   { href: "/superadmin/settings/scr", label: "Termo SCR" },
   { href: "/superadmin/settings/afiliados", label: "Afiliados" },
+  { href: "/superadmin/settings/repasses", label: "Prazo dos repasses" },
 ];
 
 const SETTINGS_SUBPAGES = ["/settings/catalog", "/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
