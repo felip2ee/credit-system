@@ -24,6 +24,7 @@ async function registerThroughLink(page: Page, link: string, email: string) {
   const url = new URL(link);
   await resetRateLimit();
   await page.goto(`${url.pathname}${url.search}`);
+  await page.waitForLoadState("networkidle");
   await page.getByLabel("Nome completo").fill("e2e Indicado");
   await page.getByLabel("CPF").fill(validCpf());
   await page.getByLabel("E-mail").fill(email);
@@ -47,6 +48,7 @@ test("referred client buys, commission waits the hold, then converts to credits 
 
   // A copies the link.
   await page.goto("/portal/afiliacao");
+  await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: "Copiar link de indicação" }).click();
   await expect(page.getByRole("button", { name: "Copiar link de indicação" })).toHaveText(/Copiado/);
   const link = await page.evaluate(() => navigator.clipboard.readText());
@@ -101,6 +103,8 @@ test("referred client buys, commission waits the hold, then converts to credits 
   // A converts part to credits.
   const creditsBefore = await creditsOf(affiliate.userId);
   await page.goto("/portal/afiliacao");
+  // Wait for hydration: a fill/click before it is lost (native submit, state reset).
+  await page.waitForLoadState("networkidle");
   await page.getByLabel("Valor a converter (R$)").fill(CONVERTED.toFixed(2));
   await page.getByRole("button", { name: "Usar como crédito" }).click();
   await expect(page.getByText("Valor convertido em créditos.")).toBeVisible();
@@ -108,6 +112,7 @@ test("referred client buys, commission waits the hold, then converts to credits 
 
   // A asks for a withdrawal of the rest.
   await page.goto("/portal/afiliacao/saque");
+  await page.waitForLoadState("networkidle");
   await page.getByLabel("Valor (R$)").fill(WITHDRAWN.toFixed(2));
   await page.getByLabel("Tipo da chave PIX").click();
   await page.getByRole("option", { name: "E-mail" }).click();

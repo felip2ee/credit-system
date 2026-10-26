@@ -19,8 +19,6 @@ export const DASHBOARD_NAV_ITEMS: readonly NavItem[] = [
   { href: "/scr", label: "Autorizações SCR" },
   { href: "/settings/catalog", label: "Catálogo" },
   { href: "/settings/wallet", label: "Carteira" },
-  { href: "/settings/counter-payments", label: "Pagamentos de balcão", permission: "counter:read" },
-  { href: "/settings/payouts", label: "Repasses", permission: "payout:read" },
   { href: "/afiliados", label: "Afiliados", permission: "affiliates:manage" },
   { href: "/settings", label: "Configurações" },
 ];
@@ -39,8 +37,12 @@ export const SUPERADMIN_NAV_ITEMS: readonly NavItem[] = [
 
 const SETTINGS_SUBPAGES = ["/settings/catalog", "/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
 
+// Carteira também cobre as rotas antigas de repasses e balcão, que agora são abas dela.
+const WALLET_ROUTES = ["/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
+
 export function isNavActive(pathname: string, href: string): boolean {
   if (href === "/" || href === "/superadmin") return pathname === href;
   if (href === "/settings" && SETTINGS_SUBPAGES.some((sub) => pathname.startsWith(sub))) return false;
+  if (href === "/settings/wallet") return WALLET_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
   return pathname === href || pathname.startsWith(`${href}/`);
 }

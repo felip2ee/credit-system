@@ -16,7 +16,7 @@ describe("getPublicCatalog", () => {
       rows: [
         {
           code: "dossie_empresarial",
-          name: "Dossiê Empresarial Estruturado",
+          name: "Dossiê Empresarial",
           sale_price: "100.00",
           sale_price_per_partner: "30.00",
         },
@@ -25,7 +25,7 @@ describe("getPublicCatalog", () => {
     expect(await getPublicCatalog("meu-bureau")).toEqual([
       {
         code: "dossie_empresarial",
-        name: "Dossiê Empresarial Estruturado",
+        name: "Dossiê Empresarial",
         salePrice: "100.00",
         salePricePerPartner: "30.00",
       },

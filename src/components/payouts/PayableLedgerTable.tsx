@@ -11,10 +11,17 @@ import { formatCurrency } from "@/lib/utils";
 import { StatusBanner } from "@/components/ui/status-banner";
 
 const KIND_LABEL: Record<PayableEntry["kind"], string> = {
-  accrual: "Acréscimo",
-  reversal: "Estorno",
-  payout: "Repasse pago",
+  accrual: "Lucro do pedido",
+  reversal: "Pedido estornado",
+  payout: "Repasse recebido",
 };
+
+const shortRef = (ref: string) => ref.slice(0, 8);
+
+function formatSigned(amount: string): string {
+  const n = Number(amount);
+  return `${n > 0 ? "+" : n < 0 ? "−" : ""}${formatCurrency(Math.abs(n))}`;
+}
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 
@@ -47,7 +54,7 @@ export function PayableLedgerTable({ bureauId, initialRows, initialCursor }: Pay
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Lançamentos</CardTitle>
+        <CardTitle className="text-lg">Lucros e repasses</CardTitle>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -57,7 +64,7 @@ export function PayableLedgerTable({ bureauId, initialRows, initialCursor }: Pay
             <TableHeader>
               <TableRow>
                 <TableHead>Data</TableHead>
-                <TableHead>Tipo</TableHead>
+                <TableHead>O que foi</TableHead>
                 <TableHead>Valor</TableHead>
               </TableRow>
             </TableHeader>
@@ -65,8 +72,11 @@ export function PayableLedgerTable({ bureauId, initialRows, initialCursor }: Pay
               {rows.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell>{dateFormat.format(new Date(row.createdAt))}</TableCell>
-                  <TableCell>{KIND_LABEL[row.kind]}</TableCell>
-                  <TableCell>{formatCurrency(Number(row.amount))}</TableCell>
+                  <TableCell>
+                    {KIND_LABEL[row.kind]}
+                    {row.orderRef && <span className="block text-xs text-muted-foreground">Pedido {shortRef(row.orderRef)}</span>}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap font-semibold tabular-nums">{formatSigned(row.amount)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

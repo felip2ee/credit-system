@@ -8,6 +8,7 @@ import {
 	isSelfOrder,
 	orderHasMembers,
 	orderIsBlocked,
+	orderPriceBreakdown,
 	orderTotalCents,
 	productLabel,
 } from "./order-rules";
@@ -87,5 +88,41 @@ describe("countBillablePartners", () => {
 	});
 	it("CPF igual ao documento da empresa não conta", () => {
 		expect(countBillablePartners([{ document: "123.456.789-09" }], "12345678909")).toBe(0);
+	});
+});
+
+describe("orderPriceBreakdown", () => {
+	const company = "11222333000181";
+	const cpf = (n: number) => String(n).padStart(11, "0");
+	const run = (partners: { document?: string }[]) => {
+		const b = orderPriceBreakdown(empresarial, partners, company);
+		expect(b.totalCents).toBe(orderTotalCents(empresarial, b.partnerCount));
+		return b;
+	};
+
+	it("sem sócios: só o valor base", () => {
+		expect(run([])).toEqual({ baseCents: 10000, partnerCount: 0, partnersCents: 0, ignoredRows: 0, totalCents: 10000 });
+	});
+
+	it("dois sócios válidos", () => {
+		expect(run([{ document: cpf(1) }, { document: cpf(2) }])).toMatchObject({
+			partnerCount: 2,
+			partnersCents: 6000,
+			ignoredRows: 0,
+			totalCents: 16000,
+		});
+	});
+
+	it("linha vazia não entra", () => {
+		expect(run([{ document: cpf(1) }, { document: "" }])).toMatchObject({ partnerCount: 1, ignoredRows: 1, totalCents: 13000 });
+	});
+
+	it("CPF repetido conta uma vez", () => {
+		expect(run([{ document: cpf(1) }, { document: cpf(1) }])).toMatchObject({ partnerCount: 1, ignoredRows: 1 });
+	});
+
+	it("CPF igual ao documento da empresa não entra", () => {
+		const b = orderPriceBreakdown(empresarial, [{ document: "11122233344" }], "111.222.333-44");
+		expect(b).toMatchObject({ partnerCount: 0, ignoredRows: 1, totalCents: 10000 });
 	});
 });

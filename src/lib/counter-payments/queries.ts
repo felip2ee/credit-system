@@ -157,3 +157,59 @@ export async function listCounterPayments(client: PoolClient, dossierId: string)
 	);
 	return { payments: list, paidTotal: total.rows[0].paid_total, price: settlement.rows[0]?.price ?? null };
 }
+
+export type PaymentOverviewRow = {
+	dossierId: string;
+	subjectName: string;
+	mode: "online" | "counter";
+	orderState: string;
+	settlementStatus: "reserved" | "captured" | "released" | null;
+	price: string | null;
+	paidTotal: string;
+	createdAt: Date;
+};
+
+const OVERVIEW_LIMIT = 50;
+
+// Um pedido por linha: modo vem do pedido, preço e situação da liquidação, soma do balcão sem anulados.
+export async function listPaymentOverview(
+	client: PoolClient,
+	filter: { mode: "online" | "counter" | null; q: string },
+): Promise<PaymentOverviewRow[]> {
+	const term = filter.q.trim();
+	const digits = term.replace(/\D/g, "");
+	const { rows } = await client.query<{
+		dossier_id: string;
+		subject_name: string;
+		mode: "online" | "counter";
+		state: string;
+		status: "reserved" | "captured" | "released" | null;
+		price: string | null;
+		paid_total: string;
+		created_at: Date;
+	}>(
+		`select o.dossier_id, o.subject_name, o.mode, o.state, s.status, s.price::text as price,
+		        coalesce((select sum(cp.amount) from counter_payments cp
+		                   where cp.dossier_id = o.dossier_id and cp.voided_at is null), 0.00)::text as paid_total,
+		        o.created_at
+		   from dossier_orders o
+		   join holders h on h.id = (select d.holder_id from dossiers d where d.id = o.dossier_id)
+		   left join order_settlements s on s.order_ref = o.dossier_id
+		  where ($1::text is null or o.mode = $1)
+		    and ($2 = '' or o.subject_name ilike '%' || $2 || '%'
+		         or ($3 <> '' and h.document_digits like '%' || $3 || '%'))
+		  order by o.created_at desc
+		  limit ${OVERVIEW_LIMIT}`,
+		[filter.mode, term, digits],
+	);
+	return rows.map((r) => ({
+		dossierId: r.dossier_id,
+		subjectName: r.subject_name,
+		mode: r.mode,
+		orderState: r.state,
+		settlementStatus: r.status,
+		price: r.price,
+		paidTotal: r.paid_total,
+		createdAt: r.created_at,
+	}));
+}

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 
 import { isNavActive, visibleNavItems, type NavItem } from "@/components/layout/nav-items";
 import { Button } from "@/components/ui/button";
@@ -20,10 +20,13 @@ interface MobileNavProps {
   items: readonly NavItem[];
   // Itens sem permissão aparecem sempre; passe as do usuário para filtrar os demais.
   permissions?: readonly Permission[];
+  // Botão de sair no fim do menu (o painel do Bureau não tem botão no topo).
+  // Vem do layout (Server Action) para este módulo não importar a config de auth.
+  signOutAction?: () => Promise<void>;
 }
 
 // Gaveta sobre o <dialog> nativo: showModal() prende o foco, fecha com Esc e devolve o foco ao botão.
-export function MobileNav({ items, permissions = [] }: MobileNavProps) {
+export function MobileNav({ items, permissions = [], signOutAction }: MobileNavProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
@@ -94,6 +97,17 @@ export function MobileNav({ items, permissions = [] }: MobileNavProps) {
             );
           })}
         </nav>
+        {signOutAction && (
+          <form action={signOutAction} className="border-t border-sidebar-border p-3">
+            <button
+              type="submit"
+              className="flex min-h-11 w-full items-center gap-3 rounded-full px-4 py-2 text-base font-bold text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+            >
+              <LogOut aria-hidden className="h-5 w-5" />
+              Sair
+            </button>
+          </form>
+        )}
       </dialog>
     </>
   );

@@ -58,9 +58,9 @@ export function PortalAccessButton({
   };
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex w-full min-w-0 flex-col items-start gap-2 sm:w-auto sm:max-w-xs sm:items-end">
       {hasAccess ? (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusBadge tone="success" label="Portal ativo" />
           <Button
             variant="outline"
@@ -85,11 +85,11 @@ export function PortalAccessButton({
         </Button>
       )}
       {!hasEmail && !hasAccess && (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground sm:text-right">
           Cadastre um e-mail para liberar o acesso.
         </p>
       )}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-sm text-destructive sm:text-right">{error}</p>}
       {ok && <StatusBanner tone="success" title={ok} />}
     </div>
   );

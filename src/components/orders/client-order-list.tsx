@@ -12,13 +12,13 @@ import { formatCurrency, formatDateTime } from "@/lib/utils";
 
 const PRODUCT_LABEL: Record<ClientOrderListItem["productCode"], string> = {
 	dossie_pf: "Dossiê Pessoa Física",
-	dossie_empresarial: "Dossiê Empresarial Estruturado",
+	dossie_empresarial: "Dossiê Empresarial",
 };
 
 export function OrderStateBadge({ state, reason }: { state: OrderState; reason: ClientOrderListItem["reason"] }) {
 	const { tone, label } = statusInfo("order", state, "client");
 	return (
-		<span className="flex flex-col items-start gap-1">
+		<span className="flex shrink-0 flex-col items-start gap-1">
 			<StatusBadge tone={tone} label={label} />
 			{reason && (state === "failed" || state === "cancelled") && (
 				<span className="text-base text-muted-foreground">{ORDER_REASON_LABEL[reason]}</span>
@@ -42,8 +42,8 @@ export function ClientOrderList({ orders }: { orders: ClientOrderListItem[] }) {
 							</span>
 							<span className="min-w-0 flex-1 space-y-1">
 								<span className="block font-bold">{PRODUCT_LABEL[o.productCode]}</span>
-								<span className="block break-words">{o.subjectName}</span>
-								<span className="block break-words text-base text-muted-foreground">
+								<span className="block truncate">{o.subjectName}</span>
+								<span className="block truncate text-base text-muted-foreground">
 									{o.subjectDocumentMasked} · {formatDateTime(o.createdAt)} ·{" "}
 									<span className="tabular-nums">{o.price === null ? "—" : formatCurrency(Number(o.price))}</span>
 								</span>

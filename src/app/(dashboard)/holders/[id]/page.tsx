@@ -111,7 +111,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
           />
         )}
         {canWrite && !isAnonymized && (
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" className="min-h-11">
             <Link href={`/holders/${holder.id}/edit`}>
               <Pencil className="h-4 w-4" />
               Editar

@@ -30,10 +30,10 @@ export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = fals
         <Icon className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block break-words text-base font-bold">{title}</span>
-        {subtitle && <span className="block break-words text-base text-muted-foreground">{subtitle}</span>}
+        <span className="block truncate text-base font-bold">{title}</span>
+        {subtitle && <span className="block truncate text-base text-muted-foreground">{subtitle}</span>}
       </span>
-      {value && <span className="shrink-0 text-right text-base font-bold tabular-nums">{value}</span>}
+      {value && <span className="shrink-0 whitespace-nowrap text-right text-base font-bold tabular-nums">{value}</span>}
     </>
   );
   return href ? (

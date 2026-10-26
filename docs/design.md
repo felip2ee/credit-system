@@ -90,6 +90,7 @@ Primitivos em `src/components/ui/` (Radix + `cva` + `cn()`). Não crie botão, c
 - Ação: `Button` (pílula). `default` verde escuro com texto branco; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#122C2B`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho só ao `default` e só no CTA principal da tela. `IconButton` é circular de 48 px e exige `aria-label`.
 - Formulário: `Input`, `Textarea`, `Select` (8 px, 48 px de altura; erro por `aria-invalid`), `Field` (rótulo sempre visível, ajuda e erro ligados por `aria-describedby`), `SearchInput` (pílula), `Label`, `Checkbox`, `RadioGroup`, `Dialog` (24 px, scrim escuro).
 - Cartão: `Card` com `variant` `flat` (padrão, borda de 1 px), `elevated` e `hero` (verde da marca).
+- Cartões de produto mostram nome e descrição completos (sem corte); o bloco "O que você recebe" é um `<details>` com seta (chevron) que gira ao abrir.
 - Saldo e atalhos: `BalanceCard` (valor grande com `tabular-nums`, `hideable` mostra o olho; `displayBalance` em `balance.ts`), `QuickActions` + `QuickAction` (tile de 56 px com ícone, rótulo embaixo, `active` para a ação principal, link ou botão), `ListRow` (ícone circular cinza, título, subtítulo, valor à direita), `SectionHeader` (título e link).
 - Estado: `StatusBadge`, `Badge` (pílula; `variant="brand"` para tag positiva), `StatusBanner`, `EmptyState`, `Skeleton`, `Stepper` (círculos, "Agora:"), toast (`Toaster`, `role="status"`).
 - Telas de sistema: `LoadingScreen`, `ErrorScreen`, e `loading.tsx`, `error.tsx`, `not-found.tsx`, `global-error.tsx` em `src/app/`.
@@ -104,10 +105,15 @@ Regras:
 
 ## Layouts
 
-- **Portal (celular):** cabeçalho com símbolo, "Rainha Cred" e saldo (só com `credits:read` e carteira; sem saldo, o cabeçalho não mostra nada). Barra inferior com ícone e texto; o item ativo é um círculo verde com ícone branco e rótulo visível: Início, Pesquisas, Créditos (com `credits:read`) e Conta. No computador, logo completa e os mesmos itens em linha.
+- **Portal (celular):** cabeçalho com a logo e o chip de saldo (só com `credits:read` e carteira; sem saldo, o cabeçalho não mostra nada). Barra inferior com ícone e texto; o item ativo é um círculo verde com ícone branco e rótulo visível: Início, Pesquisas, Créditos (com `credits:read`) e Conta. No computador, logo completa e os mesmos itens em linha.
+- **Saldo:** aparece só no chip do cabeçalho e na tela Créditos. Nenhuma outra tela repete o saldo.
+- **Texto em lista:** corta com "…" (uma linha). Exceção: o nome do Bureau no `PublicShell` quebra em várias linhas.
+- **Créditos:** o extrato fica agrupado por data. A tela não tem tabela de movimentos nem a seção "Recargas recentes".
+- **Explicações:** Nova pesquisa tem a introdução "como funciona" (`ResearchIntro`). Afiliação tem "Como funciona" (`HowItWorks`). A página pública do Bureau tem a mesma explicação em `PublicHowItWorks`.
 - **Páginas públicas:** logo completa no topo, nome do Bureau, uma coluna.
 - **Painéis (Bureau e superadmin):** barra lateral no computador. No celular, cabeçalho com botão "Menu" que abre a gaveta. A primeira tela vira cartões empilhados.
 - Filtros guardam o estado na URL.
+- Resultado da pesquisa (cliente): a tela mostra o resumo (score, restrições) e o parecer de IA; o detalhe completo fica no PDF.
 
 ## Regras da marca
 

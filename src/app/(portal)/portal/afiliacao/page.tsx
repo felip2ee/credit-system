@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AffiliateLinkCard } from "@/components/affiliates/affiliate-link-card";
+import { HowItWorks } from "@/components/affiliates/how-it-works";
 import { CommissionTables } from "@/components/affiliates/commission-table";
 import { ConvertForm } from "@/components/affiliates/convert-form";
 import { PageHeader } from "@/components/layout/page-header";
@@ -45,6 +46,7 @@ export default async function AffiliatePage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Afiliação" />
+      <HowItWorks fee={fee} />
       <AffiliateLinkCard link={affiliateLink(data.slug, code)} />
       <BalanceCard
         label="Comissão disponível"

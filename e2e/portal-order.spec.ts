@@ -24,7 +24,7 @@ test("client buys a Dossiê Empresarial with 1 partner, sees each member and can
   await expect(page.getByRole("heading", { name: "Autorizações" })).toBeVisible();
   await expect(page.getByText("Empresa · ")).toBeVisible();
   await expect(page.getByText("Sócio · ")).toBeVisible();
-  await expect(page.getByText("Aguardando autorização", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("Aguardando autorização", { exact: true })).toHaveCount(3); // 2 membros + o selo do pedido
 
   await page.getByRole("button", { name: "Cancelar pedido" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancelar pedido" }).click();
@@ -37,7 +37,7 @@ test("client buys a Dossiê Empresarial with 1 partner until it is ready", async
   const dossierId = await openOrder(page);
 
   await page.goto("/portal/pesquisas");
-  await expect(page.getByText("Aguardando autorização do titular").first()).toBeVisible();
+  await expect(page.getByText("Aguardando autorização").first()).toBeVisible();
 
   await authorizeScr(page, request, dossierId);
   await runTick(request);

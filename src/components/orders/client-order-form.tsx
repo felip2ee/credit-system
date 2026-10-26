@@ -10,11 +10,9 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { openClientOrderAction } from "@/actions/orders-client";
 import {
 	canConfirmOrder,
-	countBillablePartners,
 	isSelfOrder,
 	orderHasMembers,
-	orderTotalCents,
-	productLabel,
+	orderPriceBreakdown,
 	type HolderType,
 	type ProductPrices,
 } from "@/components/orders/order-rules";
@@ -23,8 +21,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { OrderPriceSummary } from "@/components/orders/order-price-summary";
+import { ProductPicker } from "@/components/orders/product-picker";
+import { ResearchIntro } from "@/components/orders/research-intro";
 import { toCents } from "@/lib/catalog/money";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { clientOrderSchema, MAX_PARTNERS } from "@/lib/validators/order";
@@ -103,12 +103,12 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 
 	const productCode = watch("productCode");
 	const declarationAccepted = watch("declarationAccepted");
-	const partnerCount = countBillablePartners(watch("partners") ?? [], watch("subject.document"));
-	const product = products.find((p) => p.code === productCode);
+		const product = products.find((p) => p.code === productCode);
 	const isSelf = isSelfOrder(productCode, holderType);
 	const isEmpresarial = productCode === "dossie_empresarial";
 	const hasMembers = orderHasMembers(productCode, holderType);
-	const totalCents = product ? orderTotalCents(product, partnerCount) : 0;
+	const breakdown = product ? orderPriceBreakdown(product, watch("partners") ?? [], watch("subject.document")) : null;
+	const totalCents = breakdown?.totalCents ?? 0;
 	const insufficient = toCents(available) < totalCents;
 
 	// Trocar de produto descarta o que não vale mais: dados de outra pessoa, sócios e a declaração.
@@ -145,34 +145,18 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 
 	return (
 		<form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6" noValidate>
+			<ResearchIntro />
 			<Card>
 				<CardHeader>
 					<CardTitle className="text-lg">Produto</CardTitle>
 				</CardHeader>
 				<CardContent>
-					<RadioGroup
-						aria-label="Produto"
-						value={productCode}
-						onValueChange={(value) => setValue("productCode", value as OrderProductCode)}
-					>
-						{products.map((p) => (
-							<label
-								key={p.code}
-								htmlFor={`product-${p.code}`}
-								className="flex min-h-12 cursor-pointer flex-col gap-1 rounded-card border border-input p-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-brand-soft sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-							>
-								<span className="flex items-center gap-3">
-									<RadioGroupItem id={`product-${p.code}`} value={p.code} />
-									{productLabel(p.name, p.code, holderType)}
-								</span>
-								<span className="pl-9 font-bold sm:pl-0 sm:text-right">
-									{p.code === "dossie_empresarial"
-										? `${formatCurrency(Number(p.price))} + ${formatCurrency(Number(p.pricePerPartner))} por sócio`
-										: formatCurrency(Number(p.price))}
-								</span>
-							</label>
-						))}
-					</RadioGroup>
+						<ProductPicker
+							products={products}
+							value={productCode}
+							onChange={(value) => setValue("productCode", value)}
+							holderType={holderType}
+						/>
 				</CardContent>
 			</Card>
 
@@ -310,6 +294,9 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 								</Label>
 							</div>
 						</div>
+					)}
+					{product?.code === "dossie_empresarial" && breakdown && (
+						<OrderPriceSummary breakdown={breakdown} pricePerPartner={Number(product.pricePerPartner)} />
 					)}
 					<dl className="grid grid-cols-2 gap-4">
 						<div>

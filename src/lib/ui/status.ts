@@ -8,7 +8,8 @@ export type StatusDomain =
 	| "member"
 	| "withdrawal"
 	| "commission"
-	| "walletEntry";
+	| "walletEntry"
+	| "payment";
 
 export type StatusInfo = { tone: StateTone; label: string; explanation: string; nextStep: string | null };
 type Entry = [tone: StateTone, label: string, explanation: string, nextStep?: string];
@@ -21,7 +22,7 @@ const TABLE: Record<StatusDomain, Record<string, Entry>> = {
 		awaiting_payment: ["waiting", "Aguardando pagamento", "Esperamos a confirmação do pagamento.", "Conclua o pagamento."],
 		awaiting_authorization: [
 			"waiting",
-			"Aguardando autorização do titular",
+			"Aguardando autorização",
 			"O titular precisa autorizar a consulta. O pedido vence em 7 dias sem resposta.",
 			"Peça ao titular que confirme a autorização.",
 		],
@@ -77,6 +78,12 @@ const TABLE: Record<StatusDomain, Record<string, Entry>> = {
 		pending: ["waiting", "A liberar", "A comissão ainda está no prazo de liberação."],
 		released: ["success", "Liberada", "A comissão está no seu saldo."],
 		reversed: ["neutral", "Desfeita", "A comissão foi desfeita."],
+	},
+	payment: {
+		paid: ["success", "Pago", "O pagamento foi recebido."],
+		awaiting: ["waiting", "Aguardando pagamento", "Ainda falta receber o pagamento."],
+		cancelled: ["neutral", CANCELLED, "Este pedido foi cancelado."],
+		refunded: ["neutral", "Devolvido", "O valor voltou para o saldo do cliente."],
 	},
 	walletEntry: {
 		topup: ["success", "Recarga", "Entrada de saldo."],

@@ -12,6 +12,6 @@ describe("mobileNavItems", () => {
   it("operador sem affiliates:manage não vê Afiliados", () => {
     const labels = mobileNavItems(DASHBOARD_NAV_ITEMS, ["counter:read"]).map((i) => i.label);
     expect(labels).not.toContain("Afiliados");
-    expect(labels).toContain("Pagamentos de balcão");
+    expect(labels).toContain("Carteira");
   });
 });

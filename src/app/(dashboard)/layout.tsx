@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 
+import { signOut } from "@/actions/auth";
 import { IdleTimeout } from "@/components/providers/idle-timeout";
 import { DASHBOARD_NAV_ITEMS } from "@/components/layout/nav-items";
 import { Toaster } from "@/components/ui/toaster";
 import { Sidebar } from "@/components/layout/sidebar";
 import { SupportBanner } from "@/components/layout/support-banner";
-import { Topbar } from "@/components/layout/topbar";
+import { MobileBrand } from "@/components/layout/brand-mark";
+import { MobileNav } from "@/components/layout/mobile-nav";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { permissionsFor } from "@/lib/db/permissions";
 import { getBureau } from "@/lib/bureaus/queries";
@@ -37,7 +39,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-surface">
       <IdleTimeout />
-      <Sidebar permissions={permissions} />
+      <Sidebar permissions={permissions} name={session.name} email={email} />
       <div className="flex min-w-0 flex-1 flex-col">
         {session.support && (
           <SupportBanner
@@ -45,7 +47,10 @@ export default async function DashboardLayout({
             expiresAt={session.support.expiresAt.toISOString()}
           />
         )}
-        <Topbar email={email} navItems={DASHBOARD_NAV_ITEMS} permissions={permissions} />
+        <header className="flex min-h-16 items-center justify-between gap-2 border-b border-border bg-background px-4 md:hidden">
+          <MobileBrand />
+          <MobileNav items={DASHBOARD_NAV_ITEMS} permissions={permissions} signOutAction={signOut} />
+        </header>
         <main className="flex-1 p-4 md:p-6">{children}</main>
         <Toaster />
       </div>

@@ -12,13 +12,16 @@ describe("PortalHeader", () => {
 	it("sem saldo (sem credits:read ou sem carteira): não mostra saldo nem quebra", () => {
 		const html = renderToStaticMarkup(createElement(PortalHeader, { items, balance: null }));
 		expect(html).not.toContain("Saldo");
-		expect(html).toContain("Rainha Cred");
+		expect(html).not.toContain("R$");
+		expect(html).not.toContain(">Rainha Cred<");
 	});
 
 	it("com saldo: mostra o valor", () => {
 		const html = renderToStaticMarkup(createElement(PortalHeader, { items, balance: "R$ 10,50" }));
-		expect(html).toContain("Saldo");
+		expect(html).not.toContain("Saldo");
+		expect(html).not.toContain(">Rainha Cred<");
 		expect(html).toContain("R$ 10,50");
+		expect(html).toContain("Ocultar saldo");
 	});
 });
 

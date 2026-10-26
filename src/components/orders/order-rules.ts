@@ -41,6 +41,33 @@ export function countBillablePartners(partners: { document?: string }[], company
 	return seen.size;
 }
 
+export interface OrderPriceBreakdown {
+	baseCents: number;
+	partnerCount: number;
+	partnersCents: number;
+	// Linhas de sócio que ainda não entram no valor (vazia, incompleta, repetida ou igual à empresa).
+	ignoredRows: number;
+	totalCents: number;
+}
+
+// Mesmo cálculo do total cobrado, aberto em empresa + sócios para a tela mostrar de onde vem o valor.
+export function orderPriceBreakdown(
+	product: ProductPrices,
+	partners: { document?: string }[],
+	companyDocument?: string,
+): OrderPriceBreakdown {
+	const partnerCount = countBillablePartners(partners, companyDocument);
+	const totalCents = orderTotalCents(product, partnerCount);
+	const baseCents = orderTotalCents(product, 0);
+	return {
+		baseCents,
+		partnerCount,
+		partnersCents: totalCents - baseCents,
+		ignoredRows: partners.length - partnerCount,
+		totalCents,
+	};
+}
+
 // Dossiê Pessoa Física só pesquisa o próprio titular, salvo a conta PJ, que informa o responsável.
 export function isSelfOrder(productCode: OrderProductCode, holderType: HolderType): boolean {
 	return productCode === "dossie_pf" && holderType !== "PJ";

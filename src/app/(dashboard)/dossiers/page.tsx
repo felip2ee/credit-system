@@ -23,7 +23,6 @@ import { cn, formatDate } from "@/lib/utils";
 const TABS: { kind: DossierKindFilter | undefined; label: string }[] = [
   { kind: undefined, label: "Todos" },
   { kind: "PF", label: "PF" },
-  { kind: "PJ", label: "PJ" },
   { kind: "PJ_FULL", label: "PJ completo" },
 ];
 
@@ -107,35 +106,39 @@ export default async function DossiersPage({
               {dossiers.map((d) => (
                 <li key={d.id}>
                   <details className="group">
-                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 hover:bg-muted/50">
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
-                      <div className="min-w-0 flex-1">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 hover:bg-muted/50 sm:items-center">
+                      <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 sm:mt-0" />
+                      <div className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] sm:basis-0">
                         <p className="truncate text-base font-bold">{d.holder_name}</p>
                         <p className="text-sm text-muted-foreground">
                           {DOSSIER_KIND_LABEL[d.kind]} · {d.members.length}{" "}
                           {d.members.length === 1 ? "consulta" : "consultas"} · {formatDate(d.created_at)}
                         </p>
                       </div>
-                      {d.kind === "PJ_FULL" && d.report_status === "completed" && (
-                        <AptitudeBadge status={d.aptitude_status} />
-                      )}
-                      {d.order_state && <OrderStateBadge state={d.order_state} />}
-                      <DossierStatusBadge status={d.status} />
+                      <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0">
+                        {d.kind === "PJ_FULL" && d.report_status === "completed" && (
+                          <AptitudeBadge status={d.aptitude_status} />
+                        )}
+                        {d.order_state && <OrderStateBadge state={d.order_state} />}
+                        <DossierStatusBadge status={d.status} />
+                      </div>
                     </summary>
-                    <div className="space-y-2 border-t bg-muted/20 px-4 py-3 pl-11">
+                    <div className="space-y-2 border-t bg-muted/20 px-4 py-3 sm:pl-11">
                       <ul className="space-y-2">
                         {d.members.map((m) => (
-                          <li key={m.id} className="flex items-center gap-3 text-sm">
-                            <span className="w-24 shrink-0 text-sm text-muted-foreground">
+                          <li key={m.id} className="grid grid-cols-1 gap-1 text-sm sm:flex sm:items-center sm:gap-3">
+                            <span className="sm:w-24 sm:shrink-0 text-sm text-muted-foreground">
                               {m.type === "PJ" ? "Empresa" : d.kind === "PF" ? "Titular" : "Sócio"}
                             </span>
                             <Link href={`/consultations/${m.id}`} className="min-w-0 flex-1 truncate hover:underline">
                               {m.document_name ?? "—"}
                             </Link>
-                            <span className="font-mono text-sm text-muted-foreground">
+                            <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
                               {maskDocument(m.type, m.document)}
                             </span>
-                            <QueryStatusBadge status={m.status} />
+                            <span className="justify-self-start">
+                              <QueryStatusBadge status={m.status} />
+                            </span>
                           </li>
                         ))}
                       </ul>
