@@ -9,6 +9,7 @@ const s = vi.hoisted(() => ({
 	cancelPayout: vi.fn(),
 	store: vi.fn(),
 	discard: vi.fn(),
+	retentionDays: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -16,6 +17,7 @@ vi.mock("@/lib/auth/session", () => ({
 	getRequiredSession: s.session,
 	SessionAccessError: class SessionAccessError extends Error {},
 }));
+vi.mock("@/lib/payables/queries", () => ({ getPayableRetentionDays: s.retentionDays }));
 vi.mock("@/lib/payouts/queries", () => ({
 	createPayout: s.createPayout,
 	markPayoutPaid: s.markPayoutPaid,
@@ -61,6 +63,7 @@ beforeEach(() => {
 	s.cancelPayout.mockResolvedValue({ ok: true, bureauId });
 	s.store.mockResolvedValue(stored);
 	s.discard.mockResolvedValue(undefined);
+	s.retentionDays.mockResolvedValue(30);
 	vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -77,7 +80,6 @@ describe("createPayoutAction", () => {
 		["a cutoff far in the future", { bureauId, cutoffAt: "2100-01-01T00:00:00Z" }],
 		["an invalid cutoff", { bureauId, cutoffAt: "not-a-date" }],
 		["a null cutoff (would become 1970)", { bureauId, cutoffAt: null }],
-		["a missing cutoff", { bureauId }],
 		["an empty cutoff", { bureauId, cutoffAt: "  " }],
 		["a numeric cutoff", { bureauId, cutoffAt: 0 }],
 	])("rejects %s before any session or write", async (_n, values) => {
@@ -85,6 +87,52 @@ describe("createPayoutAction", () => {
 
 		expect(result.error).toBeTruthy();
 		expect(s.session).not.toHaveBeenCalled();
+		expect(s.createPayout).not.toHaveBeenCalled();
+	});
+
+	it("defaults a missing cutoff to now minus the retention (and one minute of clock skew)", async () => {
+		s.retentionDays.mockResolvedValue(30);
+		const before = Date.now();
+
+		const result = await createPayoutAction({ bureauId });
+
+		expect(result).toEqual({ error: null, id: payoutId });
+		const cutoff = s.createPayout.mock.calls[0][1].cutoffAt as Date;
+		const expected = before - 30 * 86_400_000 - 60_000;
+		expect(cutoff.getTime()).toBeGreaterThanOrEqual(expected);
+		expect(cutoff.getTime()).toBeLessThan(expected + 5_000);
+		expect(s.createPayout.mock.calls[0][1].bureauId).toBe(bureauId);
+	});
+
+	it("keeps a cutoff the caller sent", async () => {
+		const cutoffAt = "2026-01-31T02:59:59.000Z";
+
+		await createPayoutAction({ bureauId, cutoffAt });
+
+		expect(s.createPayout.mock.calls[0][1].cutoffAt).toEqual(new Date(cutoffAt));
+	});
+
+	it("tells the latest allowed date when the cutoff is inside the retention", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-11-25T13:00:00Z")); // 25/11 10:00 em São Paulo; 30 dias antes: 26/10 10:00
+		try {
+			s.createPayout.mockResolvedValueOnce({ ok: false, reason: "cutoff_within_retention" });
+
+			const result = await createPayoutAction({ bureauId, cutoffAt: "2026-11-25T13:00:00Z" });
+
+			// 26/10 23:59:59 ainda passaria do limite (26/10 10:00): o último dia inteiro é 25/10.
+			expect(result.error).toBe("Esse valor ainda está em liberação. Escolha uma data até 25/10/2026.");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("hides a failure to read the retention", async () => {
+		s.retentionDays.mockRejectedValueOnce(new Error("db down"));
+
+		const result = await createPayoutAction({ bureauId });
+
+		expect(result.error).toBe("Falha ao criar o repasse.");
 		expect(s.createPayout).not.toHaveBeenCalled();
 	});
 

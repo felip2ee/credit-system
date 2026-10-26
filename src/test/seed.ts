@@ -494,6 +494,26 @@ export async function seedPayableEntry(
 	return rows[0].id;
 }
 
+// Envelhece os lançamentos a repassar do Bureau: a tabela é só de inserção e o repasse só paga o que passou da retenção.
+// Os lançamentos vêm do fluxo real (capture_order, estorno) com created_at = now(). Troca o gatilho só nesta transação.
+export async function ageBureauPayableEntries(owner: Pool, bureauId: string, days = 40): Promise<void> {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		await client.query("set local session_replication_role = replica");
+		await client.query(
+			"update bureau_payable_entries set created_at = created_at - make_interval(days => $2) where bureau_id = $1",
+			[bureauId, days],
+		);
+		await client.query("commit");
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
+}
+
 // Retenção LGPD: linhas técnicas com data escolhida pelo teste (o app nunca grava no passado).
 export async function seedExpiredChallenge(
 	owner: Pool,

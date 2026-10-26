@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
+import { latestPayoutDate } from "@/components/payouts/payout-logic";
 import { getRequiredSession, SessionAccessError, type RequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
+import { getPayableRetentionDays } from "@/lib/payables/queries";
 import {
 	cancelPayout,
 	createPayout,
@@ -34,6 +36,7 @@ const FAILURE_MESSAGES: Record<PayoutFailure, string> = {
 	invalid_cutoff: "Data de corte inválida.",
 	not_found: "Repasse ou Bureau não encontrado.",
 	nothing_to_pay: "Não há valor a repassar até a data de corte.",
+	cutoff_within_retention: "Esse valor ainda está em liberação.",
 	invalid_state: "O repasse não está em um estado que permita esta operação.",
 	already_paid: "Este repasse já foi pago com outro comprovante.",
 	invalid_receipt: "Comprovante inválido.",
@@ -81,6 +84,13 @@ async function payoutManager(step: string): Promise<{ session: RequiredSession }
 	return { session };
 }
 
+const DAY_MS = 86_400_000;
+// Folga contra diferença de relógio entre o app e o banco: o corte padrão nunca passa de now() − prazo no banco.
+const CLOCK_SKEW_MS = 60_000;
+
+// "AAAA-MM-DD" -> "DD/MM/AAAA".
+const brDate = (isoDate: string) => isoDate.split("-").reverse().join("/");
+
 const revalidate = () => {
 	revalidatePath("/superadmin/payouts");
 	revalidatePath("/settings/payouts");
@@ -94,7 +104,15 @@ export async function createPayoutAction(values: unknown): Promise<PayoutActionR
 	if ("error" in auth) return { error: auth.error };
 
 	try {
-		const result = await createPayout(auth.session, parsed.data);
+		// O corte padrão é o mais recente que a retenção já liberou. O banco recusa um corte depois dele.
+		const retentionDays = await getPayableRetentionDays(auth.session);
+		const cutoffAt = parsed.data.cutoffAt ?? new Date(Date.now() - retentionDays * DAY_MS - CLOCK_SKEW_MS);
+		const result = await createPayout(auth.session, { bureauId: parsed.data.bureauId, cutoffAt });
+		if (!result.ok && result.reason === "cutoff_within_retention") {
+			return {
+				error: `Esse valor ainda está em liberação. Escolha uma data até ${brDate(latestPayoutDate(retentionDays))}.`,
+			};
+		}
 		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] ?? GENERIC_FAILURE };
 		revalidate();
 		return { error: null, id: result.payoutId };

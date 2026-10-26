@@ -52,3 +52,12 @@ export function cutoffFromDate(date: string): string | null {
   if (Number.isNaN(wallClockAsUtc.getTime())) return null;
   return new Date(wallClockAsUtc.getTime() - saoPauloOffsetMs(wallClockAsUtc)).toISOString();
 }
+
+const DAY_MS = 86_400_000;
+const END_OF_DAY_MS = DAY_MS - 1_000; // o corte de uma data vale 23:59:59
+
+// Última data (AAAA-MM-DD, São Paulo) cujo corte de 23:59:59 já passou da retenção: create_payout aceita até now() − prazo.
+export function latestPayoutDate(retentionDays: number, now: Date = new Date()): string {
+  const limit = new Date(now.getTime() - retentionDays * DAY_MS - END_OF_DAY_MS);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: SAO_PAULO_TZ }).format(limit);
+}

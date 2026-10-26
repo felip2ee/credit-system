@@ -11,6 +11,7 @@ import {
 	TEST_DATABASE_WEBHOOK_URL,
 } from "@/test/db-env";
 import {
+	ageBureauPayableEntries,
 	seedClientWalletTopup,
 	seedOrderCatalog,
 	seedOrderDossier,
@@ -77,7 +78,8 @@ async function committed<T>(
 	}
 }
 
-const FAR_FUTURE = "2100-01-01T00:00:00Z";
+// Corte fora da retenção (30 dias): os lançamentos do teste têm datas fixas de 2026-01 e 2026-02, bem mais antigas.
+const FAR_FUTURE = new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString();
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 
 type CreateRow = {
@@ -744,6 +746,8 @@ describe("reconciliation", () => {
 		});
 		await seedEntry(t.bureau.id, "accrual", "70.00", "2026-01-10T00:00:00Z");
 		await seedEntry(t.bureau.id, "reversal", "20.00", "2026-01-12T00:00:00Z");
+		// O acréscimo real nasceu agora: sem envelhecer, a retenção o deixaria fora do repasse.
+		await ageBureauPayableEntries(owner, t.bureau.id);
 
 		const made = await asSuperadmin((c) =>
 			createPayout(c, t.bureau.id, FAR_FUTURE),

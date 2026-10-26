@@ -46,12 +46,19 @@ afterAll(async () => {
 	await Promise.all([owner.end(), pool.end()]);
 });
 
-const FAR_FUTURE = new Date("2100-01-01T00:00:00Z");
+// Retenção de 30 dias: o acréscimo nasce com 60 dias e o corte fica a 31 dias, fora da retenção.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const FAR_FUTURE = new Date(Date.now() - 31 * DAY_MS);
 const sha = () => createHash("sha256").update(randomUUID()).digest("hex");
 const receipt = () => ({ objectKey: `ab/${randomUUID()}`, mime: "application/pdf" as const, sha256: sha() });
 
 async function seedAccrual(bureauId: string, amount: string) {
-	await seedPayableEntry(owner, { bureauId, kind: "accrual", amount });
+	await seedPayableEntry(owner, {
+		bureauId,
+		kind: "accrual",
+		amount,
+		createdAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+	});
 }
 
 async function setup(amount = "40.00") {
