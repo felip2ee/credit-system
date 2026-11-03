@@ -27,26 +27,32 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 
 ## Cores e contraste
 
-- Verde da marca `#009C97`: logo, ícones, destaques e texto grande. Não use em texto comum nem como fundo de botão com texto branco.
-- Primário `#007A76`: texto, botões e anel de foco (contraste medido, acima de 4,5:1).
-- Creme `#FCEDCE` (destaque) e escuro `#122C2B` (texto e barra lateral).
+- Fundo da página `#FBF8F2`. Cartões são brancos. `--surface` (`#F7F2E8`) alterna seções em vez de sombra. `--muted` (`#F1ECE1`) para tile e linha cinza.
+- Texto principal (ink) `#123029`. Texto secundário `#33514A` (7,8:1 sobre `--surface`).
+- Primário `#0A3329` (verde-escuro): texto de destaque, links, anel de foco e cartão de saldo. Anel de foco: contorno de 3 px com `--ring` (`#0A3329`), em todos os elementos.
+- Cartão de saldo: fundo `--primary` com texto branco em negrito (13,8:1).
+- Botão de ação principal (CTA): fundo dourado `--cta` `#CFA968` com texto `--cta-foreground` `#2A1F0A` em negrito (7,3:1). Hover `--cta-hover` `#E6C891` (10:1).
+- Dourado não serve para texto sobre fundo claro (contraste baixo, cerca de 2,1:1 sobre `#FBF8F2`). Para texto, use verde-escuro. O dourado é texto só sobre verde profundo.
+- Verde profundo da marca `#05261F` (`--brand-deep`, `--sidebar`): barra lateral, faixas de topo (hero) e faixa final das páginas públicas. Texto creme `#F4EAD7` (13,5:1) e dourado `#CFA968` (7,3:1) sobre ele.
+- Creme `#F4EAD7` (`--brand-cream`, `--secondary`, `--accent`, `--brand-soft`): destaques suaves. Tag positiva e item ativo usam `--brand-soft` com texto `#05261F` (13,5:1).
 - Texto comum: no mínimo 4,5:1. Texto do portal sobre o fundo principal: no mínimo 7:1. Texto grande, ícones, bordas de controles e anel de foco: no mínimo 3:1.
-- Bordas de controles usam `--input` (`#7D9291`, 3,3:1). Borda de cartão plano usa `--border` (`#E5E7EB`, decorativa): nunca em campo ou controle.
-- Fundos: branco e `--surface` (`#F5F7FA`) alternados em vez de sombra. `--muted` (`#F3F4F6`) para tile e linha cinza. `--brand-soft` (`#E6F4F3`) com texto `#00514E` (8,1:1) para tag positiva e item ativo.
-- Cartão de saldo: fundo `--primary` com texto branco em negrito (5,2:1). O verde `#009C97` não serve de fundo (3,4:1).
+- Bordas de controles usam `--input` (`#7F8F86`, 3,2:1). Borda de cartão plano usa `--border` (`#E3DCCD`, decorativa): nunca em campo ou controle.
+- Sem degradê em nenhuma tela. A dona da marca rejeitou o degradê. Use cor sólida.
+- Tokens da identidade: `--cta`, `--cta-foreground`, `--cta-hover`, `--brand-deep`, `--brand-gold`, `--brand-gold-light` e `--brand-cream`.
+- PDFs e e-mails usam `BRAND_COLORS` de `tokens.ts`. Os modelos de e-mail no banco são recoloridos por migration. Não recolora modelo à mão.
 - Neutros: `NEUTRAL_COLORS` em `tokens.ts` (50 a 900, escala `gray` do Tailwind). `500` para texto secundário (4,8:1). `400` só para placeholder ou ícone inativo decorativo, nunca texto de leitura.
-- Foco visível: contorno de 3 px com `--ring`, em todos os elementos.
 
 ## Forma, camadas e espaço
 
 - Raios: campo `rounded-input` 8, cartão `rounded-card`/`rounded-lg` 12, destaque `rounded-hero` 16, modal `rounded-modal` 24. Botão, tag, busca e item ativo da barra: `rounded-full`.
-- Sombras leves: `shadow-sm` baixa, `shadow-md` média, `shadow-lg` alta (valores em `globals.css`). `shadow-glow` só no CTA principal.
+- Sombras leves: `shadow-sm` baixa, `shadow-md` média, `shadow-lg` alta (valores em `globals.css`). `shadow-glow` (brilho dourado) só no CTA principal.
 - Espaço: 4, 8, 12, 16, 24, 32, 40, 48. Margem de tela `px-screen` (16 px abaixo de 375 px, 20 px acima).
 - Números de saldo e extrato: classe `tabular-nums`. Pesos 400, 500 e 700.
 
 ## Tipografia e toque
 
-- Fonte: **Atkinson Hyperlegible** (400 e 700), carregada com `next/font/google` em `src/app/layout.tsx` (variável `--font-sans`). No PDF, TTF do repositório.
+- Títulos (h1 a h3) em **Georgia** (serifa), pela classe `font-heading`.
+- Texto corrido: **Atkinson Hyperlegible** (400 e 700), carregada com `next/font/google` em `src/app/layout.tsx` (variável `--font-sans`). No PDF, TTF do repositório.
 - Base de 18 px no portal e nas páginas públicas (`.area-portal`), 16 px nos painéis. Nunca menos de 14 px; no portal nunca menos de 16 px. Altura de linha 1,5.
 - Alvos de toque: 48 px no portal e nas páginas públicas, 44 px nos painéis. 8 px entre alvos.
 - Botão só com ícone leva `aria-label`. Ícone importante tem texto ao lado.
@@ -87,9 +93,9 @@ Três partes, nesta ordem, sem termo técnico e sem código de erro. Use `failur
 
 Primitivos em `src/components/ui/` (Radix + `cva` + `cn()`). Não crie botão, campo ou selo à mão.
 
-- Ação: `Button` (pílula). `default` verde escuro com texto branco; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#122C2B`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho só ao `default` e só no CTA principal da tela. `IconButton` é circular de 48 px e exige `aria-label`.
+- Ação: `Button` (pílula). `default` é o CTA: fundo dourado `--cta` com texto `--cta-foreground`; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#123029`, `--ink`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho dourado só ao `default` e só no CTA principal da tela. `IconButton` é circular de 48 px e exige `aria-label`.
 - Formulário: `Input`, `Textarea`, `Select` (8 px, 48 px de altura; erro por `aria-invalid`), `Field` (rótulo sempre visível, ajuda e erro ligados por `aria-describedby`), `SearchInput` (pílula), `Label`, `Checkbox`, `RadioGroup`, `Dialog` (24 px, scrim escuro).
-- Cartão: `Card` com `variant` `flat` (padrão, borda de 1 px), `elevated` e `hero` (verde da marca).
+- Cartão: `Card` com `variant` `flat` (padrão, borda de 1 px), `elevated` e `hero` (verde-escuro `--primary`, texto branco).
 - Cartões de produto mostram nome e descrição completos (sem corte); o bloco "O que você recebe" é um `<details>` com seta (chevron) que gira ao abrir.
 - Saldo e atalhos: `BalanceCard` (valor grande com `tabular-nums`, `hideable` mostra o olho; `displayBalance` em `balance.ts`), `QuickActions` + `QuickAction` (tile de 56 px com ícone, rótulo embaixo, `active` para a ação principal, link ou botão), `ListRow` (ícone circular cinza, título, subtítulo, valor à direita), `SectionHeader` (título e link).
 - Estado: `StatusBadge`, `Badge` (pílula; `variant="brand"` para tag positiva), `StatusBanner`, `EmptyState`, `Skeleton`, `Stepper` (círculos, "Agora:"), toast (`Toaster`, `role="status"`).
@@ -105,19 +111,19 @@ Regras:
 
 ## Layouts
 
-- **Portal (celular):** cabeçalho com a logo e o chip de saldo (só com `credits:read` e carteira; sem saldo, o cabeçalho não mostra nada). Barra inferior com ícone e texto; o item ativo é um círculo verde com ícone branco e rótulo visível: Início, Pesquisas, Créditos (com `credits:read`) e Conta. No computador, logo completa e os mesmos itens em linha.
+- **Portal (celular):** cabeçalho com a logo e o chip de saldo (só com `credits:read` e carteira; sem saldo, o cabeçalho não mostra nada). Barra inferior com ícone e texto; o item ativo é um círculo verde-escuro (`--primary`) com ícone branco e rótulo visível: Início, Pesquisas, Créditos (com `credits:read`) e Conta. No computador, logo completa e os mesmos itens em linha.
 - **Saldo:** aparece só no chip do cabeçalho e na tela Créditos. Nenhuma outra tela repete o saldo.
 - **Texto em lista:** corta com "…" (uma linha). Exceção: o nome do Bureau no `PublicShell` quebra em várias linhas.
 - **Créditos:** o extrato fica agrupado por data. A tela não tem tabela de movimentos nem a seção "Recargas recentes".
 - **Explicações:** Nova pesquisa tem a introdução "como funciona" (`ResearchIntro`). Afiliação tem "Como funciona" (`HowItWorks`). A página pública do Bureau tem a mesma explicação em `PublicHowItWorks`.
 - **Páginas públicas:** logo completa no topo, nome do Bureau, uma coluna.
-- **Painéis (Bureau e superadmin):** barra lateral no computador. No celular, cabeçalho com botão "Menu" que abre a gaveta. A primeira tela vira cartões empilhados.
+- **Painéis (Bureau e superadmin):** barra lateral no computador (verde profundo). No celular, cabeçalho com botão "Menu" que abre a gaveta. A primeira tela vira cartões empilhados.
 - Filtros guardam o estado na URL.
 - Resultado da pesquisa (cliente): a tela mostra o resumo (score, restrições) e o parecer de IA; o detalhe completo fica no PDF.
 
 ## Regras da marca
 
-- Kit em `public/brand/rainha-cred/`. Não redesenhe, não mude as cores, não estique e não crie versão horizontal, branca ou preta (veja `LEIA-ME.txt`).
+- Kit em `public/brand/rainha-cred/`. Não redesenhe, não mude as cores, não estique e não crie versão horizontal, branca ou preta (veja `LEIA-ME.txt`). Não recolora o kit.
 - PDF: cabeçalho e rodapé em código, com o nome do Bureau, e-mail de suporte e "Página X de Y". Sem Instagram e sem telefone.
 - E-mail: logo por URL absoluta, fonte `Arial, sans-serif`, rodapé com "Rainha Cred" e o suporte.
 - E-mail de suporte: variável `SUPPORT_EMAIL` (padrão `suporte@rainhacred.com.br`; domínio a confirmar).
