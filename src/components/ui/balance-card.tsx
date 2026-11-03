@@ -22,7 +22,7 @@ interface BalanceCardProps {
   className?: string;
 }
 
-// Cartão de saldo: fundo verde escuro da marca (#007A76, branco 5,2:1), texto branco em negrito.
+// Cartão de saldo: fundo verde profundo da marca (#0A3329, branco 13:1), texto branco em negrito.
 export function BalanceCard({ label = "Saldo", value, hideable = false, hint, action, storageKey, className }: BalanceCardProps) {
   const [hidden, setHidden] = React.useState(false);
 

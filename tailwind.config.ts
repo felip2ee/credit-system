@@ -18,6 +18,7 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        heading: ["Georgia", '"Times New Roman"', "serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -48,6 +49,17 @@ const config: Config = {
         popover: {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
+        },
+        cta: {
+          DEFAULT: "hsl(var(--cta))",
+          foreground: "hsl(var(--cta-foreground))",
+          hover: "hsl(var(--cta-hover))",
+        },
+        brand: {
+          deep: "hsl(var(--brand-deep))",
+          gold: "hsl(var(--brand-gold))",
+          "gold-light": "hsl(var(--brand-gold-light))",
+          cream: "hsl(var(--brand-cream))",
         },
         surface: "hsl(var(--surface))",
         ink: "hsl(var(--ink))",
@@ -85,7 +97,7 @@ const config: Config = {
         md: "var(--shadow-mid)",
         lg: "var(--shadow-high)",
         // Brilho só no CTA principal da tela.
-        glow: "0 4px 14px rgba(0, 122, 118, 0.35)",
+        glow: "0 4px 14px rgba(207, 169, 104, 0.45)",
       },
       keyframes: {
         "accordion-down": {

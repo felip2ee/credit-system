@@ -8,11 +8,11 @@ describe("contrastRatio", () => {
 	});
 
 	it("is symmetric", () => {
-		expect(contrastRatio("#122C2B", "#FFFFFF")).toBeCloseTo(contrastRatio("#FFFFFF", "#122C2B"), 5);
+		expect(contrastRatio("#123029", "#FFFFFF")).toBeCloseTo(contrastRatio("#FFFFFF", "#123029"), 5);
 	});
 
-	it("proves the brand green is too light for body text", () => {
-		expect(contrastRatio("#009C97", "#FFFFFF")).toBeLessThan(4.5);
+	it("proves the gold is too light for text on the page background", () => {
+		expect(contrastRatio("#CFA968", "#FBF8F2")).toBeLessThan(3);
 	});
 });
 
@@ -20,7 +20,28 @@ describe("brand colors", () => {
 	const c = BRAND_COLORS;
 
 	it("keeps the fixed brand palette", () => {
-		expect([c.brand, c.cream, c.ink]).toEqual(["#009C97", "#FCEDCE", "#122C2B"]);
+		expect([c.brand, c.cream, c.ink]).toEqual(["#05261F", "#F4EAD7", "#123029"]);
+	});
+
+	it("CTA text on gold is at least 4.5:1 at rest and on hover", () => {
+		expect(contrastRatio(c.ctaForeground, c.cta)).toBeGreaterThanOrEqual(4.5);
+		expect(contrastRatio(c.ctaForeground, c.ctaHover)).toBeGreaterThanOrEqual(4.5);
+	});
+
+	it("dark band and sidebar: cream text and gold accent are at least 4.5:1 on the deep green", () => {
+		expect(contrastRatio(c.cream, c.brand)).toBeGreaterThanOrEqual(4.5);
+		expect(contrastRatio(c.gold, c.brand)).toBeGreaterThanOrEqual(4.5);
+		expect(contrastRatio(c.goldLight, c.brand)).toBeGreaterThanOrEqual(4.5);
+	});
+
+	it("muted text on the cream highlight is at least 4.5:1", () => {
+		expect(contrastRatio(c.mutedForeground, c.cream)).toBeGreaterThanOrEqual(4.5);
+	});
+
+	it("portal text on the main background is at least 7:1", () => {
+		expect(contrastRatio(c.foreground, c.background)).toBeGreaterThanOrEqual(7);
+		expect(contrastRatio(c.mutedForeground, c.background)).toBeGreaterThanOrEqual(7);
+		expect(contrastRatio(c.primary, c.background)).toBeGreaterThanOrEqual(7);
 	});
 
 	it("button text on primary is at least 4.5:1", () => {
@@ -53,11 +74,11 @@ describe("redesign surfaces (PicPay look)", () => {
 		expect(contrastRatio("#FFFFFF", c.primary)).toBeGreaterThanOrEqual(4.5);
 	});
 
-	it("proves the raw brand green cannot be the hero background for normal text", () => {
-		expect(contrastRatio("#FFFFFF", c.brand)).toBeLessThan(4.5);
+	it("proves the gold cannot be a background for white text", () => {
+		expect(contrastRatio("#FFFFFF", c.gold)).toBeLessThan(4.5);
 	});
 
-	it("white text on the dark button (#122C2B) is at least 7:1", () => {
+	it("white text on the dark button (#123029) is at least 7:1", () => {
 		expect(contrastRatio("#FFFFFF", c.ink)).toBeGreaterThanOrEqual(7);
 	});
 

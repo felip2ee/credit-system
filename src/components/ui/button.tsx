@@ -9,8 +9,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Primário: fundo verde escuro da marca, texto branco em negrito.
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // Primário (CTA): fundo dourado, texto marrom escuro em negrito.
+        default: "bg-cta text-cta-foreground hover:bg-cta-hover",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         // Secundário: contorno.
@@ -21,7 +21,7 @@ const buttonVariants = cva(
         // Terciário: só texto.
         ghost: "text-primary hover:bg-muted",
         link: "text-primary underline-offset-4 hover:underline",
-        // Escuro #122C2B.
+        // Escuro #123029.
         dark: "bg-ink text-white hover:bg-ink/90",
         // Pílula branca sobre o cartão de saldo (fundo verde escuro).
         onBrand: "bg-background text-primary hover:bg-brand-soft",
@@ -44,7 +44,7 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
-  // Brilho verde: só no CTA principal da tela (variant="default").
+  // Brilho dourado: só no CTA principal da tela (variant="default").
   glow?: boolean;
 }
 
