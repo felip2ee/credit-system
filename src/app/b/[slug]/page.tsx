@@ -19,7 +19,7 @@ export const metadata = {
 };
 
 const CTA_CLASS =
-  "inline-flex min-h-11 items-center justify-center rounded-full bg-cta px-[26px] py-[15px] font-[family-name:system-ui,sans-serif] text-[15px] font-bold leading-none text-cta-foreground hover:bg-cta-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-gold-light";
+  "inline-flex min-h-11 items-center justify-center rounded-full border border-brand-gold-light bg-brand-cream px-[26px] py-[15px] font-[family-name:system-ui,sans-serif] text-[15px] font-bold leading-none text-cta-foreground hover:bg-brand-gold-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-gold-light";
 const NOTE_CLASS = "my-4 border-l-[3px] border-brand-gold py-1 pl-[14px] text-muted-foreground";
 const SERIF = "font-heading";
 const RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";

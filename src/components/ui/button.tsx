@@ -10,7 +10,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // Primário (CTA): fundo dourado, texto marrom escuro em negrito.
-        default: "bg-cta text-cta-foreground hover:bg-cta-hover",
+        default: "border border-brand-gold-light bg-brand-cream text-cta-foreground hover:bg-brand-gold-light",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         // Secundário: contorno.
