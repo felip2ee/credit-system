@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { failureMessage } from "@/lib/ui/failure-message";
-import { CLIENT_TOPUP_SUGGESTIONS } from "@/lib/validators/wallet";
+import type { TopupSuggestion } from "@/lib/validators/wallet";
 import { CREDITS_PATH } from "@/lib/wallet/credits-path";
 import { parseTopupInput } from "@/lib/wallet/topup-input";
 import { formatCurrency } from "@/lib/utils";
@@ -31,7 +31,7 @@ function TopupFailure({ what }: { what: string }) {
   );
 }
 
-export function ClientTopupDialog() {
+export function ClientTopupDialog({ suggestions }: { suggestions: TopupSuggestion[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
@@ -77,19 +77,21 @@ export function ClientTopupDialog() {
       <Dialog open={open} onClose={close} title="Recarregar créditos" dismissible={!isPending}>
         <form onSubmit={submit} className="space-y-4" noValidate>
           <div className="space-y-2">
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Valores sugeridos">
-              {CLIENT_TOPUP_SUGGESTIONS.map((s) => (
-                <Button
-                  key={s}
-                  type="button"
-                  variant="outline"
-                  disabled={isPending}
-                  onClick={() => setValue(s.replace(".", ","))}
-                >
-                  {formatCurrency(Number(s))}
-                </Button>
-              ))}
-            </div>
+            {suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Valores sugeridos">
+                {suggestions.map((s) => (
+                  <Button
+                    key={s.pfCount}
+                    type="button"
+                    variant="outline"
+                    disabled={isPending}
+                    onClick={() => setValue(s.amount.replace(".", ","))}
+                  >
+                    {s.pfCount} PF · {formatCurrency(Number(s.amount))}
+                  </Button>
+                ))}
+              </div>
+            )}
             <Label htmlFor="topup-amount">Valor (R$ 10,00 a R$ 5.000,00)</Label>
             <Input
               id="topup-amount"
