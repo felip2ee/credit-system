@@ -10,13 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListRow } from "@/components/ui/list-row";
+import { MONEY_TEXT_CLASS, MoneyTag } from "@/components/ui/money-tag";
 import { SectionHeader } from "@/components/ui/section-header";
-import { cn } from "@/lib/utils";
 import type { ClientPixCharge } from "@/lib/wallet/pix-charges";
-import { buildStatement, clipChargesToLedgerWindow, type StatementLedgerEntry, type StatementTone } from "@/lib/wallet/statement";
+import { buildStatement, clipChargesToLedgerWindow, type StatementLedgerEntry } from "@/lib/wallet/statement";
 
 const ICON = { in: ArrowDownLeft, out: ArrowUpRight, neutral: Receipt } as const;
-const VALUE_CLASS: Record<StatementTone, string> = { in: "text-success", out: "", neutral: "text-muted-foreground" };
 
 interface ClientStatementProps {
   initialLedger: StatementLedgerEntry[];
@@ -64,9 +63,10 @@ export function ClientStatement({ initialLedger, initialCursor, charges, extras 
                   <li key={r.id}>
                     <ListRow
                       icon={ICON[r.tone]}
+                      iconClassName={MONEY_TEXT_CLASS[r.tone]}
                       title={r.title}
                       subtitle={r.detail}
-                      value={r.amount && <span className={cn(VALUE_CLASS[r.tone])}>{r.amount}</span>}
+                      value={r.amount && <MoneyTag tone={r.tone} struck={r.struck}>{r.amount}</MoneyTag>}
                     />
                     {(r.receiptHref || extras[r.id]) && (
                       <div className="flex flex-wrap items-center gap-x-4 pb-2 pl-4 pr-4 sm:pl-[4.5rem]">

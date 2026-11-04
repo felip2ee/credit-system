@@ -21,8 +21,8 @@ export interface HueClasses {
 }
 
 export const HUE: Record<Hue, HueClasses> = {
-  emerald: { bar: "bg-emerald-500", fill: "fill-emerald-500", stroke: "stroke-emerald-500" },
-  emeraldDark: { bar: "bg-emerald-600", fill: "fill-emerald-600", stroke: "stroke-emerald-600" },
+  emerald: { bar: "bg-primary", fill: "fill-primary", stroke: "stroke-primary" },
+  emeraldDark: { bar: "bg-brand-deep", fill: "fill-brand-deep", stroke: "stroke-brand-deep" },
   amber: { bar: "bg-amber-500", fill: "fill-amber-500", stroke: "stroke-amber-500" },
   sky: { bar: "bg-sky-500", fill: "fill-sky-500", stroke: "stroke-sky-500" },
   indigo: { bar: "bg-indigo-500", fill: "fill-indigo-500", stroke: "stroke-indigo-500" },

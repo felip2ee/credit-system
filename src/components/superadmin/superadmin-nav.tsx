@@ -5,9 +5,9 @@ import { SUPERADMIN_NAV_ITEMS } from "@/components/layout/nav-items";
 
 export function SuperadminNav() {
   return (
-    <aside className="hidden w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex">
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex">
       <SidebarBrand label="Superadmin" />
-      <nav className="flex-1 space-y-1 p-3">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
         {SUPERADMIN_NAV_ITEMS.map((item) => (
           <Link
             key={item.href}

@@ -3,44 +3,57 @@
 @tailwind utilities;
 
 @layer base {
-  /* Identidade Rainha Cred. Valores em hex espelhados em src/lib/brand/tokens.ts.
-     Verde da marca #009C97 só em logo, ícones e texto grande; texto e botões usam --primary (#007A76). */
+  /* Identidade Rainha Cred (verde profundo + dourado). Valores em hex espelhados em src/lib/brand/tokens.ts.
+     Dourado #CFA968 só em fundo de CTA (texto #2A1F0A), faixa escura e destaque; texto, links e foco usam --primary (#0A3329). */
   :root {
-    --background: 0 0% 100%;               /* #FFFFFF */
-    --foreground: 178 42% 12%;             /* #122C2B */
+    --background: 40 53% 97%;              /* #FBF8F2, fundo quente (cartões ficam brancos) */
+    --foreground: 166 45% 13%;             /* #123029 */
     --card: 0 0% 100%;
-    --card-foreground: 178 42% 12%;
+    --card-foreground: 166 45% 13%;
     --popover: 0 0% 100%;
-    --popover-foreground: 178 42% 12%;
-    --primary: 178 100% 24%;               /* #007A76 */
+    --popover-foreground: 166 45% 13%;
+    --primary: 165 67% 12%;                /* #0A3329, verde profundo: links, foco, cartão de saldo */
     --primary-foreground: 0 0% 100%;
-    --secondary: 177 39% 90%;              /* #DDF0EF */
-    --secondary-foreground: 178 42% 12%;
-    --muted: 220 14% 96%;                  /* #F3F4F6 */
-    --muted-foreground: 177 12% 33%;       /* #4A5E5D */
-    --accent: 40 88% 90%;                  /* creme #FCEDCE */
-    --accent-foreground: 178 42% 12%;
+    --cta: 38 52% 61%;                     /* #CFA968, fundo do botão principal */
+    --cta-foreground: 39 62% 10%;          /* #2A1F0A */
+    --cta-hover: 39 63% 74%;               /* #E6C891 */
+    --secondary: 39 57% 90%;               /* #F4EAD7 */
+    --secondary-foreground: 166 45% 13%;
+    --muted: 41 36% 91%;                   /* #F1ECE1 */
+    --muted-foreground: 166 23% 26%;       /* #33514A */
+    --accent: 39 57% 90%;                  /* creme #F4EAD7 */
+    --accent-foreground: 166 45% 13%;
     --destructive: 4 76% 31%;              /* #8A1C14 */
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%;                 /* #E5E7EB, borda plana de cartão (decorativa) */
-    --input: 177 9% 53%;                   /* #7D9291, borda de controle >= 3:1 */
-    --ring: 178 100% 24%;                  /* anel de foco #007A76, >= 3:1 */
-    --surface: 216 33% 97%;                /* #F5F7FA, seção cinza alternada */
-    --brand-soft: 176 39% 93%;             /* #E6F4F3, tag positiva */
-    --brand-soft-foreground: 178 100% 16%; /* #00514E */
-    --ink: 178 42% 12%;                    /* #122C2B, botão escuro */
+    --border: 41 28% 85%;                  /* #E3DCCD, borda plana de cartão (decorativa) */
+    --input: 146 7% 53%;                   /* #7F8F86, borda de controle >= 3:1 */
+    --ring: 165 67% 12%;                   /* anel de foco #0A3329, >= 3:1 */
+    --surface: 40 48% 94%;                 /* #F7F2E8, seção alternada */
+    --brand-soft: 39 57% 90%;              /* #F4EAD7, tag positiva e item ativo */
+    --brand-soft-foreground: 167 77% 8%;   /* #05261F */
+    --ink: 166 45% 13%;                    /* #123029, botão escuro */
+    --brand-deep: 167 77% 8%;              /* #05261F, faixa escura e barra lateral */
+    --brand-gold: 38 52% 61%;              /* #CFA968 */
+    --brand-gold-light: 39 63% 74%;        /* #E6C891 */
+    --brand-cream: 39 57% 90%;             /* #F4EAD7 */
+    --money-in-bg: 150 27% 91%;            /* #E3EFE9, tag de entrada (igual ao sucesso) */
+    --money-in-fg: 165 67% 12%;            /* #0A3329 */
+    --money-out-bg: 7 76% 93%;             /* #FBE4E1, tag de gasto */
+    --money-out-fg: 4 75% 31%;             /* #8A1C14 */
+    --money-void-bg: 45 11% 93%;           /* #EEEDEA, tag de cancelado ou sem efeito no saldo */
+    --money-void-fg: 215 14% 34%;          /* #4B5563 */
     --radius: 0.75rem;                     /* 12 px: cartão (lg); md 10, sm 8 */
-    --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-low: 0 1px 3px rgba(5, 38, 31, 0.08);
     --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);
     --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.12);
-    --sidebar: 178 42% 12%;                /* #122C2B */
-    --sidebar-foreground: 40 88% 90%;
-    --sidebar-primary: 178 100% 31%;       /* #009C97 sobre escuro */
-    --sidebar-primary-foreground: 178 42% 12%;
-    --sidebar-accent: 178 30% 20%;
-    --sidebar-accent-foreground: 40 88% 90%;
-    --sidebar-border: 178 25% 24%;
-    --sidebar-ring: 178 100% 31%;
+    --sidebar: 167 77% 8%;                 /* #05261F */
+    --sidebar-foreground: 39 57% 90%;      /* #F4EAD7 */
+    --sidebar-primary: 38 52% 61%;         /* #CFA968, item ativo */
+    --sidebar-primary-foreground: 167 77% 8%;
+    --sidebar-accent: 165 67% 12%;         /* #0A3329 */
+    --sidebar-accent-foreground: 39 57% 90%;
+    --sidebar-border: 166 45% 20%;         /* #1C4A3F */
+    --sidebar-ring: 38 52% 61%;
   }
 }
 
@@ -50,6 +63,11 @@
   }
   html {
     font-size: 16px;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-heading;
   }
   body {
     @apply bg-background text-foreground;

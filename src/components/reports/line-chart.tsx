@@ -3,9 +3,9 @@ import { cn } from "@/lib/utils";
 export interface LineSeries {
   label: string;
   points: number[]; // mesmo comprimento de xLabels
-  strokeClass: string; // ex.: "stroke-emerald-500"
-  dotClass: string; // ex.: "fill-emerald-500"
-  chipClass: string; // ex.: "bg-emerald-500" (legenda)
+  strokeClass: string; // ex.: "stroke-primary"
+  dotClass: string; // ex.: "fill-primary"
+  chipClass: string; // ex.: "bg-primary" (legenda)
 }
 
 interface LineChartProps {

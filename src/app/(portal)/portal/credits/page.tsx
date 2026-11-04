@@ -8,8 +8,10 @@ import { PageHeader } from "@/components/layout/page-header";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { getClientAccountStatus } from "@/lib/account/queries";
+import { getPublicCatalog } from "@/lib/bureaus/public";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { pfTopupSuggestions } from "@/lib/validators/wallet";
 import { getClientWallet, listClientLedger } from "@/lib/wallet/client-queries";
 import { listClientPixCharges } from "@/lib/wallet/pix-charges";
 
@@ -20,11 +22,15 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
   if (!hasPermission(session, "credits:read")) redirect("/portal");
 
   const data = await withUserTransaction(session, async (client) => ({
+    slug: (await client.query<{ slug: string }>("select slug from bureaus where id = app_bureau_id()")).rows[0]?.slug ?? null,
     status: await getClientAccountStatus(client, session.userId),
     wallet: await getClientWallet(client, session.userId),
     ledger: await listClientLedger(client, session.userId),
     charges: await listClientPixCharges(client, session.userId),
   }));
+
+  const catalog = data.slug ? await getPublicCatalog(data.slug) : [];
+  const suggestions = pfTopupSuggestions(catalog.find((item) => item.code === "dossie_pf")?.salePrice ?? null);
 
   const extras = Object.fromEntries(
     data.charges.flatMap((c) =>
@@ -41,7 +47,7 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
         <ClientBalance wallet={data.wallet}>
           {hasPermission(session, "credits:topup") &&
             (data.status.emailVerified ? (
-              <ClientTopupDialog />
+              <ClientTopupDialog suggestions={suggestions} />
             ) : (
               <p className="text-base font-bold">Confirme seu e-mail para comprar créditos.</p>
             ))}

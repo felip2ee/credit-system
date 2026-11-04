@@ -1306,9 +1306,9 @@ describe("notification templates (022)", () => {
 			[],
 		);
 		expect(found).toEqual([
-			{ key: "research_released", channel: "email", version: 2, status: "active", params: ["clientName", "url"], wa_template_name: null, wa_language: null, email_subject: "Sua pesquisa está disponível" },
+			{ key: "research_released", channel: "email", version: 3, status: "active", params: ["clientName", "url"], wa_template_name: null, wa_language: null, email_subject: "Sua pesquisa está disponível" },
 			{ key: "research_released", channel: "whatsapp", version: 1, status: "active", params: ["clientName", "url"], wa_template_name: "research_released", wa_language: "pt_BR", email_subject: null },
-			{ key: "scr_authorization", channel: "email", version: 2, status: "active", params: ["clientName", "authorizedName", "code", "url"], wa_template_name: null, wa_language: null, email_subject: "Autorização de consulta SCR — Rainha Cred" },
+			{ key: "scr_authorization", channel: "email", version: 3, status: "active", params: ["clientName", "authorizedName", "code", "url"], wa_template_name: null, wa_language: null, email_subject: "Autorização de consulta SCR — Rainha Cred" },
 			{ key: "scr_authorization", channel: "whatsapp", version: 1, status: "active", params: ["clientName", "authorizedName", "code", "url"], wa_template_name: "scr_authorization", wa_language: "pt_BR", email_subject: null },
 		]);
 	});

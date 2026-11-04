@@ -6,7 +6,7 @@ import { signOut } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { releaseDevicePushForLogout } from "@/lib/pwa/service-worker";
 
-const DEFAULT_CLASS = "h-14 w-full justify-start rounded-card bg-muted px-4 text-foreground hover:bg-secondary";
+const DEFAULT_CLASS = "h-14 w-full justify-start rounded-card border border-border bg-card px-4 text-destructive hover:bg-muted hover:text-destructive";
 
 interface PortalSignOutButtonProps {
 	variant?: React.ComponentProps<typeof Button>["variant"];

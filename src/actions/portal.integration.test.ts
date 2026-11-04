@@ -248,20 +248,23 @@ describe("client orders through the portal actions", () => {
       )
     ).rows[0];
 
-  const company = (declarationAccepted: boolean) => ({
+  const currentDeclarationVersion = async () =>
+    (await owner.query<{ v: number }>("select legal_current_version('buyer_declaration') as v")).rows[0].v;
+
+  const company = (declarationAccepted: boolean, declarationVersion: number) => ({
     productCode: "dossie_empresarial",
     self: false,
     subject: { name: "Empresa Teste Ltda", document: validCnpj() },
     contactEmail: `r${randomUUID()}@example.test`,
     partners: [partner(), partner()],
     declarationAccepted,
-    declarationVersion: 1,
+    declarationVersion,
   });
 
   it("opens an empresarial order with 2 partners and the declaration, then 3 authorizations make it ready", async () => {
     const t = await readyClientTenant();
 
-    const result = await openClientOrderAction(company(true));
+    const result = await openClientOrderAction(company(true, await currentDeclarationVersion()));
 
     expect(result.error).toBeNull();
     const id = result.id as string;
@@ -287,7 +290,7 @@ describe("client orders through the portal actions", () => {
   it("refuses an empresarial order without the declaration and opens nothing", async () => {
     const t = await readyClientTenant();
 
-    await expect(openClientOrderAction(company(false))).resolves.toEqual({ error: "Marque a declaração para continuar." });
+    await expect(openClientOrderAction(company(false, await currentDeclarationVersion()))).resolves.toEqual({ error: "Marque a declaração para continuar." });
 
     const { rows } = await owner.query("select 1 from dossier_orders where bureau_id = $1", [t.bureau.id]);
     expect(rows).toHaveLength(0);

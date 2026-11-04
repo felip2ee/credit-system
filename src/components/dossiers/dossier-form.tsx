@@ -142,7 +142,7 @@ export function DossierForm({ products }: DossierFormProps) {
                   {products.map((p) => (
                     <SelectItem key={p.code} value={p.code}>
                       {p.name} — {formatCurrency(Number(p.price))}
-                      {p.code === EMPRESARIAL_PRODUCT ? ` + ${formatCurrency(Number(p.pricePerPartner))} por sócio` : ""}
+                      {p.code === EMPRESARIAL_PRODUCT ? ` + ${formatCurrency(Number(p.pricePerPartner))} por sócio ou cônjuge` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
