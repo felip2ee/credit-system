@@ -15,6 +15,8 @@ import setup_production as sp  # noqa: E402
 from install_testkit import (APP, LISTEN_DOCKER, LISTEN_NGINX, LISTEN_NO_USERS, NEW, OLD, STACK_SERVICES,  # noqa: E402
                              TRAEFIK_ARGS, Fake, fake_clock, server)
 from test_install_flow import FlowTests, InstallerTests  # noqa: E402,F401  (rodam junto com este módulo)
+from test_install_output import OutputTests  # noqa: E402,F401
+from test_install_collect import CollectTests  # noqa: E402,F401
 
 NAMES = {"reino_app": APP, "migrate": "reino_migrate"}
 
