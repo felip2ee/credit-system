@@ -11,6 +11,8 @@ const buttonVariants = cva(
       variant: {
         // Primário (CTA): fundo dourado, texto marrom escuro em negrito.
         default: "border border-brand-gold-light bg-brand-cream text-cta-foreground hover:bg-brand-gold-light",
+        // Entrada principal ("Nova pesquisa", "Novo pedido"): dourado cheio.
+        cta: "bg-cta text-cta-foreground hover:bg-cta-hover",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         // Secundário: contorno.
@@ -44,7 +46,7 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
-  // Brilho dourado: só no CTA principal da tela (variant="default").
+  // Brilho dourado: só no CTA principal da tela (variant="default" ou "cta").
   glow?: boolean;
 }
 
@@ -53,7 +55,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const Comp = asChild ? Slot : "button";
     return (
       <Comp
-        className={cn(buttonVariants({ variant, size }), glow && (variant ?? "default") === "default" && "shadow-glow", className)}
+        className={cn(buttonVariants({ variant, size }), glow && ["default", "cta"].includes(variant ?? "default") && "shadow-glow", className)}
         ref={ref}
         {...props}
       />

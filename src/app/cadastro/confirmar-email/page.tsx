@@ -31,7 +31,7 @@ export default function ConfirmEmailPage({
         ) : (
           <div className="space-y-3">
             <StatusBanner tone="attention" title="Link inválido." description="Entre na sua conta para pedir um novo link." />
-            <Button asChild size="lg" className="w-full">
+            <Button asChild variant="cta" size="lg" className="w-full">
               <Link href="/login">Entrar</Link>
             </Button>
           </div>

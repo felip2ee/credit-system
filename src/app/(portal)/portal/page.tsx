@@ -29,7 +29,7 @@ export default async function PortalHomePage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Olá{firstName ? `, ${firstName}` : ""}</h1>
-      <Button asChild size="lg" glow className="w-full">
+      <Button asChild variant="cta" size="lg" glow className="w-full">
         <Link href="/portal/pesquisas/nova">
           <FilePlus2 aria-hidden />
           Nova pesquisa
