@@ -53,6 +53,8 @@ graphify-out/cache/
 # setup de produção (scripts/setup/setup_production.py)
 .env.production
 credenciais-GUARDAR.txt
+credenciais-*GUARDAR*.txt
+traefik-stack.yml
 
 # playwright
 /e2e/.auth/

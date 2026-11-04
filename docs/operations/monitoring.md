@@ -16,7 +16,7 @@ O serviço `notifications_cron` roda `scripts/notifications-cron.mjs` a cada 60 
 
 | Chave | Assunto | Dispara quando | Primeiro passo |
 |---|---|---|---|
-| `dispatch_down` | `[reino] dispatch indisponível` | 5 falhas seguidas em `POST /api/internal/notifications/dispatch`: falha de rede, ou resposta não-200 com corpo que não é JSON | `docker service logs reino_app`, depois `docker service ps reino_app` |
+| `dispatch_down` | `[reino] dispatch indisponível` | 5 falhas seguidas em `POST /api/internal/notifications/dispatch`: falha de rede, ou resposta não-200 com corpo que não é JSON | `docker service logs reino_reino_app`, depois `docker service ps reino_reino_app` |
 | `tick_down` | `[reino] tick indisponível` | 5 falhas seguidas em `POST /api/internal/orders/tick`, com o mesmo critério | Igual ao anterior |
 | `dispatch_failed` | `[reino] notificações falhando` | Resposta do despacho com `failed > 0` ou `errors > 0` | Logs com `[notifications-dispatch]`. Estados de falha em [notifications.md](notifications.md), seção 6 |
 | `tick_errors` | `[reino] tick com erros` | Resposta do tick com `errors > 0` | Logs com `[orders-tick]`. Veja [orders.md](orders.md) |
@@ -40,7 +40,7 @@ Log do cron: `docker service logs reino_notifications_cron`. As linhas começam 
 O projeto não tem agregação de erros. Os `console.error` começam com um prefixo entre colchetes. Para listar os erros do app:
 
 ```sh
-docker service logs --raw reino_app 2>&1 | grep -E '^\[|error'
+docker service logs --raw reino_reino_app 2>&1 | grep -E '^\[|error'
 ```
 
 Prefixos em uso: `[auth]`, `[account]`, `[asaas-webhook]`, `[whatsapp-webhook]`, `[orders]`, `[orders-tick]`, `[orders-execute]`, `[orders-ai]`, `[notifications]`, `[notifications-dispatch]`, `[wallet]`, `[payouts]`, `[payout-receipt]`, `[payables]`, `[credits]`, `[counter-payments]`, `[nfse]`, `[catalog]`, `[lgpd]`.

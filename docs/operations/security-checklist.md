@@ -110,8 +110,8 @@ Run after schema migrate (`\du` and the queries below as `postgres`):
 - [ ] `reino_app` has no owner DSN. These commands show no `database_owner_url`,
   no `DATABASE_OWNER_URL_FILE` and no `RUN_MIGRATIONS` in `reino_app`:
   ```sh
-  docker service inspect reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Secrets}}'
-  docker service inspect reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}'
+  docker service inspect reino_reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Secrets}}'
+  docker service inspect reino_reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}'
   ```
   Only `reino_migrate` lists `database_owner_url`.
 

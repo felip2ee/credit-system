@@ -49,7 +49,7 @@ SECRET_NAMES = [
 ]
 
 _DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_EMAIL = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+$")
 _S3_ENDPOINT = re.compile(r"^[A-Za-z0-9.-]+(:\d{1,5})?$")
 _S3_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -254,6 +254,14 @@ class SecretReport:
     skipped: list[str] = field(default_factory=list)
 
 
+class SecretCreationError(RuntimeError):
+    """Falha no meio da criação: `report` diz o que já foi criado, para o chamador desfazer."""
+
+    def __init__(self, message: str, report: SecretReport):
+        super().__init__(message)
+        self.report = report
+
+
 def create_docker_secrets(values: dict[str, str], run: Runner = default_runner) -> SecretReport:
     report = SecretReport()
     for name in SECRET_NAMES:
@@ -263,7 +271,7 @@ def create_docker_secrets(values: dict[str, str], run: Runner = default_runner) 
             continue
         code, _ = run(["docker", "secret", "create", name, "-"], input=values[name])
         if code != 0:
-            raise RuntimeError(f"falha ao criar o secret {name}")
+            raise SecretCreationError(f"falha ao criar o secret {name}", report)
         report.created.append(name)
     return report
 
@@ -326,15 +334,24 @@ def ask_secret(prompt: str, validator: Callable[[str], bool],
         print("  valor inválido, tente de novo.")
 
 
-def collect(run: Runner, input_fn=input, getpass_fn=getpass.getpass) -> tuple[dict[str, str], dict[str, str]]:
+def collect(run: Runner, input_fn=input, getpass_fn=getpass.getpass,
+            defaults: dict[str, str] | None = None, skip: set[str] | frozenset[str] = frozenset(),
+            skip_secrets: set[str] | frozenset[str] = frozenset()) -> tuple[dict[str, str], dict[str, str]]:
+    """`defaults` troca o padrão de uma pergunta; `skip` usa o valor de `defaults` sem perguntar."""
+    defaults = defaults or {}
     env_values: dict[str, str] = {}
     for key, prompt, default, validator in QUESTIONS:
+        if key in skip:
+            env_values[key] = defaults.get(key, "")
+            continue
         if key == "TRAEFIK_PROXY_CIDR":
             default = detect_proxy_cidr(env_values["TRAEFIK_NETWORK"], run) or ""
         if key == "OPS_ALERT_TO":
             default = env_values["BACKUP_ALERT_TO"]
+        default = defaults.get(key, default)
         env_values[key] = ask(prompt, default, validator, input_fn)
-    provided = {name: ask_secret(prompt, validator, getpass_fn) for name, prompt, validator, _ in SECRET_QUESTIONS}
+    provided = {name: ask_secret(prompt, validator, getpass_fn)
+                for name, prompt, validator, _ in SECRET_QUESTIONS if name not in skip_secrets}
     return env_values, provided
 
 
