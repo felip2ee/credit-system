@@ -71,6 +71,12 @@ class Core:
     def say(self, msg: str) -> None:
         self.out(ver.redact(msg, self.secret_values))
 
+    def ok(self, msg: str) -> None:
+        self.say(f"✔ {msg}")
+
+    def fail(self, msg: str) -> None:
+        self.say(f"✘ {msg}")
+
     def confirm(self, question: str) -> bool:
         if self.yes:
             self.say(f"{question} [sim: --yes]")

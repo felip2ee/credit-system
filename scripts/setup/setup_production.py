@@ -135,7 +135,7 @@ QUESTIONS: list[tuple[str, str, str, Callable[[str], bool]]] = [
     ("DEPS_API_EMAIL", "Usuário DEPS", "", _nonempty),
     ("DEPS_API_CENTRO_CUSTOS", "Centro de custos DEPS (opcional)", "", _any),
     ("OPENAI_MODEL", "Modelo OpenAI", "gpt-4o", _nonempty),
-    ("BACKUP_ALERT_TO", "E-mail para alertas de backup", "", valid_email),
+    ("BACKUP_ALERT_TO", "E-mail para alertas de backup (Enter = o do superadmin)", "", valid_email),
     ("OPS_ALERT_TO", "E-mail para alertas operacionais (vazio = o mesmo do backup)", "", valid_email),
     ("RESTIC_S3_ENDPOINT", "Endpoint S3 do backup (host[:porta], sem https://)", "", valid_s3_endpoint),
     ("RESTIC_S3_BUCKET", "Bucket S3 do backup", "", valid_s3_bucket),
@@ -346,6 +346,8 @@ def collect(run: Runner, input_fn=input, getpass_fn=getpass.getpass,
             continue
         if key == "TRAEFIK_PROXY_CIDR":
             default = detect_proxy_cidr(env_values["TRAEFIK_NETWORK"], run) or ""
+        if key == "BACKUP_ALERT_TO":
+            default = env_values["SUPERADMIN_EMAIL"]
         if key == "OPS_ALERT_TO":
             default = env_values["BACKUP_ALERT_TO"]
         default = defaults.get(key, default)

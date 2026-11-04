@@ -13,6 +13,7 @@ from install_core import GHCR, Core, Stop
 class Steps(Core):
     def ensure_docker(self, pre: det.Preflight) -> det.Preflight:
         if pre.docker:
+            self.ok("Docker: já instalado")
             return pre
         self.say("Docker não encontrado.")
         if not self.confirm("Instalar o Docker Engine com o script oficial (get.docker.com)?"):
@@ -25,6 +26,7 @@ class Steps(Core):
                     code, out = self.run(["sh", str(script)])
                 if code != 0:
                     raise Stop(f"falha ao instalar o Docker:\n{out[-800:]}")
+            self.ok("Docker: instalado")
             return det.detect(self.run)
         return pre
 
@@ -33,15 +35,20 @@ class Steps(Core):
             self.say("AVISO: não consegui verificar as portas 80/443 (o comando 'ss' falhou ou não existe). "
                      "Se outro programa usa essas portas, o Traefik não vai subir.")
         if not pre.port_conflicts:
+            self.ok("Portas 80/443: sem conflito")
             return
         who = ", ".join(f"{c.process} (porta {c.port})" for c in pre.port_conflicts)
+        self.fail(f"Portas 80/443: em uso por {who}")
         raise Stop(
             f"As portas 80/443 já estão em uso por: {who}.\n"
             "O Traefik precisa dessas portas. Não vou disputá-las.\n"
             "Pare o serviço (ex.: systemctl disable --now nginx) ou use o Traefik que já existe, e rode de novo.")
 
     def ensure_swarm(self, pre: det.Preflight) -> None:
-        if pre.swarm_manager or (self.dry_run and not pre.docker):
+        if pre.swarm_manager:
+            self.ok("Swarm: este nó é manager")
+            return
+        if self.dry_run and not pre.docker:
             return
         if pre.swarm_active:
             raise Stop("Este nó faz parte de um Swarm, mas não é manager. Rode o instalador no manager.")
@@ -50,7 +57,9 @@ class Steps(Core):
         if self.act("iniciando o Swarm"):
             code, out = self.run(["docker", "swarm", "init"])
             if code != 0:
+                self.fail("Swarm: docker swarm init falhou")
                 raise Stop(f"docker swarm init falhou (vários IPs? use --advertise-addr manualmente):\n{out[-600:]}")
+            self.ok("Swarm: iniciado")
 
     def ensure_traefik(self, pre: det.Preflight, email: str) -> dict[str, str]:
         """Devolve os padrões de TRAEFIK_NETWORK / TRAEFIK_CERT_RESOLVER."""
@@ -63,8 +72,8 @@ class Steps(Core):
                 if self.yes:
                     raise Stop(f"Há mais de uma opção no Traefik existente ({detail}). Rode sem --yes e escolha.")
                 self.say(f"AVISO: mais de uma opção no Traefik ({detail}). Confira os padrões abaixo.")
-            self.say(f"Traefik encontrado: {found.name} (rede '{found.network or '?'}', "
-                     f"resolver '{found.resolver or '?'}'). Vou reaproveitá-lo.")
+            self.ok(f"Traefik: rede {found.network or '?'}, resolver {found.resolver or '?'} "
+                    f"({found.name}, reaproveitado)")
             return {k: v for k, v in (("TRAEFIK_NETWORK", found.network),
                                       ("TRAEFIK_CERT_RESOLVER", found.resolver)) if v}
         self.say("Nenhum Traefik encontrado neste servidor.")
@@ -82,14 +91,16 @@ class Steps(Core):
             code, out = self.run(["docker", "stack", "deploy", "-c", str(path), tfk.TRAEFIK_STACK_NAME],
                                  cwd=self.root)
             if code != 0:
+                self.fail("Traefik: falha ao publicar")
                 raise Stop(f"falha ao publicar o Traefik:\n{out[-600:]}")
+            self.ok(f"Traefik: rede {network}, resolver {resolver} (publicado)")
         return {"TRAEFIK_NETWORK": network, "TRAEFIK_CERT_RESOLVER": resolver}
 
     def registry_login(self) -> None:
         if not self.gh_token and not self.yes:
             self.gh_token = self.getpass_fn("Token do GHCR com SÓ read:packages (vazio = imagens públicas): ")
         if not self.gh_token:
-            self.say("Sem token: não farei login no GHCR.")
+            self.ok("GHCR: sem token, sem login (imagens públicas)")
             return
         self.secret_values.add(self.gh_token)
         self.gh_user = self.gh_user or self.ask("Usuário do GitHub", "", lambda v: bool(v.strip()))
@@ -100,8 +111,10 @@ class Steps(Core):
             return
         code, _ = self.run(["docker", "login", GHCR, "-u", self.gh_user, "--password-stdin"], input=self.gh_token)
         if code != 0:
+            self.fail("GHCR: login falhou")
             raise Stop("docker login no ghcr.io falhou. Confira o token (escopo read:packages) e o usuário.")
         self.logged_in = True
+        self.ok(f"GHCR: login como {self.gh_user}")
 
     def registry_logout(self) -> None:
         if self.logged_in:
@@ -116,7 +129,8 @@ class Steps(Core):
         result: dict[str, str] = {}
         for key, image in (("REINO_IMAGE_DIGEST", "reino-credito"), ("REINO_BACKUP_DIGEST", "reino-backup")):
             found = det.resolve_digest(f"{GHCR}/{owner}/{image}:{tag}", self.run, allow_pull=not self.dry_run)
-            self.say(f"{image}:{tag[:12]} -> {'sha256:' + found if found else 'não encontrado'}")
+            (self.ok if found else self.fail)(
+                f"Digest {image}:{tag[:12]} -> {'sha256:' + found if found else 'não encontrado'}")
             if not found and self.yes and not self.dry_run:
                 raise Stop(f"Não achei o digest de {image}:{tag}. Com --yes não uso o digest antigo; "
                            "confira se o CI publicou a imagem e o login no GHCR, ou rode sem --yes.")

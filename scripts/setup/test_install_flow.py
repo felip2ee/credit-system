@@ -21,15 +21,15 @@ PROVIDED = {name: f"valor-{name}-abcdef" for name, *_ in sp.SECRET_QUESTIONS}
 
 
 def first_input(prompt):
-    if "[s/N]" in prompt:
-        return "s"
+    if "[s/N]" in prompt or "push" in prompt:
+        return "n" if any(w in prompt for w in ("Apagar o arquivo", "WhatsApp", "push")) else "s"
     return "ops@exemplo.com.br" if "E-mail" in prompt else ""
 
 
 def first_install(tmp, run, **kw):
     """Primeira instalação: sem .env, sem stack, sem secrets; `collect` simulado."""
     root = make_root(tmp, with_env=False)
-    inst, out = installer(root, run, yes=False, input_fn=first_input, **kw)
+    inst, out = installer(root, run, yes=False, **({"input_fn": first_input} | kw))
     collected = (env_values(REINO_IMAGE_DIGEST="", REINO_BACKUP_DIGEST="", SUPERADMIN_EMAIL="a@b.co"), dict(PROVIDED))
     return root, inst, out, mock.patch.object(sp, "collect", return_value=collected)
 
