@@ -36,6 +36,12 @@
     --brand-gold: 38 52% 61%;              /* #CFA968 */
     --brand-gold-light: 39 63% 74%;        /* #E6C891 */
     --brand-cream: 39 57% 90%;             /* #F4EAD7 */
+    --money-in-bg: 150 27% 91%;            /* #E3EFE9, tag de entrada (igual ao sucesso) */
+    --money-in-fg: 165 67% 12%;            /* #0A3329 */
+    --money-out-bg: 7 76% 93%;             /* #FBE4E1, tag de gasto */
+    --money-out-fg: 4 75% 31%;             /* #8A1C14 */
+    --money-void-bg: 45 11% 93%;           /* #EEEDEA, tag de cancelado ou sem efeito no saldo */
+    --money-void-fg: 215 14% 34%;          /* #4B5563 */
     --radius: 0.75rem;                     /* 12 px: cartão (lg); md 10, sm 8 */
     --shadow-low: 0 1px 3px rgba(5, 38, 31, 0.08);
     --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);

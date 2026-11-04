@@ -10,6 +10,8 @@ export type StatementRow = {
 	detail: string;
 	amount: string | null;
 	tone: StatementTone;
+	// Cobrança cancelada ou vencida: nunca mexeu no saldo, o valor aparece riscado.
+	struck?: boolean;
 	receiptHref?: string;
 };
 export type StatementGroup = { dateLabel: string; rows: StatementRow[] };
@@ -81,6 +83,7 @@ function chargeItem(c: ClientPixCharge): Dated {
 			// Pendente/expirada/cancelada não mexeu no saldo: sem sinal.
 			amount: v.amount,
 			tone: v.tone,
+			...(c.status === "cancelled" || c.status === "expired" ? { struck: true } : {}),
 			...(paid ? { receiptHref: `/portal/credits/receipts/${c.id}` } : {}),
 		},
 	};

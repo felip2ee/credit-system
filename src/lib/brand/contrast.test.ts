@@ -115,12 +115,33 @@ describe("redesign surfaces (PicPay look)", () => {
 	});
 });
 
+describe("extrato: tags de valor", () => {
+	const c = BRAND_COLORS;
+
+	it.each([
+		["entrada", c.moneyInFg, c.moneyInBg],
+		["gasto", c.moneyOutFg, c.moneyOutBg],
+		["cancelado", c.moneyVoidFg, c.moneyVoidBg],
+	])("%s: text on its tag is at least 4.5:1", (_n, fg, bg) => {
+		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+	});
+
+	it("success tag and entrada tag are the same style", () => {
+		expect([STATE_COLORS.success.bg, STATE_COLORS.success.fg]).toEqual([c.moneyInBg, c.moneyInFg]);
+	});
+});
+
 describe("state colors", () => {
 	it.each(Object.entries(STATE_COLORS))("%s text on its background is at least 4.5:1", (_name, s) => {
 		expect(contrastRatio(s.fg, s.bg)).toBeGreaterThanOrEqual(4.5);
 	});
 
-	it.each(Object.entries(STATE_COLORS))("%s border is at least 3:1 on page background", (_name, s) => {
+	it("success text is the single brand green on a light tint", () => {
+		expect(STATE_COLORS.success.fg).toBe(BRAND_COLORS.primary);
+	});
+
+	// A borda clara do sucesso é decorativa: rótulo e ícone já carregam o sentido.
+	it.each(Object.entries(STATE_COLORS).filter(([name]) => name !== "success"))("%s border is at least 3:1 on page background", (_name, s) => {
 		expect(contrastRatio(s.border, BRAND_COLORS.background)).toBeGreaterThanOrEqual(3);
 	});
 });

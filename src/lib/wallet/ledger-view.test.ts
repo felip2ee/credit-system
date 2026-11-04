@@ -13,6 +13,9 @@ describe("ledgerView", () => {
 		expect(ledgerView(e("reserve", "5.00"))).toMatchObject({ sign: "−", tone: "out" });
 		expect(ledgerView(e("capture", "5.00"))).toMatchObject({ title: "Pedido concluído", sign: "−" });
 	});
+	it("estorno de recarga tira saldo: − em vermelho", () => {
+		expect(ledgerView(e("reversal", "5.00"))).toMatchObject({ title: "Recarga estornada", sign: "−", tone: "out" });
+	});
 	it("ajuste segue o sinal do valor e mostra o motivo", () => {
 		expect(ledgerView(e("adjustment", "-3.00", "erro"))).toMatchObject({ sign: "−", tone: "out", detail: "erro" });
 		expect(ledgerView(e("adjustment", "3.00"))).toMatchObject({ sign: "+", tone: "in" });

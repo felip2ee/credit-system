@@ -16,7 +16,7 @@ const badgeVariants = cva(
           "border-transparent bg-destructive text-destructive-foreground",
         outline: "border-border text-foreground",
         success:
-          "border-transparent bg-[#E2F3E7] text-[#14532D]",
+          "border-[#B9D3C6] bg-[#E3EFE9] text-primary",
         // Tag positiva na cor da marca (ex.: "Ativo").
         brand: "border-transparent bg-brand-soft text-brand-soft-foreground",
         muted: "border-transparent bg-muted text-muted-foreground",

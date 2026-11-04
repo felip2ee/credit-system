@@ -13,7 +13,13 @@ export const BRAND_COLORS = {
 	cta: "#CFA968",
 	ctaForeground: "#2A1F0A",
 	ctaHover: "#E6C891",
-	leaf: "#2AA892",
+	// Extrato: valor em tag (entrada verde claro, gasto vermelho claro, cancelado cinza); sempre com sinal.
+	moneyInBg: "#E3EFE9",
+	moneyInFg: "#0A3329",
+	moneyOutBg: "#FBE4E1",
+	moneyOutFg: "#8A1C14",
+	moneyVoidBg: "#EEEDEA",
+	moneyVoidFg: "#4B5563",
 	background: "#FBF8F2",
 	foreground: "#123029",
 	muted: "#F1ECE1",
@@ -47,7 +53,7 @@ export const NEUTRAL_COLORS = {
 export type StateName = "success" | "waiting" | "progress" | "attention" | "danger" | "neutral";
 
 export const STATE_COLORS: Record<StateName, { bg: string; fg: string; border: string }> = {
-	success: { bg: "#E2F3E7", fg: "#14532D", border: "#2F855A" },
+	success: { bg: "#E3EFE9", fg: "#0A3329", border: "#B9D3C6" },
 	waiting: { bg: "#FCEFC7", fg: "#5C4200", border: "#9A7200" },
 	progress: { bg: "#E4EEF3", fg: "#17384A", border: "#3B6E8A" },
 	attention: { bg: "#FFE6D0", fg: "#7A3300", border: "#B45309" },

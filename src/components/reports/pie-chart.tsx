@@ -3,8 +3,8 @@ import { cn } from "@/lib/utils";
 export interface PieSegment {
   label: string;
   value: number;
-  fillClass: string; // ex.: "fill-emerald-500"
-  barClass: string; // ex.: "bg-emerald-500" (legenda)
+  fillClass: string; // ex.: "fill-primary"
+  barClass: string; // ex.: "bg-primary" (legenda)
 }
 
 interface PieChartProps {

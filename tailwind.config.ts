@@ -61,6 +61,9 @@ const config: Config = {
           "gold-light": "hsl(var(--brand-gold-light))",
           cream: "hsl(var(--brand-cream))",
         },
+        "money-in": { bg: "hsl(var(--money-in-bg))", fg: "hsl(var(--money-in-fg))" },
+        "money-out": { bg: "hsl(var(--money-out-bg))", fg: "hsl(var(--money-out-fg))" },
+        "money-void": { bg: "hsl(var(--money-void-bg))", fg: "hsl(var(--money-void-fg))" },
         surface: "hsl(var(--surface))",
         ink: "hsl(var(--ink))",
         "brand-soft": {

@@ -30,6 +30,8 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 - Fundo da página `#FBF8F2`. Cartões são brancos. `--surface` (`#F7F2E8`) alterna seções em vez de sombra. `--muted` (`#F1ECE1`) para tile e linha cinza.
 - Texto principal (ink) `#123029`. Texto secundário `#33514A` (7,8:1 sobre `--surface`).
 - Primário `#0A3329` (verde-escuro): texto de destaque, links, anel de foco e cartão de saldo. Anel de foco: contorno de 3 px com `--ring` (`#0A3329`), em todos os elementos.
+- Um só verde: `#0A3329` (`--primary`). Sucesso, ícones, barras e check usam esse verde. O extrato usa tags de entrada, gasto e cancelado (abaixo).
+- Extrato: o valor vai em tag (`MoneyTag`), sempre com sinal (+/−); o ícone da linha tem a cor do texto da tag. Recarga e outras entradas: verde claro `--money-in-bg` `#E3EFE9` com texto `#0A3329`. Gasto: vermelho claro `--money-out-bg` `#FBE4E1` com texto `#8A1C14`. Cancelado ou sem efeito no saldo: cinza `--money-void-bg` `#EEEDEA` com texto `#4B5563`; cobrança cancelada ou vencida fica riscada. Vale no portal (`ClientStatement`) e na carteira do Bureau (`LedgerTable`).
 - Cartão de saldo: fundo `--primary` com texto branco em negrito (13,8:1).
 - Botão de ação principal (CTA): fundo creme `--brand-cream` `#F4EAD7` com borda dourada clara `--brand-gold-light` `#E6C891` e texto `--cta-foreground` `#2A1F0A` em negrito. Hover: fundo `#E6C891` (10:1). Mesmo estilo dos botões da Conta no portal.
 - Dourado não serve para texto sobre fundo claro (contraste baixo, cerca de 2,1:1 sobre `#FBF8F2`). Para texto, use verde-escuro. O dourado é texto só sobre verde profundo.
@@ -63,7 +65,7 @@ Seis tons em `StateTone`, sempre com **ícone + cor + texto**. Nunca só cor.
 
 | Tom | Uso | Ícone |
 |---|---|---|
-| `success` | Deu certo | `CheckCircle2` |
+| `success` | Deu certo. Tag de sucesso: fundo verde claro `#E3EFE9`, texto e ícone verde `#0A3329`, borda sutil `#B9D3C6` (tag e banner) | `CheckCircle2` |
 | `waiting` | Aguardando outra pessoa (titular, sócio, Bureau, pagamento) | `Clock` |
 | `progress` | Em andamento (na fila, consultando) | `Loader2` |
 | `attention` | Não foi possível (falha esperada e recuperável) | `AlertTriangle` |
@@ -93,7 +95,7 @@ Três partes, nesta ordem, sem termo técnico e sem código de erro. Use `failur
 
 Primitivos em `src/components/ui/` (Radix + `cva` + `cn()`). Não crie botão, campo ou selo à mão.
 
-- Ação: `Button` (pílula). `default` é o CTA: fundo creme com borda dourada clara e texto `--cta-foreground`; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#123029`, `--ink`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho dourado só ao `default` e só no CTA principal da tela. `IconButton` é circular de 48 px e exige `aria-label`.
+- Ação: `Button` (pílula). `default` é creme com borda dourada clara e texto `--cta-foreground`; `cta` é dourado cheio (`--cta`, hover `--cta-hover`) só para as entradas "Nova pesquisa" e "Novo pedido"; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#123029`, `--ink`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho dourado só ao `default` e ao `cta` e só no CTA principal da tela. `IconButton` é circular de 48 px e exige `aria-label`.
 - Formulário: `Input`, `Textarea`, `Select` (8 px, 48 px de altura; erro por `aria-invalid`), `Field` (rótulo sempre visível, ajuda e erro ligados por `aria-describedby`), `SearchInput` (pílula), `Label`, `Checkbox`, `RadioGroup`, `Dialog` (24 px, scrim escuro).
 - Cartão: `Card` com `variant` `flat` (padrão, borda de 1 px), `elevated` e `hero` (verde-escuro `--primary`, texto branco).
 - Cartões de produto mostram nome e descrição completos (sem corte); o bloco "O que você recebe" é um `<details>` com seta (chevron) que gira ao abrir.
