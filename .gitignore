@@ -65,3 +65,4 @@ credenciais-GUARDAR.txt
 # Kit da marca Rainha Cred (fonte local; os assets usados ficam em public/brand)
 Rainha_Cred_SaaS/
 Rainha_Cred_SaaS*.zip
+/.playwright-mcp/
