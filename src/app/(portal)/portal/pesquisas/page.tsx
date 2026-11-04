@@ -23,7 +23,7 @@ export default async function ClientOrdersPage() {
 	return (
 		<div className="space-y-6">
 			<PageHeader title="Pesquisas" description="Seus pedidos e entregas">
-				<Button asChild glow>
+				<Button asChild variant="cta" glow>
 					<Link href="/portal/pesquisas/nova">Nova pesquisa</Link>
 				</Button>
 			</PageHeader>

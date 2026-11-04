@@ -132,7 +132,7 @@ export default async function DashboardPage({
     <div className="space-y-6">
       <PageHeader title="Dashboard" description={showRevenue ? "Vendas, faturamento e repasse do seu Bureau" : "Consultas e carteira do seu Bureau"}>
         {hasPermission(session, "consultations:write") && (
-          <Button asChild>
+          <Button asChild variant="cta">
             <Link href="/dossiers/new">Novo pedido PF/PJ</Link>
           </Button>
         )}

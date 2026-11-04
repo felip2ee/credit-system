@@ -184,7 +184,7 @@
 
 **Agent:** `backend-specialist` · **Depends-on:** Task 1
 **Files:**
-- Create: `db/migrations/0NN_rainha_cred_email_templates.sql` (próximo número livre; hoje 032), `src/lib/notifications/brand-email.test.ts`
+- Create: `db/migrations/0NN_rainha_cred_email_templates.sql` (próximo número livre; hoje 032), `src/lib/notifications/brand-email.integration.test.ts`
 - Modify: `src/lib/notifications/render.test.ts`, `src/lib/notifications/notifications.integration.test.ts` (expectativas de assunto/rodapé), `db/migrations/CLAUDE.md`
 
 **Interfaces:**

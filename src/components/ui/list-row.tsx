@@ -13,11 +13,13 @@ interface ListRowProps {
   href?: string;
   // Fundo cinza e cantos de cartão (linha solta); sem isso a linha vai dentro de um Card.
   boxed?: boolean;
+  // Cor do ícone (ex.: entrada/saída no extrato); padrão text-primary.
+  iconClassName?: string;
   className?: string;
 }
 
 // Linha de lançamento/transação: ícone circular cinza, título, subtítulo e valor à direita.
-export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = false, className }: ListRowProps) {
+export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = false, iconClassName, className }: ListRowProps) {
   const cls = cn(
     "flex min-h-14 items-center gap-3 px-4 py-3",
     boxed && "rounded-card bg-muted",
@@ -26,7 +28,7 @@ export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = fals
   );
   const body = (
     <>
-      <span aria-hidden className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-primary">
+      <span aria-hidden className={cn("flex size-11 shrink-0 items-center justify-center rounded-full bg-muted", iconClassName ?? "text-primary")}>
         <Icon className="size-5" />
       </span>
       <span className="min-w-0 flex-1">

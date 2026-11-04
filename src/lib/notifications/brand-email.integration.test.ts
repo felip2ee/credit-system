@@ -1,4 +1,4 @@
-// Migration 032: modelos de e-mail da plataforma com a identidade Rainha Cred.
+// Migrations 032 e 038: modelos de e-mail da plataforma com a identidade e a paleta Rainha Cred.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -44,13 +44,24 @@ async function templates(status: "active" | "retired"): Promise<Row[]> {
 	return rows;
 }
 
-describe("seeded e-mail templates after migration 032", () => {
-	it("keeps the seeded version retired and a new version active, with the same params", async () => {
+describe("seeded e-mail templates after migrations 032 and 038", () => {
+	it("keeps the older versions retired and a new version active, with the same params", async () => {
 		const active = await templates("active");
 		const retired = await templates("retired");
-		expect(active.map((t) => [t.key, t.version])).toEqual([...SEEDED_KEYS].sort().map((key) => [key, 2]));
-		expect(retired.map((t) => [t.key, t.version])).toEqual([...SEEDED_KEYS].sort().map((key) => [key, 1]));
-		for (const t of active) expect(t.params).toEqual(retired.find((r) => r.key === t.key)?.params);
+		const sorted = [...SEEDED_KEYS].sort();
+		expect(active.map((t) => [t.key, t.version])).toEqual(sorted.map((key) => [key, 3]));
+		expect(retired.map((t) => [t.key, t.version])).toEqual(sorted.flatMap((key) => [[key, 1], [key, 2]]));
+		for (const t of active) for (const r of retired.filter((x) => x.key === t.key)) expect(t.params).toEqual(r.params);
+	});
+
+	it("keeps subject and text of version 2 and drops the old palette from the HTML", async () => {
+		const retired = await templates("retired");
+		for (const t of await templates("active")) {
+			const v2 = retired.find((r) => r.key === t.key && r.version === 2)!;
+			expect(t.email_subject).toBe(v2.email_subject);
+			expect(t.email_text).toBe(v2.email_text);
+			expect(t.email_html).not.toMatch(/#(007A76|009C97|FCEDCE|122C2B|F4EFE4|4A5E5D)/i);
+		}
 	});
 
 	it("has no old brand, phone or Instagram, and shows Rainha Cred with the support e-mail", async () => {
@@ -120,15 +131,38 @@ describe("migration 032 and customized templates", () => {
 			await client.query("update notification_templates set status = 'retired' where key = 'email_verification' and channel = 'email' and status = 'active'");
 			await client.query(
 				`insert into notification_templates (key, channel, version, params, email_subject, email_html, email_text)
-         values ('email_verification', 'email', 3, array['clientName', 'url'], 'Personalizado', '<p>{{clientName}} {{url}}</p>', '{{clientName}} {{url}}')`,
+         values ('email_verification', 'email', 4, array['clientName', 'url'], 'Personalizado', '<p>{{clientName}} {{url}}</p>', '{{clientName}} {{url}}')`,
 			);
 			await client.query(sql);
 			const { rows } = await client.query<{ version: number; email_subject: string }>(
 				"select version, email_subject from notification_templates where key = 'email_verification' and channel = 'email' and status = 'active'",
 			);
-			expect(rows).toEqual([{ version: 3, email_subject: "Personalizado" }]);
+			expect(rows).toEqual([{ version: 4, email_subject: "Personalizado" }]);
 			const { rows: all } = await client.query("select 1 from notification_templates where key = 'email_verification' and channel = 'email'");
-			expect(all).toHaveLength(3);
+			expect(all).toHaveLength(4);
+		} finally {
+			await client.query("rollback");
+			client.release();
+		}
+	});
+});
+
+describe("migration 038 and customized templates", () => {
+	it("does not replace a template whose active version is no longer the one from 032", async () => {
+		const sql = readFileSync(path.join(process.cwd(), "db/migrations/038_rainha_cred_email_palette.sql"), "utf8");
+		const client = await owner.connect();
+		try {
+			await client.query("begin");
+			await client.query("update notification_templates set status = 'retired' where key = 'email_verification' and channel = 'email' and status = 'active'");
+			await client.query(
+				`insert into notification_templates (key, channel, version, params, email_subject, email_html, email_text)
+         values ('email_verification', 'email', 4, array['clientName', 'url'], 'Personalizado', '<p>{{clientName}} {{url}}</p>', '{{clientName}} {{url}}')`,
+			);
+			await client.query(sql);
+			const { rows } = await client.query<{ version: number; email_subject: string }>(
+				"select version, email_subject from notification_templates where key = 'email_verification' and channel = 'email' and status = 'active'",
+			);
+			expect(rows).toEqual([{ version: 4, email_subject: "Personalizado" }]);
 		} finally {
 			await client.query("rollback");
 			client.release();

@@ -7,9 +7,13 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="area-portal flex min-h-screen flex-col items-center justify-center gap-8 bg-background px-screen py-10">
-      <BrandLogo variant="full" />
-      {children}
+    <div className="area-portal flex min-h-screen flex-col bg-background">
+      <header className="flex justify-center bg-brand-deep px-screen py-8">
+        <BrandLogo variant="full" tone="light" />
+      </header>
+      <div className="flex flex-1 flex-col items-center justify-center px-screen py-10">
+        {children}
+      </div>
       <Toaster />
     </div>
   );

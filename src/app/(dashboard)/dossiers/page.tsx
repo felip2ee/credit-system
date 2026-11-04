@@ -51,7 +51,7 @@ export default async function DossiersPage({
       <PageHeader title="Pesquisas" description="Dossiês de consulta por titular e quadro societário">
         {canWrite && (
           <>
-            <Button asChild>
+            <Button asChild variant="cta">
               <Link href="/dossiers/new">
                 <Plus className="h-4 w-4" />
                 Novo pedido

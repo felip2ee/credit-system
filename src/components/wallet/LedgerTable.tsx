@@ -9,15 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListRow } from "@/components/ui/list-row";
+import { MONEY_TEXT_CLASS, MoneyTag } from "@/components/ui/money-tag";
 import { SectionHeader } from "@/components/ui/section-header";
 import { StatusBanner } from "@/components/ui/status-banner";
-import { cn, formatCurrency } from "@/lib/utils";
-import { ledgerView, type LedgerTone } from "@/lib/wallet/ledger-view";
+import { formatCurrency } from "@/lib/utils";
+import { ledgerView } from "@/lib/wallet/ledger-view";
 import type { LedgerEntry } from "@/lib/wallet/queries";
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
 const ICON = { in: ArrowDownLeft, out: ArrowUpRight, neutral: ReceiptText } as const;
-const VALUE_CLASS: Record<LedgerTone, string> = { in: "text-success", out: "", neutral: "text-muted-foreground" };
 
 interface LedgerTableProps {
   bureauId: string;
@@ -60,9 +60,10 @@ export function LedgerTable({ bureauId, initialRows, initialCursor }: LedgerTabl
                 <li key={row.id}>
                   <ListRow
                     icon={ICON[v.tone]}
+                    iconClassName={MONEY_TEXT_CLASS[v.tone]}
                     title={v.title}
                     subtitle={v.detail ? `${date} · ${v.detail}` : date}
-                    value={<span className={cn(VALUE_CLASS[v.tone])}>{[v.sign, formatCurrency(Math.abs(Number(row.amount)))].filter(Boolean).join(" ")}</span>}
+                    value={<MoneyTag tone={v.tone}>{[v.sign, formatCurrency(Math.abs(Number(row.amount)))].filter(Boolean).join(" ")}</MoneyTag>}
                   />
                 </li>
               );

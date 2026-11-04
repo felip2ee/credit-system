@@ -30,18 +30,18 @@ export function BalanceChip({ value }: { value: string }) {
 
 	const Icon = hidden ? Eye : EyeOff;
 	return (
-		<div className="ml-auto flex min-h-12 min-w-0 items-center gap-1 rounded-full bg-brand-soft pl-4 pr-1 text-brand-soft-foreground">
+		<div className="ml-auto flex min-h-12 min-w-0 items-center gap-1 rounded-full bg-primary pl-4 pr-1 text-primary-foreground [&_svg]:text-brand-gold-light">
 			<Link
 				href="/portal/credits"
 				aria-label={hidden ? "Saldo oculto, abrir Créditos" : `Abrir Créditos, saldo ${value}`}
-				className="min-w-0 truncate text-lg font-bold tabular-nums">
+				className="flex min-h-11 min-w-0 items-center truncate text-lg font-bold tabular-nums">
 				{hidden ? "R$ ••••" : value}
 			</Link>
 			<button
 				type="button"
 				onClick={toggle}
 				aria-label={hidden ? "Mostrar saldo" : "Ocultar saldo"}
-				className="flex size-10 shrink-0 items-center justify-center rounded-full"
+				className="flex size-11 shrink-0 items-center justify-center rounded-full"
 			>
 				<Icon className="size-5" aria-hidden="true" />
 			</button>

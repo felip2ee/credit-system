@@ -72,7 +72,7 @@ export function LoginForm({ withHeading = true }: { withHeading?: boolean }) {
         {serverError && (
           <StatusBanner tone="attention" title={serverError} description="Confira os dados e tente de novo." />
         )}
-        <Button type="submit" size="lg" glow className="w-full" disabled={isSubmitting}>
+        <Button type="submit" variant="cta" size="lg" glow className="w-full" disabled={isSubmitting}>
           {isSubmitting ? "Entrando..." : "Entrar"}
         </Button>
         <div className="text-center">

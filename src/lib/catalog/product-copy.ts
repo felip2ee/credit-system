@@ -2,22 +2,23 @@ export type ProductCopy = { summary: string; includes: string[] };
 
 const COPY: Record<string, ProductCopy> = {
 	dossie_pf: {
-		summary: "Dívidas e histórico no sistema financeiro do seu CPF. Relatório em tela e em PDF.",
+		summary: "Tudo o que pesa no seu CPF na hora de pedir crédito, e o plano para destravar.",
 		includes: [
-			"Dívidas e histórico no sistema financeiro (dados do Banco Central, SCR)",
-			"Parecer pela metodologia da Rainha Cred, gerado com apoio de IA, com pontos de atenção e próximos passos",
-			"Relatório na tela e em PDF",
-			"Aviso por e-mail e WhatsApp quando o relatório fica pronto",
+			"O raio-x do seu CPF no sistema financeiro: dívidas, atrasos e o histórico que o banco vê no Banco Central (SCR)",
+			"Os pontos cegos: o que está travando seu crédito hoje, inclusive o que você não sabia",
+			"O seu teto de crédito: até onde o banco tende a ir com você hoje",
+			"O plano da Rainha Cred, em ordem: o que resolver primeiro e o que fazer depois",
+			"Tudo na tela e em PDF, com aviso por e-mail e WhatsApp quando fica pronto",
 		],
 	},
 	dossie_empresarial: {
-		summary: "Dívidas e histórico da sua empresa (CNPJ) e dos sócios. Relatório em tela e em PDF.",
+		summary: "A empresa e as pessoas por trás dela, analisadas juntas, do jeito que o banco analisa.",
 		includes: [
-			"Dívidas e histórico da empresa no sistema financeiro",
-			"Consulta de cada sócio informado, com autorização",
-			"Parecer pela metodologia da Rainha Cred, gerado com apoio de IA, com pontos de atenção e próximos passos",
-			"Relatório na tela e em PDF",
-			"Aviso por e-mail e WhatsApp quando o relatório fica pronto",
+			"O raio-x da empresa no sistema financeiro: dívidas, atrasos e histórico do CNPJ",
+			"A análise de cada sócio e dos cônjuges que pesam no crédito. Cada pessoa autoriza a própria consulta",
+			"O cruzamento entre empresa e sócios: onde um CPF está travando o CNPJ, e o contrário",
+			"O plano da Rainha Cred para o grupo, em ordem: o que resolver primeiro e o que fazer depois",
+			"Tudo na tela e em PDF, com aviso por e-mail e WhatsApp quando fica pronto",
 		],
 	},
 };
