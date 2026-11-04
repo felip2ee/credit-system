@@ -5,6 +5,7 @@ import os
 
 import install_detect as det
 import setup_production as sp
+from install_collect import collect_installer
 from install_core import ENV_FILE, Stop
 from install_steps import Steps
 
@@ -25,8 +26,7 @@ class Secrets(Steps):
                     self.say(f"AVISO: {key} no .env.production é '{values.get(key, '')}', "
                              f"mas o Traefik existente usa '{defaults[key]}'.")
             return values, {}
-        skip = {"REINO_IMAGE_DIGEST", "REINO_BACKUP_DIGEST"}
-        return sp.collect(self.run, self.input_fn, self.getpass_fn, defaults=defaults, skip=skip)
+        return collect_installer(self, defaults)
 
     def check_secret_state(self, reuse: bool, pre: det.Preflight) -> None:
         existing = pre.existing_secrets

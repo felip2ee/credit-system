@@ -164,7 +164,7 @@ def run_checks(domain: str, digest: str, run: Runner, http: HttpGet = http_statu
         say(f"... verificando {name} (até {int(timeout)}s)")
         ok, detail = wait_until(probe, timeout, interval, sleep, clock)
         results.append(Check(name, ok, detail, critical))
-        say(f"{'OK  ' if ok else 'FALHA'} {name}: {detail}")
+        say(f"{'✔' if ok else '✘'} {name}: {detail}")
         if not ok:
             break
     return results

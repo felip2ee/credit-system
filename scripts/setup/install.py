@@ -60,7 +60,7 @@ class Installer(Secrets):
         digests = self.resolve_digests(env)
         ok, detail = det.dns_check(env["APP_DOMAIN"], det.public_ip(self.run))
         self.dns_ok = ok
-        self.say(("DNS: " if ok else "AVISO de DNS: ") + detail)
+        (self.ok if ok else self.fail)("DNS: " + detail)
         if not ok and not self.confirm("Continuar mesmo assim? O certificado pode não ser emitido."):
             raise Stop("Ajuste o DNS e rode de novo.")
         old_text = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
@@ -81,6 +81,7 @@ class Installer(Secrets):
         code, out = self.deploy({**env, **digests})
         self.registry_logout()
         if code != 0:
+            self.fail("Deploy: 'docker stack deploy' falhou")
             self.say(out[-800:])
             if old_text:
                 env_path.write_text(old_text, encoding="utf-8")
@@ -88,6 +89,7 @@ class Installer(Secrets):
                      + (" (restaurei o .env.production anterior)" if old_text else "")
                      + ". Leia o erro acima, corrija e rode o instalador de novo.")
             return 1
+        self.ok(f"Deploy: stack '{STACK}' publicada")
         names = det.service_names(STACK, self.run)
         return self.verify(env["APP_DOMAIN"], digests["REINO_IMAGE_DIGEST"], previous, old_text, env_path, names)
 
@@ -154,12 +156,23 @@ class Installer(Secrets):
                      f"https://{domain} só abre quando o DNS apontar.")
         for c in checks:
             self.say(f"  OK {c.name}: {c.detail}")
-        for path in self.credential_files:
-            self.say(f"Credenciais: {path}")
-        if self.credential_files:
-            self.say("Mova esses arquivos para um gerenciador de senhas e APAGUE-os do servidor "
-                     f"({self.secure_dir}).")
         self.say("Próximos passos (backup manual, drill, monitor): docs/operations/deploy.md, seção 4.")
+        self.show_credentials()
+
+    def show_credentials(self) -> None:
+        """Imprime as credenciais desta execução. Intencional: usa `out` direto, sem `redact`."""
+        for path in self.credential_files:
+            self.out("\n" + "=" * 64 + "\nCREDENCIAIS DESTA EXECUÇÃO: salve AGORA em um gerenciador de senhas.\n"
+                     "Elas não serão mostradas de novo. Não há token do GitHub neste bloco.\n" + "=" * 64)
+            self.out(path.read_text(encoding="utf-8").rstrip("\n"))
+            self.out("=" * 64 + "\nFIM DAS CREDENCIAIS\n" + "=" * 64)
+            if self.yes:
+                self.say(f"--yes: o arquivo NÃO foi apagado: {path}")
+            elif self.input_fn(f"Credenciais salvas? Apagar o arquivo {path} agora? [s/N]: ").strip().lower() in ("s", "sim"):
+                path.unlink(missing_ok=True)
+                self.say(f"Arquivo apagado: {path}")
+            else:
+                self.say(f"O arquivo continua em {path}. Apague-o depois de salvar.")
 
 
 def main(argv: list[str] | None = None) -> int:
