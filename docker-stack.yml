@@ -2,7 +2,7 @@ services:
   reino_app:
     # Digest-only: owner + sha256 digest are both required, so a mutable tag or
     # `latest` can never satisfy stack config. Digest comes from the GHCR build.
-    image: &app_image ghcr.io/${REINO_IMAGE_OWNER:?REINO_IMAGE_OWNER is required}/reino-credito@sha256:${REINO_IMAGE_DIGEST:?REINO_IMAGE_DIGEST must be the 64-hex sha256 digest of the release image}
+    image: &app_image ghcr.io/${REINO_IMAGE_OWNER:?REINO_IMAGE_OWNER is required}/reino-credito@sha256:${REINO_IMAGE_DIGEST:?REINO_IMAGE_DIGEST must be the 64 hex characters sha256 digest of the release image}
     user: "1001:1001"
     read_only: true
     tmpfs:
@@ -205,7 +205,7 @@ services:
   backup:
     # Own multi-stage image (PG18 client + Restic 0.18.1 + curl SMTP). Same
     # digest-pin rule as reino_app: owner + 64-hex sha256 both required.
-    image: ghcr.io/${REINO_IMAGE_OWNER:?REINO_IMAGE_OWNER is required}/reino-backup@sha256:${REINO_BACKUP_DIGEST:?REINO_BACKUP_DIGEST must be the 64-hex sha256 digest of the backup image}
+    image: ghcr.io/${REINO_IMAGE_OWNER:?REINO_IMAGE_OWNER is required}/reino-backup@sha256:${REINO_BACKUP_DIGEST:?REINO_BACKUP_DIGEST must be the 64 hex characters sha256 digest of the backup image}
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m
