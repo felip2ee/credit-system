@@ -85,10 +85,10 @@ services:
         - traefik.enable=true
         - traefik.docker.network=${TRAEFIK_NETWORK:-RainhaNet}
         # /api/internal só pela rede privada do Swarm (o cron chama reino_app:3000): o roteador público não o serve.
-        - traefik.http.routers.reino_app.rule=Host(`${APP_DOMAIN:?APP_DOMAIN is required}`) && !PathPrefix(`/api/internal`)
-        - traefik.http.routers.reino_app.entrypoints=websecure
-        - traefik.http.routers.reino_app.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencryptresolver}
-        - traefik.http.services.reino_app.loadbalancer.server.port=3000
+        - traefik.http.routers.creditsystem_app.rule=Host(`${APP_DOMAIN:?APP_DOMAIN is required}`) && !PathPrefix(`/api/internal`)
+        - traefik.http.routers.creditsystem_app.entrypoints=websecure
+        - traefik.http.routers.creditsystem_app.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencryptresolver}
+        - traefik.http.services.creditsystem_app.loadbalancer.server.port=3000
     logging: &json-logs
       driver: json-file
       options: { max-size: 10m, max-file: "3" }
@@ -120,6 +120,9 @@ services:
     volumes:
       - backup_state:/var/lib/backup:ro
     deploy:
+      # O provider swarm do Traefik expõe todo serviço por padrão: sem isto ele tenta rotear o serviço interno.
+      labels:
+        - traefik.enable=false
       replicas: 1
       restart_policy:
         condition: on-failure
@@ -156,6 +159,9 @@ services:
       retries: 6
       start_period: 30s
     deploy:
+      # O provider swarm do Traefik expõe todo serviço por padrão: sem isto ele tenta rotear o serviço interno.
+      labels:
+        - traefik.enable=false
       restart_policy: { condition: on-failure, delay: 5s, max_attempts: 3 }
       resources:
         limits: { cpus: "2", memory: 4G }
@@ -174,6 +180,9 @@ services:
       retries: 5
       start_period: 120s
     deploy:
+      # O provider swarm do Traefik expõe todo serviço por padrão: sem isto ele tenta rotear o serviço interno.
+      labels:
+        - traefik.enable=false
       restart_policy: { condition: on-failure, delay: 10s, max_attempts: 3 }
       resources:
         limits: { cpus: "2", memory: 5G }
@@ -196,6 +205,9 @@ services:
       DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
     secrets: [database_owner_url]
     deploy:
+      # O provider swarm do Traefik expõe todo serviço por padrão: sem isto ele tenta rotear o serviço interno.
+      labels:
+        - traefik.enable=false
       replicas: 1
       placement:
         constraints: [node.role == manager]
@@ -257,6 +269,9 @@ services:
       retries: 3
       start_period: 20s
     deploy:
+      # O provider swarm do Traefik expõe todo serviço por padrão: sem isto ele tenta rotear o serviço interno.
+      labels:
+        - traefik.enable=false
       replicas: 1
       placement:
         constraints: [node.role == manager]

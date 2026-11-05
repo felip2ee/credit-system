@@ -11,6 +11,14 @@ class StackVarMessages(unittest.TestCase):
         bad = re.findall(r"\$\{[A-Za-z_]+:\?[^}]*-[^}]*\}", STACK.read_text(encoding="utf-8"))
         self.assertEqual(bad, [])
 
+    def test_traefik_names_are_unique_and_internal_services_not_exposed(self) -> None:
+        text = STACK.read_text(encoding="utf-8")
+        # Nomes de router/serviço do Traefik são globais no servidor: 'reino_app' já existe em outra stack.
+        self.assertNotIn("routers.reino_app.", text)
+        self.assertIn("routers.creditsystem_app.rule=", text)
+        # O provider swarm expõe tudo por padrão: os 5 serviços internos precisam de traefik.enable=false.
+        self.assertEqual(text.count("traefik.enable=false"), 5)
+
 
 if __name__ == "__main__":
     unittest.main()
