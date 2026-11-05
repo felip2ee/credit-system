@@ -117,8 +117,8 @@ class Building(unittest.TestCase):
         values = sp.build_secrets(PROVIDED)
         self.assertEqual(set(values), set(sp.SECRET_NAMES))
         self.assertEqual(len(values["better_auth_secret"]), 64)
-        self.assertIn(f"app_runtime:{values['app_runtime_password']}@postgres:5432/credit_system", values["database_url"])
-        self.assertIn(f"postgres:{values['postgres_password']}@postgres:5432/credit_system", values["database_owner_url"])
+        self.assertIn(f"app_runtime:{values['app_runtime_password']}@reino-db:5432/credit_system", values["database_url"])
+        self.assertIn(f"postgres:{values['postgres_password']}@reino-db:5432/credit_system", values["database_owner_url"])
         self.assertNotEqual(values["postgres_password"], values["app_runtime_password"])
 
     def test_generates_notification_secrets(self):
