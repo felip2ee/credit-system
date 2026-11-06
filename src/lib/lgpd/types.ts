@@ -11,6 +11,14 @@ export type PurgeCounts = Record<string, number>;
 
 type Row = Record<string, unknown>;
 
+// Dados de pagamento do Titular com conta de cliente (payer_profiles): só máscaras, nunca o blob cifrado.
+export type PaymentDataExport = {
+	documentMasked: string | null;
+	postalCodeMasked: string | null;
+	hasAddressNumber: boolean;
+	asaasCustomerLinked: boolean;
+};
+
 // Exportação do Titular. Fica de fora: auth_code, public_token e consent_ip das autorizações SCR.
 export type HolderExport = {
 	holder: Row;
@@ -21,5 +29,7 @@ export type HolderExport = {
 	orders: Row[];
 	timeline: Row[];
 	notes: Row[];
+	// Nulo: Titular sem conta de cliente, sem dados de pagamento, ou linha que a identidade não enxerga (RLS).
+	paymentData: PaymentDataExport | null;
 	exportedAt: string;
 };

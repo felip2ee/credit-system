@@ -1,5 +1,6 @@
 // Exportação dos dados de um Titular (LGPD art. 18). Lê sob RLS da equipe; a auditoria vai na mesma transação.
-// Fora da exportação: auth_code, public_token e consent_ip das autorizações SCR, e os dados de outros Titulares.
+// Fora da exportação: auth_code, public_token e consent_ip das autorizações SCR, os dados de outros Titulares e o
+// blob cifrado de payer_profiles.
 import { writeAuditEvent } from "@/lib/audit/write";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
@@ -73,6 +74,16 @@ export async function exportHolder(identity: DbIdentity, holderId: string): Prom
 			[holderId],
 		);
 
+		// Dados de pagamento do Titular com conta: só máscaras e se há cliente Asaas ligado, nunca pii_ciphertext. A RLS
+		// de payer_profiles decide quem enxerga: o Bureau não lê a linha de cliente (zero linhas, paymentData nulo).
+		const payment = await client.query(
+			`select p.document_masked as "documentMasked", p.postal_code_masked as "postalCodeMasked",
+              p.has_address_number as "hasAddressNumber", (p.asaas_customer_id is not null) as "asaasCustomerLinked"
+         from payer_profiles p
+        where p.client_profile_id = (select client_profile_id from holders where id = $1)`,
+			[holderId],
+		);
+
 		await writeAuditEvent(client, {
 			actorId: identity.userId,
 			action: "lgpd.export_holder",
@@ -89,6 +100,7 @@ export async function exportHolder(identity: DbIdentity, holderId: string): Prom
 			orders: orders.rows,
 			timeline: timeline.rows,
 			notes: notes.rows,
+			paymentData: payment.rows[0] ?? null,
 			exportedAt: new Date().toISOString(),
 		};
 	});

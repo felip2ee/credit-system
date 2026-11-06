@@ -462,6 +462,39 @@ describe("exportHolder", () => {
 		expect(await auditRows(tenant.bureau.id, "lgpd.export_holder")).toHaveLength(1);
 	});
 
+	it("export of a holder with a client account carries payment data as masks only; staff does not read the client row (RLS)", async () => {
+		const tenant = await seedTenant(owner, "lgpd-ex-pay");
+		await owner.query(
+			`insert into payer_profiles (bureau_id, client_profile_id, pii_ciphertext, pii_key_id, document_masked,
+			        postal_code_masked, has_address_number, asaas_customer_id)
+			 values ($1, $2, decode(repeat('ab', 40), 'hex'), 'k1', '***.456.***-**', '*****-678', true, 'cus_1')`,
+			[tenant.bureau.id, tenant.client.userId],
+		);
+
+		// Bureau: a RLS devolve zero linhas de cliente; nada de dado de pagamento, nem mascarado.
+		const staff = await exportHolder(adminOf(tenant), tenant.holder.id);
+		expect(staff!.paymentData).toBeNull();
+
+		// O próprio titular (identidade de cliente): só máscara e o booleano do cliente Asaas.
+		const self = await exportHolder({ ...tenant.client }, tenant.holder.id);
+		expect(self!.paymentData).toEqual({
+			documentMasked: "***.456.***-**",
+			postalCodeMasked: "*****-678",
+			hasAddressNumber: true,
+			asaasCustomerLinked: true,
+		});
+		const json = JSON.stringify([staff, self]);
+		expect(json).not.toContain("pii_ciphertext");
+		expect(json).not.toContain("cus_1");
+		expect(json).not.toContain("Buffer");
+	});
+
+	it("export of a holder without a client account has no payment data", async () => {
+		const tenant = await seedTenant(owner, "lgpd-ex-nopay");
+		const g = await seedHolderGraph(tenant);
+		expect((await exportHolder(adminOf(tenant), g.holderId))!.paymentData).toBeNull();
+	});
+
 	it("export is null for another bureau", async () => {
 		const tenant = await seedTenant(owner, "lgpd-ex-a");
 		const other = await seedTenant(owner, "lgpd-ex-b");
