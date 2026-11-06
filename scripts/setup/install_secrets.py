@@ -54,6 +54,9 @@ class Secrets(Steps):
         if reuse and not missing:
             self.say("Todos os secrets já existem: nenhum será criado ou trocado.")
             return
+        if reuse and "pii_encryption_key" in missing:
+            self.say("AVISO: o secret 'pii_encryption_key' não existia; esta execução gera um novo. "
+                     "Guarde o valor: sem ele os dados de pagamento cifrados ficam ilegíveis.")
         values = sp.build_secrets({k: provided.get(k, "") for k in OPTIONAL_KEYS} | provided)
         self.secret_values |= {values[n] for n in missing}
         if not self.act(f"criando {len(missing)} secret(s) do Docker"):

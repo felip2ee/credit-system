@@ -121,6 +121,20 @@ class Building(unittest.TestCase):
         self.assertIn(f"postgres:{values['postgres_password']}@reino-db:5432/credit_system", values["database_owner_url"])
         self.assertNotEqual(values["postgres_password"], values["app_runtime_password"])
 
+    def test_pii_key_is_a_32_byte_k1_ring_and_not_reused(self):
+        import base64
+        key = sp.build_secrets(PROVIDED)["pii_encryption_key"]
+        prefix, _, b64 = key.partition(":")
+        self.assertEqual(prefix, "k1")
+        self.assertEqual(len(base64.b64decode(b64, validate=True)), 32)
+        self.assertNotEqual(key, sp.build_secrets(PROVIDED)["pii_encryption_key"])
+
+    def test_credentials_warn_about_pii_key(self):
+        values = sp.build_secrets(PROVIDED)
+        text = sp.render_credentials({}, {**values})
+        self.assertIn("pii_encryption_key=k1:", text)
+        self.assertIn("ilegíveis", text)
+
     def test_generates_notification_secrets(self):
         values = sp.build_secrets(PROVIDED)
         for name in ("notifications_dispatch_secret", "whatsapp_verify_token"):
