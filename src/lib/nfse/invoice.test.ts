@@ -32,7 +32,7 @@ import {
 } from "./invoice";
 
 const service = { municipalServiceId: "svc", municipalServiceName: "n", serviceDescription: "d", issRate: 2, retainIss: false };
-const charge = { chargeId: "11111111-1111-4111-8111-111111111111", amount: "100.00" };
+const charge = { chargeId: "11111111-1111-4111-8111-111111111111", amount: "100.00", invoiceId: null, installmentId: null };
 const identity = { userId: "u", role: "superadmin" as const, bureauId: null };
 
 beforeEach(() => {
@@ -67,6 +67,24 @@ describe("requestInvoiceForPayment", () => {
 		});
 		expect(s.setStatus).toHaveBeenCalledWith(charge.chargeId, "pending");
 		expect(s.setStatus).toHaveBeenLastCalledWith(charge.chargeId, "pending", { invoiceId: "inv_1" });
+	});
+
+	it("invoices the card total the query returns (what the payer paid), not the recharge", async () => {
+		s.findCharge.mockResolvedValue({ ...charge, amount: "104.67" });
+
+		await requestInvoiceForPayment("pay_1");
+
+		expect(s.schedule).toHaveBeenCalledWith(expect.objectContaining({ amount: "104.67" }));
+	});
+
+	it("sends the installment id of a card plan, once, and nothing for Pix", async () => {
+		s.findCharge.mockResolvedValue({ ...charge, amount: "104.67", installmentId: "ins_1" });
+		await requestInvoiceForPayment("pay_1");
+		s.findCharge.mockResolvedValue(charge);
+		await requestInvoiceForPayment("pay_2");
+
+		expect(s.schedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ paymentId: "pay_1", installmentId: "ins_1" }));
+		expect(s.schedule.mock.calls[1][0]).not.toHaveProperty("installmentId");
 	});
 
 	it("looks up the invoices of the payment before it schedules", async () => {
@@ -261,15 +279,23 @@ describe("repairInvoiceForPayment", () => {
 });
 
 describe("rescheduleInvoice", () => {
+	it("keeps the installment id on a retry of a card plan", async () => {
+		s.findRetryTarget.mockResolvedValue({ asaasPaymentId: "pay_9", amount: "104.67", installmentId: "ins_9" });
+
+		await rescheduleInvoice(identity, charge.chargeId);
+
+		expect(s.schedule).toHaveBeenCalledWith(expect.objectContaining({ amount: "104.67", installmentId: "ins_9" }));
+	});
+
 	it("schedules the retry target and records pending", async () => {
-		s.findRetryTarget.mockResolvedValue({ asaasPaymentId: "pay_9", amount: "55.00" });
+		s.findRetryTarget.mockResolvedValue({ asaasPaymentId: "pay_9", amount: "55.00", installmentId: null });
 
 		expect(await rescheduleInvoice(identity, charge.chargeId)).toBe("pending");
 		expect(s.schedule).toHaveBeenCalledWith(expect.objectContaining({ paymentId: "pay_9", amount: "55.00" }));
 	});
 
 	it("records failed when Asaas refuses again", async () => {
-		s.findRetryTarget.mockResolvedValue({ asaasPaymentId: "pay_9", amount: "55.00" });
+		s.findRetryTarget.mockResolvedValue({ asaasPaymentId: "pay_9", amount: "55.00", installmentId: null });
 		s.schedule.mockRejectedValue(new Error("x"));
 
 		expect(await rescheduleInvoice(identity, charge.chargeId)).toBe("failed");

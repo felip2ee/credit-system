@@ -17,6 +17,7 @@ import {
 	findNfseRetryTarget,
 	setNfseStatus,
 	type NfseCharge,
+	type NfseChargeByPayment,
 } from "./queries";
 import type { DbIdentity } from "@/lib/db/transaction";
 
@@ -88,6 +89,7 @@ async function scheduleAndRecord(
 	chargeId: string,
 	paymentId: string,
 	amount: string,
+	installmentId: string | null,
 ): Promise<ScheduleOutcome> {
 	let client: AsaasClient;
 	let existing: ExistingInvoice | undefined;
@@ -109,6 +111,7 @@ async function scheduleAndRecord(
 		const scheduled = await client.scheduleInvoice({
 			paymentId,
 			amount,
+			...(installmentId ? { installmentId } : {}),
 			externalReference: chargeId,
 			service: state.service,
 		});
@@ -129,11 +132,11 @@ async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<S
 	const state = nfseConfigState();
 	if (state.kind === "off") return "not_requested";
 	try {
-		const charge: NfseCharge | null = await findNfseChargeByPayment(asaasPaymentId);
+		const charge: NfseChargeByPayment | null = await findNfseChargeByPayment(asaasPaymentId);
 		if (!charge) return "unknown_charge";
 		const claim = await setNfseStatus(charge.chargeId, "pending");
 		if (!claim.ok || !claim.changed) return "not_requested";
-		return await scheduleAndRecord(state, charge.chargeId, asaasPaymentId, charge.amount);
+		return await scheduleAndRecord(state, charge.chargeId, asaasPaymentId, charge.amount, charge.installmentId);
 	} catch (error) {
 		// Estado desconhecido (a reivindicação pode ter gravado): não registra failed. A nota pending é reivindicada de novo.
 		logFailure(step, error);
@@ -160,7 +163,7 @@ export async function rescheduleInvoice(identity: DbIdentity, chargeId: string):
 			await tryRecordFailed(chargeId);
 			return "unknown_charge";
 		}
-		return await scheduleAndRecord(state, chargeId, target.asaasPaymentId, target.amount);
+		return await scheduleAndRecord(state, chargeId, target.asaasPaymentId, target.amount, target.installmentId);
 	} catch (error) {
 		logFailure("nova tentativa", error);
 		await tryRecordFailed(chargeId);

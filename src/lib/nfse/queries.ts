@@ -105,19 +105,28 @@ export async function setNfseStatus(
 		: { ok: false, reason: row.reason as NfseFailure };
 }
 
+// amount: valor da nota = o que o pagador pagou (coalesce(total_charged, amount): total do cartão; no Pix, o próprio valor).
 export type NfseCharge = { chargeId: string; amount: string };
 // invoiceId: nota já gravada na cobrança (nulo antes do primeiro agendamento).
-export type NfseChargeByPayment = NfseCharge & { invoiceId: string | null };
+// installmentId: parcelamento do cartão (2x ou mais): a nota nasce do parcelamento inteiro, uma vez.
+export type NfseChargeByPayment = NfseCharge & { invoiceId: string | null; installmentId: string | null };
 
 // O webhook (app_webhook) não lê tabela alguma: nfse_charge_by_payment (017) liga o id do pagamento do Asaas ao id
 // da cobrança paga ou estornada, ou não devolve linha.
 export async function findNfseChargeByPayment(asaasPaymentId: string): Promise<NfseChargeByPayment | null> {
-	const { rows } = await getWebhookPool().query<{ charge_id: string; amount: string; asaas_invoice_id: string | null }>(
-		"select charge_id, amount, asaas_invoice_id from public.nfse_charge_by_payment($1)",
-		[asaasPaymentId],
-	);
+	const { rows } = await getWebhookPool().query<{
+		charge_id: string;
+		amount: string;
+		asaas_invoice_id: string | null;
+		asaas_installment_id: string | null;
+	}>("select * from public.nfse_charge_by_payment($1)", [asaasPaymentId]);
 	return rows[0]
-		? { chargeId: rows[0].charge_id, amount: rows[0].amount, invoiceId: rows[0].asaas_invoice_id }
+		? {
+				chargeId: rows[0].charge_id,
+				amount: rows[0].amount,
+				invoiceId: rows[0].asaas_invoice_id,
+				installmentId: rows[0].asaas_installment_id ?? null,
+			}
 		: null;
 }
 
@@ -130,16 +139,22 @@ export async function findNfseChargeByInvoice(asaasInvoiceId: string): Promise<N
 	return rows[0] ? { chargeId: rows[0].charge_id, amount: rows[0].amount } : null;
 }
 
-export type NfseRetryTarget = { asaasPaymentId: string; amount: string };
+export type NfseRetryTarget = { asaasPaymentId: string; amount: string; installmentId: string | null };
 
 // O superadmin não lê pix_charges; nfse_charge_payment (017) devolve o pagamento do Asaas só a ele, sem suporte,
 // e só de nota com falha ou em nova tentativa.
 export async function findNfseRetryTarget(identity: DbIdentity, chargeId: string): Promise<NfseRetryTarget | null> {
 	return withUserTransaction(identity, async (client) => {
-		const { rows } = await client.query<{ asaas_payment_id: string; amount: string }>(
-			"select asaas_payment_id, amount from nfse_charge_payment($1)",
+		const { rows } = await client.query<{ asaas_payment_id: string; amount: string; asaas_installment_id: string | null }>(
+			"select * from nfse_charge_payment($1)",
 			[chargeId],
 		);
-		return rows[0] ? { asaasPaymentId: rows[0].asaas_payment_id, amount: rows[0].amount } : null;
+		return rows[0]
+			? {
+					asaasPaymentId: rows[0].asaas_payment_id,
+					amount: rows[0].amount,
+					installmentId: rows[0].asaas_installment_id ?? null,
+				}
+			: null;
 	});
 }
