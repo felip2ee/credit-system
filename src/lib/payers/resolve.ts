@@ -31,7 +31,7 @@ export function requiredOtherPayerFields(): PayerField[] {
 }
 
 // E.164 brasileiro (+55DDDNUMERO) para o formato do Asaas (DDDNUMERO). Outro país: sem telefone.
-function asaasPhone(e164: string | null): string | undefined {
+export function asaasPhone(e164: string | null): string | undefined {
 	return e164 && /^\+55\d{10,11}$/.test(e164) ? e164.slice(3) : undefined;
 }
 

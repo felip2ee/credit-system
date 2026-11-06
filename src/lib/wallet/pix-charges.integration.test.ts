@@ -47,7 +47,6 @@ import {
 	bindAsaasCharge,
 	countPendingClientPixCharges,
 	countRecentCardAttempts,
-	bindPixCharge,
 	getChargeStatus,
 	lockChargeScope,
 	reserveCharge,
@@ -55,13 +54,10 @@ import {
 	type ReserveChargeInput,
 	cancelUnboundPixCharge,
 	countPendingPixCharges,
-	createPixCharge,
 	getPixCharge,
 	listClientPixCharges,
 	listPixCharges,
 	listRefundShortfalls,
-	lockClientPixCharges,
-	reserveClientPixCharge,
 } from "./pix-charges";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
@@ -100,76 +96,6 @@ async function eventCount(eventId: string): Promise<number> {
 }
 
 const evt = () => `evt_${randomUUID()}`;
-
-describe("createPixCharge", () => {
-	it("stores a pending charge for 30 minutes and audits the request", async () => {
-		const tenant = await seedTenant(owner, "Pix A");
-		const admin = tenant.bureauAdmin;
-
-		const result = await withUserTransaction(admin, (c) =>
-			createPixCharge(c, admin, {
-				asaasPaymentId: `pay_${randomUUID()}`,
-				pixPayload: "000201pix",
-				amount: "100.00",
-			}),
-		);
-
-		expect(result.ok).toBe(true);
-		if (!result.ok) return;
-		const { rows } = await owner.query<{
-			status: string;
-			minutes: string;
-			amount: string;
-		}>(
-			"select status, amount, round(extract(epoch from (expires_at - created_at)) / 60)::text as minutes from pix_charges where id = $1",
-			[result.id],
-		);
-		expect(rows[0]).toMatchObject({
-			status: "pending",
-			minutes: "30",
-			amount: "100.00",
-		});
-		const audit = await owner.query(
-			"select metadata from audit_logs where action = 'wallet.topup.request' and record_id = $1",
-			[result.id],
-		);
-		expect(audit.rows).toHaveLength(1);
-		expect(JSON.stringify(audit.rows[0].metadata)).not.toContain("000201pix");
-	});
-
-	it.each(["9.99", "5000.01", "10.005", "x"])(
-		"rejects amount %s",
-		async (amount) => {
-			const tenant = await seedTenant(owner, "Pix B");
-			const admin = tenant.bureauAdmin;
-
-			const result = await withUserTransaction(admin, (c) =>
-				createPixCharge(c, admin, {
-					asaasPaymentId: `pay_${randomUUID()}`,
-					pixPayload: "p",
-					amount,
-				}),
-			);
-
-			expect(result).toEqual({ ok: false, reason: "invalid_amount" });
-		},
-	);
-
-	it("denies operator and client at the database", async () => {
-		const tenant = await seedTenant(owner, "Pix C");
-		for (const identity of [tenant.operator, tenant.client]) {
-			await expect(
-				withUserTransaction(identity, (c) =>
-					createPixCharge(c, identity, {
-						asaasPaymentId: `pay_${randomUUID()}`,
-						pixPayload: "p",
-						amount: "50.00",
-					}),
-				),
-			).rejects.toThrow(/row-level security/);
-		}
-	});
-});
 
 describe("countPendingPixCharges", () => {
 	it("counts only pending charges that have not expired, for the own Bureau", async () => {
@@ -616,6 +542,27 @@ async function clientBalance(clientProfileId: string): Promise<string> {
 	);
 	return rows[0].available;
 }
+
+// Atalhos do Pix do cliente sobre as funções atuais (reserveCharge, bindAsaasCharge, lockChargeScope).
+const clientScopeOf = (clientProfileId: string) => ({ kind: "client" as const, clientProfileId });
+const reserveClientPixCharge = (
+	c: Parameters<typeof reserveCharge>[0],
+	identity: Parameters<typeof reserveCharge>[1],
+	input: { externalReference: string; amount: string },
+) =>
+	reserveCharge(c, identity, {
+		scope: clientScopeOf(identity.userId),
+		...input,
+		billingType: "PIX",
+		installments: 1,
+		feeAmount: "0.00",
+		totalCharged: null,
+		payerKind: "owner",
+		payerDocumentMasked: "***.456.***-**",
+	});
+const bindPixCharge = bindAsaasCharge;
+const lockClientPixCharges = (c: Parameters<typeof lockChargeScope>[0], clientProfileId: string) =>
+	lockChargeScope(c, clientScopeOf(clientProfileId));
 
 const clientInput = (amount = "100.00") => ({ externalReference: randomUUID(), amount });
 const boundInput = () => ({ asaasPaymentId: `pay_${randomUUID()}`, pixPayload: "000201clientpix" });
@@ -1196,12 +1143,31 @@ describe("reserveCharge (Pix and card, both scopes)", () => {
 			card_last4: "4242",
 			pix_payload: null,
 		});
-		expect(await withUserTransaction(client, (c) => getChargeStatus(c, created.id))).toEqual({
+		expect(await withUserTransaction(client, (c) => getChargeStatus(c, created.id, clientScopeOf(client.userId)))).toEqual({
 			status: "pending",
 			billingType: "CREDIT_CARD",
 		});
 		await owner.query("update pix_charges set expires_at = now() - interval '1 minute' where id = $1", [created.id]);
-		expect((await withUserTransaction(client, (c) => getChargeStatus(c, created.id)))?.status).toBe("expired");
+		expect((await withUserTransaction(client, (c) => getChargeStatus(c, created.id, clientScopeOf(client.userId))))?.status).toBe("expired");
+	});
+
+	it("reports the status only to the owner scope: not to another client, nor to the Bureau scope", async () => {
+		const tenant = await seedTenant(owner, "Rsv Status");
+		const client = tenant.client;
+		const other = await seedClientProfile(owner, tenant.bureau.id);
+		const created = await withUserTransaction(client, (c) =>
+			reserveCharge(c, client, cardInput({ kind: "client", clientProfileId: client.userId })),
+		);
+		if (!created.ok) throw new Error("not reserved");
+
+		const asOther = await withUserTransaction(other, (c) =>
+			getChargeStatus(c, created.id, clientScopeOf(other.userId)),
+		);
+		const asBureau = await withUserTransaction(tenant.bureauAdmin, (c) =>
+			getChargeStatus(c, created.id, { kind: "bureau", bureauId: tenant.bureau.id }),
+		);
+
+		expect([asOther, asBureau]).toEqual([null, null]);
 	});
 
 	it("keeps the 3-argument bind working for Pix and refuses a Pix bind without a payload", async () => {

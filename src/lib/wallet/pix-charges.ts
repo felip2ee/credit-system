@@ -1,5 +1,5 @@
-// Cobranças PIX de recarga da carteira (M3a). A cobrança do Bureau nasce depois que o Asaas respondeu; a do cliente
-// nasce antes (reserveClientPixCharge) e recebe o id do pagamento depois (bindPixCharge).
+// Cobranças de recarga da carteira (Pix e cartão). A linha nasce antes do Asaas (reserveCharge) e recebe o id do
+// pagamento depois (bindAsaasCharge).
 // O crédito e o estorno não passam por aqui: apply_asaas_payment (014_wallet_refund_and_webhook_role.sql) decide, sem sessão.
 import type { PoolClient } from "pg";
 
@@ -22,87 +22,6 @@ export type PixCharge = {
 	expiresAt: Date;
 	createdAt: Date;
 };
-
-export type CreatePixChargeInput = { asaasPaymentId: string; pixPayload: string; amount: string };
-
-export type CreatePixChargeResult =
-	| { ok: true; id: string; expiresAt: Date }
-	| { ok: false; reason: "invalid_amount" };
-
-// Cobrança do Bureau (client_profile_id nulo).
-export async function createPixCharge(
-	client: PoolClient,
-	identity: DbIdentity,
-	input: CreatePixChargeInput,
-): Promise<CreatePixChargeResult> {
-	if (!topupAmountSchema.safeParse(input.amount).success) return { ok: false, reason: "invalid_amount" };
-
-	const { rows } = await client.query<{ id: string; expires_at: Date }>(
-		`insert into pix_charges (bureau_id, asaas_payment_id, amount, pix_payload, expires_at, requested_by)
-		 values ($1, $2, $3, $4, now() + make_interval(mins => $5), $6)
-		 returning id, expires_at`,
-		[
-			identity.bureauId,
-			input.asaasPaymentId,
-			input.amount,
-			input.pixPayload,
-			PIX_CHARGE_TTL_MINUTES,
-			identity.userId,
-		],
-	);
-	const { id, expires_at: expiresAt } = rows[0];
-	await writeAuditEvent(client, {
-		actorId: identity.userId,
-		action: "wallet.topup.request",
-		targetTable: "pix_charges",
-		targetId: id,
-		metadata: { amount: input.amount },
-	});
-	return { ok: true, id, expiresAt };
-}
-
-export type ReserveClientPixChargeInput = { externalReference: string; amount: string };
-
-// Recarga da carteira do cliente, antes do Asaas: a linha nasce pendente, sem id de pagamento nem código PIX, só com a
-// referência externa. Assim o pagamento de uma cobrança cujo bind falhou ainda é achado pelo webhook.
-export async function reserveClientPixCharge(
-	client: PoolClient,
-	identity: DbIdentity,
-	input: ReserveClientPixChargeInput,
-): Promise<CreatePixChargeResult> {
-	if (!topupAmountSchema.safeParse(input.amount).success) return { ok: false, reason: "invalid_amount" };
-
-	const { rows } = await client.query<{ id: string; expires_at: Date }>(
-		`insert into pix_charges (bureau_id, external_reference, amount, expires_at, requested_by, client_profile_id)
-		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $5)
-		 returning id, expires_at`,
-		[identity.bureauId, input.externalReference, input.amount, PIX_CHARGE_TTL_MINUTES, identity.userId],
-	);
-	const { id, expires_at: expiresAt } = rows[0];
-	await writeAuditEvent(client, {
-		actorId: identity.userId,
-		action: "wallet.topup.request",
-		targetTable: "pix_charges",
-		targetId: id,
-		metadata: { amount: input.amount },
-	});
-	return { ok: true, id, expiresAt };
-}
-
-// Liga a cobrança reservada ao pagamento criado no Asaas. false = não ligou (linha de outro autor, já fechada ou
-// ligada a outro pagamento): a linha segue como está e o webhook a acha pela referência externa.
-export async function bindPixCharge(
-	client: PoolClient,
-	chargeId: string,
-	input: { asaasPaymentId: string; pixPayload: string },
-): Promise<boolean> {
-	const { rows } = await client.query<{ bound: boolean }>("select public.bind_pix_charge($1, $2, $3) as bound", [
-		chargeId,
-		input.asaasPaymentId,
-		input.pixPayload,
-	]);
-	return rows[0].bound;
-}
 
 export type BillingType = "PIX" | "CREDIT_CARD";
 
@@ -238,15 +157,21 @@ export async function countRecentCardAttempts(client: PoolClient, requestedBy: s
 	return rows[0].total;
 }
 
-// Estado efetivo da cobrança (pending vencida é expired), para a consulta de status da tela.
+// Estado efetivo da cobrança (pending vencida é expired), para a consulta de status da tela. Só do próprio dono: o
+// cliente vê a cobrança da própria carteira; o Bureau, a da dele (nunca a de um cliente).
 export async function getChargeStatus(
 	client: PoolClient,
 	chargeId: string,
+	scope: ChargeScope,
 ): Promise<{ status: PixChargeStatus; billingType: BillingType } | null> {
+	const owner =
+		scope.kind === "client"
+			? { clause: "client_profile_id = $2", value: scope.clientProfileId }
+			: { clause: "client_profile_id is null and bureau_id = $2", value: scope.bureauId };
 	const { rows } = await client.query<{ status: PixChargeStatus; billing_type: BillingType }>(
 		`select case when status = 'pending' and expires_at < now() then 'expired' else status end as status, billing_type
-		   from pix_charges where id = $1`,
-		[chargeId],
+		   from pix_charges where id = $1 and ${owner.clause}`,
+		[chargeId, owner.value],
 	);
 	return rows[0] ? { status: rows[0].status, billingType: rows[0].billing_type } : null;
 }
@@ -275,12 +200,6 @@ export async function countPendingClientPixCharges(client: PoolClient, clientPro
 		[clientProfileId],
 	);
 	return rows[0].total;
-}
-
-// Serializa as cobranças do mesmo cliente até o fim da transação: contagem e insert deixam de correr em paralelo
-// e o teto de pendentes vale de fato. Chame antes de countPendingClientPixCharges, na mesma transação do insert.
-export async function lockClientPixCharges(client: PoolClient, clientProfileId: string): Promise<void> {
-	await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`client-pix-charges:${clientProfileId}`]);
 }
 
 type ChargeRow = {
