@@ -1,6 +1,6 @@
 import { randomBytes, randomInt, randomUUID } from "node:crypto";
 
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -2847,5 +2847,155 @@ describe("push_subscriptions", () => {
 		await expect(
 			dispatch.query("select * from register_push_subscription('https://x.test/a', repeat('a', 87), repeat('a', 22), null)"),
 		).rejects.toMatchObject({ code: "42501" });
+	});
+});
+
+describe("payer_profiles (040)", () => {
+	const webhook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 2 });
+	const dispatch = new Pool({ connectionString: TEST_DATABASE_DISPATCH_URL, max: 2 });
+	let T: SeededTenant;
+	let otherClient: Awaited<ReturnType<typeof seedClientProfile>>;
+	let superadmin: SeedSuperadmin;
+	let supportSessionId: string;
+
+	const insertSql = `insert into payer_profiles (bureau_id, client_profile_id, pii_ciphertext, pii_key_id, document_masked)
+		values ($1, $2, decode(repeat('ab', 40), 'hex'), 'k1', '***.456.***-**')`;
+	const ctx = (identity: { userId: string; role: string }, extra: { supportSessionId?: string } = {}) => ({
+		userId: identity.userId,
+		role: identity.role,
+		bureauId: T.bureau.id,
+		...extra,
+	});
+	const visible = (context: ReturnType<typeof ctx>) =>
+		withDbContext(app, context, async (c) =>
+			(await c.query<{ client_profile_id: string | null }>("select client_profile_id from payer_profiles where bureau_id = $1", [T.bureau.id]))
+				.rows.map((r) => r.client_profile_id),
+		);
+
+	beforeAll(async () => {
+		T = await seedTenant(owner, "payer rls");
+		otherClient = await seedClientProfile(owner, T.bureau.id);
+		superadmin = await seedSuperadmin(owner);
+		supportSessionId = await seedSupportSession(owner, { superadminId: superadmin.userId, bureauId: T.bureau.id });
+		await owner.query(insertSql, [T.bureau.id, T.client.userId]);
+		await owner.query(insertSql, [T.bureau.id, otherClient.userId]);
+		await owner.query(insertSql, [T.bureau.id, null]);
+	});
+
+	afterAll(async () => {
+		await Promise.all([webhook.end(), dispatch.end()]);
+	});
+
+	it("a client reads only its own row (not another client's, not the Bureau's)", async () => {
+		expect(await visible(ctx(T.client))).toEqual([T.client.userId]);
+		expect(await visible(ctx(otherClient))).toEqual([otherClient.userId]);
+	});
+
+	it("bureau_admin reads zero client rows and only the Bureau row; operator reads nothing", async () => {
+		expect(await visible(ctx(T.bureauAdmin))).toEqual([null]);
+		expect(await visible(ctx(T.operator))).toEqual([]);
+	});
+
+	it("another Bureau's admin reads nothing", async () => {
+		const other = await seedTenant(owner, "payer rls other");
+		const rows = await withDbContext(app, { userId: other.bureauAdmin.userId, role: "bureau_admin", bureauId: other.bureau.id }, async (c) =>
+			(await c.query("select 1 from payer_profiles where bureau_id = $1", [T.bureau.id])).rows,
+		);
+		expect(rows).toEqual([]);
+	});
+
+	it("a support session reads zero rows and cannot write", async () => {
+		expect(
+			await withDbContext(app, { userId: superadmin.userId, role: "superadmin", bureauId: T.bureau.id, supportSessionId }, async (c) =>
+				(await c.query("select 1 from payer_profiles")).rows,
+			),
+		).toEqual([]);
+		expect(await visible(ctx(T.bureauAdmin, { supportSessionId }))).toEqual([]);
+		expect(await visible(ctx(T.client, { supportSessionId }))).toEqual([]);
+		await expect(
+			withDbContext(app, ctx(T.bureauAdmin, { supportSessionId }), (c) =>
+				c.query(`update payer_profiles set name = 'x' where bureau_id = $1 and client_profile_id is null`, [T.bureau.id]),
+			).then((r) => r.rowCount),
+		).resolves.toBe(0);
+	});
+
+	it("superadmin outside support reads nothing", async () => {
+		expect(
+			await withDbContext(app, { userId: superadmin.userId, role: "superadmin", bureauId: null }, async (c) =>
+				(await c.query("select 1 from payer_profiles")).rows,
+			),
+		).toEqual([]);
+	});
+
+	it("writes follow the same scopes: own row only, Bureau row only for bureau_admin", async () => {
+		const blob = "decode(repeat('cd', 40), 'hex')";
+		const update = (identity: { userId: string; role: string }, where: string) =>
+			withDbContext(app, ctx(identity), (c) =>
+				c.query(`update payer_profiles set name = 'Nome', pii_ciphertext = ${blob} where bureau_id = $1 and ${where}`, [T.bureau.id]),
+			).then((r) => r.rowCount);
+
+		expect(await update(T.client, `client_profile_id = '${T.client.userId}'`)).toBe(1);
+		expect(await update(T.client, `client_profile_id = '${otherClient.userId}'`)).toBe(0);
+		expect(await update(T.client, "client_profile_id is null")).toBe(0);
+		expect(await update(T.bureauAdmin, `client_profile_id = '${T.client.userId}'`)).toBe(0);
+		expect(await update(T.bureauAdmin, "client_profile_id is null")).toBe(1);
+		expect(await update(T.operator, "client_profile_id is null")).toBe(0);
+	});
+
+	it("denies inserting a row for another client, for the Bureau as a client, or for a client as staff", async () => {
+		const tenant = await seedTenant(owner, "payer rls insert");
+		const sibling = await seedClientProfile(owner, tenant.bureau.id);
+		const asClient = (c: PoolClient, id: string | null) => c.query(insertSql, [tenant.bureau.id, id]);
+		const context = (identity: { userId: string; role: string }) => ({
+			userId: identity.userId,
+			role: identity.role,
+			bureauId: tenant.bureau.id,
+		});
+
+		await expect(withDbContext(app, context(tenant.client), (c) => asClient(c, sibling.userId))).rejects.toThrow(/row-level security/);
+		await expect(withDbContext(app, context(tenant.client), (c) => asClient(c, null))).rejects.toThrow(/row-level security/);
+		await expect(withDbContext(app, context(tenant.operator), (c) => asClient(c, null))).rejects.toThrow(/row-level security/);
+		await expect(withDbContext(app, context(tenant.bureauAdmin), (c) => asClient(c, tenant.client.userId))).rejects.toThrow(
+			/row-level security/,
+		);
+		await expect(withDbContext(app, context(tenant.client), (c) => asClient(c, tenant.client.userId))).resolves.toBeDefined();
+		await expect(withDbContext(app, context(tenant.bureauAdmin), (c) => asClient(c, null))).resolves.toBeDefined();
+	});
+
+	it("app_runtime cannot delete, move a row to another owner or touch ids; one row per owner", async () => {
+		await expect(withDbContext(app, ctx(T.client), (c) => c.query("delete from payer_profiles"))).rejects.toMatchObject({ code: "42501" });
+		await expect(
+			withDbContext(app, ctx(T.client), (c) => c.query("update payer_profiles set client_profile_id = null")),
+		).rejects.toMatchObject({ code: "42501" });
+		await expect(withDbContext(app, ctx(T.client), (c) => c.query("update payer_profiles set bureau_id = bureau_id"))).rejects.toMatchObject({
+			code: "42501",
+		});
+		await expect(owner.query(insertSql, [T.bureau.id, T.client.userId])).rejects.toMatchObject({ code: "23505" });
+		await expect(owner.query(insertSql, [T.bureau.id, null])).rejects.toMatchObject({ code: "23505" });
+	});
+
+	it("app_webhook and app_dispatch have no grant; backup_reader reads", async () => {
+		for (const role of [webhook, dispatch]) {
+			await expect(role.query("select 1 from payer_profiles")).rejects.toMatchObject({ code: "42501" });
+		}
+		const { rows } = await owner.query<{ ok: boolean }>("select has_table_privilege('backup_reader', 'payer_profiles', 'select') as ok");
+		expect(rows[0].ok).toBe(true);
+	});
+
+	it("RLS is enabled and forced, and the format checks refuse a full document or CEP", async () => {
+		const { rows } = await owner.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+			"select relrowsecurity, relforcerowsecurity from pg_class where relname = 'payer_profiles'",
+		);
+		expect(rows[0]).toEqual({ relrowsecurity: true, relforcerowsecurity: true });
+		const bad = (column: string, value: string) =>
+			owner.query(
+				`insert into payer_profiles (bureau_id, client_profile_id, pii_ciphertext, pii_key_id, ${column})
+				 values ($1, $2, decode(repeat('ab', 40), 'hex'), 'k1', $3)`,
+				[T.bureau.id, randomUUID(), value],
+			);
+		await expect(bad("document_masked", "12345678909")).rejects.toThrow(/document_masked/);
+		await expect(bad("document_masked", "123.456.789-09")).rejects.toThrow(/document_masked/);
+		await expect(bad("postal_code_masked", "01310-100")).rejects.toThrow(/postal_code_masked/);
+		await expect(bad("phone_e164", "11999990000")).rejects.toThrow(/phone_e164/);
 	});
 });

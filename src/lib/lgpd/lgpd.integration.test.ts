@@ -36,10 +36,12 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
 	randomCpf,
+	seedClientProfile,
 	seedClientWalletTopup,
 	seedDossier,
 	seedExpiredChallenge,
 	seedExpiredSession,
+	seedPixCharge,
 	seedRegisterAttempt,
 	seedTenant,
 	type SeededTenant,
@@ -380,6 +382,37 @@ describe("anonymizeClientAccount", () => {
 		const { rows } = await owner.query("select anonymized_at, document from holders where id = $1", [tenant.holder.id]);
 		expect(rows[0].anonymized_at).toBeNull();
 		expect(rows[0].document).toBe(tenant.holder.document);
+	});
+
+	it("client account anonymize deletes the payer_profiles row of the client and keeps the Bureau's and other clients'", async () => {
+		const tenant = await seedTenant(owner, "lgpd-payer");
+		const sibling = await seedClientProfile(owner, tenant.bureau.id);
+		const insertPayer = (clientProfileId: string | null) =>
+			owner.query(
+				`insert into payer_profiles (bureau_id, client_profile_id, pii_ciphertext, pii_key_id, document_masked)
+				 values ($1, $2, decode(repeat('ab', 40), 'hex'), 'k1', '***.456.***-**')`,
+				[tenant.bureau.id, clientProfileId],
+			);
+		await insertPayer(tenant.client.userId);
+		await insertPayer(sibling.userId);
+		await insertPayer(null);
+		const charge = await seedPixCharge(owner, {
+			bureauId: tenant.bureau.id,
+			requestedBy: tenant.client.userId,
+			clientProfileId: tenant.client.userId,
+			status: "paid",
+		});
+		await owner.query("update pix_charges set payer_document_masked = '***.456.***-**' where id = $1", [charge.id]);
+
+		expect(await anonymizeClientAccount(adminOf(tenant), { profileId: tenant.client.userId, reason: REASON })).toEqual({ ok: true });
+
+		const { rows } = await owner.query<{ client_profile_id: string | null }>(
+			"select client_profile_id from payer_profiles where bureau_id = $1",
+			[tenant.bureau.id],
+		);
+		expect(rows.map((r) => r.client_profile_id).sort()).toEqual([null, sibling.userId].sort());
+		const kept = await owner.query("select payer_document_masked from pix_charges where id = $1", [charge.id]);
+		expect(kept.rows[0].payer_document_masked).toBe("***.456.***-**");
 	});
 
 	it("client account anonymize does not reach a staff profile or another bureau", async () => {

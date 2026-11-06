@@ -44,8 +44,15 @@ import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedClientProfile, seedPixCharge, seedSuperadmin, seedTenant } from "@/test/seed";
 
 import {
+	bindAsaasCharge,
 	countPendingClientPixCharges,
+	countRecentCardAttempts,
 	bindPixCharge,
+	getChargeStatus,
+	lockChargeScope,
+	reserveCharge,
+	setChargeCustomer,
+	type ReserveChargeInput,
 	cancelUnboundPixCharge,
 	countPendingPixCharges,
 	createPixCharge,
@@ -960,5 +967,260 @@ describe("client PIX charge reserved before Asaas (B4)", () => {
 
 		expect(results.filter((r) => r !== null)).toHaveLength(1);
 		expect(await withUserTransaction(client, (c) => countPendingClientPixCharges(c, client.userId))).toBe(10);
+	});
+});
+
+describe("reserveCharge (Pix and card, both scopes)", () => {
+	const reserveInput = (scope: ReserveChargeInput["scope"], overrides: Partial<ReserveChargeInput> = {}): ReserveChargeInput => ({
+		scope,
+		externalReference: randomUUID(),
+		amount: "100.00",
+		billingType: "PIX",
+		installments: 1,
+		feeAmount: "0.00",
+		totalCharged: null,
+		payerKind: "owner",
+		payerDocumentMasked: "***.456.***-**",
+		...overrides,
+	});
+	const cardInput = (scope: ReserveChargeInput["scope"], overrides: Partial<ReserveChargeInput> = {}) =>
+		reserveInput(scope, {
+			billingType: "CREDIT_CARD",
+			installments: 3,
+			feeAmount: "6.50",
+			totalCharged: "106.50",
+			...overrides,
+		});
+	const row = async (id: string) =>
+		(await owner.query("select * from pix_charges where id = $1", [id])).rows[0];
+
+	it("reserves a client card charge with the card columns and audits only masked data", async () => {
+		const tenant = await seedTenant(owner, "Rsv A");
+		const client = tenant.client;
+		const input = cardInput({ kind: "client", clientProfileId: client.userId });
+
+		const result = await withUserTransaction(client, (c) => reserveCharge(c, client, input));
+
+		expect(result).toMatchObject({ ok: true, reused: false });
+		if (!result.ok) return;
+		expect(await row(result.id)).toMatchObject({
+			status: "pending",
+			client_profile_id: client.userId,
+			requested_by: client.userId,
+			billing_type: "CREDIT_CARD",
+			installments: 3,
+			fee_amount: "6.50",
+			total_charged: "106.50",
+			amount: "100.00",
+			payer_kind: "owner",
+			payer_document_masked: "***.456.***-**",
+			asaas_payment_id: null,
+			asaas_customer_id: null,
+		});
+		const audit = await owner.query(
+			"select metadata from audit_logs where action = 'wallet.topup.request' and record_id = $1",
+			[result.id],
+		);
+		expect(audit.rows[0].metadata).toEqual({
+			amount: "100.00",
+			billingType: "CREDIT_CARD",
+			installments: 3,
+			payerKind: "owner",
+			payerMask: "***.456.***-**",
+		});
+	});
+
+	it("reserves a Bureau Pix charge (no client) for the bureau_admin and denies operator and client", async () => {
+		const tenant = await seedTenant(owner, "Rsv B");
+		const admin = tenant.bureauAdmin;
+		const input = reserveInput({ kind: "bureau", bureauId: tenant.bureau.id }, { payerKind: "other" });
+
+		const result = await withUserTransaction(admin, (c) => reserveCharge(c, admin, input));
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(await row(result.id)).toMatchObject({
+			client_profile_id: null,
+			requested_by: admin.userId,
+			billing_type: "PIX",
+			installments: 1,
+			total_charged: null,
+		});
+		for (const identity of [tenant.operator, tenant.client]) {
+			await expect(
+				withUserTransaction(identity, (c) =>
+					reserveCharge(c, identity, reserveInput({ kind: "bureau", bureauId: tenant.bureau.id })),
+				),
+			).rejects.toThrow(/row-level security/);
+		}
+	});
+
+	it("returns the same row for the same reference and author, without a second audit", async () => {
+		const tenant = await seedTenant(owner, "Rsv C");
+		const client = tenant.client;
+		const input = reserveInput({ kind: "client", clientProfileId: client.userId });
+
+		const first = await withUserTransaction(client, (c) => reserveCharge(c, client, input));
+		const second = await withUserTransaction(client, (c) => reserveCharge(c, client, input));
+
+		expect(first).toMatchObject({ ok: true, reused: false });
+		expect(second).toMatchObject({ ok: true, reused: true });
+		if (!first.ok || !second.ok) return;
+		expect(second.id).toBe(first.id);
+		const audit = await owner.query("select 1 from audit_logs where action = 'wallet.topup.request' and record_id = $1", [first.id]);
+		expect(audit.rows).toHaveLength(1);
+	});
+
+	it("returns reference_taken for another client of the same Bureau and for another tenant", async () => {
+		const tenant = await seedTenant(owner, "Rsv D");
+		const other = await seedTenant(owner, "Rsv D2");
+		const first = tenant.client;
+		const sameBureau = await seedClientProfile(owner, tenant.bureau.id);
+		const input = reserveInput({ kind: "client", clientProfileId: first.userId });
+		await withUserTransaction(first, (c) => reserveCharge(c, first, input));
+
+		const sameBureauResult = await withUserTransaction(sameBureau, (c) =>
+			reserveCharge(c, sameBureau, { ...input, scope: { kind: "client", clientProfileId: sameBureau.userId } }),
+		);
+		const otherTenantResult = await withUserTransaction(other.bureauAdmin, (c) =>
+			reserveCharge(c, other.bureauAdmin, { ...input, scope: { kind: "bureau", bureauId: other.bureau.id } }),
+		);
+
+		expect(sameBureauResult).toEqual({ ok: false, reason: "reference_taken" });
+		expect(otherTenantResult).toEqual({ ok: false, reason: "reference_taken" });
+	});
+
+	it("rejects an invalid amount and a Pix row that carries card data", async () => {
+		const tenant = await seedTenant(owner, "Rsv E");
+		const client = tenant.client;
+		const scope = { kind: "client", clientProfileId: client.userId } as const;
+
+		expect(await withUserTransaction(client, (c) => reserveCharge(c, client, reserveInput(scope, { amount: "9.99" })))).toEqual({
+			ok: false,
+			reason: "invalid_amount",
+		});
+		await expect(
+			withUserTransaction(client, (c) => reserveCharge(c, client, reserveInput(scope, { installments: 2 }))),
+		).rejects.toThrow(/pix_charges_billing_shape_check/);
+		await expect(
+			withUserTransaction(client, (c) =>
+				reserveCharge(c, client, cardInput(scope, { totalCharged: "107.00" })),
+			),
+		).rejects.toThrow(/pix_charges_billing_shape_check/);
+	});
+
+	it("check refuses a payer_document_masked with 11 digits", async () => {
+		const tenant = await seedTenant(owner, "Rsv F");
+		const client = tenant.client;
+
+		await expect(
+			withUserTransaction(client, (c) =>
+				reserveCharge(c, client, reserveInput({ kind: "client", clientProfileId: client.userId }, { payerDocumentMasked: "12345678909" })),
+			),
+		).rejects.toThrow(/payer_document_masked/);
+	});
+
+	it("serializes the scope lock and counts card attempts of the last hour for the author only", async () => {
+		const tenant = await seedTenant(owner, "Rsv G");
+		const client = tenant.client;
+		const scope = { kind: "client", clientProfileId: client.userId } as const;
+		for (let i = 0; i < 2; i++) {
+			await withUserTransaction(client, (c) => reserveCharge(c, client, cardInput(scope)));
+		}
+		await withUserTransaction(client, (c) => reserveCharge(c, client, reserveInput(scope)));
+		const old = await withUserTransaction(client, (c) => reserveCharge(c, client, cardInput(scope)));
+		if (!old.ok) throw new Error("not reserved");
+		await owner.query("update pix_charges set created_at = now() - interval '2 hours' where id = $1", [old.id]);
+		const otherClient = await seedClientProfile(owner, tenant.bureau.id);
+		await withUserTransaction(otherClient, (c) =>
+			reserveCharge(c, otherClient, cardInput({ kind: "client", clientProfileId: otherClient.userId })),
+		);
+
+		const total = await withUserTransaction(client, async (c) => {
+			await lockChargeScope(c, scope);
+			return countRecentCardAttempts(c, client.userId);
+		});
+
+		expect(total).toBe(2);
+	});
+
+	it("sets the Asaas customer once, idempotently, only for the author", async () => {
+		const tenant = await seedTenant(owner, "Rsv H");
+		const client = tenant.client;
+		const created = await withUserTransaction(client, (c) =>
+			reserveCharge(c, client, reserveInput({ kind: "client", clientProfileId: client.userId })),
+		);
+		if (!created.ok) throw new Error("not reserved");
+
+		await withUserTransaction(client, (c) => setChargeCustomer(c, created.id, "cus_1"));
+		await withUserTransaction(client, (c) => setChargeCustomer(c, created.id, "cus_1"));
+		await expect(withUserTransaction(client, (c) => setChargeCustomer(c, created.id, "cus_2"))).rejects.toThrow(
+			/cliente Asaas/,
+		);
+		const other = await seedClientProfile(owner, tenant.bureau.id);
+		await expect(withUserTransaction(other, (c) => setChargeCustomer(c, created.id, "cus_1"))).rejects.toThrow(/cliente Asaas/);
+
+		expect((await row(created.id)).asaas_customer_id).toBe("cus_1");
+	});
+
+	it("binds card data and the installment id, and reports the effective status", async () => {
+		const tenant = await seedTenant(owner, "Rsv I");
+		const client = tenant.client;
+		const created = await withUserTransaction(client, (c) =>
+			reserveCharge(c, client, cardInput({ kind: "client", clientProfileId: client.userId })),
+		);
+		if (!created.ok) throw new Error("not reserved");
+		const p1 = `pay_${randomUUID()}`;
+		const ins = `ins_${randomUUID()}`;
+
+		const bound = await withUserTransaction(client, (c) =>
+			bindAsaasCharge(c, created.id, {
+				asaasPaymentId: p1,
+				asaasInstallmentId: ins,
+				cardBrand: "VISA",
+				cardLast4: "4242",
+			}),
+		);
+		const sameAgain = await withUserTransaction(client, (c) =>
+			bindAsaasCharge(c, created.id, { asaasPaymentId: p1, asaasInstallmentId: ins }),
+		);
+		const otherPayment = await withUserTransaction(client, (c) =>
+			bindAsaasCharge(c, created.id, { asaasPaymentId: `pay_${randomUUID()}` }),
+		);
+
+		expect([bound, sameAgain, otherPayment]).toEqual([true, true, false]);
+		expect(await row(created.id)).toMatchObject({
+			asaas_payment_id: p1,
+			asaas_installment_id: ins,
+			card_brand: "VISA",
+			card_last4: "4242",
+			pix_payload: null,
+		});
+		expect(await withUserTransaction(client, (c) => getChargeStatus(c, created.id))).toEqual({
+			status: "pending",
+			billingType: "CREDIT_CARD",
+		});
+		await owner.query("update pix_charges set expires_at = now() - interval '1 minute' where id = $1", [created.id]);
+		expect((await withUserTransaction(client, (c) => getChargeStatus(c, created.id)))?.status).toBe("expired");
+	});
+
+	it("keeps the 3-argument bind working for Pix and refuses a Pix bind without a payload", async () => {
+		const tenant = await seedTenant(owner, "Rsv J");
+		const client = tenant.client;
+		const created = await withUserTransaction(client, (c) =>
+			reserveCharge(c, client, reserveInput({ kind: "client", clientProfileId: client.userId })),
+		);
+		if (!created.ok) throw new Error("not reserved");
+		const pixPay = `pay_${randomUUID()}`;
+
+		const withoutPayload = await withUserTransaction(client, (c) =>
+			bindAsaasCharge(c, created.id, { asaasPaymentId: pixPay }),
+		);
+		const legacy = await withUserTransaction(client, (c) =>
+			bindPixCharge(c, created.id, { asaasPaymentId: pixPay, pixPayload: "000201x" }),
+		);
+
+		expect([withoutPayload, legacy]).toEqual([false, true]);
+		expect(await row(created.id)).toMatchObject({ asaas_payment_id: pixPay, pix_payload: "000201x" });
 	});
 });

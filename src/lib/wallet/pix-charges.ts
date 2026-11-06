@@ -104,6 +104,153 @@ export async function bindPixCharge(
 	return rows[0].bound;
 }
 
+export type BillingType = "PIX" | "CREDIT_CARD";
+
+// Dono da carteira que recebe a recarga: o cliente (portal) ou o Bureau (empresa).
+export type ChargeScope = { kind: "client"; clientProfileId: string } | { kind: "bureau"; bureauId: string };
+
+export const MAX_CARD_ATTEMPTS_PER_HOUR = 5;
+
+export type ReserveChargeInput = {
+	scope: ChargeScope;
+	externalReference: string;
+	amount: string;
+	billingType: BillingType;
+	installments: number;
+	feeAmount: string;
+	totalCharged: string | null;
+	payerKind: "owner" | "other";
+	payerDocumentMasked: string;
+};
+
+export type ReserveChargeResult =
+	| { ok: true; id: string; expiresAt: Date; reused: boolean }
+	| { ok: false; reason: "invalid_amount" | "reference_taken" };
+
+// Serializa as cobranças do mesmo dono até o fim da transação: contagem de pendentes, contagem de tentativas de cartão
+// e insert deixam de correr em paralelo. Chame antes das contagens, na mesma transação da reserva.
+export async function lockChargeScope(client: PoolClient, scope: ChargeScope): Promise<void> {
+	const key = scope.kind === "client" ? `client-pix-charges:${scope.clientProfileId}` : `bureau-pix-charges:${scope.bureauId}`;
+	await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [key]);
+}
+
+// Reserva a linha antes de chamar o Asaas (Pix ou cartão). A referência externa é a chave de idempotência: o reenvio
+// do mesmo autor devolve a mesma linha (reused) e não audita de novo; outro autor recebe reference_taken.
+export async function reserveCharge(
+	client: PoolClient,
+	identity: DbIdentity,
+	input: ReserveChargeInput,
+): Promise<ReserveChargeResult> {
+	if (!topupAmountSchema.safeParse(input.amount).success) return { ok: false, reason: "invalid_amount" };
+
+	const clientProfileId = input.scope.kind === "client" ? input.scope.clientProfileId : null;
+	const { rows } = await client.query<{ id: string; expires_at: Date }>(
+		`insert into pix_charges (bureau_id, external_reference, amount, expires_at, requested_by, client_profile_id,
+		   billing_type, installments, fee_amount, total_charged, payer_kind, payer_document_masked)
+		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $6, $7, $8, $9, $10, $11, $12)
+		 on conflict (external_reference) do nothing
+		 returning id, expires_at`,
+		[
+			identity.bureauId,
+			input.externalReference,
+			input.amount,
+			PIX_CHARGE_TTL_MINUTES,
+			identity.userId,
+			clientProfileId,
+			input.billingType,
+			input.installments,
+			input.feeAmount,
+			input.totalCharged,
+			input.payerKind,
+			input.payerDocumentMasked,
+		],
+	);
+	if (rows[0]) {
+		await writeAuditEvent(client, {
+			actorId: identity.userId,
+			action: "wallet.topup.request",
+			targetTable: "pix_charges",
+			targetId: rows[0].id,
+			metadata: {
+				amount: input.amount,
+				billingType: input.billingType,
+				installments: input.installments,
+				payerKind: input.payerKind,
+				// Não chama "documentMasked": redact() apagaria a máscara de toda chave com "document".
+				payerMask: input.payerDocumentMasked,
+			},
+		});
+		return { ok: true, id: rows[0].id, expiresAt: rows[0].expires_at, reused: false };
+	}
+
+	// Linha de outro tenant fica invisível pela RLS: também é reference_taken.
+	const existing = await client.query<{ id: string; expires_at: Date; requested_by: string }>(
+		"select id, expires_at, requested_by from pix_charges where external_reference = $1",
+		[input.externalReference],
+	);
+	const row = existing.rows[0];
+	if (!row || row.requested_by !== identity.userId) return { ok: false, reason: "reference_taken" };
+	return { ok: true, id: row.id, expiresAt: row.expires_at, reused: true };
+}
+
+// Liga o cliente Asaas à cobrança reservada. Lança se a cobrança não é do autor, já fechou ou tem outro cliente Asaas.
+export async function setChargeCustomer(client: PoolClient, chargeId: string, asaasCustomerId: string): Promise<void> {
+	const { rows } = await client.query<{ ok: boolean }>("select public.set_pix_charge_customer($1, $2) as ok", [
+		chargeId,
+		asaasCustomerId,
+	]);
+	if (!rows[0].ok) throw new Error("set_pix_charge_customer: cobrança não aceita o cliente Asaas");
+}
+
+// Como bindPixCharge, com os campos do cartão e do parcelamento. false = não ligou (veja bind_pix_charge, 040).
+export async function bindAsaasCharge(
+	client: PoolClient,
+	chargeId: string,
+	input: {
+		asaasPaymentId: string;
+		pixPayload?: string;
+		asaasInstallmentId?: string | null;
+		cardBrand?: string;
+		cardLast4?: string;
+	},
+): Promise<boolean> {
+	const { rows } = await client.query<{ bound: boolean }>(
+		"select public.bind_pix_charge($1, $2, $3, $4, $5, $6) as bound",
+		[
+			chargeId,
+			input.asaasPaymentId,
+			input.pixPayload ?? null,
+			input.asaasInstallmentId ?? null,
+			input.cardBrand ?? null,
+			input.cardLast4 ?? null,
+		],
+	);
+	return rows[0].bound;
+}
+
+// Tentativas de cartão do solicitante na última hora (qualquer estado). O teto é MAX_CARD_ATTEMPTS_PER_HOUR.
+export async function countRecentCardAttempts(client: PoolClient, requestedBy: string): Promise<number> {
+	const { rows } = await client.query<{ total: number }>(
+		`select count(*)::int as total from pix_charges
+		  where requested_by = $1 and billing_type = 'CREDIT_CARD' and created_at > now() - interval '1 hour'`,
+		[requestedBy],
+	);
+	return rows[0].total;
+}
+
+// Estado efetivo da cobrança (pending vencida é expired), para a consulta de status da tela.
+export async function getChargeStatus(
+	client: PoolClient,
+	chargeId: string,
+): Promise<{ status: PixChargeStatus; billingType: BillingType } | null> {
+	const { rows } = await client.query<{ status: PixChargeStatus; billing_type: BillingType }>(
+		`select case when status = 'pending' and expires_at < now() then 'expired' else status end as status, billing_type
+		   from pix_charges where id = $1`,
+		[chargeId],
+	);
+	return rows[0] ? { status: rows[0].status, billingType: rows[0].billing_type } : null;
+}
+
 // O Asaas não criou a cobrança: fecha a linha reservada para ela sair do teto de pendentes.
 export async function cancelUnboundPixCharge(client: PoolClient, chargeId: string): Promise<void> {
 	await client.query("select public.cancel_unbound_pix_charge($1)", [chargeId]);
