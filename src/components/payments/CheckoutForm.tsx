@@ -20,6 +20,7 @@ import { parseTopupInput } from "@/lib/wallet/topup-input";
 
 import { buildCheckoutInput, EMPTY_CARD, PAYER_FIELDS, type CardDraft, type CheckoutErrors, type Method, type PayerKind } from "./checkout-model";
 import { CardPaymentForm } from "./CardPaymentForm";
+import { acquireKey, checkoutFingerprint, settleKey, type KeyHolder, type SubmitOutcome } from "./checkout-key";
 import { installmentLabel } from "./InstallmentSelect";
 import { PayerStep } from "./PayerStep";
 import { useChargePolling, type PollOutcome } from "./useChargePolling";
@@ -62,6 +63,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
   const amountRef = useRef<HTMLInputElement>(null);
   const requestSeq = useRef(0);
   const firstLoad = useRef(true);
+  const keyHolder = useRef<KeyHolder>(null);
 
   const polling = useChargePolling((outcome) => {
     if (outcome === "paid") router.refresh();
@@ -113,6 +115,11 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
+    const acquired = acquireKey(
+      keyHolder.current,
+      checkoutFingerprint({ amount, method: activeMethod, installments: selected?.installments ?? 1, kind }),
+      () => crypto.randomUUID(),
+    );
     const built = buildCheckoutInput({
       amount,
       method: activeMethod,
@@ -123,7 +130,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
       values,
       card,
       declaration,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: acquired.key,
     });
     if (!built.ok) {
       setErrors(built.errors);
@@ -131,10 +138,17 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
     }
     setErrors({});
     setSubmitError(null);
+    keyHolder.current = acquired.holder;
     // O cartão sai do estado no envio: o valor segue só dentro de `built.input`.
     setCard(EMPTY_CARD);
     startTransition(async () => {
-      const res = await action(built.input).catch((): CheckoutActionResult => ({ error: "Não foi possível concluir o pagamento. Tente novamente." }));
+      let networkFailed = false;
+      const res = await action(built.input).catch((): CheckoutActionResult => {
+        networkFailed = true;
+        return { error: "Não foi possível concluir o pagamento. Tente novamente." };
+      });
+      const outcome: SubmitOutcome = networkFailed || res.reused ? "unknown" : res.error || !res.id ? "rejected" : "succeeded";
+      keyHolder.current = settleKey(keyHolder.current, outcome);
       if (res.error || !res.id) {
         setSubmitError(res.error ?? "Não foi possível concluir o pagamento. Tente novamente.");
         return;
