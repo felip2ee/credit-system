@@ -32,6 +32,7 @@ import {
   readNfseConfig,
   readNotificationsDispatchSecret,
   readCardFeeConfig,
+  PII_DEV_KEY_EXAMPLE,
   readPiiKeyring,
   readPushConfig,
   readWebhookDatabaseUrl,
@@ -540,6 +541,23 @@ describe("readPiiKeyring", () => {
       expect(message).toBe("PII_ENCRYPTION_KEY keys must have 32 bytes");
       expect(message).not.toContain(short);
     }
+  });
+
+  it("refuses the public .env.example dev key in production, by id and by value, and allows it elsewhere", () => {
+    const dev = `dev:${PII_DEV_KEY_EXAMPLE}`;
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: dev, NODE_ENV: "production" })).toThrow(
+      "PII_ENCRYPTION_KEY must not be the .env.example dev key",
+    );
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: `ci:${PII_DEV_KEY_EXAMPLE}`, NODE_ENV: "production" })).toThrow(
+      "must not be the .env.example dev key",
+    );
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: `dev:${k1}`, NODE_ENV: "production" })).toThrow(
+      "must not be the .env.example dev key",
+    );
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: `k2:${k2},${dev}`, NODE_ENV: "production" })).toThrow();
+    expect(readPiiKeyring({ PII_ENCRYPTION_KEY: dev, NODE_ENV: "development" }).activeKeyId).toBe("dev");
+    expect(readPiiKeyring({ PII_ENCRYPTION_KEY: dev, NODE_ENV: "test" }).activeKeyId).toBe("dev");
+    expect(readPiiKeyring({ PII_ENCRYPTION_KEY: `k1:${k1}`, NODE_ENV: "production" }).activeKeyId).toBe("k1");
   });
 
   it("rejects a repeated key id", () => {

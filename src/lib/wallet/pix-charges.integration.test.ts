@@ -472,7 +472,7 @@ describe("POST /api/webhooks/asaas", () => {
 		});
 		const body = {
 			event: "PAYMENT_RECEIVED",
-			payment: { object: "payment", id: charge.asaasPaymentId, value: 1 },
+			payment: { object: "payment", id: charge.asaasPaymentId, value: 100 },
 		};
 
 		const responses = await Promise.all([webhook(body), webhook(body)]);

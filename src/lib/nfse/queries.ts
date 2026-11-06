@@ -113,13 +113,19 @@ export type NfseChargeByPayment = NfseCharge & { invoiceId: string | null; insta
 
 // O webhook (app_webhook) não lê tabela alguma: nfse_charge_by_payment (017) liga o id do pagamento do Asaas ao id
 // da cobrança paga ou estornada, ou não devolve linha.
-export async function findNfseChargeByPayment(asaasPaymentId: string): Promise<NfseChargeByPayment | null> {
+export async function findNfseChargeByPayment(
+	asaasPaymentId: string,
+	installmentId?: string | null,
+): Promise<NfseChargeByPayment | null> {
 	const { rows } = await getWebhookPool().query<{
 		charge_id: string;
 		amount: string;
 		asaas_invoice_id: string | null;
 		asaas_installment_id: string | null;
-	}>("select * from public.nfse_charge_by_payment($1)", [asaasPaymentId]);
+	}>("select * from public.nfse_charge_by_payment($1, $2)", [
+		asaasPaymentId,
+		installmentId ?? null,
+	]);
 	return rows[0]
 		? {
 				chargeId: rows[0].charge_id,

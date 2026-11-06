@@ -167,6 +167,9 @@ export type PiiKeyring = { activeKeyId: string; keys: ReadonlyMap<string, Buffer
 
 // Lida sob demanda (src/lib/pii). Formato "id:base64,id:base64": a primeira chave cifra, todas decifram.
 // As mensagens de erro nunca levam o valor da variável.
+// Chave pública do .env.example (id `dev`): quem a conhece decifra os dados. Recusada em produção.
+export const PII_DEV_KEY_EXAMPLE = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+
 export function readPiiKeyring(env: Environment): PiiKeyring {
   const raw = required(env, "PII_ENCRYPTION_KEY");
   const keys = new Map<string, Buffer>();
@@ -178,6 +181,9 @@ export function readPiiKeyring(env: Environment): PiiKeyring {
     const key = Buffer.from(encoded, "base64");
     if (key.length !== PII_KEY_BYTES) throw new Error(`PII_ENCRYPTION_KEY keys must have ${PII_KEY_BYTES} bytes`);
     if (keys.has(id)) throw new Error("PII_ENCRYPTION_KEY has a repeated key id");
+    if (env.NODE_ENV === "production" && (id === "dev" || encoded === PII_DEV_KEY_EXAMPLE)) {
+      throw new Error("PII_ENCRYPTION_KEY must not be the .env.example dev key");
+    }
     keys.set(id, key);
   }
   return { activeKeyId: keys.keys().next().value as string, keys };

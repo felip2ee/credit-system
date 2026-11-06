@@ -26,7 +26,7 @@ A chave cifra documento, CEP e número do dono da conta (`payer_profiles`). Sem 
 ## 2. Taxas e parcela mínima do cartão
 
 - Configuração: `CARD_FEE_TABLE` e `CARD_MIN_INSTALLMENT_CENTS`. Formato em [setup.md](../setup.md).
-- `CARD_FEE_TABLE` vazia: cartão desligado. A tela não mostra a opção.
+- `CARD_FEE_TABLE` vazia: cartão desligado. A tela não mostra a opção. Preencha a tabela para ligar o cartão.
 - Total = (recarga + taxa fixa) / (1 − taxa%), arredondado para cima ao centavo. As parcelas são iguais. A última parcela leva o resto. O saldo sobe pelo valor da recarga. O pagador paga a taxa.
 - O servidor calcula o total. O total enviado pelo navegador é ignorado.
 - Planos com parcela abaixo de `CARD_MIN_INSTALLMENT_CENTS` não aparecem.
@@ -39,6 +39,8 @@ A chave cifra documento, CEP e número do dono da conta (`payer_profiles`). Sem 
 - **Crédito:** só pelo webhook. Nunca na resposta síncrona.
 - **Limite:** no máximo 5 linhas de cartão por solicitante por hora (`MAX_CARD_ATTEMPTS_PER_HOUR = 5`). A contagem usa o mesmo lock da reserva.
 - **Estorno:** o estorno de qualquer parcela reverte o crédito inteiro, uma vez.
+- **Chargeback:** `PAYMENT_CHARGEBACK_REQUESTED` reverte o crédito como o estorno. `PAYMENT_CHARGEBACK_DISPUTE` e `PAYMENT_AWAITING_CHARGEBACK_REVERSAL` não mudam saldo; ficam como `chargeback_ignored` e vão ao log.
+- **Valor pago menor que o esperado:** o evento fica como `amount_mismatch`, sem crédito, e vai ao log. Valor igual ou maior credita o valor da linha.
 
 ## 4. Dados de cartão
 

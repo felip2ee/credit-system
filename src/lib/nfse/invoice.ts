@@ -128,11 +128,15 @@ async function scheduleAndRecord(
 // set_nfse_status(pending) muda not_requested e também reivindica pending com mais de 10 min (quem a perdeu: o processo
 // caiu, ou o resultado do Asaas era desconhecido). Só quem reivindica agenda; nota pending recente, issued ou failed
 // nunca é agendada de novo. Nunca lança.
-async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<ScheduleOutcome> {
+async function claimAndSchedule(
+	asaasPaymentId: string,
+	step: string,
+	installmentId?: string,
+): Promise<ScheduleOutcome> {
 	const state = nfseConfigState();
 	if (state.kind === "off") return "not_requested";
 	try {
-		const charge: NfseChargeByPayment | null = await findNfseChargeByPayment(asaasPaymentId);
+		const charge: NfseChargeByPayment | null = await findNfseChargeByPayment(asaasPaymentId, installmentId);
 		if (!charge) return "unknown_charge";
 		const claim = await setNfseStatus(charge.chargeId, "pending");
 		if (!claim.ok || !claim.changed) return "not_requested";
@@ -145,13 +149,13 @@ async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<S
 }
 
 // Depois do crédito, fora da transação. Nunca lança: a falha da nota não pode virar 500 nem desfazer o crédito.
-export const requestInvoiceForPayment = (asaasPaymentId: string): Promise<ScheduleOutcome> =>
-	claimAndSchedule(asaasPaymentId, "pedido da nota");
+export const requestInvoiceForPayment = (asaasPaymentId: string, installmentId?: string): Promise<ScheduleOutcome> =>
+	claimAndSchedule(asaasPaymentId, "pedido da nota", installmentId);
 
 // Reenvio do webhook de um pagamento já creditado: repara a nota que ficou em not_requested ou presa em pending há mais
 // de 10 min (reivindicação do SQL); nota recente, issued ou failed fica como está.
-export const repairInvoiceForPayment = (asaasPaymentId: string): Promise<ScheduleOutcome> =>
-	claimAndSchedule(asaasPaymentId, "reparo da nota");
+export const repairInvoiceForPayment = (asaasPaymentId: string, installmentId?: string): Promise<ScheduleOutcome> =>
+	claimAndSchedule(asaasPaymentId, "reparo da nota", installmentId);
 
 // Nova tentativa depois de request_nfse_retry (a cobrança já está pending). Nunca lança.
 export async function rescheduleInvoice(identity: DbIdentity, chargeId: string): Promise<ScheduleOutcome> {

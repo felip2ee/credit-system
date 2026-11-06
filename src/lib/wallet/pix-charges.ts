@@ -29,6 +29,8 @@ export type BillingType = "PIX" | "CREDIT_CARD";
 export type ChargeScope = { kind: "client"; clientProfileId: string } | { kind: "bureau"; bureauId: string };
 
 export const MAX_CARD_ATTEMPTS_PER_HOUR = 5;
+export const MAX_CARD_ATTEMPTS_PER_IP_PER_HOUR = 10;
+export const MAX_CARD_ATTEMPTS_PER_BUREAU_PER_HOUR = 40;
 
 export type ReserveChargeInput = {
 	scope: ChargeScope;
@@ -40,6 +42,8 @@ export type ReserveChargeInput = {
 	totalCharged: string | null;
 	payerKind: "owner" | "other";
 	payerDocumentMasked: string;
+	// IP de origem do pedido (só o cartão o usa, para o teto por IP).
+	requestIp?: string | null;
 };
 
 export type ReserveChargeResult =
@@ -65,8 +69,8 @@ export async function reserveCharge(
 	const clientProfileId = input.scope.kind === "client" ? input.scope.clientProfileId : null;
 	const { rows } = await client.query<{ id: string; expires_at: Date }>(
 		`insert into pix_charges (bureau_id, external_reference, amount, expires_at, requested_by, client_profile_id,
-		   billing_type, installments, fee_amount, total_charged, payer_kind, payer_document_masked)
-		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $6, $7, $8, $9, $10, $11, $12)
+		   billing_type, installments, fee_amount, total_charged, payer_kind, payer_document_masked, request_ip)
+		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		 on conflict (external_reference) do nothing
 		 returning id, expires_at`,
 		[
@@ -82,6 +86,7 @@ export async function reserveCharge(
 			input.totalCharged,
 			input.payerKind,
 			input.payerDocumentMasked,
+			input.requestIp ?? null,
 		],
 	);
 	if (rows[0]) {
@@ -157,6 +162,26 @@ export async function countRecentCardAttempts(client: PoolClient, requestedBy: s
 	return rows[0].total;
 }
 
+// Tentativas de cartão de um IP desde `since`, de todos os usuários e Bureaus (count_recent_card_attempts_by_ip, 043:
+// definer, só um inteiro). O teto é MAX_CARD_ATTEMPTS_PER_IP_PER_HOUR.
+export async function countRecentCardAttemptsByIp(client: PoolClient, ip: string, since: Date): Promise<number> {
+	const { rows } = await client.query<{ total: number }>(
+		"select public.count_recent_card_attempts_by_ip($1, $2) as total",
+		[ip, since],
+	);
+	return rows[0].total;
+}
+
+// Tentativas de cartão do Bureau da sessão desde `since`, de todos os usuários dele (count_recent_card_attempts_by_bureau,
+// 043: definer, recusa outro Bureau). O teto é MAX_CARD_ATTEMPTS_PER_BUREAU_PER_HOUR.
+export async function countRecentCardAttemptsByBureau(client: PoolClient, bureauId: string, since: Date): Promise<number> {
+	const { rows } = await client.query<{ total: number }>(
+		"select public.count_recent_card_attempts_by_bureau($1, $2) as total",
+		[bureauId, since],
+	);
+	return rows[0].total;
+}
+
 // Estado efetivo da cobrança (pending vencida é expired), para a consulta de status da tela. Só do próprio dono: o
 // cliente vê a cobrança da própria carteira; o Bureau, a da dele (nunca a de um cliente).
 export async function getChargeStatus(
@@ -181,11 +206,12 @@ export async function cancelUnboundPixCharge(client: PoolClient, chargeId: strin
 	await client.query("select public.cancel_unbound_pix_charge($1)", [chargeId]);
 }
 
-// Cobranças ainda válidas do Bureau (sem as dos clientes): limita o spam de PIX antes de chamar o Asaas.
+// Cobranças Pix ainda válidas do Bureau (sem as dos clientes e sem o cartão): limita o spam de PIX antes de chamar o Asaas.
 export async function countPendingPixCharges(client: PoolClient, bureauId: string): Promise<number> {
 	const { rows } = await client.query<{ total: number }>(
 		`select count(*)::int as total from pix_charges
-		  where bureau_id = $1 and client_profile_id is null and status = 'pending' and expires_at > now()`,
+		  where bureau_id = $1 and client_profile_id is null and billing_type = 'PIX' and status = 'pending'
+		    and expires_at > now()`,
 		[bureauId],
 	);
 	return rows[0].total;
@@ -196,7 +222,7 @@ export async function countPendingPixCharges(client: PoolClient, bureauId: strin
 export async function countPendingClientPixCharges(client: PoolClient, clientProfileId: string): Promise<number> {
 	const { rows } = await client.query<{ total: number }>(
 		`select count(*)::int as total from pix_charges
-		  where client_profile_id = $1 and status = 'pending' and expires_at > now()`,
+		  where client_profile_id = $1 and billing_type = 'PIX' and status = 'pending' and expires_at > now()`,
 		[clientProfileId],
 	);
 	return rows[0].total;
@@ -272,7 +298,9 @@ export type AsaasPaymentResult =
 	| "duplicate"
 	| "ignored"
 	| "unknown_charge"
-	| "partial_refund_ignored";
+	| "partial_refund_ignored"
+	| "chargeback_ignored"
+	| "amount_mismatch";
 
 // Estorno de PIX que o saldo disponível não cobriu (pix_charges.refund_shortfall > 0), para o superadmin.
 export type RefundShortfall = { chargeId: string; amount: string; shortfall: string; createdAt: Date };

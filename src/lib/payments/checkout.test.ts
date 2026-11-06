@@ -27,6 +27,7 @@ const s = vi.hoisted(() => ({
 	reserve: vi.fn(),
 	setCustomer: vi.fn(),
 	bind: vi.fn(),
+	status: vi.fn(),
 	cancel: vi.fn(),
 	attempts: vi.fn(),
 	pendingBureau: vi.fn(),
@@ -67,6 +68,7 @@ vi.mock("@/lib/wallet/pix-charges", () => ({
 	reserveCharge: s.reserve,
 	setChargeCustomer: s.setCustomer,
 	bindAsaasCharge: s.bind,
+	getChargeStatus: s.status,
 	cancelUnboundPixCharge: s.cancel,
 	countRecentCardAttempts: s.attempts,
 	countPendingPixCharges: s.pendingBureau,
@@ -154,6 +156,7 @@ beforeEach(() => {
 	s.claim.mockImplementation(async (_client: unknown, _profile: string, id: string) => id);
 	s.setCustomer.mockResolvedValue(undefined);
 	s.bind.mockResolvedValue(true);
+	s.status.mockResolvedValue({ status: "pending", billingType: "PIX" });
 	s.cancel.mockResolvedValue(undefined);
 	s.attempts.mockResolvedValue(1);
 	s.pendingBureau.mockResolvedValue(1);
@@ -485,6 +488,29 @@ describe("runCheckout, card", () => {
 		expect(result.error).toMatch(/cartão/);
 		expect(s.cancel).toHaveBeenCalledWith({}, "ch1");
 		expect(s.asaas.createCardCharge).not.toHaveBeenCalled();
+	});
+
+	it.each(["paid", "refunded"])("does not raise the unbound alarm when the bind is false because the webhook won the race (%s)", async (status) => {
+		s.bind.mockResolvedValue(false);
+		s.status.mockResolvedValue({ status, billingType: "CREDIT_CARD" });
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const result = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD" });
+		expect(s.status).toHaveBeenCalledWith({}, "ch1", clientScope);
+		expect(JSON.stringify(log.mock.calls)).not.toContain("sem ligação");
+		log.mockRestore();
+	});
+
+	it("raises the unbound alarm when the bind is false and the charge is still pending", async () => {
+		s.bind.mockResolvedValue(false);
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(JSON.stringify(log.mock.calls)).toContain("COBRANÇA sem ligação");
+		log.mockRestore();
 	});
 
 	it("still reports processing when the bind fails after the charge exists", async () => {

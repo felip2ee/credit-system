@@ -57,10 +57,11 @@ type PaymentEvent = {
 	paymentId: string;
 	installment?: string;
 	externalReference?: string;
+	value?: number;
 };
 
 // Corpo do evento como o Asaas manda: cada parcela tem o próprio payment.id e o mesmo payment.installment.
-async function send({ event, paymentId, installment, externalReference }: PaymentEvent): Promise<string> {
+async function send({ event, paymentId, installment, externalReference, value = 40 }: PaymentEvent): Promise<string> {
 	const eventId = `evt_${randomUUID()}`;
 	const body = {
 		id: eventId,
@@ -68,7 +69,7 @@ async function send({ event, paymentId, installment, externalReference }: Paymen
 		payment: {
 			object: "payment",
 			id: paymentId,
-			value: 40,
+			value,
 			...(installment ? { installment } : {}),
 			...(externalReference ? { externalReference } : {}),
 		},
@@ -249,7 +250,7 @@ describe("card installments through the webhook (migration 041)", () => {
 		});
 		if (!pix.ok) throw new Error("not reserved");
 
-		expect(await send({ event: "PAYMENT_RECEIVED", paymentId: pixPaymentId })).toBe("credited");
+		expect(await send({ event: "PAYMENT_RECEIVED", paymentId: pixPaymentId, value: 100 })).toBe("credited");
 		expect(await clientBalance(tenant.client.userId)).toBe("100.00");
 	});
 });

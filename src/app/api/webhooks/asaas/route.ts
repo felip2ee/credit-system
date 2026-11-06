@@ -19,7 +19,11 @@ const MAX_BODY_CHARS = 65_536;
 const eventSchema = z.object({
 	id: z.string().trim().min(1).max(200).optional(),
 	event: z.string().trim().min(1).max(100),
-	payment: z.object({ id: z.string().trim().min(1).max(200) }),
+	payment: z.object({
+		id: z.string().trim().min(1).max(200),
+		// Parcelamento do cartão. Valor fora do formato não derruba o evento.
+		installment: z.string().trim().min(1).max(200).optional().catch(undefined),
+	}),
 });
 
 // Hash dos dois lados iguala o tamanho; timingSafeEqual não vaza o prefixo comum.
@@ -30,6 +34,20 @@ function tokenMatches(received: string | null, expected: string): boolean {
 
 // Eventos que creditam (iguais aos de apply_asaas_payment): o reenvio de um estorno não pede nota.
 const PAYMENT_CREDIT_EVENTS = new Set(["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"]);
+
+// O corpo é gravado em asaas_webhook_events: do cartão ficam só bandeira e 4 últimos dígitos. Nunca o token.
+function stripCardSecrets(raw: unknown): unknown {
+	const payment = (raw as { payment?: unknown }).payment;
+	if (typeof payment !== "object" || payment === null || !("creditCard" in payment)) return raw;
+	const { creditCard, ...rest } = payment as { creditCard?: unknown };
+	const card = typeof creditCard === "object" && creditCard !== null ? (creditCard as Record<string, unknown>) : {};
+	const kept: Record<string, unknown> = {};
+	if (typeof card.creditCardBrand === "string") kept.creditCardBrand = card.creditCardBrand;
+	if (typeof card.creditCardNumber === "string" && /^\d{4}$/.test(card.creditCardNumber)) {
+		kept.creditCardNumber = card.creditCardNumber;
+	}
+	return { ...(raw as object), payment: { ...rest, creditCard: kept } };
+}
 
 const respond = (status: number) => new Response(null, { status });
 
@@ -119,7 +137,7 @@ export async function POST(request: Request): Promise<Response> {
 			eventId: parsed.data.id ?? `${parsed.data.event}:${parsed.data.payment.id}`,
 			eventType: parsed.data.event,
 			asaasPaymentId: parsed.data.payment.id,
-			payload: raw,
+			payload: stripCardSecrets(raw),
 		});
 	} catch (error) {
 		logApplyFailure(error);
@@ -128,18 +146,25 @@ export async function POST(request: Request): Promise<Response> {
 
 	// O crédito já está gravado. A nota (chamada lenta ao Asaas) roda depois da resposta e nunca muda o status dela.
 	const paymentId = parsed.data.payment.id;
+	const installment = parsed.data.payment.installment;
 	if (result === "credited") {
-		runAfterAck("pedido da nota", () => requestInvoiceForPayment(paymentId));
+		runAfterAck("pedido da nota", () => requestInvoiceForPayment(paymentId, installment));
 		revalidateClientCredits();
 	} else if (result === "duplicate" && PAYMENT_CREDIT_EVENTS.has(parsed.data.event)) {
 		// Reenvio de um crédito já aplicado: repara a nota que ficou em not_requested ou presa em pending (mais de 10 min).
-		runAfterAck("reparo da nota", () => repairInvoiceForPayment(paymentId));
+		runAfterAck("reparo da nota", () => repairInvoiceForPayment(paymentId, installment));
 	} else if (result === "unknown_charge" && PAYMENT_CREDIT_EVENTS.has(parsed.data.event)) {
 		// Pagamento de uma cobrança que o banco não tem (por exemplo, a linha não foi salva depois de criar o PIX): ninguém foi creditado.
 		console.error("[asaas-webhook] pagamento de cobrança desconhecida, sem crédito", { asaasPaymentId: paymentId });
 	} else if (result === "partial_refund_ignored") {
 		// Estorno parcial não mexe em saldo (M6): 200 evita o reenvio do Asaas; o evento fica registrado no banco.
 		console.warn("[asaas-webhook] estorno parcial ignorado");
+	} else if (result === "chargeback_ignored") {
+		// Disputa sem tratamento automático: só evento e id da cobrança no log (o corpo fica no banco).
+		console.error("[asaas-webhook] chargeback sem tratamento", { event: parsed.data.event, asaasPaymentId: paymentId });
+	} else if (result === "amount_mismatch") {
+		// Pago a menos que o esperado: nada foi creditado. A operação confere no Asaas.
+		console.error("[asaas-webhook] valor divergente", { asaasPaymentId: paymentId });
 	}
 	return respond(200);
 }

@@ -24,6 +24,7 @@ import {
 	countPendingClientPixCharges,
 	countPendingPixCharges,
 	countRecentCardAttempts,
+	getChargeStatus,
 	lockChargeScope,
 	MAX_CARD_ATTEMPTS_PER_HOUR,
 	MAX_PENDING_PIX_CHARGES,
@@ -222,14 +223,22 @@ function logUnbound(chargeId: string, asaasPaymentId: string, externalReference:
 	});
 }
 
+// false do bind = a linha não aceitou. Se o webhook ganhou a corrida (a cobrança já está paga ou estornada), ele a ligou
+// pela referência externa: não é cobrança solta e não gera o alarme.
 async function bind(
 	session: DbIdentity,
+	scope: ChargeScope,
 	chargeId: string,
 	externalReference: string,
 	input: Parameters<typeof bindAsaasCharge>[2],
 ): Promise<boolean> {
 	try {
-		if (await withUserTransaction(session, (client) => bindAsaasCharge(client, chargeId, input))) return true;
+		const settled = await withUserTransaction(session, async (client) => {
+			if (await bindAsaasCharge(client, chargeId, input)) return true;
+			const current = await getChargeStatus(client, chargeId, scope);
+			return current?.status === "paid" || current?.status === "refunded";
+		});
+		if (settled) return true;
 	} catch (error) {
 		logFailure("bind", error);
 	}
@@ -261,7 +270,7 @@ async function createPix(
 		if (!(error instanceof AsaasOutcomeUnknownError)) await cancelReserved(session, reserved.chargeId);
 		return { error: FAILED_PIX };
 	}
-	const bound = await bind(session, reserved.chargeId, input.idempotencyKey, {
+	const bound = await bind(session, scope, reserved.chargeId, input.idempotencyKey, {
 		asaasPaymentId: charge.asaasPaymentId,
 		pixPayload: charge.pixPayload,
 	});
@@ -325,7 +334,7 @@ async function createCard(
 		return { error: error instanceof CardDeclinedError ? error.message : FAILED_CARD };
 	}
 	// Cobrança criada: se o bind falhar, o webhook ainda a acha pela referência externa. O crédito é só do webhook.
-	await bind(session, reserved.chargeId, input.idempotencyKey, {
+	await bind(session, scope, reserved.chargeId, input.idempotencyKey, {
 		asaasPaymentId: charge.asaasPaymentId,
 		asaasInstallmentId: charge.asaasInstallmentId,
 		cardBrand: charge.brand,
