@@ -118,6 +118,10 @@ Webhooks e worker:
 | Livro-razão imutável | Spec de produto: saldo nunca é editável. | — |
 | Migrations editáveis até o primeiro deploy | Dados de produção foram perdidos; não há compatibilidade a preservar. | Primeiro deploy de produção. |
 | Tela, PDF e IA leem o payload bruto (`bureau_payloads`), não o canônico | Mostrar 100% do retorno da deps sem deploy por módulo novo (spec 2026-10-19). | Payload ultrapassar o limite de tamanho da tela ou do PDF. |
+| Cartão usa a tabela `pix_charges` (coluna `billing_type`). Não há `card_charges`. | Webhook, estorno, comissão de afiliado, NFS-e e superadmin já leem `pix_charges`. O nome da tabela é legado. | — |
+| Dados do dono (documento, CEP e número) em `payer_profiles`, cifrados na aplicação com AES-256-GCM. Um blob por linha. Anel de chaves em `PII_ENCRYPTION_KEY`. | Dados completos não ficam em claro no banco. Um IV, uma tag e uma escrita por linha. A chave antiga decifra durante a rotação. | — |
+| Busca cliente Asaas por CPF/CNPJ antes de criar. Só atualiza cliente que o sistema criou para aquele dono. | Evita clientes duplicados. Impede que alguém altere os dados do cliente Asaas de outra pessoa com o CPF dela. | — |
+| Stack e instalador entregam ao `reino_app` as variáveis do Asaas, da NFS-e, do cartão e a chave PII. | Sem elas, `readAsaasConfig` falha em produção e a recarga não funciona. | — |
 | Sem Supabase | Migrou para Postgres self-hosted com Better Auth. | — |
 
 ## Manutenção
