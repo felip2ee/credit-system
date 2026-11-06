@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { requestTopupAction } from "@/actions/wallet-topup";
 import { Button } from "@/components/ui/button";
+import { CheckoutForm } from "@/components/payments/CheckoutForm";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseTopupInput } from "@/lib/wallet/topup-input";
 import type { PixChargeStatus } from "@/lib/wallet/pix-charges";
 import { StatusBanner } from "@/components/ui/status-banner";
 
@@ -34,12 +34,9 @@ interface TopupDialogProps {
 export function TopupDialog({ charges }: TopupDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [charge, setCharge] = useState<Charge | null>(null);
   const [copied, setCopied] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const inputRef = useRef<HTMLInputElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -52,10 +49,6 @@ export function TopupDialog({ charges }: TopupDialogProps) {
     return () => clearInterval(timer);
   }, [polling, router]);
 
-  useEffect(() => {
-    if (open && !charge) inputRef.current?.focus();
-  }, [open, charge]);
-
   // O formulário sai da árvore ao mostrar a cobrança: sem isto o foco cai no body e o Escape para de funcionar.
   useEffect(() => {
     if (charge) closeRef.current?.focus();
@@ -64,28 +57,9 @@ export function TopupDialog({ charges }: TopupDialogProps) {
   const close = () => {
     setOpen(false);
     setCharge(null);
-    setValue("");
     setError(null);
     setCopied(false);
     openerRef.current?.focus();
-  };
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    const parsed = parseTopupInput(value);
-    if (!parsed.ok) {
-      setError(parsed.error);
-      return;
-    }
-    setError(null);
-    startTransition(async () => {
-      const res = await requestTopupAction({ amount: parsed.amount });
-      if (res.error || !res.id || !res.pixPayload) {
-        setError(res.error ?? "Não foi possível gerar o PIX. Tente novamente.");
-        return;
-      }
-      setCharge({ id: res.id, pixPayload: res.pixPayload, qrImageBase64: res.qrImageBase64 ?? "" });
-    });
   };
 
   const copy = async () => {
@@ -106,47 +80,19 @@ export function TopupDialog({ charges }: TopupDialogProps) {
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4"
-          onKeyDown={(e) => e.key === "Escape" && !isPending && close()}
+          onKeyDown={(e) => e.key === "Escape" && close()}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="topup-title"
-            className="w-full max-w-md space-y-4 rounded-modal bg-background p-6 shadow-lg"
+            className="max-h-[92vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-modal bg-background p-6 shadow-lg"
           >
             <h2 id="topup-title" className="text-lg font-semibold">
               Recarregar carteira
             </h2>
             {!charge ? (
-              <form onSubmit={submit} className="space-y-4" noValidate>
-                <div className="space-y-2">
-                  <Label htmlFor="topup-amount">Valor (R$ 10,00 a R$ 5.000,00)</Label>
-                  <Input
-                    id="topup-amount"
-                    ref={inputRef}
-                    inputMode="decimal"
-                    placeholder="0,00"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    disabled={isPending}
-                    aria-invalid={error !== null}
-                    aria-describedby={error ? "topup-error" : undefined}
-                  />
-                  {error && (
-                    <p id="topup-error" role="alert" className="text-sm text-destructive">
-                      {error}
-                    </p>
-                  )}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={close} disabled={isPending}>
-                    Cancelar
-                  </Button>
-                  <Button type="submit" disabled={isPending || value === ""}>
-                    {isPending ? "Gerando PIX..." : "Gerar PIX"}
-                  </Button>
-                </div>
-              </form>
+              <CheckoutForm scope="bureau" action={requestTopupAction} onClose={close} onPix={setCharge} />
             ) : (
               <div className="space-y-4">
                 {status === "pending" ? (
