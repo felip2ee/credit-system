@@ -28,13 +28,20 @@ import {
 	ASAAS_EVENT_PAYMENT_RECEIVED,
 	ASAAS_EVENT_PAYMENT_REFUNDED,
 	AsaasOutcomeUnknownError,
+	CardDeclinedError,
 	createAsaasClient,
 } from "./client";
-import { buildFakeInvoiceEvent, buildFakePaymentEvent, createFakeAsaasClient } from "./fake";
+import {
+	buildFakeInvoiceEvent,
+	buildFakePaymentEvent,
+	createFakeAsaasClient,
+	resetFakeCustomers,
+} from "./fake";
+import type { CardChargeInput } from "./types";
 import { getAsaasClient } from "./index";
 
-const input = { amount: "25.50", externalReference: "ref-1", description: "Recarga de carteira" };
-const settings = { apiKey: "secret-key", baseUrl: "https://api.asaas.example/", customerId: "cus_1" };
+const input = { customerId: "cus_1", amount: "25.50", externalReference: "ref-1", description: "Recarga de carteira" };
+const settings = { apiKey: "secret-key", baseUrl: "https://api.asaas.example/" };
 
 function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -97,6 +104,209 @@ describe("createAsaasClient", () => {
 	});
 });
 
+const DOCUMENT = "12345678909";
+const CARD_NUMBER = "4111111111111111";
+const CCV = "737";
+
+const cardInput: CardChargeInput = {
+	customerId: "cus_1",
+	externalReference: "ref-card-1",
+	description: "Recarga de carteira",
+	totalCents: 10_500,
+	installments: 1,
+	installmentCents: 10_500,
+	card: { holderName: "MARIA SILVA", number: CARD_NUMBER, expiryMonth: "12", expiryYear: "2030", ccv: CCV },
+	holder: {
+		name: "Maria Silva",
+		email: "maria@example.test",
+		cpfCnpj: DOCUMENT,
+		postalCode: "01310100",
+		addressNumber: "100",
+		phone: "11999994321",
+	},
+	remoteIp: "203.0.113.9",
+};
+const cardReply = { id: "pay_card_1", installment: null, creditCard: { creditCardBrand: "VISA", creditCardNumber: "1111" } };
+
+describe("customers", () => {
+	const customerInput = { name: "Maria Silva", cpfCnpj: DOCUMENT, email: "maria@example.test" };
+
+	it("finds the oldest non-deleted customer by CPF/CNPJ digits", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(
+			jsonResponse({
+				data: [
+					{ id: "cus_new", deleted: false, dateCreated: "2026-05-01" },
+					{ id: "cus_gone", deleted: true, dateCreated: "2020-01-01" },
+					{ id: "cus_old", deleted: false, dateCreated: "2024-02-10" },
+				],
+			}),
+		);
+
+		const id = await createAsaasClient(settings, fetchMock).findCustomerByCpfCnpj("123.456.789-09");
+
+		expect(id).toBe("cus_old");
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe(`https://api.asaas.example/v3/customers?cpfCnpj=${DOCUMENT}&limit=100`);
+		expect(init.method).toBe("GET");
+		expect(init.body).toBeUndefined();
+	});
+
+	it("returns null when nothing is found or all customers are deleted", async () => {
+		const find = (data: unknown[]) =>
+			createAsaasClient(settings, vi.fn().mockResolvedValue(jsonResponse({ data }))).findCustomerByCpfCnpj(DOCUMENT);
+
+		expect(await find([])).toBeNull();
+		expect(await find([{ id: "cus_gone", deleted: true }])).toBeNull();
+	});
+
+	it("never puts the document in an error, in a log or in the unknown-outcome message", async () => {
+		const spies = (["log", "info", "warn", "error"] as const).map((m) => vi.spyOn(console, m));
+		const fail = (response: Response) =>
+			createAsaasClient(settings, vi.fn().mockResolvedValue(response))
+				.findCustomerByCpfCnpj(DOCUMENT)
+				.catch((e: Error) => e);
+
+		const errors = [await fail(jsonResponse({}, 500)), await fail(jsonResponse({}, 403)), await fail(jsonResponse({ bad: 1 }))];
+		const timeout = await createAsaasClient(settings, vi.fn().mockRejectedValue(new Error(`GET ?cpfCnpj=${DOCUMENT}`)))
+			.findCustomerByCpfCnpj(DOCUMENT)
+			.catch((e: Error) => e);
+
+		for (const error of [...errors, timeout]) {
+			expect((error as Error).message).toContain("GET /v3/customers");
+			expect((error as Error).message).not.toContain(DOCUMENT);
+		}
+		expect(errors[0]).toBeInstanceOf(AsaasOutcomeUnknownError);
+		for (const spy of spies) {
+			expect(spy).not.toHaveBeenCalled();
+			spy.mockRestore();
+		}
+	});
+
+	it("creates a customer with notifications disabled and returns its id", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: "cus_9" }));
+
+		const result = await createAsaasClient(settings, fetchMock).createCustomer({ ...customerInput, externalReference: "pp-1" });
+
+		expect(result).toEqual({ asaasCustomerId: "cus_9" });
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("https://api.asaas.example/v3/customers");
+		expect(init.method).toBe("POST");
+		expect(JSON.parse(init.body)).toEqual({ ...customerInput, externalReference: "pp-1", notificationDisabled: true });
+	});
+
+	it("a timeout while creating a customer is an unknown outcome", async () => {
+		const error = await createAsaasClient(settings, vi.fn().mockRejectedValue(new Error("aborted")))
+			.createCustomer(customerInput)
+			.catch((e: Error) => e);
+
+		expect(error).toBeInstanceOf(AsaasOutcomeUnknownError);
+	});
+
+	it("updates a customer with PUT on the customer path", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: "cus_9" }));
+
+		await createAsaasClient(settings, fetchMock).updateCustomer("cus_9", { ...customerInput, postalCode: "01310100" });
+
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("https://api.asaas.example/v3/customers/cus_9");
+		expect(init.method).toBe("PUT");
+		expect(JSON.parse(init.body)).toMatchObject({ postalCode: "01310100" });
+	});
+});
+
+describe("createCardCharge", () => {
+	it("charges once (value, no installment fields) and returns brand and last4", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(cardReply));
+
+		const result = await createAsaasClient(settings, fetchMock).createCardCharge(cardInput);
+
+		expect(result).toEqual({ asaasPaymentId: "pay_card_1", asaasInstallmentId: null, brand: "VISA", last4: "1111" });
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("https://api.asaas.example/v3/payments");
+		const body = JSON.parse(init.body);
+		expect(body).toMatchObject({
+			customer: "cus_1",
+			billingType: "CREDIT_CARD",
+			value: 105,
+			externalReference: "ref-card-1",
+			remoteIp: "203.0.113.9",
+			creditCard: { number: CARD_NUMBER, ccv: CCV },
+			creditCardHolderInfo: { cpfCnpj: DOCUMENT, postalCode: "01310100", phone: "11999994321" },
+		});
+		expect(body).not.toHaveProperty("installmentCount");
+		expect(body).not.toHaveProperty("totalValue");
+	});
+
+	it("sends installmentCount and totalValue (no value) for 3 installments and returns the installment id", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ ...cardReply, installment: "ins_1" }));
+
+		const result = await createAsaasClient(settings, fetchMock).createCardCharge({
+			...cardInput,
+			totalCents: 10_333,
+			installments: 3,
+			installmentCents: 3_445,
+		});
+
+		expect(result.asaasInstallmentId).toBe("ins_1");
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body).toMatchObject({ installmentCount: 3, totalValue: 103.33 });
+		expect(body).not.toHaveProperty("value");
+	});
+
+	it("falls back to the typed last4 when the reply has no card data", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: "pay_card_2" }));
+
+		const result = await createAsaasClient(settings, fetchMock).createCardCharge(cardInput);
+
+		expect(result).toEqual({ asaasPaymentId: "pay_card_2", asaasInstallmentId: null, brand: "UNKNOWN", last4: "1111" });
+	});
+
+	it("turns HTTP 400 into CardDeclinedError with a fixed safe message", async () => {
+		const body = { errors: [{ code: "invalid_creditCard", description: `Cartão ${CARD_NUMBER} cvv ${CCV} ${DOCUMENT}` }] };
+		const error = await createAsaasClient(settings, vi.fn().mockResolvedValue(jsonResponse(body, 400)))
+			.createCardCharge(cardInput)
+			.catch((e: Error) => e);
+
+		expect(error).toBeInstanceOf(CardDeclinedError);
+		for (const secret of [CARD_NUMBER, CCV, DOCUMENT, "secret-key"]) expect((error as Error).message).not.toContain(secret);
+	});
+
+	it("keeps other 4xx as plain errors and 5xx, 408, 429, timeout as unknown outcome", async () => {
+		const call = (mock: typeof fetch) =>
+			createAsaasClient(settings, mock).createCardCharge(cardInput).catch((e: Error) => e);
+
+		const unauthorized = await call(vi.fn().mockResolvedValue(jsonResponse({}, 401)));
+		expect(unauthorized).not.toBeInstanceOf(CardDeclinedError);
+		expect(unauthorized).not.toBeInstanceOf(AsaasOutcomeUnknownError);
+		expect((unauthorized as Error).message).toBe("Asaas respondeu 401 em POST /v3/payments");
+		for (const status of [500, 408, 429]) {
+			expect(await call(vi.fn().mockResolvedValue(jsonResponse({}, status)))).toBeInstanceOf(AsaasOutcomeUnknownError);
+		}
+		expect(await call(vi.fn().mockRejectedValue(new Error(`boom ${CARD_NUMBER}`)))).toBeInstanceOf(AsaasOutcomeUnknownError);
+	});
+
+	it("never logs or leaks card number, CVV or CPF, even when the reply is unreadable", async () => {
+		const spies = (["log", "info", "warn", "error"] as const).map((m) => vi.spyOn(console, m));
+		const errors = [
+			await createAsaasClient(settings, vi.fn().mockResolvedValue(jsonResponse({ unexpected: true })))
+				.createCardCharge(cardInput)
+				.catch((e: Error) => e),
+			await createAsaasClient(settings, vi.fn().mockRejectedValue(new Error(`boom ${CARD_NUMBER} ${CCV}`)))
+				.createCardCharge(cardInput)
+				.catch((e: Error) => e),
+		];
+
+		for (const error of errors) {
+			expect(error).toBeInstanceOf(AsaasOutcomeUnknownError);
+			for (const secret of [CARD_NUMBER, CCV, DOCUMENT]) expect((error as Error).message).not.toContain(secret);
+		}
+		for (const spy of spies) {
+			expect(spy).not.toHaveBeenCalled();
+			spy.mockRestore();
+		}
+	});
+});
+
 const invoiceInput = {
 	paymentId: "pay_123",
 	amount: "25.50",
@@ -133,6 +343,16 @@ describe("scheduleInvoice", () => {
 		});
 		expect(body.effectiveDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 		expect(body).not.toHaveProperty("municipalServiceCode");
+	});
+
+	it("sends the installment id instead of the payment for an installment charge", async () => {
+		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: "inv_2" }));
+
+		await createAsaasClient(settings, fetchMock).scheduleInvoice({ ...invoiceInput, installmentId: "ins_1" });
+
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body.installment).toBe("ins_1");
+		expect(body).not.toHaveProperty("payment");
 	});
 
 	it("sends the municipal service code when there is no id", async () => {
@@ -225,6 +445,30 @@ describe("fake client", () => {
 		expect(first.pixPayload).toContain("ref-1");
 	});
 
+	it("finds a customer created before, by document digits", async () => {
+		resetFakeCustomers();
+		const fake = createFakeAsaasClient();
+
+		expect(await fake.findCustomerByCpfCnpj(DOCUMENT)).toBeNull();
+		const { asaasCustomerId } = await fake.createCustomer({ name: "Maria", cpfCnpj: "123.456.789-09", email: "m@example.test" });
+		await fake.createCustomer({ name: "Maria", cpfCnpj: DOCUMENT, email: "m@example.test" });
+
+		expect(await fake.findCustomerByCpfCnpj(DOCUMENT)).toBe(asaasCustomerId);
+	});
+
+	it("declines a card ending in 0002 and returns an installment id for 2+ installments", async () => {
+		const fake = createFakeAsaasClient();
+		const withNumber = (number: string, installments: number) => ({
+			...cardInput,
+			installments,
+			card: { ...cardInput.card, number },
+		});
+
+		await expect(fake.createCardCharge(withNumber("4000000000000002", 1))).rejects.toBeInstanceOf(CardDeclinedError);
+		expect(await fake.createCardCharge(withNumber(CARD_NUMBER, 1))).toMatchObject({ asaasInstallmentId: null, last4: "1111" });
+		expect((await fake.createCardCharge(withNumber(CARD_NUMBER, 3))).asaasInstallmentId).toBe("ins_fake_ref-card-1");
+	});
+
 	it("schedules a deterministic invoice", async () => {
 		const result = await createFakeAsaasClient().scheduleInvoice(invoiceInput);
 
@@ -255,6 +499,12 @@ describe("fake client", () => {
 		expect(buildFakeInvoiceEvent({ eventId: "e", event: ASAAS_EVENT_INVOICE_ERROR, asaasPaymentId: "pay_1" }).invoice.status).toBe(
 			"ERROR",
 		);
+	});
+
+	it("adds the installment id to the payment webhook body", () => {
+		expect(
+			buildFakePaymentEvent({ eventId: "e", asaasPaymentId: "pay_1", value: 10, installment: "ins_1" }).payment.installment,
+		).toBe("ins_1");
 	});
 
 	it("builds a payment webhook body for a charge", () => {
