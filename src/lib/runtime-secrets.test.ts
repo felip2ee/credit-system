@@ -83,6 +83,15 @@ describe("hydrateSecretEnv", () => {
     expect(env.WEB_PUSH_VAPID_PRIVATE_KEY).toBe("vapid-private");
   });
 
+  // Catches: the PII key ring reaching config as a file path.
+  it("reads PII_ENCRYPTION_KEY from its secret file", () => {
+    const env = { PII_ENCRYPTION_KEY_FILE: secretFile("k1:abc") } as unknown as NodeJS.ProcessEnv;
+
+    hydrateSecretEnv(env);
+
+    expect(env.PII_ENCRYPTION_KEY).toBe("k1:abc");
+  });
+
   // Catches: a missing Docker Secret allowing the service to start with an empty credential.
   it("fails closed when a configured secret file is empty", () => {
     expect(() => hydrateSecretEnv({ BETTER_AUTH_SECRET_FILE: secretFile("") } as unknown as NodeJS.ProcessEnv)).toThrow(

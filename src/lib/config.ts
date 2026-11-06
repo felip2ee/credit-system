@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import path from "node:path";
 
 import { BRAND_NAME } from "@/lib/brand/brand";
+import { MAX_CARD_INSTALLMENTS } from "@/lib/wallet/card-fees";
 
 import { hydrateSecretEnv } from "./runtime-secrets.mjs";
 
@@ -110,7 +111,7 @@ export function readAffiliateWithdrawalsEnabled(env: Environment): boolean {
 
 export type AsaasConfig =
   | { driver: "fake"; webhookToken: string }
-  | { driver: "asaas"; apiKey: string; baseUrl: string; customerId: string; webhookToken: string };
+  | { driver: "asaas"; apiKey: string; baseUrl: string; webhookToken: string };
 
 // Valor de exemplo do .env.example: público, nunca vale como token real.
 export const ASAAS_WEBHOOK_TOKEN_EXAMPLE = "local-webhook-token-0123456789abcdef";
@@ -125,7 +126,8 @@ export function readDispatchDatabaseUrl(env: Environment): string {
   return url(env, "DISPATCH_DATABASE_URL");
 }
 
-// Lida sob demanda (não entra em readConfig): só a recarga PIX e o webhook precisam do Asaas.
+// Lida sob demanda (não entra em readConfig): só a recarga (Pix e cartão) e o webhook precisam do Asaas.
+// O cliente Asaas é por pagador (payer_profiles); não existe cliente fixo na configuração.
 // Sem driver explícito falha; "fake" nunca roda em produção.
 export function readAsaasConfig(env: Environment): AsaasConfig {
   const driver = required(env, "ASAAS_DRIVER");
@@ -153,9 +155,65 @@ export function readAsaasConfig(env: Environment): AsaasConfig {
     driver,
     apiKey: required(env, "ASAAS_API_KEY"),
     baseUrl,
-    customerId: required(env, "ASAAS_CUSTOMER_ID"),
     webhookToken,
   };
+}
+
+const PII_KEY_BYTES = 32;
+const PII_KEY_ID = /^[a-z0-9_-]{1,32}$/;
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+export type PiiKeyring = { activeKeyId: string; keys: ReadonlyMap<string, Buffer> };
+
+// Lida sob demanda (src/lib/pii). Formato "id:base64,id:base64": a primeira chave cifra, todas decifram.
+// As mensagens de erro nunca levam o valor da variável.
+export function readPiiKeyring(env: Environment): PiiKeyring {
+  const raw = required(env, "PII_ENCRYPTION_KEY");
+  const keys = new Map<string, Buffer>();
+  for (const entry of raw.split(",")) {
+    const [id, encoded, extra] = entry.trim().split(":");
+    if (!id || !encoded || extra !== undefined || !PII_KEY_ID.test(id) || !BASE64.test(encoded)) {
+      throw new Error("PII_ENCRYPTION_KEY must look like id:base64,id:base64");
+    }
+    const key = Buffer.from(encoded, "base64");
+    if (key.length !== PII_KEY_BYTES) throw new Error(`PII_ENCRYPTION_KEY keys must have ${PII_KEY_BYTES} bytes`);
+    if (keys.has(id)) throw new Error("PII_ENCRYPTION_KEY has a repeated key id");
+    keys.set(id, key);
+  }
+  return { activeKeyId: keys.keys().next().value as string, keys };
+}
+
+export type CardFeeBand = { maxInstallments: number; percent: number; fixedCents: number };
+export type CardFeeConfig = { bands: CardFeeBand[]; minInstallmentCents: number };
+
+const DEFAULT_MIN_INSTALLMENT_CENTS = 500;
+const CARD_FEE_BAND = /^(\d+):(\d{1,3}(?:\.\d{1,2})?):(\d+)$/;
+const CARD_FEE_FORMAT = "CARD_FEE_TABLE must look like maxInstallments:percent:fixedCents,...";
+
+// Lida sob demanda. Tabela vazia = cartão desligado (null). Falha fechada: tabela inválida lança.
+// Formato "maxParcelas:percent:fixoCentavos,..." (ex.: 1:2.99:49,6:3.49:49,12:3.99:49). Percentual com até 2 casas.
+export function readCardFeeConfig(env: Environment): CardFeeConfig | null {
+  const table = env.CARD_FEE_TABLE?.trim();
+  if (!table) return null;
+
+  const bands = table.split(",").map((entry): CardFeeBand => {
+    const match = CARD_FEE_BAND.exec(entry.trim());
+    if (!match) throw new Error(CARD_FEE_FORMAT);
+    const band = { maxInstallments: Number(match[1]), percent: Number(match[2]), fixedCents: Number(match[3]) };
+    if (band.maxInstallments < 1 || band.maxInstallments > MAX_CARD_INSTALLMENTS) {
+      throw new Error(`CARD_FEE_TABLE installments must be between 1 and ${MAX_CARD_INSTALLMENTS}`);
+    }
+    if (band.percent >= 100) throw new Error("CARD_FEE_TABLE percent must be below 100");
+    return band;
+  });
+  if (bands.some((band, i) => i > 0 && band.maxInstallments <= bands[i - 1].maxInstallments)) {
+    throw new Error("CARD_FEE_TABLE bands must have increasing installments");
+  }
+
+  const minRaw = env.CARD_MIN_INSTALLMENT_CENTS?.trim();
+  const minInstallmentCents = minRaw ? Number(minRaw) : DEFAULT_MIN_INSTALLMENT_CENTS;
+  if (minRaw && !/^[1-9]\d*$/.test(minRaw)) throw new Error("CARD_MIN_INSTALLMENT_CENTS must be a positive integer");
+  return { bands, minInstallmentCents };
 }
 
 export type NfseConfig = {
