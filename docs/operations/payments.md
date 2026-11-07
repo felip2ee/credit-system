@@ -37,9 +37,9 @@ A chave cifra documento, CEP e número do dono da conta (`payer_profiles`). Sem 
 - **Recusa do cartão** (HTTP 400 do Asaas): o pagador vê uma mensagem segura. A linha reservada vira `cancelled`. Nenhum crédito é feito.
 - **Resultado desconhecido** (timeout ou 5xx): a linha fica pendente.
 - **Crédito:** só pelo webhook. Nunca na resposta síncrona.
-- **Limite:** no máximo 5 linhas de cartão por solicitante por hora (`MAX_CARD_ATTEMPTS_PER_HOUR = 5`). A contagem usa o mesmo lock da reserva.
+- **Limite:** por hora, no máximo 5 linhas de cartão por solicitante (`MAX_CARD_ATTEMPTS_PER_HOUR`), 10 por IP (`MAX_CARD_ATTEMPTS_PER_IP_PER_HOUR`) e 40 por Bureau (`MAX_CARD_ATTEMPTS_PER_BUREAU_PER_HOUR`). A contagem usa o mesmo lock da reserva e vale só para cartão.
 - **Estorno:** o estorno de qualquer parcela reverte o crédito inteiro, uma vez.
-- **Chargeback:** `PAYMENT_CHARGEBACK_REQUESTED` reverte o crédito como o estorno. `PAYMENT_CHARGEBACK_DISPUTE` e `PAYMENT_AWAITING_CHARGEBACK_REVERSAL` não mudam saldo; ficam como `chargeback_ignored` e vão ao log.
+- **Chargeback:** `PAYMENT_CHARGEBACK_REQUESTED` reverte o crédito como o estorno. `PAYMENT_CHARGEBACK_DISPUTE` e `PAYMENT_AWAITING_CHARGEBACK_REVERSAL` não mudam saldo; ficam como `chargeback_ignored` e vão ao log. Acompanhe esses eventos à mão no painel do Asaas.
 - **Valor pago menor que o esperado:** o evento fica como `amount_mismatch`, sem crédito, e vai ao log. Valor igual ou maior credita o valor da linha.
 
 ## 4. Dados de cartão
@@ -58,8 +58,9 @@ A chave cifra documento, CEP e número do dono da conta (`payer_profiles`). Sem 
 ## 6. Cliente Asaas
 
 - Cada pagador tem um cliente Asaas. `ASAAS_CUSTOMER_ID` não existe mais.
-- Dono: o sistema busca o cliente pelo CPF/CNPJ antes de criar. Só atualiza o cliente que o sistema criou para aquele dono.
-- Outra pessoa ou empresa: reaproveita o cliente achado pelo CPF/CNPJ, sem atualizar os dados.
+- Nunca reaproveite um cliente achado pelo CPF/CNPJ. Um cliente achado pelo documento pode ser de outra pessoa, e a nota fiscal dele (nome, endereço, e-mail) apareceria no recibo de quem pagou.
+- Dono: o sistema busca o cliente pela referência do perfil do dono (`externalReference`) e só cria se não achar. Só atualiza o cliente que o sistema criou para aquele dono. Se o cliente foi apagado no Asaas, o sistema limpa o vínculo e cria outro, uma vez.
+- Outra pessoa ou empresa: sempre cria um cliente novo com os dados digitados. A referência é o id da cobrança, então uma nova tentativa encontra o mesmo cliente.
 - Clientes novos saem com `notificationDisabled: true`, para evitar e-mail do Asaas ao pagador. Confirmar após o deploy.
 - **Cliente órfão:** se duas requisições criam cliente para o mesmo dono, uma vence. O cliente extra fica no Asaas sem uso e não afeta o saldo. O log grava só o id. O spec não define o procedimento de conciliação.
 - **Cobranças antigas:** cobranças criadas com `ASAAS_CUSTOMER_ID` mantêm o cliente antigo. Uma nova tentativa de nota dessas cobranças sai para "Recargas Rainhas".
