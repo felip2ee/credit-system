@@ -72,9 +72,12 @@ export type ExistingInvoice = {
 
 export type AsaasClient = {
 	createPixCharge(input: PixChargeInput): Promise<PixChargeResult>;
-	// GET /v3/customers?cpfCnpj=: id do cliente mais antigo não apagado, ou null. Nunca devolve os dados dele.
-	findCustomerByCpfCnpj(cpfCnpj: string): Promise<string | null>;
-	// Não é idempotente: após AsaasOutcomeUnknownError, busque por CPF/CNPJ antes de criar de novo.
+	// GET /v3/customers?externalReference=: id do cliente mais antigo não apagado com essa referência, ou null. Nunca
+	// busca por CPF/CNPJ: um documento digitado por outra pessoa não pode levar ao cliente de um terceiro.
+	findCustomerByExternalReference(externalReference: string): Promise<string | null>;
+	// GET /v3/customers/{id}: false se o cliente não existe mais (404) ou foi apagado. Outro erro sobe.
+	customerExists(asaasCustomerId: string): Promise<boolean>;
+	// Não é idempotente: após AsaasOutcomeUnknownError, busque pela externalReference antes de criar de novo.
 	createCustomer(input: AsaasCustomerInput & { externalReference?: string }): Promise<{ asaasCustomerId: string }>;
 	updateCustomer(asaasCustomerId: string, input: AsaasCustomerInput): Promise<void>;
 	// Lança CardDeclinedError na recusa. O crédito vem só do webhook.
@@ -83,4 +86,6 @@ export type AsaasClient = {
 	scheduleInvoice(input: InvoiceInput): Promise<InvoiceResult>;
 	// POST /v3/invoices não é idempotente: antes de agendar, consulte as notas que o pagamento já tem.
 	findInvoicesByPayment(paymentId: string): Promise<ExistingInvoice[]>;
+	// Mesma consulta para o parcelamento (GET /v3/invoices?installment=): a nota dele não aparece em `payment`.
+	findInvoicesByInstallment(installmentId: string): Promise<ExistingInvoice[]>;
 };

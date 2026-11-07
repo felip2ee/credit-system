@@ -12,8 +12,8 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { maskPayerDocument } from "@/lib/mask-document";
 import { isNfseConfigured } from "@/lib/nfse/invoice";
 import { PiiDecryptError } from "@/lib/pii/crypto";
-import { claimAsaasCustomer, markPayerSynced } from "@/lib/payers/queries";
-import { asaasPhone, resolveAsaasCustomer } from "@/lib/payers/resolve";
+import { claimAsaasCustomer, clearAsaasCustomer, markPayerSynced } from "@/lib/payers/queries";
+import { asaasPhone, isDefiniteAsaasRejection, resolveAsaasCustomer } from "@/lib/payers/resolve";
 import { BlockedError, otherPayer, ownerPayer, type PayerSource } from "./payer-source";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { getClientWallet } from "@/lib/wallet/client-queries";
@@ -24,9 +24,13 @@ import {
 	countPendingClientPixCharges,
 	countPendingPixCharges,
 	countRecentCardAttempts,
+	countRecentCardAttemptsByBureau,
+	countRecentCardAttemptsByIp,
 	getChargeStatus,
 	lockChargeScope,
+	MAX_CARD_ATTEMPTS_PER_BUREAU_PER_HOUR,
 	MAX_CARD_ATTEMPTS_PER_HOUR,
+	MAX_CARD_ATTEMPTS_PER_IP_PER_HOUR,
 	MAX_PENDING_PIX_CHARGES,
 	reserveCharge,
 	setChargeCustomer,
@@ -65,6 +69,7 @@ const EMAIL_NOT_VERIFIED = "Confirme seu e-mail antes de comprar créditos.";
 const NO_WALLET = "Carteira não encontrada. Contate o suporte.";
 const TOO_MANY_PENDING = "Há PIX pendentes demais. Pague ou aguarde expirar antes de gerar outro.";
 const TOO_MANY_CARD_ATTEMPTS = "Muitas tentativas de cartão. Aguarde um pouco antes de tentar de novo.";
+const CARD_WINDOW_MS = 3_600_000;
 const BAD_AMOUNT = "Valor inválido.";
 const REFERENCE_TAKEN = "Pedido já usado. Tente novamente.";
 
@@ -121,15 +126,27 @@ async function assertWalletReady(
 }
 
 // Depois da reserva e sob o lock do dono: a contagem já inclui a linha nova, então o teto é "maior que". Estourou =
-// BlockedError e a transação desfaz a linha (e a gravação do pagador).
+// BlockedError e a transação desfaz a linha (e a gravação do pagador). Cartão: teto por usuário, por IP e por Bureau
+// (o contador do Bureau só aceita o Bureau da sessão).
 async function enforceLimits(
 	client: PoolClient,
 	session: DbIdentity,
 	scope: ChargeScope,
 	method: BillingType,
+	remoteIp: string,
 ): Promise<void> {
 	if (method === "CREDIT_CARD") {
 		if ((await countRecentCardAttempts(client, session.userId)) > MAX_CARD_ATTEMPTS_PER_HOUR) {
+			throw new BlockedError(TOO_MANY_CARD_ATTEMPTS);
+		}
+		const since = new Date(Date.now() - CARD_WINDOW_MS);
+		if (remoteIp && (await countRecentCardAttemptsByIp(client, remoteIp, since)) > MAX_CARD_ATTEMPTS_PER_IP_PER_HOUR) {
+			throw new BlockedError(TOO_MANY_CARD_ATTEMPTS);
+		}
+		if (
+			session.bureauId &&
+			(await countRecentCardAttemptsByBureau(client, session.bureauId, since)) > MAX_CARD_ATTEMPTS_PER_BUREAU_PER_HOUR
+		) {
 			throw new BlockedError(TOO_MANY_CARD_ATTEMPTS);
 		}
 		return;
@@ -149,6 +166,7 @@ async function reserve(
 	input: CheckoutInput,
 	plan: CardPlan | null,
 	keyring: PiiKeyring,
+	remoteIp: string,
 ): Promise<Reserved> {
 	const nfseOn = isNfseConfigured();
 	return withUserTransaction(session, async (client) => {
@@ -169,9 +187,10 @@ async function reserve(
 			totalCharged: plan ? centsToReais(plan.totalCents) : null,
 			payerKind: input.payerKind,
 			payerDocumentMasked: maskPayerDocument(source.payer.cpfCnpj),
+			requestIp: plan ? remoteIp || null : null,
 		});
 		if (!reserved.ok) throw new BlockedError(reserved.reason === "invalid_amount" ? BAD_AMOUNT : REFERENCE_TAKEN);
-		if (!reserved.reused) await enforceLimits(client, session, scope, input.method);
+		if (!reserved.reused) await enforceLimits(client, session, scope, input.method, remoteIp);
 		return { chargeId: reserved.id, expiresAt: reserved.expiresAt, reused: reserved.reused, source };
 	});
 }
@@ -188,9 +207,10 @@ async function cancelReserved(session: DbIdentity, chargeId: string): Promise<vo
 	);
 }
 
+// Acha ou cria o cliente Asaas do pagador (sem ligá-lo à cobrança: veja linkCustomer).
 async function resolveCustomer(session: DbIdentity, chargeId: string, source: PayerSource, kind: "owner" | "other") {
 	const profileId = source.owner?.payerProfileId ?? null;
-	const customerId = await resolveAsaasCustomer(
+	return resolveAsaasCustomer(
 		{
 			asaas: getAsaasClient(),
 			claim: (asaasCustomerId, owned) => {
@@ -200,6 +220,9 @@ async function resolveCustomer(session: DbIdentity, chargeId: string, source: Pa
 			markSynced: async () => {
 				if (profileId) await withUserTransaction(session, (client) => markPayerSynced(client, profileId));
 			},
+			forget: async (deadId) => {
+				if (profileId) await withUserTransaction(session, (client) => clearAsaasCustomer(client, profileId, deadId));
+			},
 		},
 		{
 			payer: source.payer,
@@ -208,10 +231,44 @@ async function resolveCustomer(session: DbIdentity, chargeId: string, source: Pa
 				? { asaasCustomerId: source.owner.asaasCustomerId, owned: source.owner.owned, stale: source.owner.stale }
 				: null,
 			payerProfileId: profileId,
+			chargeId,
 		},
 	);
-	await withUserTransaction(session, (client) => setChargeCustomer(client, chargeId, customerId));
-	return customerId;
+}
+
+const linkCustomer = (session: DbIdentity, chargeId: string, customerId: string) =>
+	withUserTransaction(session, (client) => setChargeCustomer(client, chargeId, customerId));
+
+type Recovery = { customerId: string } | "failed" | null;
+
+// O Asaas recusou a cobrança (HTTP 400) com o cliente guardado do dono. Se esse cliente sumiu do Asaas, a causa não é o
+// cartão: solta o id, refaz o cliente e a cobrança tenta de novo (uma vez; quem chama passa `retried`). null = a causa
+// é outra (ou não deu para saber) e o erro segue o caminho normal. A linha da cobrança mantém o id antigo em
+// pix_charges.asaas_customer_id: set_pix_charge_customer não troca de cliente (campo só informativo, ninguém o lê).
+async function recoverGoneCustomer(
+	session: DbIdentity,
+	reserved: Reserved,
+	customerId: string,
+	error: unknown,
+): Promise<Recovery> {
+	const { owner } = reserved.source;
+	if (!owner?.payerProfileId || owner.asaasCustomerId !== customerId) return null;
+	if (!(error instanceof CardDeclinedError) && !isDefiniteAsaasRejection(error)) return null;
+	try {
+		if (await getAsaasClient().customerExists(customerId)) return null;
+	} catch (checkError) {
+		logFailure("conferir cliente Asaas", checkError);
+		return null;
+	}
+	try {
+		const payerProfileId = owner.payerProfileId;
+		await withUserTransaction(session, (client) => clearAsaasCustomer(client, payerProfileId, customerId));
+		const next = { ...reserved.source, owner: { ...owner, asaasCustomerId: null, owned: false, stale: false } };
+		return { customerId: await resolveCustomer(session, reserved.chargeId, next, "owner") };
+	} catch (recoverError) {
+		logFailure("refazer cliente Asaas", recoverError);
+		return "failed";
+	}
 }
 
 // Cobrança criada no Asaas e não ligada à linha: o webhook a acha pela referência externa. Só ids, para a conciliação.
@@ -255,6 +312,7 @@ async function createPix(
 	reserved: Reserved,
 	customerId: string,
 	meta: CheckoutMeta,
+	retried = false,
 ): Promise<CheckoutResult> {
 	let charge;
 	try {
@@ -266,6 +324,12 @@ async function createPix(
 		});
 	} catch (error) {
 		logFailure("asaas", error);
+		const recovery = retried ? null : await recoverGoneCustomer(session, reserved, customerId, error);
+		if (recovery && recovery !== "failed") return createPix(session, scope, input, reserved, recovery.customerId, meta, true);
+		if (recovery === "failed") {
+			await cancelReserved(session, reserved.chargeId);
+			return { error: FAILED_PIX };
+		}
 		// Resultado desconhecido: a cobrança pode existir; a linha fica pendente e expira.
 		if (!(error instanceof AsaasOutcomeUnknownError)) await cancelReserved(session, reserved.chargeId);
 		return { error: FAILED_PIX };
@@ -294,6 +358,7 @@ async function createCard(
 	plan: CardPlan,
 	customerId: string,
 	meta: CheckoutMeta,
+	retried = false,
 ): Promise<CheckoutResult> {
 	const { payer } = reserved.source;
 	const { card } = input;
@@ -328,6 +393,15 @@ async function createCard(
 		});
 	} catch (error) {
 		logFailure("asaas", error);
+		// Cliente apagado no Asaas também volta como 400: confere antes de chamar de recusa do cartão.
+		const recovery = retried ? null : await recoverGoneCustomer(session, reserved, customerId, error);
+		if (recovery && recovery !== "failed") {
+			return createCard(session, scope, input, reserved, plan, recovery.customerId, meta, true);
+		}
+		if (recovery === "failed") {
+			await cancelReserved(session, reserved.chargeId);
+			return { error: FAILED_CARD };
+		}
 		// Resultado desconhecido: a cobrança pode existir. Sem segunda chamada; a linha fica pendente e o webhook decide.
 		if (error instanceof AsaasOutcomeUnknownError) return { error: null, id: reserved.chargeId, method: "CREDIT_CARD" };
 		await cancelReserved(session, reserved.chargeId);
@@ -363,16 +437,17 @@ export async function runCheckout(
 			return { error: UNAVAILABLE };
 		}
 
-		const reserved = await reserve(session, scope, input, plan, keyring);
+		const reserved = await reserve(session, scope, input, plan, keyring, meta.remoteIp);
 		if (reserved.reused) return { error: null, id: reserved.chargeId, method: input.method, reused: true };
 
 		let customerId: string;
 		try {
 			customerId = await resolveCustomer(session, reserved.chargeId, reserved.source, input.payerKind);
+			await linkCustomer(session, reserved.chargeId, customerId);
 		} catch (error) {
 			logFailure("cliente Asaas", error);
 			// Nenhuma cobrança existe ainda: fechar a linha é seguro, mesmo se o resultado do cliente era desconhecido
-			// (a próxima tentativa busca o cliente por CPF/CNPJ antes de criar).
+			// (a próxima tentativa busca o cliente pela referência antes de criar).
 			await cancelReserved(session, reserved.chargeId);
 			return { error: failed };
 		}

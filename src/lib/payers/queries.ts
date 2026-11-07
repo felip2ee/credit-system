@@ -357,6 +357,20 @@ export async function claimAsaasCustomer(
 	return winner;
 }
 
+// O cliente Asaas guardado não existe mais: solta o id para o próximo checkout achar ou criar outro. Só limpa se a linha
+// ainda guarda esse id (outra requisição pode já ter gravado o novo).
+export async function clearAsaasCustomer(
+	client: PoolClient,
+	payerProfileId: string,
+	deadAsaasCustomerId: string,
+): Promise<void> {
+	await client.query(
+		`update payer_profiles set asaas_customer_id = null, asaas_customer_owned = false, asaas_customer_stale = false
+		  where id = $1 and asaas_customer_id = $2`,
+		[payerProfileId, deadAsaasCustomerId],
+	);
+}
+
 // Cliente Asaas atualizado com os dados atuais: a linha deixa de estar desatualizada.
 export async function markPayerSynced(client: PoolClient, payerProfileId: string): Promise<void> {
 	await client.query("update payer_profiles set asaas_customer_stale = false where id = $1", [payerProfileId]);

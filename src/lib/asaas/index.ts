@@ -5,7 +5,7 @@ import { createAsaasClient } from "./client";
 import { createFakeAsaasClient } from "./fake";
 import type { AsaasClient } from "./types";
 
-export { AsaasOutcomeUnknownError, CardDeclinedError } from "./client";
+export { AsaasHttpError, AsaasOutcomeUnknownError, CardDeclinedError } from "./client";
 export type {
 	AsaasClient,
 	AsaasCustomerInput,

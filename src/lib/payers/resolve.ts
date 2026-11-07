@@ -1,6 +1,7 @@
 // Regras puras do pagador e o ciclo do cliente Asaas (spec "Ciclo do cliente Asaas", passos 1 a 5).
 // Nenhuma chamada de banco aqui e nenhuma transação aberta: o banco entra por `claim` e `markSynced`.
 // Nada neste arquivo grava documento, CEP ou número em log ou em erro.
+import { AsaasHttpError } from "@/lib/asaas/client";
 import type { AsaasClient, AsaasCustomerInput } from "@/lib/asaas/types";
 
 import type { OwnerPayerView, PayerField, ResolvedPayer } from "./queries";
@@ -53,6 +54,8 @@ export type ResolveAsaasCustomerDeps = {
 	claim: (asaasCustomerId: string, owned: boolean) => Promise<string>;
 	// Marca o cliente Asaas como sincronizado depois de um updateCustomer.
 	markSynced: () => Promise<void>;
+	// Apaga da linha do dono o id de um cliente que não existe mais no Asaas.
+	forget: (deadAsaasCustomerId: string) => Promise<void>;
 };
 
 export type ResolveAsaasCustomerInput = {
@@ -60,46 +63,55 @@ export type ResolveAsaasCustomerInput = {
 	kind: "owner" | "other";
 	current: { asaasCustomerId: string | null; owned: boolean; stale: boolean } | null;
 	payerProfileId: string | null;
+	// Cobrança reservada: a referência do cliente de um pagador "outros".
+	chargeId: string;
 };
 
-// Devolve o id do cliente Asaas do pagador. Só atualiza cliente que nós criamos para o dono (D10): um CPF digitado por
-// outra pessoa nunca troca e-mail ou endereço de um cliente alheio. AsaasOutcomeUnknownError na criação sobe: a
-// próxima tentativa acha o cliente pela busca (create não é idempotente).
+// HTTP 400 ou 404 do Asaas: pode ser cliente apagado ou dado inválido. Quem chama confere com customerExists.
+export const isDefiniteAsaasRejection = (error: unknown): boolean =>
+	error instanceof AsaasHttpError && (error.status === 400 || error.status === 404);
+
+// Devolve o id do cliente Asaas do pagador. Nunca acha cliente por CPF/CNPJ: um documento digitado por outra pessoa
+// levaria à cobrança e à NFS-e (nome, endereço, e-mail) de um terceiro. "Outros" sempre ganha um cliente novo, com a
+// cobrança como referência (a nova tentativa o acha por ela). O dono converge pela referência = id da linha do pagador.
+// Só atualiza cliente que nós criamos (D10). AsaasOutcomeUnknownError na criação sobe: a próxima tentativa acha o
+// cliente pela referência (create não é idempotente). Cliente guardado que sumiu do Asaas é esquecido e refeito uma vez.
 export async function resolveAsaasCustomer(
 	deps: ResolveAsaasCustomerDeps,
 	input: ResolveAsaasCustomerInput,
 ): Promise<string> {
-	const { asaas, claim, markSynced } = deps;
-	const { payer, kind, current, payerProfileId } = input;
+	const { asaas, claim, markSynced, forget } = deps;
+	const { payer, kind, current, payerProfileId, chargeId } = input;
 
-	if (kind === "owner" && current?.asaasCustomerId) {
-		if (current.stale && current.owned) {
-			await asaas.updateCustomer(current.asaasCustomerId, toCustomerInput(payer));
-			await markSynced();
-		}
-		return current.asaasCustomerId;
+	if (kind === "other") {
+		const existing = await asaas.findCustomerByExternalReference(chargeId);
+		if (existing) return existing;
+		return (await asaas.createCustomer({ ...toCustomerInput(payer), externalReference: chargeId })).asaasCustomerId;
 	}
 
-	const found = await asaas.findCustomerByCpfCnpj(payer.cpfCnpj);
-	if (kind === "other") {
-		if (found) return found;
-		return (await asaas.createCustomer(toCustomerInput(payer))).asaasCustomerId;
+	const stored = current?.asaasCustomerId;
+	if (stored) {
+		if (!(current.stale && current.owned)) return stored;
+		try {
+			await asaas.updateCustomer(stored, toCustomerInput(payer));
+			await markSynced();
+			return stored;
+		} catch (error) {
+			// 404/400 com o cliente ainda no Asaas é dado inválido: não é motivo para trocar de cliente.
+			if (!isDefiniteAsaasRejection(error) || (await asaas.customerExists(stored))) throw error;
+			await forget(stored);
+		}
 	}
 
 	// Dono sem linha ainda (payerProfileId nulo): nada para gravar nem referência para enviar.
-	const adopted = found !== null;
-	const asaasCustomerId =
-		found ??
-		(
-			await asaas.createCustomer({
-				...toCustomerInput(payer),
-				...(payerProfileId ? { externalReference: payerProfileId } : {}),
-			})
-		).asaasCustomerId;
-	if (!payerProfileId) return asaasCustomerId;
+	if (!payerProfileId) return (await asaas.createCustomer(toCustomerInput(payer))).asaasCustomerId;
 
-	const winner = await claim(asaasCustomerId, !adopted);
-	if (winner !== asaasCustomerId && !adopted) {
+	const found = await asaas.findCustomerByExternalReference(payerProfileId);
+	const asaasCustomerId =
+		found ?? (await asaas.createCustomer({ ...toCustomerInput(payer), externalReference: payerProfileId })).asaasCustomerId;
+	// O cliente tem a referência da nossa linha: nós o criamos (owned), mesmo quando achado numa nova tentativa.
+	const winner = await claim(asaasCustomerId, true);
+	if (winner !== asaasCustomerId && !found) {
 		// Outra requisição ganhou a corrida: o cliente criado a mais fica órfão no Asaas (sem efeito no saldo).
 		console.warn(`[payers] cliente Asaas criado a mais ficou órfão: ${asaasCustomerId}`);
 	}

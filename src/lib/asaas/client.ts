@@ -4,7 +4,8 @@
 // (o authToken do webhook) e corpo { id, event, payment: { id, value } }.
 //
 // Cliente e cartão, conferido em 2026-11-06 em docs.asaas.com (sem sandbox):
-// GET /v3/customers?cpfCnpj= -> { data: [{ id, dateCreated, deleted, ... }], hasMore, ... } (limit máx. 100);
+// GET /v3/customers?externalReference= -> { data: [{ id, dateCreated, deleted, ... }], hasMore, ... } (limit máx. 100;
+// nunca buscamos por cpfCnpj: um CPF digitado por outra pessoa não pode levar ao cliente de um terceiro);
 // POST /v3/customers { name, cpfCnpj, email, mobilePhone, postalCode, addressNumber, externalReference,
 // notificationDisabled } -> { id }; a atualização é PUT /v3/customers/{id} (todos os campos opcionais; o plano dizia POST);
 // POST /v3/payments com billingType=CREDIT_CARD: creditCard { holderName, number, expiryMonth, expiryYear, ccv },
@@ -13,6 +14,8 @@
 // creditCardNumber (4 últimos) } }; cartão não autorizado responde HTTP 400 e a cobrança não é gravada;
 // POST /v3/invoices aceita `installment` no lugar de `payment`.
 // Não conferido (prova real: itens (post-deploy) da spec):
+// - o filtro `installment` de GET /v3/invoices (usado contra a nota duplicada do parcelamento) e o corpo de
+//   GET /v3/customers/{id} para um cliente apagado (tratamos 404 e deleted=true como "não existe");
 // - a ordem da lista de clientes (ordenamos por dateCreated) e se a lista já exclui apagados (filtramos deleted);
 // - se HTTP 400 no cartão é só recusa (dados inválidos também dariam 400; tratamos todo 400 como recusa);
 // - como o Asaas arredonda a parcela e onde põe o resto; o formato do webhook de parcelamento;
@@ -72,7 +75,7 @@ export class CardDeclinedError extends Error {
 }
 
 // Erro definitivo do Asaas (4xx). Só o status é exposto; a mensagem segue sem corpo.
-class AsaasHttpError extends Error {
+export class AsaasHttpError extends Error {
 	constructor(
 		readonly status: number,
 		label: string,
@@ -100,6 +103,7 @@ const invoiceListSchema = z.object({
 // ERROR e CANCELED foram descartadas: uma nova tentativa legítima pode criar outra nota.
 const DISCARDED_INVOICE_STATUSES = new Set(["ERROR", "CANCELED"]);
 const customerSchema = z.object({ id: z.string().min(1) });
+const customerGetSchema = z.object({ id: z.string().min(1), deleted: z.boolean().nullish() });
 const customerListSchema = z.object({
 	data: z.array(
 		z.object({ id: z.string().min(1), deleted: z.boolean().nullish(), dateCreated: z.string().nullish() }),
@@ -153,6 +157,23 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 		return parsed.data;
 	}
 
+	async function listInvoices(filter: "payment" | "installment", id: string): Promise<ExistingInvoice[]> {
+		const list = await call(
+			"GET",
+			`/v3/invoices?${filter}=${encodeURIComponent(id)}&limit=100`,
+			"GET /v3/invoices",
+			invoiceListSchema,
+		);
+		return list.data
+			.filter((invoice) => !DISCARDED_INVOICE_STATUSES.has(invoice.status ?? ""))
+			.map((invoice) => ({
+				asaasInvoiceId: invoice.id,
+				status: invoice.status ?? null,
+				number: invoice.number === null || invoice.number === undefined ? null : String(invoice.number),
+				pdfUrl: invoice.pdfUrl ?? null,
+			}));
+	}
+
 	return {
 		async createPixCharge(input: PixChargeInput): Promise<PixChargeResult> {
 			const payment = await call("POST", "/v3/payments", "POST /v3/payments", paymentSchema, {
@@ -173,12 +194,11 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 			return { asaasPaymentId: payment.id, pixPayload: qr.payload, qrImageBase64: qr.encodedImage };
 		},
 
-		// O rótulo é sempre fixo: o CPF/CNPJ vai na URL e nunca pode aparecer em erro. Só o id sai do servidor.
-		async findCustomerByCpfCnpj(cpfCnpj: string): Promise<string | null> {
-			const digits = cpfCnpj.replace(/\D/g, "");
+		// O rótulo é sempre fixo: a referência vai na URL e nunca pode aparecer em erro. Só o id sai do servidor.
+		async findCustomerByExternalReference(externalReference: string): Promise<string | null> {
 			const list = await call(
 				"GET",
-				`/v3/customers?cpfCnpj=${digits}&limit=100`,
+				`/v3/customers?externalReference=${encodeURIComponent(externalReference)}&limit=100`,
 				"GET /v3/customers",
 				customerListSchema,
 			);
@@ -187,6 +207,21 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 				.filter((customer) => customer.deleted !== true)
 				.sort((a, b) => (a.dateCreated ?? "").localeCompare(b.dateCreated ?? ""));
 			return oldest?.id ?? null;
+		},
+
+		async customerExists(asaasCustomerId: string): Promise<boolean> {
+			try {
+				const customer = await call(
+					"GET",
+					`/v3/customers/${encodeURIComponent(asaasCustomerId)}`,
+					"GET /v3/customers/{id}",
+					customerGetSchema,
+				);
+				return customer.deleted !== true;
+			} catch (error) {
+				if (error instanceof AsaasHttpError && error.status === 404) return false;
+				throw error;
+			}
 		},
 
 		async createCustomer(input: AsaasCustomerInput & { externalReference?: string }) {
@@ -263,21 +298,9 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 		},
 
 		// GET /v3/invoices?payment={id} (docs.asaas.com, listar notas fiscais; o corpo da requisição deve ficar vazio).
-		async findInvoicesByPayment(paymentId: string): Promise<ExistingInvoice[]> {
-			const list = await call(
-				"GET",
-				`/v3/invoices?payment=${encodeURIComponent(paymentId)}&limit=100`,
-				"GET /v3/invoices",
-				invoiceListSchema,
-			);
-			return list.data
-				.filter((invoice) => !DISCARDED_INVOICE_STATUSES.has(invoice.status ?? ""))
-				.map((invoice) => ({
-					asaasInvoiceId: invoice.id,
-					status: invoice.status ?? null,
-					number: invoice.number === null || invoice.number === undefined ? null : String(invoice.number),
-					pdfUrl: invoice.pdfUrl ?? null,
-				}));
-		},
+		findInvoicesByPayment: (paymentId: string) => listInvoices("payment", paymentId),
+
+		// Parcelamento: a nota nasce do `installment`. O filtro não foi conferido (veja o cabeçalho).
+		findInvoicesByInstallment: (installmentId: string) => listInvoices("installment", installmentId),
 	};
 }

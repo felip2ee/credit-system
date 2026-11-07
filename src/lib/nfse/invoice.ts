@@ -96,7 +96,10 @@ async function scheduleAndRecord(
 	try {
 		if (state.kind !== "ready") throw new Error("NFS-e config invalid");
 		client = getAsaasClient();
-		[existing] = await client.findInvoicesByPayment(paymentId);
+		// Parcelamento: a nota é do `installment`; consultar só o pagamento não a acharia e agendaria outra.
+		[existing] = installmentId
+			? await client.findInvoicesByInstallment(installmentId)
+			: await client.findInvoicesByPayment(paymentId);
 	} catch (error) {
 		logFailure("consulta das notas", error);
 		if (error instanceof AsaasOutcomeUnknownError) return "pending";
