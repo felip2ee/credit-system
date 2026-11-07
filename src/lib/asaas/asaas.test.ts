@@ -27,6 +27,7 @@ import {
 	ASAAS_EVENT_PAYMENT_CONFIRMED,
 	ASAAS_EVENT_PAYMENT_RECEIVED,
 	ASAAS_EVENT_PAYMENT_REFUNDED,
+	AsaasHttpError,
 	AsaasOutcomeUnknownError,
 	CardDeclinedError,
 	createAsaasClient,
@@ -35,7 +36,10 @@ import {
 	buildFakeInvoiceEvent,
 	buildFakePaymentEvent,
 	createFakeAsaasClient,
+	deleteFakeCustomer,
+	getFakeCustomer,
 	resetFakeCustomers,
+	resetFakeInvoices,
 } from "./fake";
 import type { CardChargeInput } from "./types";
 import { getAsaasClient } from "./index";
@@ -131,7 +135,7 @@ const cardReply = { id: "pay_card_1", installment: null, creditCard: { creditCar
 describe("customers", () => {
 	const customerInput = { name: "Maria Silva", cpfCnpj: DOCUMENT, email: "maria@example.test" };
 
-	it("finds the oldest non-deleted customer by CPF/CNPJ digits", async () => {
+	it("finds the oldest non-deleted customer by external reference, never by document", async () => {
 		const fetchMock = vi.fn().mockResolvedValueOnce(
 			jsonResponse({
 				data: [
@@ -142,44 +146,55 @@ describe("customers", () => {
 			}),
 		);
 
-		const id = await createAsaasClient(settings, fetchMock).findCustomerByCpfCnpj("123.456.789-09");
+		const id = await createAsaasClient(settings, fetchMock).findCustomerByExternalReference("pp 1/a");
 
 		expect(id).toBe("cus_old");
 		const [url, init] = fetchMock.mock.calls[0];
-		expect(url).toBe(`https://api.asaas.example/v3/customers?cpfCnpj=${DOCUMENT}&limit=100`);
+		expect(url).toBe("https://api.asaas.example/v3/customers?externalReference=pp%201%2Fa&limit=100");
 		expect(init.method).toBe("GET");
 		expect(init.body).toBeUndefined();
 	});
 
 	it("returns null when nothing is found or all customers are deleted", async () => {
 		const find = (data: unknown[]) =>
-			createAsaasClient(settings, vi.fn().mockResolvedValue(jsonResponse({ data }))).findCustomerByCpfCnpj(DOCUMENT);
+			createAsaasClient(settings, vi.fn().mockResolvedValue(jsonResponse({ data }))).findCustomerByExternalReference("ref");
 
 		expect(await find([])).toBeNull();
 		expect(await find([{ id: "cus_gone", deleted: true }])).toBeNull();
 	});
 
-	it("never puts the document in an error, in a log or in the unknown-outcome message", async () => {
+	it("never puts the reference in an error, in a log or in the unknown-outcome message", async () => {
 		const spies = (["log", "info", "warn", "error"] as const).map((m) => vi.spyOn(console, m));
 		const fail = (response: Response) =>
 			createAsaasClient(settings, vi.fn().mockResolvedValue(response))
-				.findCustomerByCpfCnpj(DOCUMENT)
+				.findCustomerByExternalReference("ref-secret")
 				.catch((e: Error) => e);
 
 		const errors = [await fail(jsonResponse({}, 500)), await fail(jsonResponse({}, 403)), await fail(jsonResponse({ bad: 1 }))];
-		const timeout = await createAsaasClient(settings, vi.fn().mockRejectedValue(new Error(`GET ?cpfCnpj=${DOCUMENT}`)))
-			.findCustomerByCpfCnpj(DOCUMENT)
+		const timeout = await createAsaasClient(settings, vi.fn().mockRejectedValue(new Error("GET ?externalReference=ref-secret")))
+			.findCustomerByExternalReference("ref-secret")
 			.catch((e: Error) => e);
 
 		for (const error of [...errors, timeout]) {
 			expect((error as Error).message).toContain("GET /v3/customers");
-			expect((error as Error).message).not.toContain(DOCUMENT);
+			expect((error as Error).message).not.toContain("ref-secret");
 		}
 		expect(errors[0]).toBeInstanceOf(AsaasOutcomeUnknownError);
 		for (const spy of spies) {
 			expect(spy).not.toHaveBeenCalled();
 			spy.mockRestore();
 		}
+	});
+
+	it("customerExists: true for a live customer, false for 404 or deleted, throws on anything else", async () => {
+		const exists = (response: Response) =>
+			createAsaasClient(settings, vi.fn().mockResolvedValue(response)).customerExists("cus_1");
+
+		expect(await exists(jsonResponse({ id: "cus_1", deleted: false }))).toBe(true);
+		expect(await exists(jsonResponse({ id: "cus_1", deleted: true }))).toBe(false);
+		expect(await exists(jsonResponse({ errors: [] }, 404))).toBe(false);
+		await expect(exists(jsonResponse({}, 403))).rejects.toBeInstanceOf(AsaasHttpError);
+		await expect(exists(jsonResponse({}, 502))).rejects.toBeInstanceOf(AsaasOutcomeUnknownError);
 	});
 
 	it("creates a customer with notifications disabled and returns its id", async () => {
@@ -445,15 +460,34 @@ describe("fake client", () => {
 		expect(first.pixPayload).toContain("ref-1");
 	});
 
-	it("finds a customer created before, by document digits", async () => {
+	it("finds a customer by external reference, never by document, and skips deleted ones", async () => {
 		resetFakeCustomers();
 		const fake = createFakeAsaasClient();
+		const stranger = { name: "Outra Pessoa", cpfCnpj: DOCUMENT, email: "outra@example.test" };
 
-		expect(await fake.findCustomerByCpfCnpj(DOCUMENT)).toBeNull();
-		const { asaasCustomerId } = await fake.createCustomer({ name: "Maria", cpfCnpj: "123.456.789-09", email: "m@example.test" });
-		await fake.createCustomer({ name: "Maria", cpfCnpj: DOCUMENT, email: "m@example.test" });
+		expect(await fake.findCustomerByExternalReference("pp-1")).toBeNull();
+		const other = await fake.createCustomer({ ...stranger, externalReference: "someone-else" });
+		const mine = await fake.createCustomer({ ...stranger, name: "Maria", externalReference: "pp-1" });
 
-		expect(await fake.findCustomerByCpfCnpj(DOCUMENT)).toBe(asaasCustomerId);
+		expect(mine.asaasCustomerId).not.toBe(other.asaasCustomerId);
+		expect(await fake.findCustomerByExternalReference("pp-1")).toBe(mine.asaasCustomerId);
+		deleteFakeCustomer(mine.asaasCustomerId);
+		expect(await fake.findCustomerByExternalReference("pp-1")).toBeNull();
+		expect(await fake.customerExists(mine.asaasCustomerId)).toBe(false);
+		expect(await fake.customerExists(other.asaasCustomerId)).toBe(true);
+		await expect(fake.updateCustomer(mine.asaasCustomerId, stranger)).rejects.toBeInstanceOf(AsaasHttpError);
+		expect(getFakeCustomer(other.asaasCustomerId)?.name).toBe("Outra Pessoa");
+	});
+
+	it("finds invoices of an installment apart from the invoices of a payment", async () => {
+		resetFakeInvoices();
+		const fake = createFakeAsaasClient();
+
+		expect(await fake.findInvoicesByInstallment("ins_1")).toEqual([]);
+		await fake.scheduleInvoice({ ...invoiceInput, installmentId: "ins_1" });
+
+		expect(await fake.findInvoicesByInstallment("ins_1")).toHaveLength(1);
+		expect(await fake.findInvoicesByPayment(invoiceInput.paymentId)).toEqual([]);
 	});
 
 	it("declines a card ending in 0002 and returns an installment id for 2+ installments", async () => {

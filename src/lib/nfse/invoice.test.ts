@@ -4,6 +4,7 @@ const s = vi.hoisted(() => ({
 	readNfseConfig: vi.fn(),
 	schedule: vi.fn(),
 	findInvoices: vi.fn(),
+	findInstallmentInvoices: vi.fn(),
 	findCharge: vi.fn(),
 	findChargeByInvoice: vi.fn(),
 	findRetryTarget: vi.fn(),
@@ -12,7 +13,11 @@ const s = vi.hoisted(() => ({
 
 vi.mock("@/lib/config", () => ({ readNfseConfig: s.readNfseConfig }));
 vi.mock("@/lib/asaas", () => ({
-	getAsaasClient: () => ({ scheduleInvoice: s.schedule, findInvoicesByPayment: s.findInvoices }),
+	getAsaasClient: () => ({
+		scheduleInvoice: s.schedule,
+		findInvoicesByPayment: s.findInvoices,
+		findInvoicesByInstallment: s.findInstallmentInvoices,
+	}),
 }));
 vi.mock("./queries", () => ({
 	findNfseChargeByInvoice: s.findChargeByInvoice,
@@ -41,6 +46,7 @@ beforeEach(() => {
 	s.findCharge.mockResolvedValue(charge);
 	s.findChargeByInvoice.mockResolvedValue(null);
 	s.findInvoices.mockResolvedValue([]);
+	s.findInstallmentInvoices.mockResolvedValue([]);
 	s.schedule.mockResolvedValue({ asaasInvoiceId: "inv_1" });
 	s.setStatus.mockResolvedValue({ ok: true, status: "pending", changed: true });
 	vi.spyOn(console, "error").mockImplementation(() => {});
@@ -85,6 +91,10 @@ describe("requestInvoiceForPayment", () => {
 
 		expect(s.schedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ paymentId: "pay_1", installmentId: "ins_1" }));
 		expect(s.schedule.mock.calls[1][0]).not.toHaveProperty("installmentId");
+		expect(s.findInstallmentInvoices).toHaveBeenCalledTimes(1);
+		expect(s.findInstallmentInvoices).toHaveBeenCalledWith("ins_1");
+		expect(s.findInvoices).toHaveBeenCalledTimes(1);
+		expect(s.findInvoices).toHaveBeenCalledWith("pay_2");
 	});
 
 	it("looks up the invoices of the payment before it schedules", async () => {
@@ -285,6 +295,8 @@ describe("rescheduleInvoice", () => {
 		await rescheduleInvoice(identity, charge.chargeId);
 
 		expect(s.schedule).toHaveBeenCalledWith(expect.objectContaining({ amount: "104.67", installmentId: "ins_9" }));
+		expect(s.findInstallmentInvoices).toHaveBeenCalledWith("ins_9");
+		expect(s.findInvoices).not.toHaveBeenCalled();
 	});
 
 	it("schedules the retry target and records pending", async () => {

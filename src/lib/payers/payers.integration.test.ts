@@ -269,12 +269,14 @@ describe("saveOwnerPayer / loadOwnerPayerForCharge", () => {
 					claim: (id, owned) =>
 						withUserTransaction(as(t.client), (c) => claimAsaasCustomer(c, current.payerProfileId!, id, owned)),
 					markSynced: async () => {},
+					forget: async () => {},
 				},
 				{
 					payer: { name: "Cliente", cpfCnpj: CPF, email: "c@example.test", phone: null, postalCode: null, addressNumber: null },
 					kind: "owner",
 					current,
 					payerProfileId: current.payerProfileId,
+					chargeId: "charge-owner-race",
 				},
 			);
 		};
@@ -289,12 +291,13 @@ describe("saveOwnerPayer / loadOwnerPayerForCharge", () => {
 		const asaas = createFakeAsaasClient();
 		const claim = vi.fn(async (id: string) => id);
 		const id = await resolveAsaasCustomer(
-			{ asaas, claim, markSynced: async () => {} },
+			{ asaas, claim, markSynced: async () => {}, forget: async () => {} },
 			{
 				payer: { name: "Terceiro", cpfCnpj: CPF_OTHER, email: "t@example.test", phone: null, postalCode: CEP, addressNumber: NUMBER },
 				kind: "other",
 				current: null,
 				payerProfileId: null,
+				chargeId: "charge-other-1",
 			},
 		);
 		expect(id).toMatch(/^cus_fake_/);

@@ -14,7 +14,8 @@ const s = vi.hoisted(() => ({
 	asaas: {
 		createPixCharge: vi.fn(),
 		createCardCharge: vi.fn(),
-		findCustomerByCpfCnpj: vi.fn(),
+		findCustomerByExternalReference: vi.fn(),
+		customerExists: vi.fn(),
 		createCustomer: vi.fn(),
 		updateCustomer: vi.fn(),
 	},
@@ -22,6 +23,7 @@ const s = vi.hoisted(() => ({
 	load: vi.fn(),
 	save: vi.fn(),
 	claim: vi.fn(),
+	clear: vi.fn(),
 	synced: vi.fn(),
 	lock: vi.fn(),
 	reserve: vi.fn(),
@@ -30,6 +32,8 @@ const s = vi.hoisted(() => ({
 	status: vi.fn(),
 	cancel: vi.fn(),
 	attempts: vi.fn(),
+	ipAttempts: vi.fn(),
+	bureauAttempts: vi.fn(),
 	pendingBureau: vi.fn(),
 	pendingClient: vi.fn(),
 	emailVerified: vi.fn(),
@@ -47,6 +51,7 @@ vi.mock("@/lib/asaas", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/asaas/client")>("@/lib/asaas/client");
 	return {
 		getAsaasClient: () => s.asaas,
+		AsaasHttpError: actual.AsaasHttpError,
 		AsaasOutcomeUnknownError: actual.AsaasOutcomeUnknownError,
 		CardDeclinedError: actual.CardDeclinedError,
 	};
@@ -56,6 +61,7 @@ vi.mock("@/lib/payers/queries", () => ({
 	loadOwnerPayerForCharge: s.load,
 	saveOwnerPayer: s.save,
 	claimAsaasCustomer: s.claim,
+	clearAsaasCustomer: s.clear,
 	markPayerSynced: s.synced,
 }));
 vi.mock("@/lib/account/queries", () => ({ getClientAccountStatus: s.emailVerified }));
@@ -63,6 +69,8 @@ vi.mock("@/lib/wallet/client-queries", () => ({ getClientWallet: s.clientWallet 
 vi.mock("@/lib/wallet/queries", () => ({ getWallet: s.bureauWallet }));
 vi.mock("@/lib/wallet/pix-charges", () => ({
 	MAX_CARD_ATTEMPTS_PER_HOUR: 5,
+	MAX_CARD_ATTEMPTS_PER_IP_PER_HOUR: 10,
+	MAX_CARD_ATTEMPTS_PER_BUREAU_PER_HOUR: 40,
 	MAX_PENDING_PIX_CHARGES: 10,
 	lockChargeScope: s.lock,
 	reserveCharge: s.reserve,
@@ -71,11 +79,13 @@ vi.mock("@/lib/wallet/pix-charges", () => ({
 	getChargeStatus: s.status,
 	cancelUnboundPixCharge: s.cancel,
 	countRecentCardAttempts: s.attempts,
+	countRecentCardAttemptsByIp: s.ipAttempts,
+	countRecentCardAttemptsByBureau: s.bureauAttempts,
 	countPendingPixCharges: s.pendingBureau,
 	countPendingClientPixCharges: s.pendingClient,
 }));
 
-import { AsaasOutcomeUnknownError, CardDeclinedError } from "@/lib/asaas";
+import { AsaasHttpError, AsaasOutcomeUnknownError, CardDeclinedError } from "@/lib/asaas";
 import { PiiDecryptError } from "@/lib/pii/crypto";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { computeCardCharge } from "@/lib/wallet/card-fees";
@@ -159,11 +169,15 @@ beforeEach(() => {
 	s.status.mockResolvedValue({ status: "pending", billingType: "PIX" });
 	s.cancel.mockResolvedValue(undefined);
 	s.attempts.mockResolvedValue(1);
+	s.ipAttempts.mockResolvedValue(1);
+	s.bureauAttempts.mockResolvedValue(1);
+	s.clear.mockResolvedValue(undefined);
+	s.asaas.customerExists.mockResolvedValue(true);
 	s.pendingBureau.mockResolvedValue(1);
 	s.pendingClient.mockResolvedValue(1);
 	s.asaas.createPixCharge.mockResolvedValue({ asaasPaymentId: "pay_1", pixPayload: "000201pix", qrImageBase64: "QUJD" });
 	s.asaas.createCardCharge.mockResolvedValue({ asaasPaymentId: "pay_1", asaasInstallmentId: "ins_1", brand: "VISA", last4: "4242" });
-	s.asaas.findCustomerByCpfCnpj.mockResolvedValue(null);
+	s.asaas.findCustomerByExternalReference.mockResolvedValue(null);
 	s.asaas.createCustomer.mockResolvedValue({ asaasCustomerId: "cus_new" });
 });
 
@@ -239,7 +253,7 @@ describe("runCheckout, Pix", () => {
 			{ document: CPF, postalCode: "01310100", addressNumber: "100" },
 			expect.anything(),
 		);
-		// Sem cliente Asaas ainda: acha por CPF (nada) e cria com a referência da linha do dono.
+		// Sem cliente Asaas ainda: acha pela referência (nada) e cria com a referência da linha do dono.
 		expect(s.asaas.createCustomer).toHaveBeenCalledWith(expect.objectContaining({ externalReference: "pp1" }));
 		expect(s.asaas.createPixCharge).toHaveBeenCalledWith(expect.objectContaining({ customerId: "cus_new" }));
 	});
@@ -277,14 +291,15 @@ describe("runCheckout, Pix", () => {
 		expect(s.reserve).not.toHaveBeenCalled();
 	});
 
-	it("'other' payer reuses the Asaas customer found by document, without updating it", async () => {
-		s.asaas.findCustomerByCpfCnpj.mockResolvedValue("cus_found");
-
+	it("'other' payer always gets a new Asaas customer referenced by the charge, never one found by document", async () => {
 		await runCheckout(session, clientScope, pixInput({ payerKind: "other", payer: otherPayer, declaration: true }), meta);
 
-		expect(s.asaas.createCustomer).not.toHaveBeenCalled();
+		expect(s.asaas.findCustomerByExternalReference).toHaveBeenCalledWith("ch1");
+		expect(s.asaas.createCustomer).toHaveBeenCalledWith(
+			expect.objectContaining({ cpfCnpj: "11144477735", externalReference: "ch1" }),
+		);
 		expect(s.asaas.updateCustomer).not.toHaveBeenCalled();
-		expect(s.asaas.createPixCharge).toHaveBeenCalledWith(expect.objectContaining({ customerId: "cus_found" }));
+		expect(s.asaas.createPixCharge).toHaveBeenCalledWith(expect.objectContaining({ customerId: "cus_new" }));
 	});
 
 	it("cancels the reserved row on a definite Pix error, keeps it on an unknown outcome", async () => {
@@ -520,6 +535,156 @@ describe("runCheckout, card", () => {
 
 		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD" });
 		expect(s.cancel).not.toHaveBeenCalled();
+	});
+});
+
+describe("runCheckout, card abuse limits", () => {
+	it("passes the request IP to the reservation for the card only", async () => {
+		await runCheckout(session, clientScope, cardInput(), meta);
+		await runCheckout(session, clientScope, pixInput(), meta);
+
+		expect(s.reserve.mock.calls[0][2]).toMatchObject({ requestIp: "203.0.113.7" });
+		expect(s.reserve.mock.calls[1][2]).toMatchObject({ requestIp: null });
+	});
+
+	it("allows 10 attempts per IP in the hour and blocks the 11th, rolling the reservation back", async () => {
+		s.ipAttempts.mockResolvedValue(10);
+		const tenth = await runCheckout(session, clientScope, cardInput(), meta);
+		s.ipAttempts.mockResolvedValue(11);
+		s.asaas.createCardCharge.mockClear();
+		const eleventh = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(tenth.error).toBeNull();
+		expect(eleventh.error).toMatch(/Muitas tentativas/);
+		expect(s.asaas.createCardCharge).not.toHaveBeenCalled();
+		expect(s.ipAttempts).toHaveBeenLastCalledWith({}, "203.0.113.7", expect.any(Date));
+		const since = s.ipAttempts.mock.calls[0][2] as Date;
+		expect(Date.now() - since.getTime()).toBeGreaterThan(3_590_000);
+		expect(Date.now() - since.getTime()).toBeLessThan(3_610_000);
+	});
+
+	it("allows 40 attempts per Bureau in the hour and blocks the 41st, with the session Bureau only", async () => {
+		s.bureauAttempts.mockResolvedValue(40);
+		const fortieth = await runCheckout(session, clientScope, cardInput(), meta);
+		s.bureauAttempts.mockResolvedValue(41);
+		s.asaas.createCardCharge.mockClear();
+		const next = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(fortieth.error).toBeNull();
+		expect(next.error).toMatch(/Muitas tentativas/);
+		expect(s.asaas.createCardCharge).not.toHaveBeenCalled();
+		expect(s.bureauAttempts).toHaveBeenLastCalledWith({}, BUREAU_ID, expect.any(Date));
+	});
+
+	it("an over-limit attempt reserves nothing that survives: the BlockedError aborts before the customer step", async () => {
+		s.ipAttempts.mockResolvedValue(11);
+
+		await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(s.asaas.createCustomer).not.toHaveBeenCalled();
+		expect(s.setCustomer).not.toHaveBeenCalled();
+		expect(s.bind).not.toHaveBeenCalled();
+	});
+
+	it("Pix ignores the IP and Bureau card counters", async () => {
+		s.ipAttempts.mockResolvedValue(99);
+		s.bureauAttempts.mockResolvedValue(99);
+
+		const result = await runCheckout(session, clientScope, pixInput(), meta);
+
+		expect(result.error).toBeNull();
+		expect(s.ipAttempts).not.toHaveBeenCalled();
+		expect(s.bureauAttempts).not.toHaveBeenCalled();
+	});
+
+	it("a reused reservation is not counted again", async () => {
+		s.reserve.mockResolvedValue({ ok: true, id: "ch1", expiresAt: new Date(), reused: true });
+
+		await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(s.ipAttempts).not.toHaveBeenCalled();
+		expect(s.bureauAttempts).not.toHaveBeenCalled();
+	});
+});
+
+describe("runCheckout, Asaas customer deleted after being stored", () => {
+	const goneCard = () => s.asaas.createCardCharge.mockRejectedValueOnce(new CardDeclinedError());
+
+	it("card 400 with the stored customer gone: forgets it, remakes it and charges once more (no refusal message)", async () => {
+		goneCard();
+		s.asaas.customerExists.mockResolvedValue(false);
+
+		const result = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD" });
+		expect(s.clear).toHaveBeenCalledWith({}, "pp1", "cus_1");
+		expect(s.asaas.createCustomer).toHaveBeenCalledWith(expect.objectContaining({ externalReference: "pp1" }));
+		expect(s.asaas.createCardCharge).toHaveBeenCalledTimes(2);
+		expect(s.asaas.createCardCharge.mock.calls[1][0]).toMatchObject({ customerId: "cus_new" });
+		expect(s.cancel).not.toHaveBeenCalled();
+	});
+
+	it("card 400 with the customer still there is a real refusal: no retry, refusal message", async () => {
+		goneCard();
+
+		const result = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(result).toEqual({ error: new CardDeclinedError().message });
+		expect(s.clear).not.toHaveBeenCalled();
+		expect(s.asaas.createCardCharge).toHaveBeenCalledTimes(1);
+	});
+
+	it("retries only once: a second 400 after the remake is the refusal", async () => {
+		s.asaas.createCardCharge.mockRejectedValue(new CardDeclinedError());
+		s.asaas.customerExists.mockResolvedValue(false);
+
+		const result = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(result).toEqual({ error: new CardDeclinedError().message });
+		expect(s.asaas.createCardCharge).toHaveBeenCalledTimes(2);
+		expect(s.clear).toHaveBeenCalledTimes(1);
+	});
+
+	it("customer remake fails: generic message, never the refusal one, and the row is closed", async () => {
+		goneCard();
+		s.asaas.customerExists.mockResolvedValue(false);
+		s.asaas.createCustomer.mockRejectedValue(new Error("boom"));
+
+		const result = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(result.error).toMatch(/Não foi possível processar o cartão/);
+		expect(s.cancel).toHaveBeenCalledWith({}, "ch1");
+	});
+
+	it("Pix 400 with the stored customer gone is remade the same way", async () => {
+		s.asaas.createPixCharge.mockRejectedValueOnce(new AsaasHttpError(400, "POST /v3/payments"));
+		s.asaas.customerExists.mockResolvedValue(false);
+
+		const result = await runCheckout(session, clientScope, pixInput(), meta);
+
+		expect(result.error).toBeNull();
+		expect(s.asaas.createPixCharge.mock.calls[1][0]).toMatchObject({ customerId: "cus_new" });
+	});
+
+	it("a customer we could not check (Asaas down) keeps the normal refusal path", async () => {
+		goneCard();
+		s.asaas.customerExists.mockRejectedValue(new AsaasOutcomeUnknownError("timeout"));
+
+		const result = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(result).toEqual({ error: new CardDeclinedError().message });
+		expect(s.clear).not.toHaveBeenCalled();
+	});
+
+	it("an 'other' payer never goes through the remake path", async () => {
+		goneCard();
+		s.asaas.customerExists.mockResolvedValue(false);
+
+		const result = await runCheckout(session, clientScope, cardInput({ payerKind: "other", payer: otherPayer, declaration: true }), meta);
+
+		expect(result).toEqual({ error: new CardDeclinedError().message });
+		expect(s.clear).not.toHaveBeenCalled();
+		expect(s.asaas.createCardCharge).toHaveBeenCalledTimes(1);
 	});
 });
 

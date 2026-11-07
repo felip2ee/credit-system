@@ -67,9 +67,9 @@ vi.mock("@/lib/asaas", async () => {
 });
 
 import { POST } from "@/app/api/webhooks/asaas/route";
-import { AsaasOutcomeUnknownError } from "@/lib/asaas";
+import { AsaasOutcomeUnknownError, getAsaasClient } from "@/lib/asaas";
 import { ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
-import { buildFakePaymentEvent, resetFakeCustomers } from "@/lib/asaas/fake";
+import { buildFakePaymentEvent, getFakeCustomer, resetFakeCustomers } from "@/lib/asaas/fake";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
@@ -101,7 +101,11 @@ const CEP = "01310100";
 const GOOD_CARD = "4242424242424242";
 const DECLINED_CARD = "4000000000000002";
 const CVV = "987";
-const META = { remoteIp: "203.0.113.7", description: "Recarga" };
+// IP novo por teste (e por execução): as contagens de cartão por IP e por Bureau varrem todas as linhas com o mesmo IP.
+const runSalt = Math.floor(Math.random() * 200) + 20;
+let ipSeq = 0;
+const freshMeta = () => ({ remoteIp: `10.${runSalt}.${Math.floor(ipSeq / 250)}.${(ipSeq++ % 250) + 1}`, description: "Recarga" });
+let META = freshMeta();
 const FEES = { bands: [{ maxInstallments: 12, percent: 3.99, fixedCents: 49 }], minInstallmentCents: 500 };
 
 const cardOf = (number = GOOD_CARD) => ({
@@ -186,6 +190,7 @@ beforeEach(() => {
 	hooks.card = 0;
 	hooks.customers = 0;
 	hooks.cardError = null;
+	META = freshMeta();
 	resetFakeCustomers();
 	errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 	warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -235,8 +240,10 @@ describe("Bureau Pix (owner)", () => {
 		expect([a, b].filter((r) => r.error === null && "pixPayload" in r)).toHaveLength(1);
 	});
 
-	it("'other' persists nothing in payer_profiles and uses the customer found by document", async () => {
+	it("'other' persists nothing in payer_profiles and never reuses a customer found by document", async () => {
 		const t = await seedTenant(owner, "Co Other");
+		const preexisting = await getAsaasClient().createCustomer({ name: "Pre Existente", cpfCnpj: CPF_OTHER, email: "pre@example.com" });
+		hooks.customers = 0;
 		const body = input({
 			payerKind: "other",
 			declaration: true,
@@ -250,9 +257,13 @@ describe("Bureau Pix (owner)", () => {
 		expect([r1.error, r2.error]).toEqual([null, null]);
 		expect((await owner.query("select 1 from payer_profiles where bureau_id = $1", [t.bureau.id])).rows).toHaveLength(0);
 		const c1 = await charge(body.idempotencyKey);
+		const c2 = await charge(second.idempotencyKey);
 		expect(c1).toMatchObject({ payer_kind: "other", payer_document_masked: "***.444.***-**" });
-		expect((await charge(second.idempotencyKey)).asaas_customer_id).toBe(c1.asaas_customer_id);
-		expect(hooks.customers).toBe(1);
+		expect(hooks.customers).toBe(2);
+		expect(new Set([c1.asaas_customer_id, c2.asaas_customer_id, preexisting.asaasCustomerId]).size).toBe(3);
+		expect(getFakeCustomer(c1.asaas_customer_id as string)?.externalReference).toBe(c1.id);
+		expect(getFakeCustomer(c2.asaas_customer_id as string)?.externalReference).toBe(c2.id);
+		expect(getFakeCustomer(preexisting.asaasCustomerId)).toMatchObject({ name: "Pre Existente", externalReference: null });
 	});
 
 	it("refuses the operator at the database: no wallet reservation for a role without wallet:topup rights", async () => {
@@ -332,6 +343,25 @@ describe("card", () => {
 		expect(hooks.card).toBe(0);
 		expect(await charge(sixthKey)).toBeUndefined();
 		expect(await countRows(t.bureau.id)).toBe(5);
+	});
+
+	it("blocks the 11th card attempt from one IP across Bureaus, leaves no row and does not call Asaas", async () => {
+		const [a, b, c] = [await seedTenant(owner, "Co Ip A"), await seedTenant(owner, "Co Ip B"), await seedTenant(owner, "Co Ip C")];
+		const declined = () => cardInput({ payer: bureauPayer, card: cardOf(DECLINED_CARD) });
+		for (const t of [a, b]) {
+			for (let i = 0; i < 5; i++) await runCheckout(t.bureauAdmin, bureauScope(t), declined(), META);
+		}
+		hooks.card = 0;
+		const eleventhKey = randomUUID();
+
+		const eleventh = await runCheckout(c.bureauAdmin, bureauScope(c), cardInput({ payer: bureauPayer, idempotencyKey: eleventhKey }), META);
+		const otherIp = await runCheckout(c.bureauAdmin, bureauScope(c), cardInput({ payer: bureauPayer }), freshMeta());
+
+		expect(eleventh.error).toMatch(/Muitas tentativas/);
+		expect(await charge(eleventhKey)).toBeUndefined();
+		expect(await countRows(c.bureau.id)).toBe(1);
+		expect(hooks.card).toBe(1);
+		expect(otherIp.error).toBeNull();
 	});
 
 	it("simulation: card 3x for the Bureau owner, 3 webhooks, the balance rises once by the recharge", async () => {
