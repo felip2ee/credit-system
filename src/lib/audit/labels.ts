@@ -90,6 +90,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   "settings.prompts_reset": "Prompts de IA restaurados ao padrão",
   "settings.scr_update": "Configuração do SCR alterada",
   "settings.affiliates": "Configuração de afiliados alterada",
+  "settings.payable_retention": "Prazo de retenção dos repasses alterado",
 };
 
 export interface AuditActionLabel {
@@ -109,6 +110,8 @@ const KEY_LABEL: Record<string, string> = {
   status: "Situação",
   attempts: "Tentativas",
   keys: "Itens",
+  from: "Antes",
+  to: "Depois",
   model: "Modelo",
   promptVersion: "Versão do prompt",
   user_id: "Usuário",

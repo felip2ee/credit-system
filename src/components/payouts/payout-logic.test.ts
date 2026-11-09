@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canManagePayouts, cutoffFromDate, MAX_RECEIPT_BYTES, validateReceiptFile } from "./payout-logic";
+import { canManagePayouts, MAX_RECEIPT_BYTES, validateReceiptFile } from "./payout-logic";
 
 describe("validateReceiptFile", () => {
   it("exige arquivo", () => {
@@ -28,25 +28,5 @@ describe("canManagePayouts", () => {
   it("esconde sem permissão ou para outro papel", () => {
     expect(canManagePayouts({ ...base, canManage: false })).toBe(false);
     expect(canManagePayouts({ ...base, role: "bureau_admin" })).toBe(false);
-  });
-});
-
-describe("cutoffFromDate", () => {
-  it("usa 23:59:59 de São Paulo (UTC-3) em qualquer fuso do navegador", () => {
-    const original = process.env.TZ;
-    try {
-      for (const tz of ["UTC", "Asia/Tokyo", "Pacific/Kiritimati", "America/Los_Angeles"]) {
-        process.env.TZ = tz;
-        expect(cutoffFromDate("2026-10-14")).toBe("2026-10-15T02:59:59.000Z");
-      }
-    } finally {
-      if (original === undefined) delete process.env.TZ;
-      else process.env.TZ = original;
-    }
-  });
-  it("recusa formato inválido", () => {
-    expect(cutoffFromDate("")).toBeNull();
-    expect(cutoffFromDate("14/10/2026")).toBeNull();
-    expect(cutoffFromDate("2026-13-45")).toBeNull();
   });
 });

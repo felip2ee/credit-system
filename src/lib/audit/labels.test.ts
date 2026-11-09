@@ -11,6 +11,10 @@ describe("auditActionLabel", () => {
     });
   });
 
+  it("traduz a retenção do valor a receber", () => {
+    expect(auditActionLabel("settings.payable_retention").known).toBe(true);
+  });
+
   it("devolve o código bruto quando desconhecido", () => {
     expect(auditActionLabel("foo.bar")).toEqual({
       label: "foo.bar",

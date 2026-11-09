@@ -25,9 +25,9 @@ export type CounterFailure =
 	| "reason_required"
 	| "already_voided"
 	| "invalid_state"
-	| "online_settlement";
+	| "online_order";
 
-export type RegisterResult = { ok: true; id: string } | { ok: false; reason: "not_found" | "online_settlement" };
+export type RegisterResult = { ok: true; id: string } | { ok: false; reason: "not_found" | "online_order" };
 export type VoidResult = { ok: true } | { ok: false; reason: CounterFailure };
 
 export type CounterPayment = {
@@ -49,6 +49,12 @@ export type CounterPaymentsView = {
 	paidTotal: string;
 	// Preço da liquidação do pedido (order_ref = Dossiê), se existir.
 	price: string | null;
+	mode: "online" | "counter";
+	// Online: o preço, quando o cliente pagou com o saldo do app (liquidação reservada ou capturada). Senão null.
+	paidOnline: string | null;
+	// Custo e parte do Bureau (preço - custo). Só a equipe do Bureau lê: para outros, null.
+	cost: string | null;
+	bureauShare: string | null;
 };
 
 const FOREIGN_KEY_VIOLATION = "23503";
@@ -56,11 +62,14 @@ const FOREIGN_KEY_VIOLATION = "23503";
 export async function registerCounterPayment(identity: DbIdentity, input: RegisterInput): Promise<RegisterResult> {
 	try {
 		const id = await withUserTransaction(identity, async (client) => {
-			// Dossiê liquidado online é pago pela carteira do cliente: pagamento de balcão em cima dele duplicaria a cobrança.
-			const settlement = await client.query<{ mode: string }>("select mode from order_settlements where order_ref = $1", [
-				input.dossierId,
-			]);
-			if (settlement.rows[0]?.mode === "online") return null;
+			// Pedido online é pago pela carteira do cliente: pagamento de balcão em cima dele duplicaria a cobrança.
+			// Vale também antes da liquidação existir.
+			const online = await client.query(
+				`select 1 from dossier_orders where dossier_id = $1 and mode = 'online'
+				 union all select 1 from order_settlements where order_ref = $1 and mode = 'online'`,
+				[input.dossierId],
+			);
+			if (online.rows.length > 0) return null;
 			const { rows } = await client.query<{ id: string }>(
 				`insert into counter_payments (bureau_id, dossier_id, method, amount, received_at, registered_by, note)
 				 values (app_bureau_id(), $1, $2, $3, $4, app_user_id(), $5)
@@ -78,7 +87,7 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 			await refreshOrderState(client, input.dossierId);
 			return rows[0].id;
 		});
-		return id === null ? { ok: false, reason: "online_settlement" } : { ok: true, id };
+		return id === null ? { ok: false, reason: "online_order" } : { ok: true, id };
 	} catch (error) {
 		// A FK (bureau_id, dossier_id) recusa Dossiê inexistente ou de outro Bureau; a transação já voltou.
 		if (error instanceof Error && "code" in error && error.code === FOREIGN_KEY_VIOLATION) {
@@ -134,10 +143,22 @@ export async function listCounterPayments(client: PoolClient, dossierId: string)
 		  order by received_at desc, created_at desc, id`,
 		[dossierId],
 	);
-	const settlement = await client.query<{ price: string }>(
-		"select price from order_settlements where order_ref = $1",
+	const settlement = await client.query<{ price: string; status: string; mode: "online" | "counter" }>(
+		"select price::text as price, status, mode from order_settlements where order_ref = $1",
 		[dossierId],
 	);
+	const order = await client.query<{ mode: "online" | "counter" }>(
+		"select mode from dossier_orders where dossier_id = $1",
+		[dossierId],
+	);
+	// Custo só por order_settlement_cost (018): a coluna não é legível pelo papel do app. Numeric em SQL, sem float.
+	const costRow = await client.query<{ cost: string; share: string }>(
+		`select c.cost::text as cost, (s.price - c.cost)::text as share
+		   from order_settlement_cost($1) c, order_settlements s where s.order_ref = $1`,
+		[dossierId],
+	);
+	const sale = settlement.rows[0];
+	const mode = order.rows[0]?.mode ?? sale?.mode ?? "counter";
 	const list = payments.rows.map((r) => ({
 		id: r.id,
 		dossierId: r.dossier_id,
@@ -155,7 +176,15 @@ export async function listCounterPayments(client: PoolClient, dossierId: string)
 		"select coalesce(sum(amount), 0.00)::text as paid_total from counter_payments where dossier_id = $1 and voided_at is null",
 		[dossierId],
 	);
-	return { payments: list, paidTotal: total.rows[0].paid_total, price: settlement.rows[0]?.price ?? null };
+	return {
+		payments: list,
+		paidTotal: total.rows[0].paid_total,
+		price: sale?.price ?? null,
+		mode,
+		paidOnline: mode === "online" && sale && sale.status !== "released" ? sale.price : null,
+		cost: costRow.rows[0]?.cost ?? null,
+		bureauShare: costRow.rows[0]?.share ?? null,
+	};
 }
 
 export type PaymentOverviewRow = {

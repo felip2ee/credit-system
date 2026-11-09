@@ -44,7 +44,7 @@ afterAll(async () => {
 	await Promise.all([owner.end(), pool.end()]);
 });
 
-async function setup(label: string) {
+async function setup(label: string, online = false) {
 	const tenant = await seedTenant(owner, label);
 	const dossierId = await seedDossier(owner, {
 		bureauId: tenant.bureau.id,
@@ -52,11 +52,30 @@ async function setup(label: string) {
 		createdBy: tenant.bureauAdmin.userId,
 	});
 	// reserve_order exige o pedido (dossier_orders) do Dossiê.
-	await seedOrderDossier(owner, { orderRef: dossierId, bureauId: tenant.bureau.id, clientProfileId: null });
+	await seedOrderDossier(owner, {
+		orderRef: dossierId,
+		bureauId: tenant.bureau.id,
+		clientProfileId: online ? tenant.client.userId : null,
+	});
 	const operator: DbIdentity = { ...tenant.operator };
 	const admin: DbIdentity = { ...tenant.bureauAdmin };
 	const client: DbIdentity = { ...tenant.client };
 	return { tenant, dossierId, operator, admin, client };
+}
+
+// Liquidação já fechada, preço 300 e custo 120.
+async function settle(
+	bureauId: string,
+	dossierId: string,
+	mode: "online" | "counter",
+	clientId: string | null,
+	status: "captured" | "released" = "captured",
+) {
+	await owner.query(
+		`insert into order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost, status, closed_at)
+		 values ($1, $2, $3, $4, 300.00, 120.00, $5, now())`,
+		[dossierId, bureauId, mode, clientId, status],
+	);
 }
 
 const pay = (dossierId: string, amount: string, extra: { note?: string | null } = {}) => ({
@@ -121,7 +140,18 @@ describe("registerCounterPayment", () => {
 
 		expect(await registerCounterPayment(operator, pay(dossierId, "50.00"))).toEqual({
 			ok: false,
-			reason: "online_settlement",
+			reason: "online_order",
+		});
+		const listed = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));
+		expect(listed.payments).toEqual([]);
+	});
+
+	it("refuses an online order even before it has a settlement", async () => {
+		const { dossierId, operator } = await setup("Counter R6", true);
+
+		expect(await registerCounterPayment(operator, pay(dossierId, "50.00"))).toEqual({
+			ok: false,
+			reason: "online_order",
 		});
 		const listed = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));
 		expect(listed.payments).toEqual([]);
@@ -288,5 +318,67 @@ describe("order state follows the payments", () => {
 
 		expect(await voidCounterPayment(operator, { id: full.id, reason: "Valor lançado por engano" })).toEqual({ ok: true });
 		expect(await stateOf(dossierId)).toBe("awaiting_payment");
+	});
+});
+
+describe("listCounterPayments: detail of the order", () => {
+	it("online order paid from the app wallet: mode, paid amount, cost and Bureau share", async () => {
+		const { tenant, dossierId, operator } = await setup("Counter D1", true);
+		await settle(tenant.bureau.id, dossierId, "online", tenant.client.userId);
+
+		const view = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));
+
+		expect(view).toMatchObject({
+			mode: "online",
+			price: "300.00",
+			paidTotal: "0.00",
+			paidOnline: "300.00",
+			cost: "120.00",
+			bureauShare: "180.00",
+		});
+	});
+
+	it("online order released (not charged): nothing paid online, outside the totals", async () => {
+		const { tenant, dossierId, operator } = await setup("Counter D2", true);
+		await settle(tenant.bureau.id, dossierId, "online", tenant.client.userId, "released");
+
+		const view = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));
+
+		expect(view).toMatchObject({ mode: "online", paidOnline: null });
+	});
+
+	it("counter order keeps the counter payments and gains cost and Bureau share", async () => {
+		const { tenant, dossierId, operator } = await setup("Counter D3");
+		await settle(tenant.bureau.id, dossierId, "counter", null);
+		await registerCounterPayment(operator, pay(dossierId, "100.00"));
+
+		const view = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));
+
+		expect(view).toMatchObject({
+			mode: "counter",
+			price: "300.00",
+			paidTotal: "100.00",
+			paidOnline: null,
+			cost: "120.00",
+			bureauShare: "180.00",
+		});
+	});
+
+	it("order without settlement: no price, cost or share", async () => {
+		const { dossierId, operator } = await setup("Counter D4");
+
+		const view = await withUserTransaction(operator, (c) => listCounterPayments(c, dossierId));
+
+		expect(view).toMatchObject({ mode: "counter", price: null, paidOnline: null, cost: null, bureauShare: null });
+	});
+
+	it("does not leak cost to a client", async () => {
+		const { tenant, dossierId, client } = await setup("Counter D5");
+		await settle(tenant.bureau.id, dossierId, "counter", null);
+
+		const view = await withUserTransaction(client, (c) => listCounterPayments(c, dossierId));
+
+		expect(view.cost).toBeNull();
+		expect(view.bureauShare).toBeNull();
 	});
 });

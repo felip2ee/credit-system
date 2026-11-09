@@ -24,3 +24,46 @@ export function ledgerView(e: Pick<LedgerEntry, "kind" | "amount" | "reason">): 
 	const m = MAP[e.kind];
 	return { ...m, detail: e.reason };
 }
+
+// Textos do Extrato total: um por tipo de lançamento, em português simples. `signed` é o valor com sinal
+// (positivo entra, negativo sai); `neutral` é o lançamento que só informa e não muda o saldo disponível.
+export type StatementText = { title: string; detail: string; signed: "in" | "out" | "neutral" | "by-amount" };
+
+export const PREPAID_STATEMENT_TEXT: Record<Kind, StatementText> = {
+	topup: { title: "Recarga no saldo pré-pago", detail: "Entrou dinheiro no saldo pré-pago por Pix.", signed: "in" },
+	reserve: { title: "Custo saiu do saldo pré-pago", detail: "Valor separado para um pedido de balcão.", signed: "out" },
+	capture: {
+		title: "Pedido de balcão concluído",
+		detail: "O custo já estava separado. O saldo disponível não mudou.",
+		signed: "neutral",
+	},
+	release: { title: "Valor devolvido ao saldo pré-pago", detail: "O pedido foi cancelado e o custo voltou para o saldo.", signed: "in" },
+	reversal: { title: "Recarga estornada", detail: "Uma recarga por Pix foi devolvida e saiu do saldo pré-pago.", signed: "out" },
+	adjustment: { title: "Ajuste feito pela Rainha Cred", detail: "A Rainha Cred corrigiu o saldo pré-pago.", signed: "by-amount" },
+	client_adjustment_out: {
+		title: "Crédito dado a cliente",
+		detail: "Saiu do saldo do Bureau e entrou no saldo do cliente (ajuste de conta).",
+		signed: "out",
+	},
+	client_adjustment_in: {
+		title: "Crédito tirado de cliente",
+		detail: "Saiu do saldo do cliente e voltou para o saldo do Bureau (ajuste de conta).",
+		signed: "in",
+	},
+};
+
+export const PAYABLE_STATEMENT_TEXT: Record<"accrual" | "reversal" | "payout", StatementText> = {
+	accrual: {
+		title: "Sua parte entrou em A receber",
+		detail: "Venda online concluída. A Rainha Cred repassa essa parte a você.",
+		signed: "in",
+	},
+	reversal: { title: "Parte estornada em A receber", detail: "Um pedido online foi estornado e sua parte foi retirada.", signed: "out" },
+	payout: { title: "Repasse recebido", detail: "A Rainha Cred pagou este valor. Ele saiu de A receber.", signed: "out" },
+};
+
+// Lançamento do saldo do cliente sem o par no Bureau: não deveria existir, mas nada que movimentou fica de fora.
+export const CLIENT_STATEMENT_TEXT: Record<"adjustment_credit" | "adjustment_debit", StatementText> = {
+	adjustment_credit: { title: "Crédito dado a cliente", detail: "Entrou no saldo do cliente (ajuste de conta).", signed: "in" },
+	adjustment_debit: { title: "Crédito tirado de cliente", detail: "Saiu do saldo do cliente (ajuste de conta).", signed: "out" },
+};

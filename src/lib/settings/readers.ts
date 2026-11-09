@@ -61,3 +61,15 @@ export async function readAffiliateSettings(identity: DbIdentity): Promise<Affil
 		withdrawalFee: { fixed: nonNegativeMoney(fee?.fixed), percent: nonNegativeMoney(fee?.percent) },
 	};
 }
+
+export const PAYABLE_RETENTION_KEY = "payable_retention_days";
+export const MAX_PAYABLE_RETENTION_DAYS = 3650;
+const DEFAULT_PAYABLE_RETENTION_DAYS = 30;
+
+// Mesma regra da função payable_retention_days() no banco: ausente ou inválido volta 30.
+export async function readPayableRetentionDays(identity: DbIdentity): Promise<number> {
+	const days = await readSetting(identity, PAYABLE_RETENTION_KEY);
+	return typeof days === "number" && Number.isInteger(days) && days >= 0 && days <= MAX_PAYABLE_RETENTION_DAYS
+		? days
+		: DEFAULT_PAYABLE_RETENTION_DAYS;
+}

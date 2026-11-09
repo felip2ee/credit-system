@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DASHBOARD_NAV_ITEMS, isNavActive, visibleNavItems } from "./nav-items";
+import { DASHBOARD_NAV_ITEMS, SUPERADMIN_NAV_ITEMS, isNavActive, visibleNavItems } from "./nav-items";
 
 const items = [
   { href: "/", label: "Dashboard" },
@@ -27,6 +27,12 @@ describe("DASHBOARD_NAV_ITEMS", () => {
     const hrefs = DASHBOARD_NAV_ITEMS.map((i) => i.href);
     expect(hrefs).not.toContain("/settings/payouts");
     expect(hrefs).not.toContain("/settings/counter-payments");
+  });
+});
+
+describe("SUPERADMIN_NAV_ITEMS", () => {
+  it("tem o ajuste do prazo de retenção dos repasses", () => {
+    expect(SUPERADMIN_NAV_ITEMS).toContainEqual({ href: "/superadmin/settings/repasses", label: "Prazo dos repasses" });
   });
 });
 

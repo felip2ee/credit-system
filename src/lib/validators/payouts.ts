@@ -7,12 +7,13 @@ const CUTOFF_INVALID = "Data de corte inválida.";
 
 export const createPayoutSchema = z.object({
 	bureauId: z.string().uuid("Bureau inválido."),
-	// A união recusa null, vazio e número antes da conversão (new Date(null) é 1970).
+	// Ausente = a ação usa now() − retenção. A união recusa null, vazio e número antes da conversão (new Date(null) é 1970).
 	cutoffAt: z
 		.union([z.string().trim().min(1), z.date()], { errorMap: () => ({ message: CUTOFF_INVALID }) })
 		.transform((value) => new Date(value))
 		.refine((date) => !Number.isNaN(date.getTime()), CUTOFF_INVALID)
-		.refine((date) => date.getTime() <= Date.now() + MAX_CUTOFF_AHEAD_MS, "Data de corte no futuro distante."),
+		.refine((date) => date.getTime() <= Date.now() + MAX_CUTOFF_AHEAD_MS, "Data de corte no futuro distante.")
+		.optional(),
 });
 
 export const payoutIdSchema = z.object({ payoutId: z.string().uuid("Repasse inválido.") });

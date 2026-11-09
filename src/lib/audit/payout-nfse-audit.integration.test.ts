@@ -37,8 +37,15 @@ async function rejected(c: PoolClient, attempt: () => Promise<unknown>): Promise
 	await c.query("rollback to savepoint attempt");
 }
 
+// Retenção de 30 dias: o acréscimo nasce com 60 dias e o corte do repasse fica a 31 dias.
+const DAY_MS = 24 * 60 * 60 * 1000;
 const accrue = (bureauId: string) =>
-	seedPayableEntry(owner, { bureauId, kind: "accrual", amount: "40.00" });
+	seedPayableEntry(owner, {
+		bureauId,
+		kind: "accrual",
+		amount: "40.00",
+		createdAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+	});
 
 async function setup() {
 	const superadmin = await seedSuperadmin(owner);
@@ -70,8 +77,8 @@ const audit = (
 
 async function newPayout(c: PoolClient, bureauId: string): Promise<string> {
 	const { rows } = await c.query<{ ok: boolean; payout_id: string }>(
-		"select ok, payout_id from create_payout($1, '2100-01-01T00:00:00Z')",
-		[bureauId],
+		"select ok, payout_id from create_payout($1, $2::timestamptz)",
+		[bureauId, new Date(Date.now() - 31 * DAY_MS).toISOString()],
 	);
 	expect(rows[0].ok).toBe(true);
 	return rows[0].payout_id;

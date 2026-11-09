@@ -21,6 +21,8 @@ import {
 import { SCR_SETTING_KEYS } from "@/lib/scr/consent-term";
 import {
   AFFILIATE_SETTING_KEYS,
+  MAX_PAYABLE_RETENTION_DAYS,
+  PAYABLE_RETENTION_KEY,
   asString,
   readAiPrompt,
   readScrTermSettings,
@@ -214,5 +216,41 @@ export async function saveAffiliateSettings(values: unknown): Promise<SaveResult
   }
 
   revalidatePath("/superadmin/settings/afiliados");
+  return { error: null };
+}
+
+// ── Repasses (prazo de retenção do valor a receber) ───────────────────────
+
+const payableRetentionSchema = z.object({
+  days: z
+    .number({ invalid_type_error: "Informe o número de dias." })
+    .int("Informe dias inteiros.")
+    .min(0, "Dias inválidos.")
+    .max(MAX_PAYABLE_RETENTION_DAYS, `Use no máximo ${MAX_PAYABLE_RETENTION_DAYS} dias.`),
+});
+
+export async function savePayableRetentionAction(values: unknown): Promise<SaveResult> {
+  const parsed = payableRetentionSchema.safeParse(values);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  const identity = await adminIdentity();
+  if (!identity) return { error: "Apenas o superadmin pode editar o prazo dos repasses." };
+
+  try {
+    await upsertSettings(
+      identity,
+      [{ key: PAYABLE_RETENTION_KEY, value: parsed.data.days }],
+      "settings.payable_retention",
+      {
+        auditChange: (previous) => {
+          const from = previous.get(PAYABLE_RETENTION_KEY);
+          return { from: typeof from === "number" ? from : null, to: parsed.data.days };
+        },
+      },
+    );
+  } catch {
+    return { error: "Falha ao salvar o prazo dos repasses." };
+  }
+
+  revalidatePath("/superadmin/settings/repasses");
   return { error: null };
 }

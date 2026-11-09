@@ -46,12 +46,19 @@ afterAll(async () => {
 	await Promise.all([owner.end(), pool.end()]);
 });
 
-const FAR_FUTURE = new Date("2100-01-01T00:00:00Z");
+// Retenção de 30 dias: o acréscimo nasce com 60 dias e o corte fica a 31 dias, fora da retenção.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const RELEASED_CUTOFF = new Date(Date.now() - 31 * DAY_MS);
 const sha = () => createHash("sha256").update(randomUUID()).digest("hex");
 const receipt = () => ({ objectKey: `ab/${randomUUID()}`, mime: "application/pdf" as const, sha256: sha() });
 
 async function seedAccrual(bureauId: string, amount: string) {
-	await seedPayableEntry(owner, { bureauId, kind: "accrual", amount });
+	await seedPayableEntry(owner, {
+		bureauId,
+		kind: "accrual",
+		amount,
+		createdAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+	});
 }
 
 async function setup(amount = "40.00") {
@@ -73,7 +80,7 @@ describe("createPayout", () => {
 	it("creates the payout and audits it with the target Bureau in bureau_id", async () => {
 		const { superadmin, tenant } = await setup();
 
-		const result = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const result = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 
 		expect(result).toMatchObject({ ok: true, amount: "40.00" });
 		if (!result.ok) return;
@@ -88,7 +95,7 @@ describe("createPayout", () => {
 		const superadmin = await seedSuperadmin(owner);
 		const tenant = await seedTenant(owner, "payempty");
 
-		const result = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const result = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 
 		expect(result).toEqual({ ok: false, reason: "nothing_to_pay" });
 	});
@@ -97,10 +104,10 @@ describe("createPayout", () => {
 		const { superadmin, tenant } = await setup();
 		const supportSessionId = await seedSupportSession(owner, { superadminId: superadmin.userId, bureauId: tenant.bureau.id });
 
-		const asAdmin = await createPayout(tenant.bureauAdmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const asAdmin = await createPayout(tenant.bureauAdmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		const inSupport = await createPayout(
 			{ ...superadmin, bureauId: tenant.bureau.id, supportSessionId },
-			{ bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE },
+			{ bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF },
 		);
 
 		expect(asAdmin).toEqual({ ok: false, reason: "not_allowed" });
@@ -111,7 +118,7 @@ describe("createPayout", () => {
 describe("markPayoutPaid", () => {
 	it("pays an open payout, audits it, and reports no replay", async () => {
 		const { superadmin, tenant } = await setup();
-		const created = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const created = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		if (!created.ok) throw new Error("setup");
 
 		const result = await markPayoutPaid(superadmin, { payoutId: created.payoutId, receipt: receipt() });
@@ -125,7 +132,7 @@ describe("markPayoutPaid", () => {
 
 	it("flags a same-receipt repeat as replayed and audits once; a different receipt is already_paid", async () => {
 		const { superadmin, tenant } = await setup();
-		const created = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const created = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		if (!created.ok) throw new Error("setup");
 		const first = receipt();
 		await markPayoutPaid(superadmin, { payoutId: created.payoutId, receipt: first });
@@ -143,7 +150,7 @@ describe("markPayoutPaid", () => {
 
 	it("maps not_found and invalid_state (cancelled)", async () => {
 		const { superadmin, tenant } = await setup();
-		const created = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const created = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		if (!created.ok) throw new Error("setup");
 		await cancelPayout(superadmin, created.payoutId);
 
@@ -161,7 +168,7 @@ describe("markPayoutPaid", () => {
 describe("cancelPayout", () => {
 	it("cancels an open payout and audits it; a paid payout is invalid_state", async () => {
 		const { superadmin, tenant } = await setup();
-		const open = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const open = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		if (!open.ok) throw new Error("setup");
 
 		const cancelled = await cancelPayout(superadmin, open.payoutId);
@@ -169,7 +176,7 @@ describe("cancelPayout", () => {
 		expect((await auditRows("payout.cancel", open.payoutId)).map((r) => r.bureau_id)).toEqual([tenant.bureau.id]);
 
 		await seedAccrual(tenant.bureau.id, "10.00");
-		const second = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const second = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		if (!second.ok) throw new Error("setup");
 		await markPayoutPaid(superadmin, { payoutId: second.payoutId, receipt: receipt() });
 		expect(await cancelPayout(superadmin, second.payoutId)).toEqual({ ok: false, reason: "invalid_state" });
@@ -179,7 +186,7 @@ describe("cancelPayout", () => {
 describe("cancelPayout replay", () => {
 	it("returns ok for an already cancelled payout without a second audit event", async () => {
 		const { superadmin, tenant } = await setup();
-		const open = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const open = await createPayout(superadmin, { bureauId: tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		if (!open.ok) throw new Error("setup");
 
 		const first = await cancelPayout(superadmin, open.payoutId);
@@ -196,8 +203,8 @@ describe("reads are tenant-scoped", () => {
 	it("the bureau_admin lists and gets only its own payouts; operator and client read none", async () => {
 		const a = await setup();
 		const b = await setup("15.00");
-		const pa = await createPayout(a.superadmin, { bureauId: a.tenant.bureau.id, cutoffAt: FAR_FUTURE });
-		const pb = await createPayout(b.superadmin, { bureauId: b.tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const pa = await createPayout(a.superadmin, { bureauId: a.tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
+		const pb = await createPayout(b.superadmin, { bureauId: b.tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		if (!pa.ok || !pb.ok) throw new Error("setup");
 
 		const adminA = a.tenant.bureauAdmin;
@@ -217,8 +224,8 @@ describe("reads are tenant-scoped", () => {
 	it("getPayoutReceiptRef: own paid payout resolves; another Bureau's, unpaid, and support session do not", async () => {
 		const a = await setup();
 		const b = await setup("15.00");
-		const pa = await createPayout(a.superadmin, { bureauId: a.tenant.bureau.id, cutoffAt: FAR_FUTURE });
-		const pb = await createPayout(b.superadmin, { bureauId: b.tenant.bureau.id, cutoffAt: FAR_FUTURE });
+		const pa = await createPayout(a.superadmin, { bureauId: a.tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
+		const pb = await createPayout(b.superadmin, { bureauId: b.tenant.bureau.id, cutoffAt: RELEASED_CUTOFF });
 		if (!pa.ok || !pb.ok) throw new Error("setup");
 		const ra = receipt();
 		await markPayoutPaid(a.superadmin, { payoutId: pa.payoutId, receipt: ra });

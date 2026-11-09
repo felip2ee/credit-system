@@ -8,7 +8,8 @@ import { getRequiredSession } from "@/lib/auth/session";
 import { listBureauMetrics } from "@/lib/bureaus/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
-import { getPayableBalances } from "@/lib/payables/queries";
+import { getPayableBalances, getPayableRetentionDays } from "@/lib/payables/queries";
+import { latestPayoutDate } from "@/lib/payouts/cutoff";
 import { listPayouts } from "@/lib/payouts/queries";
 
 export const metadata = { title: "Repasses" };
@@ -36,13 +37,14 @@ export default async function SuperadminPayoutsPage() {
     payouts: await listPayouts(client),
     payable: await getPayableBalances(client),
   }));
+  const latestDate = latestPayoutDate(await getPayableRetentionDays(session));
   const bureauNames = Object.fromEntries(bureaus.map((b) => [b.bureauId, b.name]));
 
   return (
     <div className="space-y-6">
       <PageHeader title="Repasses" description="Repasses aos Bureaus: criar, pagar com comprovante e cancelar" />
       {canManage && (
-        <CreatePayoutForm bureaus={bureaus.map((b) => ({ id: b.bureauId, name: b.name, payable: data.payable.get(b.bureauId) ?? "0.00" }))} />
+        <CreatePayoutForm latestDate={latestDate} bureaus={bureaus.map((b) => ({ id: b.bureauId, name: b.name, payable: data.payable.get(b.bureauId) ?? "0.00" }))} />
       )}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Repasses</h2>
