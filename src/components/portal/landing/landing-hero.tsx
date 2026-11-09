@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ChartColumn, Check, TriangleAlert, type LucideIcon } from "lucide-react";
 
+import { BrandLogo } from "@/components/portal/brand-logo";
+
 import { BTN_YELLOW, CONTAINER, EYEBROW, SECTION_X } from "./landing-styles";
 
 const PREVIEW_ROWS: { icon: LucideIcon; label: string; accent: boolean }[] = [
@@ -11,14 +13,21 @@ const PREVIEW_ROWS: { icon: LucideIcon; label: string; accent: boolean }[] = [
 
 export function LandingHeader({ name, href }: { name: string; href: string }) {
   return (
-    <header className={`${SECTION_X} flex flex-wrap items-center justify-between gap-3 bg-[var(--landing-green)] py-5`}>
-      <p className="lp-serif min-w-0 break-words text-xl font-bold uppercase tracking-[0.14em] text-[var(--landing-yellow)] lg:text-[22px]">{name}</p>
-      <Link
-        href={href}
-        className="inline-flex min-h-11 items-center rounded-full border border-[var(--landing-yellow)] px-[22px] text-[15px] font-medium text-white hover:bg-[var(--landing-green-alt)]"
-      >
-        Entrar
-      </Link>
+    <header className={`${SECTION_X} bg-[var(--landing-green)] pb-5 pt-5`}>
+      <div className={CONTAINER}>
+        <div className="flex items-center justify-between gap-3">
+          <BrandLogo variant="full" tone="light" className="h-11 lg:h-12" />
+          <Link
+            href={href}
+            className="inline-flex min-h-11 min-w-[104px] items-center justify-center rounded-full bg-[var(--landing-yellow)] px-6 text-base font-bold text-[var(--landing-green)] hover:bg-[var(--landing-yellow-hover)]"
+          >
+            Entrar
+          </Link>
+        </div>
+        <p className="lp-serif mt-4 min-w-0 break-words border-t border-white/15 pt-4 text-[26px] font-bold leading-[1.15] text-[var(--landing-yellow)] lg:text-[32px]">
+          {name}
+        </p>
+      </div>
     </header>
   );
 }
