@@ -12,7 +12,7 @@ interface SegmentedNavProps {
 }
 
 // Filtro em "segmented control" para o painel admin: contêiner pílula branco com borda; opção ativa amarela.
-// Cada opção é um link (a URL guarda o filtro). Altura 36 px (h-9) por opção.
+// Cada opção é um link (a URL guarda o filtro). Altura 44 px no celular e 36 px (h-9) de md para cima.
 export function SegmentedNav({ label, items, activeKey, current = "true", className }: SegmentedNavProps) {
   return (
     <nav
@@ -27,7 +27,7 @@ export function SegmentedNav({ label, items, activeKey, current = "true", classN
             href={item.href}
             aria-current={active ? current : undefined}
             className={cn(
-              "inline-flex h-9 shrink-0 items-center rounded-full px-3.5 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              "inline-flex h-11 md:h-9 shrink-0 items-center rounded-full px-3.5 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >
