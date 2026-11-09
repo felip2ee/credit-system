@@ -57,8 +57,8 @@ services:
       WEB_PUSH_VAPID_PRIVATE_KEY_FILE: /run/secrets/web_push_vapid_private_key
       # PII key ring (id:base64). Docker secret on purpose: never a plain env var.
       PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key
-      # Card installment fees "months:percent:fixed_cents,..." (empty = card disabled (no default table)) and the minimum installment.
-      CARD_FEE_TABLE: ${CARD_FEE_TABLE:-}
+      # Card installment fees "months:percent:fixed_cents,..." (default = Asaas contract of 2026-11-09, 2.99% + R$ 0.49 up to 12x; set it empty to disable card) and the minimum installment.
+      CARD_FEE_TABLE: ${CARD_FEE_TABLE:-1:2.99:49,6:2.99:49,12:2.99:49}
       CARD_MIN_INSTALLMENT_CENTS: ${CARD_MIN_INSTALLMENT_CENTS:-500}
       # Pix fee passed on to the payer, in cents (199 = R$ 1,99; 0 = no fee). Required: deploy fails when empty or unset.
       PIX_FEE_CENTS: ${PIX_FEE_CENTS:?PIX_FEE_CENTS required (199 = R$ 1,99; 0 = no fee)}

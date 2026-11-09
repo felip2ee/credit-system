@@ -38,7 +38,7 @@ Decisão do dono: repassar todas as taxas do Asaas ao cliente. O saldo sobe semp
 | Pix dinâmico | R$ 1,99 por cobrança recebida | `PIX_FEE_CENTS=199` |
 | Boleto | R$ 1,99 | não usado |
 
-Valores de produção: `CARD_FEE_TABLE=1:2.99:49,6:2.99:49,12:2.99:49` e `PIX_FEE_CENTS=199`. Os valores não ficam fixos no código: vêm do ambiente.
+Valores de produção, conferidos na tela de taxas do Asaas em 2026-11-09: `CARD_FEE_TABLE=1:2.99:49,6:2.99:49,12:2.99:49` (padrão da stack) e `PIX_FEE_CENTS=199`. O Asaas cobra 4,29% + R$ 0,49 de 13 a 21 parcelas; o app não oferece mais de 12. Os valores não ficam fixos no código: vêm do ambiente.
 
 **Premissa a confirmar no teste real pós-deploy:** em outras contas, o Asaas cobra 1,99% extra sobre o total da cobrança parcelada. A tela "Taxas" desta conta não mostra essa taxa, e ela não está modelada. Faça uma recarga parcelada de teste e compare o líquido recebido com o esperado. Se a taxa extra existir, ajuste as faixas de 2 a 12 parcelas em `CARD_FEE_TABLE`.
 
