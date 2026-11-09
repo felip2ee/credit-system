@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { H2, CONTAINER, EYEBROW, SECTION_X } from "./landing-styles";
 
 const STEPS = [
   {
@@ -73,28 +73,54 @@ const FAQ = [
   },
 ];
 
-// Landing: seções de largura total alternando dois verdes; conteúdo limitado a 704 px (tokens .landing em globals.css).
-const SECTION_BASE =
-  "px-4 pb-6 pt-7 font-[family-name:system-ui,sans-serif] text-base leading-[1.6] text-white sm:px-[max(1.75rem,calc((100%-704px)/2))]";
-export const SECTION_DEEP = `${SECTION_BASE} bg-[var(--landing-green)]`;
-export const SECTION_ALT = `${SECTION_BASE} bg-[var(--landing-green-alt)]`;
-export const PUBLIC_H2 = "mb-3 font-heading text-[22px] font-bold uppercase text-[var(--landing-yellow)]";
-export const YELLOW = "text-[var(--landing-yellow)]";
-
-export function PublicHowItWorks() {
+export function LandingDifferential() {
   return (
-    <>
-      <section className={SECTION_DEEP}>
-        <h2 className={PUBLIC_H2}>Como funciona?</h2>
-        <p className="mb-3">O processo foi desenvolvido para ser simples, digital e seguro.</p>
-        <ol className="my-4 space-y-3">
+    <section className={`${SECTION_X} bg-[var(--landing-green-alt)] py-16 text-white lg:py-24`}>
+      <div className="mx-auto max-w-[880px] text-center">
+        <p className={`${EYEBROW} mb-4`}>O diferencial</p>
+        <h2 className={`${H2} mb-7 lg:text-[44px]`}>Parecer estratégico da Rainha do Crédito</h2>
+        <div className="space-y-5 text-[17px] leading-[1.65] text-[var(--landing-soft)] lg:text-[19px]">
+          <p>Ao contratar seu dossiê, você não recebe apenas um relatório com informações financeiras.</p>
+          <p>
+            Você recebe um Parecer Estratégico da Rainha do Crédito, desenvolvido com base em uma metodologia própria e em 16 anos de experiência no mercado de crédito.
+          </p>
+          <p>
+            A análise utiliza recursos de inteligência artificial como ferramenta de apoio para organizar informações, identificar pontos de atenção e estruturar um direcionamento estratégico.
+          </p>
+          <p>
+            O resultado é uma avaliação que apresenta os principais aspectos que merecem atenção no seu perfil financeiro, além de orientações para que você compreenda melhor sua situação e saiba quais caminhos considerar para melhorar seu posicionamento perante o mercado financeiro.
+          </p>
+          <p>
+            A plataforma Rainha Cred proporciona o ambiente digital para que você tenha acesso ao seu dossiê de forma prática e organizada.
+          </p>
+        </div>
+        <p className="lp-serif mt-6 text-2xl italic leading-[1.35] text-[var(--landing-yellow)] lg:text-[26px]">
+          A tecnologia organiza as informações. A experiência e o conhecimento da Rainha do Crédito transformam essas informações em estratégia.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export function LandingSteps() {
+  return (
+    <section className={`${SECTION_X} py-16 lg:py-24`}>
+      <div className={CONTAINER}>
+        <h2 className={`${H2} mb-3`}>Como funciona?</h2>
+        <p className="mb-11 text-[17px] text-[var(--landing-muted)]">O processo foi desenvolvido para ser simples, digital e seguro.</p>
+        <ol className="grid gap-8 sm:grid-cols-2 lg:grid-cols-5 lg:gap-5">
           {STEPS.map((step, i) => (
-            <li key={step.title} className="flex gap-3 rounded-2xl border border-[var(--landing-yellow)] bg-[var(--landing-green-alt)] p-4">
-              <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--landing-yellow)] text-sm font-bold text-[var(--landing-green)]">
+            <li key={step.title} className="min-w-0">
+              <span
+                aria-hidden
+                className={`lp-serif mb-4 inline-flex size-11 items-center justify-center rounded-full text-xl font-bold ${
+                  i === STEPS.length - 1 ? "bg-[var(--landing-green)] text-[var(--landing-yellow)]" : "bg-[var(--landing-yellow)] text-[var(--landing-green)]"
+                }`}
+              >
                 {i + 1}
               </span>
-              <div className="min-w-0 space-y-2">
-                <h3 className={`font-bold ${YELLOW}`}>{step.title}</h3>
+              <h3 className="mb-2 break-words text-lg font-bold">{step.title}</h3>
+              <div className="space-y-2 text-[15px] leading-[1.6] text-[var(--landing-muted)]">
                 {step.text.map((line) => (
                   <p key={line}>{line}</p>
                 ))}
@@ -102,17 +128,27 @@ export function PublicHowItWorks() {
             </li>
           ))}
         </ol>
-      </section>
-      <section className={SECTION_ALT}>
-        <h2 className={PUBLIC_H2}>Perguntas frequentes</h2>
-        <div className="my-4 overflow-hidden rounded-2xl border border-[var(--landing-yellow)] bg-[var(--landing-green)]">
+      </div>
+    </section>
+  );
+}
+
+export function LandingFaq() {
+  return (
+    <section className={`${SECTION_X} pb-16 lg:pb-24`}>
+      <div className="mx-auto max-w-[880px]">
+        <h2 className={`${H2} mb-7`}>Perguntas frequentes</h2>
+        <div className="flex flex-col gap-3">
           {FAQ.map((item) => (
-            <details key={item.q} className="group border-t border-[var(--landing-yellow)] first:border-t-0">
-              <summary className={`flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-2 font-bold ${YELLOW} hover:bg-[var(--landing-green-alt)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 [&::-webkit-details-marker]:hidden`}>
-                {item.q}
-                <ChevronDown aria-hidden className="size-5 shrink-0 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
+            <details key={item.q} className="group rounded-2xl border border-[var(--landing-border)] bg-[var(--landing-white)] px-5 py-3 lg:px-[26px]">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 text-lg font-semibold [&::-webkit-details-marker]:hidden">
+                <span className="min-w-0 break-words">{item.q}</span>
+                <span aria-hidden className="shrink-0 text-2xl font-bold leading-none">
+                  <span className="group-open:hidden">+</span>
+                  <span className="hidden group-open:inline">−</span>
+                </span>
               </summary>
-              <div className="space-y-2 px-4 pb-4 text-white">
+              <div className="space-y-2 pb-3 pt-3 text-base leading-[1.65] text-[var(--landing-muted)]">
                 {item.a.map((line) => (
                   <p key={line}>{line}</p>
                 ))}
@@ -120,7 +156,7 @@ export function PublicHowItWorks() {
             </details>
           ))}
         </div>
-      </section>
-    </>
+      </div>
+    </section>
   );
 }

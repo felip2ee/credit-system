@@ -6,7 +6,8 @@ const SRC = path.join(process.cwd(), "src");
 const OLD_NAMES = /Reino do Crédito|Rainha do Crédito|Beabá do Crédito|Eliane Moreira/;
 // Razão social do termo SCR é texto legal.
 // A copy da landing pública é da especialista e cita "Rainha do Crédito" como pessoa (decisão do dono, 2026-11).
-const ALLOWED = ["lib/scr/consent-term.ts", "app/b/[slug]/page.tsx", "components/portal/public-how-it-works.tsx"];
+const ALLOWED = ["lib/scr/consent-term.ts", "app/b/[slug]/page.tsx"];
+const ALLOWED_DIRS = ["components/portal/landing/"];
 
 function listFiles(dir: string): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -18,7 +19,7 @@ function listFiles(dir: string): string[] {
 function isScanned(rel: string): boolean {
 	if (!/\.(ts|tsx|md)$/.test(rel)) return false;
 	if (/\.(test|spec)\.(ts|tsx)$/.test(rel)) return false;
-	if (ALLOWED.includes(rel)) return false;
+	if (ALLOWED.includes(rel) || ALLOWED_DIRS.some((d) => rel.startsWith(d))) return false;
 	return true;
 }
 
