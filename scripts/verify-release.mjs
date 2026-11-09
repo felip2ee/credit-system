@@ -36,6 +36,7 @@ const FAKE_COMPOSE_ENV = {
   BACKUP_ALERT_TO: "verify@verify.invalid",
   RESTIC_S3_ENDPOINT: "s3.verify.invalid",
   RESTIC_S3_BUCKET: "verify-bucket",
+  PIX_FEE_CENTS: "199",
 };
 
 // deferred:true => needs real production infra (Docker daemon / target Postgres /
@@ -50,11 +51,16 @@ const GATES = [
   },
   {
     name: "4. node:test (migrate / reset)",
-    cmd: ["node", "--test", "scripts/db/migrate.test.mjs", "scripts/db/reset.test.mjs"],
+    cmd: ["node", "--test", "scripts/db/migrate.test.mjs", "scripts/db/reset.test.mjs", "scripts/check-production-env.test.mjs"],
   },
   {
     name: "python unittest (setup)",
     cmd: ["python3", "-m", "unittest", "discover", "-s", "scripts/setup", "-p", "test_*.py"],
+  },
+  {
+    name: "production env (PIX_FEE_CENTS, CARD_FEE_TABLE)",
+    cmd: ["node", "scripts/check-production-env.mjs"],
+    deferred: true,
   },
   {
     name: "5. Playwright auth + consultation + document smoke",

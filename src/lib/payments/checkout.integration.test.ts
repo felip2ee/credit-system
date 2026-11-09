@@ -32,6 +32,7 @@ vi.hoisted(() => {
 // Contadores e falhas injetadas no cliente Asaas fake: o resto do comportamento é o do fake.
 const hooks = vi.hoisted(() => ({
 	pix: 0,
+	pixAmounts: [] as string[],
 	card: 0,
 	customers: 0,
 	cardError: null as null | (() => Error),
@@ -51,6 +52,7 @@ vi.mock("@/lib/asaas", async () => {
 		...base,
 		createPixCharge: async (input) => {
 			hooks.pix++;
+			hooks.pixAmounts.push(input.amount);
 			return base.createPixCharge(input);
 		},
 		createCustomer: async (input) => {
@@ -187,6 +189,7 @@ let errorSpy: ReturnType<typeof vi.spyOn>;
 let warnSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
 	hooks.pix = 0;
+	hooks.pixAmounts = [];
 	hooks.card = 0;
 	hooks.customers = 0;
 	hooks.cardError = null;
@@ -387,6 +390,115 @@ describe("card", () => {
 
 		expect(await bureauBalance(t.bureau.id)).toBe("100.00");
 		expect((await charge(body.idempotencyKey)).status).toBe("paid");
+	});
+});
+
+describe("Pix fee passthrough (PIX_FEE_CENTS)", () => {
+	const withFee = async (value: string | undefined, run: () => Promise<void>) => {
+		const before = process.env.PIX_FEE_CENTS;
+		if (value === undefined) delete process.env.PIX_FEE_CENTS;
+		else process.env.PIX_FEE_CENTS = value;
+		try {
+			await run();
+		} finally {
+			if (before === undefined) delete process.env.PIX_FEE_CENTS;
+			else process.env.PIX_FEE_CENTS = before;
+		}
+	};
+	const paymentEvent = (row: Awaited<ReturnType<typeof charge>>, ref: string, value: number, event = "PAYMENT_RECEIVED") =>
+		buildFakePaymentEvent({
+			eventId: `evt_${randomUUID()}`,
+			asaasPaymentId: row.asaas_payment_id as string,
+			value,
+			event,
+			externalReference: ref,
+		});
+
+	it("charges recharge + fee at Asaas, stores both, credits only the recharge and reverses only the recharge", async () => {
+		await withFee("199", async () => {
+			const t = await seedTenant(owner, "Co Pix Fee");
+			const body = input({ payer: bureauPayer });
+
+			const result = await runCheckout(t.bureauAdmin, bureauScope(t), body, META);
+
+			expect(result).toMatchObject({ error: null, method: "PIX", summary: { rechargeCents: 10000, feeCents: 199, totalCents: 10199 } });
+			expect(hooks.pixAmounts).toEqual(["101.99"]);
+			const row = await charge(body.idempotencyKey);
+			expect(row).toMatchObject({ amount: "100.00", fee_amount: "1.99", total_charged: "101.99", status: "pending" });
+
+			// Só a recarga paga: a taxa faltou, nada é creditado.
+			await webhook(paymentEvent(row, body.idempotencyKey, 100));
+			expect(await bureauBalance(t.bureau.id)).toBe("0.00");
+			expect((await charge(body.idempotencyKey)).status).toBe("pending");
+
+			await webhook(paymentEvent(row, body.idempotencyKey, 101.99));
+			expect(await bureauBalance(t.bureau.id)).toBe("100.00");
+			expect((await charge(body.idempotencyKey)).status).toBe("paid");
+
+			await webhook(paymentEvent(row, body.idempotencyKey, 101.99, "PAYMENT_REFUNDED"));
+			expect(await bureauBalance(t.bureau.id)).toBe("0.00");
+			expect((await charge(body.idempotencyKey)).status).toBe("refunded");
+		});
+	});
+
+	it("zero fee (variable empty) keeps the old behavior: Asaas gets the recharge and total_charged stays null", async () => {
+		await withFee(undefined, async () => {
+			const t = await seedTenant(owner, "Co Pix NoFee");
+			const body = input({ payer: bureauPayer });
+
+			const result = await runCheckout(t.bureauAdmin, bureauScope(t), body, META);
+
+			expect(result).toMatchObject({ error: null, summary: { rechargeCents: 10000, feeCents: 0, totalCents: 10000 } });
+			expect(hooks.pixAmounts).toEqual(["100.00"]);
+			expect(await charge(body.idempotencyKey)).toMatchObject({ amount: "100.00", fee_amount: "0.00", total_charged: null });
+		});
+	});
+
+	it("a resend with the same key after the fee changed reuses the row: fee and total unchanged, no Asaas call", async () => {
+		const t = await seedTenant(owner, "Co Pix Reuse");
+		const body = input({ payer: bureauPayer });
+		await withFee("199", async () => {
+			expect(await runCheckout(t.bureauAdmin, bureauScope(t), body, META)).toMatchObject({ error: null, method: "PIX" });
+		});
+		const before = await charge(body.idempotencyKey);
+
+		await withFee("250", async () => {
+			expect(await runCheckout(t.bureauAdmin, bureauScope(t), body, META)).toMatchObject({ error: null, reused: true });
+		});
+
+		expect(await charge(body.idempotencyKey)).toEqual(before);
+		expect(before).toMatchObject({ amount: "100.00", fee_amount: "1.99", total_charged: "101.99" });
+		expect(hooks.pix).toBe(1);
+		expect(hooks.pixAmounts).toEqual(["101.99"]);
+		expect(await countRows(t.bureau.id)).toBe(1);
+	});
+
+	it("an invalid fee config fails closed: no row and no Asaas call", async () => {
+		await withFee("1.99", async () => {
+			const t = await seedTenant(owner, "Co Pix BadFee");
+			const body = input({ payer: bureauPayer });
+
+			const result = await runCheckout(t.bureauAdmin, bureauScope(t), body, META);
+
+			expect(result.error).toMatch(/indisponível/);
+			expect(hooks.pix).toBe(0);
+			expect(await countRows(t.bureau.id)).toBe(0);
+		});
+	});
+
+	it("the R$ 10,00 to R$ 5.000,00 limit applies to the recharge, not to the total", async () => {
+		await withFee("199", async () => {
+			const t = await seedTenant(owner, "Co Pix Limit");
+			const max = input({ amount: "5000.00", payer: bureauPayer });
+			const over = input({ amount: "5000.01", payer: bureauPayer });
+			const min = input({ amount: "10.00", payer: bureauPayer });
+			const under = input({ amount: "9.99", payer: bureauPayer });
+
+			expect(await runCheckout(t.bureauAdmin, bureauScope(t), max, META)).toMatchObject({ error: null, summary: { totalCents: 500199 } });
+			expect(await runCheckout(t.bureauAdmin, bureauScope(t), min, META)).toMatchObject({ error: null, summary: { totalCents: 1199 } });
+			expect((await runCheckout(t.bureauAdmin, bureauScope(t), over, META)).error).not.toBeNull();
+			expect((await runCheckout(t.bureauAdmin, bureauScope(t), under, META)).error).not.toBeNull();
+		});
 	});
 });
 

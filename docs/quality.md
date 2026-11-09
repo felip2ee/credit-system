@@ -11,7 +11,7 @@
 | `npm run check` | Composto: lint, type-check e test. |
 | `npm run db:migrate:test` | `node --test` do runner de migrations e do reset. |
 | `npm run setup:test` | `unittest` do `setup_production.py`. |
-| `npm run ops:test` | `node --test` do cron de notificações. Roda `docker/backup/backup.test.sh` se `restic` estiver instalado. |
+| `npm run ops:test` | `node --test` do cron de notificações e da checagem do `.env.production` (`scripts/check-production-env.mjs`). Roda `docker/backup/backup.test.sh` se `restic` estiver instalado. |
 | `npm run test:e2e` | Playwright em `e2e/`: login com MFA, compra no portal e balcão até `ready`. Exige app e banco com seed. |
 | `npm run verify:release` | Gate de release: lint, type-check, Vitest, `node --test`, `unittest`, Playwright, build, `docker compose config`, migration duas vezes, suítes com Postgres. Para na primeira falha. |
 

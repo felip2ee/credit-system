@@ -10,6 +10,7 @@ const CVV = "987";
 const s = vi.hoisted(() => ({
 	keyring: vi.fn(),
 	feeConfig: vi.fn(),
+	pixFee: vi.fn(),
 	nfseOn: vi.fn(),
 	asaas: {
 		createPixCharge: vi.fn(),
@@ -45,7 +46,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/db/transaction", () => ({
 	withUserTransaction: async (_identity: unknown, work: (client: unknown) => unknown) => work({}),
 }));
-vi.mock("@/lib/config", () => ({ readPiiKeyring: s.keyring, readCardFeeConfig: s.feeConfig }));
+vi.mock("@/lib/config", () => ({ readPiiKeyring: s.keyring, readCardFeeConfig: s.feeConfig, readPixFeeConfig: s.pixFee }));
 vi.mock("@/lib/nfse/invoice", () => ({ isNfseConfigured: s.nfseOn }));
 vi.mock("@/lib/asaas", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/asaas/client")>("@/lib/asaas/client");
@@ -155,6 +156,7 @@ beforeEach(() => {
 	warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 	s.keyring.mockReturnValue({ activeKeyId: "k1", keys: new Map() });
 	s.feeConfig.mockReturnValue(FEES);
+	s.pixFee.mockReturnValue({ feeCents: 0 });
 	s.nfseOn.mockReturnValue(false);
 	s.view.mockResolvedValue(fullView);
 	s.load.mockResolvedValue(loaded());
@@ -192,6 +194,7 @@ describe("runCheckout, Pix", () => {
 			pixPayload: "000201pix",
 			qrImageBase64: "QUJD",
 			expiresAt: "2030-01-01T00:30:00.000Z",
+			summary: { rechargeCents: 10000, feeCents: 0, totalCents: 10000 },
 		});
 		expect(s.save).not.toHaveBeenCalled();
 		expect(s.asaas.createPixCharge).toHaveBeenCalledWith({
@@ -215,6 +218,51 @@ describe("runCheckout, Pix", () => {
 			}),
 		);
 		expect(s.bind).toHaveBeenCalledWith({}, "ch1", { asaasPaymentId: "pay_1", pixPayload: "000201pix" });
+	});
+
+	it("Pix with fee charges recharge + fee at Asaas, stores the total and returns the summary", async () => {
+		s.pixFee.mockReturnValue({ feeCents: 199 });
+
+		const result = await runCheckout(session, clientScope, pixInput(), meta);
+
+		expect(result).toMatchObject({ error: null, summary: { rechargeCents: 10000, feeCents: 199, totalCents: 10199 } });
+		expect(s.asaas.createPixCharge).toHaveBeenCalledWith(expect.objectContaining({ amount: "101.99" }));
+		expect(s.reserve).toHaveBeenCalledWith(
+			{},
+			session,
+			expect.objectContaining({ amount: "100.00", feeAmount: "1.99", totalCharged: "101.99" }),
+		);
+	});
+
+	it("Pix fee pads cents (5 cents fee = 0.05) and never uses floats", async () => {
+		s.pixFee.mockReturnValue({ feeCents: 5 });
+
+		await runCheckout(session, clientScope, pixInput({ amount: "10.10" }), meta);
+
+		expect(s.asaas.createPixCharge).toHaveBeenCalledWith(expect.objectContaining({ amount: "10.15" }));
+		expect(s.reserve).toHaveBeenCalledWith({}, session, expect.objectContaining({ feeAmount: "0.05", totalCharged: "10.15" }));
+	});
+
+	it("Pix with an invalid fee config fails closed: no reserve, no Asaas call", async () => {
+		s.pixFee.mockImplementation(() => {
+			throw new Error("PIX_FEE_CENTS must be a non-negative integer");
+		});
+
+		const result = await runCheckout(session, clientScope, pixInput(), meta);
+
+		expect(result).toEqual({ error: "Pagamento indisponível. Contate o suporte." });
+		expect(s.reserve).not.toHaveBeenCalled();
+		expect(s.asaas.createPixCharge).not.toHaveBeenCalled();
+	});
+
+	it("a broken Pix fee config does not block the card", async () => {
+		s.pixFee.mockImplementation(() => {
+			throw new Error("PIX_FEE_CENTS must be a non-negative integer");
+		});
+
+		const result = await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(result.error).toBeNull();
 	});
 
 	it("asks for the fields the matrix says are missing, and reserves nothing without them", async () => {
@@ -391,7 +439,7 @@ describe("runCheckout, card", () => {
 
 		const result = await runCheckout(session, clientScope, cardInput(), meta);
 
-		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD" });
+		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD", summary: expect.any(Object) });
 		expect(s.reserve).toHaveBeenCalledWith(
 			{},
 			session,
@@ -488,7 +536,7 @@ describe("runCheckout, card", () => {
 
 		const result = await runCheckout(session, clientScope, cardInput(), meta);
 
-		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD" });
+		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD", summary: expect.any(Object) });
 		expect(s.asaas.createCardCharge).toHaveBeenCalledTimes(1);
 		expect(s.cancel).not.toHaveBeenCalled();
 		expect(s.bind).not.toHaveBeenCalled();
@@ -512,7 +560,7 @@ describe("runCheckout, card", () => {
 
 		const result = await runCheckout(session, clientScope, cardInput(), meta);
 
-		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD" });
+		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD", summary: expect.any(Object) });
 		expect(s.status).toHaveBeenCalledWith({}, "ch1", clientScope);
 		expect(JSON.stringify(log.mock.calls)).not.toContain("sem ligação");
 		log.mockRestore();
@@ -533,7 +581,7 @@ describe("runCheckout, card", () => {
 
 		const result = await runCheckout(session, clientScope, cardInput(), meta);
 
-		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD" });
+		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD", summary: expect.any(Object) });
 		expect(s.cancel).not.toHaveBeenCalled();
 	});
 });
@@ -616,7 +664,7 @@ describe("runCheckout, Asaas customer deleted after being stored", () => {
 
 		const result = await runCheckout(session, clientScope, cardInput(), meta);
 
-		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD" });
+		expect(result).toEqual({ error: null, id: "ch1", method: "CREDIT_CARD", summary: expect.any(Object) });
 		expect(s.clear).toHaveBeenCalledWith({}, "pp1", "cus_1");
 		expect(s.asaas.createCustomer).toHaveBeenCalledWith(expect.objectContaining({ externalReference: "pp1" }));
 		expect(s.asaas.createCardCharge).toHaveBeenCalledTimes(2);

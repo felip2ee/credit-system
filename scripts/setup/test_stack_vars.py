@@ -26,6 +26,11 @@ class StackVarMessages(unittest.TestCase):
         self.assertIn("pii_encryption_key: { external: true }", text)
         self.assertEqual(text.count("ASAAS_CUSTOMER_ID"), 0)
 
+    def test_asaas_fee_vars_reach_the_app(self) -> None:
+        text = STACK.read_text(encoding="utf-8")
+        self.assertIn("CARD_FEE_TABLE: ${CARD_FEE_TABLE:-}", text)
+        self.assertIn("PIX_FEE_CENTS: ${PIX_FEE_CENTS:?", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,6 +32,7 @@ import {
   readNfseConfig,
   readNotificationsDispatchSecret,
   readCardFeeConfig,
+  readPixFeeConfig,
   PII_DEV_KEY_EXAMPLE,
   readPiiKeyring,
   readPushConfig,
@@ -564,6 +565,34 @@ describe("readPiiKeyring", () => {
     expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: `k1:${k1},k1:${k2}` })).toThrow(
       "PII_ENCRYPTION_KEY has a repeated key id",
     );
+  });
+});
+
+describe("readPixFeeConfig", () => {
+  it("is zero (no fee) when empty or missing outside production", () => {
+    expect(readPixFeeConfig({})).toEqual({ feeCents: 0 });
+    expect(readPixFeeConfig({ PIX_FEE_CENTS: "  " })).toEqual({ feeCents: 0 });
+    expect(readPixFeeConfig({ NODE_ENV: "test" })).toEqual({ feeCents: 0 });
+  });
+
+  it("requires the variable in production: missing or empty fails closed, an explicit 0 is no fee", () => {
+    expect(() => readPixFeeConfig({ NODE_ENV: "production" })).toThrow("PIX_FEE_CENTS is required in production");
+    expect(() => readPixFeeConfig({ NODE_ENV: "production", PIX_FEE_CENTS: " " })).toThrow(/PIX_FEE_CENTS/);
+    expect(readPixFeeConfig({ NODE_ENV: "production", PIX_FEE_CENTS: "0" })).toEqual({ feeCents: 0 });
+    expect(readPixFeeConfig({ NODE_ENV: "production", PIX_FEE_CENTS: "199" })).toEqual({ feeCents: 199 });
+  });
+
+  it.each([
+    ["199", 199],
+    [" 199 ", 199],
+    ["0", 0],
+    ["1000", 1000],
+  ])("reads %s", (value, feeCents) => {
+    expect(readPixFeeConfig({ PIX_FEE_CENTS: value })).toEqual({ feeCents });
+  });
+
+  it.each(["-1", "1.99", "1,99", "abc", "1001", "99999", "00000"])("fails closed on %s", (value) => {
+    expect(() => readPixFeeConfig({ PIX_FEE_CENTS: value })).toThrow(/PIX_FEE_CENTS/);
   });
 });
 

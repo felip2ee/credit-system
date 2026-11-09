@@ -37,8 +37,11 @@ ENV_KEYS = [
     "RESTIC_S3_ENDPOINT", "RESTIC_S3_BUCKET",
     "WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION",
     "WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_SUBJECT",
-    "CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS",
+    "CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS", "PIX_FEE_CENTS",
 ]
+
+# Chaves que o instalador não pergunta e preenche com um padrão (vazio = o app de produção recusa o Pix).
+ENV_DEFAULTS = {"PIX_FEE_CENTS": "199"}
 
 SECRET_NAMES = [
     "postgres_password", "schema_owner_password", "app_runtime_password",
@@ -213,12 +216,16 @@ def build_secrets(provided: dict[str, str]) -> dict[str, str]:
     }
 
 
+def _env_value(values: dict[str, str], key: str) -> str:
+    return values.get(key) or ENV_DEFAULTS.get(key, "")
+
+
 def render_env(values: dict[str, str]) -> str:
     lines = [
         "# Gerado por scripts/setup/setup_production.py — valores NÃO secretos.",
         "# Deploy: set -a; . ./.env.production; set +a; docker stack deploy -c docker-stack.yml reino",
     ]
-    lines += [f"{key}={shlex.quote(values.get(key, ''))}" for key in ENV_KEYS]
+    lines += [f"{key}={shlex.quote(_env_value(values, key))}" for key in ENV_KEYS]
     return "\n".join(lines) + "\n"
 
 
@@ -234,7 +241,7 @@ def render_credentials(env_values: dict[str, str], secret_values: dict[str, str]
     ]
     out += [f"{name}={secret_values[name]}" for name in SECRET_NAMES]
     out += ["", "[.env.production]"]
-    out += [f"{key}={env_values.get(key, '')}" for key in ENV_KEYS]
+    out += [f"{key}={_env_value(env_values, key)}" for key in ENV_KEYS]
     return "\n".join(out) + "\n"
 
 

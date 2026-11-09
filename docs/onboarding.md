@@ -19,7 +19,7 @@ npm run dev
 
 Depois:
 
-1. Edite `.env.local`. O `.env.local.example` traz os valores de dev. O `.env.example` lista todas as variáveis, inclusive as de produção (Asaas, NFS-e, webhooks). Preencha SMTP, DEPS e OpenAI só se for usar. Para cartão, `.env.local.example` traz `CARD_FEE_TABLE` e uma `PII_ENCRYPTION_KEY` de dev. A chave de dev é pública: não a use fora de dev. Ver [operations/payments.md](operations/payments.md).
+1. Edite `.env.local`. O `.env.local.example` traz os valores de dev. O `.env.example` lista todas as variáveis, inclusive as de produção (Asaas, NFS-e, webhooks). Preencha SMTP, DEPS e OpenAI só se for usar. Para cartão e Pix, `.env.local.example` traz `CARD_FEE_TABLE`, `PIX_FEE_CENTS` e uma `PII_ENCRYPTION_KEY` de dev. A chave de dev é pública: não a use fora de dev. Ver [operations/payments.md](operations/payments.md).
 2. Defina `SUPERADMIN_EMAIL` e `SUPERADMIN_PASSWORD` (12 a 128 caracteres). Na primeira subida com banco vazio, o app cria o superadmin.
 3. Abra http://localhost:3000. Entre com essas credenciais. Configure o MFA no primeiro login.
 

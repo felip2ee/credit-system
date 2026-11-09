@@ -10,6 +10,7 @@ const s = vi.hoisted(() => ({
 	sessionError: null as Error | null,
 	view: vi.fn(),
 	feeConfig: vi.fn(),
+	pixFee: vi.fn(),
 	nfseOn: vi.fn(),
 	status: vi.fn(),
 }));
@@ -24,7 +25,7 @@ vi.mock("@/lib/auth/session", () => ({
 vi.mock("@/lib/db/transaction", () => ({
 	withUserTransaction: async (_identity: unknown, work: (client: unknown) => unknown) => work({}),
 }));
-vi.mock("@/lib/config", () => ({ readCardFeeConfig: s.feeConfig }));
+vi.mock("@/lib/config", () => ({ readCardFeeConfig: s.feeConfig, readPixFeeConfig: s.pixFee }));
 vi.mock("@/lib/nfse/invoice", () => ({ isNfseConfigured: s.nfseOn }));
 vi.mock("@/lib/payers/queries", () => ({ getOwnerPayerView: s.view }));
 vi.mock("@/lib/wallet/pix-charges", () => ({ getChargeStatus: s.status }));
@@ -51,6 +52,7 @@ beforeEach(() => {
 	s.sessionError = null;
 	s.view.mockResolvedValue(view);
 	s.feeConfig.mockReturnValue({ bands: [{ maxInstallments: 12, percent: 3.99, fixedCents: 49 }], minInstallmentCents: 500 });
+	s.pixFee.mockReturnValue({ feeCents: 199 });
 	s.nfseOn.mockReturnValue(false);
 	s.status.mockResolvedValue({ status: "paid", billingType: "CREDIT_CARD" });
 });
@@ -65,6 +67,25 @@ describe("getCheckoutContextAction", () => {
 		expect(result.cardEnabled).toBe(true);
 		expect(result.installmentOptions).toHaveLength(12);
 		expect(result.installmentOptions?.[0]).toEqual({ installments: 1, totalCents: 10467, installmentCents: 10467 });
+	});
+
+	it("returns the Pix summary (recharge + fee = total) for the typed amount", async () => {
+		const result = await getCheckoutContextAction({ scope: "client", amount: "100.00" });
+		const noAmount = await getCheckoutContextAction({ scope: "client", amount: "abc" });
+
+		expect(result).toMatchObject({ pixEnabled: true, pixCharge: { rechargeCents: 10000, feeCents: 199, totalCents: 10199 } });
+		expect(noAmount).toMatchObject({ pixEnabled: true, pixCharge: null });
+	});
+
+	it("turns Pix off when the fee config is invalid", async () => {
+		s.pixFee.mockImplementationOnce(() => {
+			throw new Error("PIX_FEE_CENTS must be a non-negative integer");
+		});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const result = await getCheckoutContextAction({ scope: "client", amount: "100.00" });
+
+		expect(result).toMatchObject({ pixEnabled: false, pixCharge: null });
 	});
 
 	it("asks for the address in Pix when the NFS-e is on", async () => {

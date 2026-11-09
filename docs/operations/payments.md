@@ -1,6 +1,6 @@
 # Pagamentos por pagador: operação
 
-Este runbook cobre a chave de cifra, as taxas do cartão, recusas, clientes Asaas e as checagens após o deploy. Produto: [PRODUCT.md](../../PRODUCT.md). Desenho: [spec de 2026-11-06](../superpowers/specs/2026-11-06-pagamento-por-pagador-design.md).
+Este runbook cobre a chave de cifra, as taxas repassadas do cartão e do Pix, recusas, clientes Asaas e as checagens após o deploy. Produto: [PRODUCT.md](../../PRODUCT.md). Desenho: [spec de 2026-11-06](../superpowers/specs/2026-11-06-pagamento-por-pagador-design.md).
 
 ## 1. Chave PII
 
@@ -23,14 +23,61 @@ A chave cifra documento, CEP e número do dono da conta (`payer_profiles`). Sem 
 - **Perda da chave:** o blob fica ilegível. O dono digita os dados de novo. Nenhum saldo nem cobrança depende do blob.
 - **Chave ausente ou inválida:** o checkout mostra "Pagamento indisponível. Contate o suporte.". O log grava só o nome do erro.
 
-## 2. Taxas e parcela mínima do cartão
+## 2. Taxas repassadas ao pagador (cartão e Pix)
 
-- Configuração: `CARD_FEE_TABLE` e `CARD_MIN_INSTALLMENT_CENTS`. Formato em [setup.md](../setup.md).
-- `CARD_FEE_TABLE` vazia: cartão desligado. A tela não mostra a opção. Preencha a tabela para ligar o cartão.
-- Total = (recarga + taxa fixa) / (1 − taxa%), arredondado para cima ao centavo. As parcelas são iguais. A última parcela leva o resto. O saldo sobe pelo valor da recarga. O pagador paga a taxa.
+Decisão do dono: repassar todas as taxas do Asaas ao cliente. O saldo sobe sempre pela **recarga** (`pix_charges.amount`). A taxa é paga a mais pelo pagador. A comissão de afiliado não usa a recarga: ela nasce na captura de um pedido, sobre a margem. A taxa nunca entra nela.
+
+### Taxas reais da conta Asaas (tela "Taxas", novembro de 2026)
+
+| Forma | Taxa da conta | Configuração |
+|---|---|---|
+| Cartão à vista | 2,99% + R$ 0,49 | `CARD_FEE_TABLE` faixa 1 |
+| Cartão 2 a 6 parcelas | 2,99% + R$ 0,49 | `CARD_FEE_TABLE` faixa 6 |
+| Cartão 7 a 12 parcelas | 2,99% + R$ 0,49 | `CARD_FEE_TABLE` faixa 12 |
+| Cartão 13 a 21 parcelas | existe no Asaas | não oferecido (máximo 12) |
+| Pix dinâmico | R$ 1,99 por cobrança recebida | `PIX_FEE_CENTS=199` |
+| Boleto | R$ 1,99 | não usado |
+
+Valores de produção: `CARD_FEE_TABLE=1:2.99:49,6:2.99:49,12:2.99:49` e `PIX_FEE_CENTS=199`. Os valores não ficam fixos no código: vêm do ambiente.
+
+**Premissa a confirmar no teste real pós-deploy:** em outras contas, o Asaas cobra 1,99% extra sobre o total da cobrança parcelada. A tela "Taxas" desta conta não mostra essa taxa, e ela não está modelada. Faça uma recarga parcelada de teste e compare o líquido recebido com o esperado. Se a taxa extra existir, ajuste as faixas de 2 a 12 parcelas em `CARD_FEE_TABLE`.
+
+### Como atualizar e quando mudam
+
+- Quando o Asaas mudar a tabela da conta (ou o contrato mudar), edite `CARD_FEE_TABLE` e `PIX_FEE_CENTS` no `.env.production` e reimplante a stack. Formato em [setup.md](../setup.md). Não precisa de migration nem de deploy de código.
+- A cobrança nova usa o valor novo. A cobrança já criada guarda a taxa que valia (`fee_amount`, `total_charged`) e é conferida contra ela: um QR Pix gerado antes da troca continua válido pelo total antigo.
+- Confira a tela "Taxas" do Asaas a cada troca de plano e a cada aviso do Asaas.
+
+### Cartão
+
+- Configuração: `CARD_FEE_TABLE` e `CARD_MIN_INSTALLMENT_CENTS`.
+- `CARD_FEE_TABLE` vazia: cartão desligado. A tela não mostra a opção.
+- Total = (recarga + taxa fixa) / (1 − taxa%), arredondado para cima ao centavo. As parcelas são iguais. A última parcela leva o resto. O pagador paga a taxa.
 - O servidor calcula o total. O total enviado pelo navegador é ignorado.
 - Planos com parcela abaixo de `CARD_MIN_INSTALLMENT_CENTS` não aparecem.
-- Após o deploy: ajuste as taxas e a parcela mínima com a tabela real da conta Asaas.
+
+### Pix
+
+- Configuração: `PIX_FEE_CENTS`, inteiro em centavos de 0 a 1000. `199` = R$ 1,99.
+- Em produção a variável é obrigatória. `0` explícito = sem taxa. Ausente ou vazia = erro de configuração: o Pix falha fechado ("Pagamento indisponível. Contate o suporte.") e o log grava só o nome do erro, sem valor. Fora de produção, ausente = 0.
+- Três travas contra a variável vazia: `docker-stack.yml` recusa o deploy (`${PIX_FEE_CENTS:?...}`), o instalador grava `PIX_FEE_CENTS=199` no `.env.production`, e `npm run verify:release` falha se ela estiver vazia (e avisa se `CARD_FEE_TABLE` estiver vazia).
+- Valor inválido (negativo, decimal, texto, acima de 1000): o Pix falha fechado com "Pagamento indisponível. Contate o suporte.". O cartão não é afetado.
+- Total = recarga + taxa (soma em centavos inteiros). Exemplo: recarga R$ 100,00 + taxa R$ 1,99 = R$ 101,99 enviado ao Asaas. O saldo sobe R$ 100,00.
+- Banco: `pix_charges.amount` = recarga, `fee_amount` = taxa, `total_charged` = recarga + taxa. Sem taxa, `fee_amount` = 0 e `total_charged` fica nulo (como antes). Quem lê o valor pago usa `coalesce(total_charged, amount)`.
+- Webhook: o valor pago (`payment.value`) tem de ser igual ou maior que `coalesce(total_charged, amount)`. Menor vira `amount_mismatch` e não credita (por exemplo, o pagador pagou só a recarga). O crédito é sempre a recarga.
+- Estorno e chargeback: o pagador recebe o total de volta do Asaas. A taxa do Pix devolvida é custo do Bureau/plataforma. Saldo e comissão revertem só a recarga (`amount`), nunca o total.
+- **Ordem de deploy:** rode a migration 045 antes de subir o app novo (`npm run db:migrate`, depois o deploy da stack). Com o app novo e sem a 045, o Pix com taxa falha fechado: a linha com `total_charged` não passa na constraint antiga.
+- **Alarme (Pix pago sem taxa):** depois do deploy, esta consulta deve voltar vazia. Troque a data pela do deploy. Linhas aqui indicam taxa não repassada (variável errada ou app antigo no ar). Cobranças anteriores à data são esperadas sem taxa.
+
+```sql
+select id, bureau_id, amount, created_at
+from pix_charges
+where billing_type = 'PIX' and status in ('paid', 'refunded') and fee_amount = 0
+  and created_at >= '2026-11-10'::timestamptz;  -- data do deploy
+```
+- O limite de R$ 10,00 a R$ 5.000,00 vale para a recarga. O total pode passar de R$ 5.000,00 pela taxa.
+- A tela recebe `summary` (recarga, taxa e total em centavos) da action de recarga e `pixCharge` do contexto do checkout (`getCheckoutContextAction`), para mostrar "Recarga R$ X + taxa Pix R$ 1,99 = R$ Y". A conta pura é `computePixCharge` em `src/lib/wallet/pix-fees.ts`.
+- Migration 045 (`pix_fee_passthrough`): permite `total_charged` no Pix e confere o valor pago contra o total.
 
 ## 3. Recusa e limite de tentativas
 
@@ -67,6 +114,8 @@ A chave cifra documento, CEP e número do dono da conta (`payer_profiles`). Sem 
 
 ## 7. Checagens após o deploy
 
+- O `.env.production` tem `PIX_FEE_CENTS=199` e `CARD_FEE_TABLE` com a tabela real. Uma recarga Pix de teste cobra recarga + R$ 1,99 e credita só a recarga.
+- Uma recarga parcelada de teste mostra se o Asaas cobra a taxa extra sobre o parcelamento (premissa da seção 2).
 - `GET /v3/customers?cpfCnpj=` devolve o cliente, e o filtro de clientes apagados funciona.
 - A conta Asaas aceita cartão direto pela API.
 - O formato do webhook de parcelamento e o primeiro `PAYMENT_CONFIRMED`.

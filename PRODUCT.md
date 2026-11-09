@@ -57,6 +57,7 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 
 - **Moeda:** 1 crédito = R$ 1. Créditos não expiram.
 - **Gateway:** Asaas (PIX e cartão em até 12x), com webhooks. A NFS-e é emitida pelo Asaas.
+- **Taxas do Asaas:** o pagador paga as taxas. O cartão repassa percentual e taxa fixa (`CARD_FEE_TABLE`). O Pix repassa a taxa fixa por cobrança (`PIX_FEE_CENTS`, hoje R$ 1,99). O saldo sobe só pela recarga. O limite de R$ 10,00 a R$ 5.000,00 vale para a recarga. Runbook: [docs/operations/payments.md](docs/operations/payments.md).
 - **Pagador:** o checkout pergunta quem paga: o dono da conta ou outra pessoa ou empresa. Cada cobrança leva o cliente Asaas de quem paga. Os dados de pagamento do dono ficam cifrados. Runbook: [docs/operations/payments.md](docs/operations/payments.md). Spec: [docs/superpowers/specs/2026-11-06-pagamento-por-pagador-design.md](docs/superpowers/specs/2026-11-06-pagamento-por-pagador-design.md).
 - **Venda online:** o cliente paga a plataforma. Ao consumir um produto, a plataforma retém o custo do Bureau. A diferença (preço de venda menos custo) vira valor a repassar. O repasse é manual.
 - **Venda de balcão:** o cliente paga o Bureau. O custo da consulta sai do saldo pré-pago do Bureau, comprado via Asaas.

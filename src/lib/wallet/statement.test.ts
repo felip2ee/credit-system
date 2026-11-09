@@ -21,6 +21,8 @@ const entry = (o: Partial<ClientLedgerEntry> & { id: string }): ClientLedgerEntr
 
 const charge = (o: Partial<ClientPixCharge> & { id: string }): ClientPixCharge => ({
 	amount: "50.00",
+	feeAmount: "0.00",
+	totalCharged: null,
 	status: "paid",
 	pixPayload: null,
 	expiresAt: new Date("2026-10-26T15:00:00Z"),

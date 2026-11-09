@@ -13,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { StatusBanner } from "@/components/ui/status-banner";
 import type { PayerField } from "@/lib/payers/queries";
 import type { CheckoutActionResult } from "@/lib/payments/checkout";
+import type { ChargeSummary } from "@/lib/wallet/pix-fees";
 import { formatCurrency } from "@/lib/utils";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import type { TopupSuggestion } from "@/lib/validators/wallet";
@@ -21,6 +22,7 @@ import { parseTopupInput } from "@/lib/wallet/topup-input";
 import { buildCheckoutInput, EMPTY_CARD, PAYER_FIELDS, type CardDraft, type CheckoutErrors, type Method, type PayerKind } from "./checkout-model";
 import { CardPaymentForm } from "./CardPaymentForm";
 import { acquireKey, checkoutFingerprint, settleKey, type KeyHolder, type SubmitOutcome } from "./checkout-key";
+import { pixSubmitLabel, pixSummaryFor, pixSummaryLine, unavailableMessage } from "./checkout-summary";
 import { installmentLabel } from "./InstallmentSelect";
 import { PayerStep } from "./PayerStep";
 import { useChargePolling, type PollOutcome } from "./useChargePolling";
@@ -33,7 +35,7 @@ type Props = {
   scope: "bureau" | "client";
   action: (input: CheckoutInput) => Promise<CheckoutActionResult>;
   /** Pix gerado: o diálogo mostra o QR (cada tela decide onde). */
-  onPix: (charge: { id: string; pixPayload: string; qrImageBase64: string }) => void;
+  onPix: (charge: { id: string; pixPayload: string; qrImageBase64: string; summary?: ChargeSummary }) => void;
   onClose: () => void;
   suggestions?: TopupSuggestion[];
 };
@@ -88,10 +90,14 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
 
   const options = ctx?.installmentOptions ?? [];
   const cardEnabled = ctx?.cardEnabled === true;
-  const activeMethod: Method = method === "CREDIT_CARD" && cardEnabled ? "CREDIT_CARD" : "PIX";
+  const pixDisabled = ctx?.pixEnabled === false;
+  const activeMethod: Method = cardEnabled && (method === "CREDIT_CARD" || pixDisabled) ? "CREDIT_CARD" : "PIX";
+  const noMethod = pixDisabled && !cardEnabled;
+  const unavailable = ctx ? unavailableMessage(!pixDisabled, cardEnabled) : null;
   const selected = options.find((o) => o.installments === installments) ?? options[0];
   const parsedAmount = parseTopupInput(amount);
   const amountCents = parsedAmount.ok ? toCents(parsedAmount.amount) : 0;
+  const pixSummary = activeMethod === "PIX" ? pixSummaryFor(ctx?.pixCharge, amountCents) : null;
   const cardUnavailable = activeMethod === "CREDIT_CARD" && options.length === 0;
   const missing = ctx?.missing?.[activeMethod] ?? [];
   const ready = ctx !== null && !ctx.error && ctx.owner !== undefined;
@@ -154,7 +160,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
         return;
       }
       if (res.method === "PIX" && res.pixPayload && !res.reused) {
-        onPix({ id: res.id, pixPayload: res.pixPayload, qrImageBase64: res.qrImageBase64 ?? "" });
+        onPix({ id: res.id, pixPayload: res.pixPayload, qrImageBase64: res.qrImageBase64 ?? "", summary: res.summary });
         return;
       }
       polling.start(res.id);
@@ -187,7 +193,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
   const submitLabel = isPending
     ? "Processando..."
     : activeMethod === "PIX"
-      ? "Gerar PIX"
+      ? pixSubmitLabel(pixSummary)
       : selected
         ? `Pagar ${formatCurrency(selected.totalCents / 100)} no cartão`
         : "Pagar no cartão";
@@ -231,7 +237,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
                   ] as const
                 ).map(([value, label]) => (
                   <div key={value} className="flex min-h-11 items-center gap-3">
-                    <RadioGroupItem value={value} id={`method-${value}`} />
+                    <RadioGroupItem value={value} id={`method-${value}`} disabled={value === "PIX" && pixDisabled} />
                     <Label htmlFor={`method-${value}`} className="flex-1 cursor-pointer py-2">
                       {label}
                     </Label>
@@ -240,6 +246,8 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
               </RadioGroup>
             </fieldset>
           )}
+
+          {unavailable && <StatusBanner tone="attention" title={unavailable} />}
 
           <PayerStep
             owner={ctx.owner}
@@ -255,6 +263,12 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
             errors={errors}
             disabled={isPending}
           />
+
+          {pixSummary && (
+            <p aria-live="polite" className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground">
+              {pixSummaryLine(pixSummary)}
+            </p>
+          )}
 
           {activeMethod === "CREDIT_CARD" &&
             (cardUnavailable ? (
@@ -286,7 +300,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
         <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
           Cancelar
         </Button>
-        <Button type="submit" glow disabled={isPending || !ready || amount === "" || cardUnavailable}>
+        <Button type="submit" glow disabled={isPending || !ready || amount === "" || cardUnavailable || noMethod}>
           {submitLabel}
         </Button>
       </div>

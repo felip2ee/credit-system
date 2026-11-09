@@ -159,6 +159,14 @@ class Building(unittest.TestCase):
             self.assertIn(k, sp.ENV_KEYS)
         self.assertNotIn("WEB_PUSH_VAPID_PRIVATE_KEY", sp.ENV_KEYS)
 
+    def test_env_keys_deliver_the_asaas_fee_settings(self):
+        for key in ("CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS", "PIX_FEE_CENTS"):
+            self.assertIn(key, sp.ENV_KEYS)
+        self.assertIn("PIX_FEE_CENTS=199\n", sp.render_env(answers()))
+        self.assertIn("PIX_FEE_CENTS=0\n", sp.render_env(answers(PIX_FEE_CENTS="0")))
+        self.assertIn("PIX_FEE_CENTS=250\n", sp.render_env(answers(PIX_FEE_CENTS="250")))
+        self.assertIn("PIX_FEE_CENTS=199\n", sp.render_credentials(answers(), {n: "x" for n in sp.SECRET_NAMES}))
+
     def test_env_keys_have_whatsapp_settings(self):
         for key in ("WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION"):
             self.assertIn(key, sp.ENV_KEYS)

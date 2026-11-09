@@ -16,7 +16,11 @@ export type PixChargeStatus = "pending" | "paid" | "expired" | "cancelled" | "re
 // Sem asaas_payment_id: ele não sai do servidor.
 export type PixCharge = {
 	id: string;
+	// Recarga: o que sobe no saldo.
 	amount: string;
+	// Taxa repassada ao pagador e total que ele paga (amount + feeAmount). totalCharged nulo = sem taxa (total = amount).
+	feeAmount: string;
+	totalCharged: string | null;
 	status: PixChargeStatus;
 	pixPayload: string;
 	expiresAt: Date;
@@ -99,6 +103,9 @@ export async function reserveCharge(
 				amount: input.amount,
 				billingType: input.billingType,
 				installments: input.installments,
+				feeAmount: input.feeAmount,
+				// Sem taxa o total é a própria recarga.
+				totalCharged: input.totalCharged ?? input.amount,
 				payerKind: input.payerKind,
 				// Não chama "documentMasked": redact() apagaria a máscara de toda chave com "document".
 				payerMask: input.payerDocumentMasked,
@@ -231,6 +238,8 @@ export async function countPendingClientPixCharges(client: PoolClient, clientPro
 type ChargeRow = {
 	id: string;
 	amount: string;
+	fee_amount: string;
+	total_charged: string | null;
 	status: PixChargeStatus;
 	pix_payload: string;
 	expires_at: Date;
@@ -238,7 +247,7 @@ type ChargeRow = {
 };
 
 // Estado efetivo: pending vencida é expired (a coluna só muda no pagamento).
-const SELECT_CHARGE = `select id, amount,
+const SELECT_CHARGE = `select id, amount, fee_amount, total_charged,
 	case when status = 'pending' and expires_at < now() then 'expired' else status end as status,
 	pix_payload, expires_at, created_at
 	from pix_charges`;
@@ -249,6 +258,8 @@ const BUREAU_ONLY = "client_profile_id is null";
 const toCharge = (r: ChargeRow): PixCharge => ({
 	id: r.id,
 	amount: r.amount,
+	feeAmount: r.fee_amount,
+	totalCharged: r.total_charged,
 	status: r.status,
 	pixPayload: r.pix_payload,
 	expiresAt: r.expires_at,
@@ -275,7 +286,7 @@ export type ClientPixCharge = Omit<PixCharge, "pixPayload"> & { pixPayload: stri
 
 export async function listClientPixCharges(client: PoolClient, clientProfileId: string): Promise<ClientPixCharge[]> {
 	const { rows } = await client.query<Omit<ChargeRow, "pix_payload"> & { pix_payload: string | null }>(
-		`select id, amount,
+		`select id, amount, fee_amount, total_charged,
 		   case when status = 'pending' and expires_at < now() then 'expired' else status end as status,
 		   case when status = 'pending' and expires_at >= now() then pix_payload end as pix_payload,
 		   expires_at, created_at
@@ -285,6 +296,8 @@ export async function listClientPixCharges(client: PoolClient, clientProfileId: 
 	return rows.map((r) => ({
 		id: r.id,
 		amount: r.amount,
+		feeAmount: r.fee_amount,
+		totalCharged: r.total_charged,
 		status: r.status,
 		pixPayload: r.pix_payload,
 		expiresAt: r.expires_at,
@@ -315,7 +328,7 @@ export async function listRefundShortfalls(client: PoolClient, bureauId: string)
 	return rows.map((r) => ({ chargeId: r.id, amount: r.amount, shortfall: r.refund_shortfall, createdAt: r.created_at }));
 }
 
-// Webhook sem sessão, na role app_webhook: a função SECURITY DEFINER é a única porta de escrita e usa pix_charges.amount.
+// Webhook sem sessão, na role app_webhook: a função SECURITY DEFINER é a única porta de escrita: credita pix_charges.amount (a recarga) e confere o valor pago contra total_charged (Pix, 045).
 export async function applyAsaasPayment(event: {
 	eventId: string;
 	eventType: string;

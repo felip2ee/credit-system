@@ -12,7 +12,15 @@ import { isUuid } from "@/lib/validators/id";
 
 export const metadata = { title: "Recibo de recarga" };
 
-type Receipt = { id: string; amount: string; createdAt: Date; nfseStatus: string; nfseUrl: string | null };
+type Receipt = {
+  id: string;
+  amount: string;
+  feeAmount: string;
+  totalCharged: string | null;
+  createdAt: Date;
+  nfseStatus: string;
+  nfseUrl: string | null;
+};
 
 export default async function ReceiptPage({ params }: { params: { id: string } }) {
   const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
@@ -23,17 +31,27 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
     const { rows } = await client.query<{
       id: string;
       amount: string;
+      fee_amount: string;
+      total_charged: string | null;
       created_at: Date;
       nfse_status: string;
       nfse_url: string | null;
     }>(
-      `select id, amount, created_at, nfse_status, nfse_url from pix_charges
+      `select id, amount, fee_amount, total_charged, created_at, nfse_status, nfse_url from pix_charges
         where id = $1 and client_profile_id = $2 and status = 'paid'`,
       [params.id, session.userId],
     );
     const row = rows[0];
     return row
-      ? ({ id: row.id, amount: row.amount, createdAt: row.created_at, nfseStatus: row.nfse_status, nfseUrl: row.nfse_url } satisfies Receipt)
+      ? ({
+          id: row.id,
+          amount: row.amount,
+          feeAmount: row.fee_amount,
+          totalCharged: row.total_charged,
+          createdAt: row.created_at,
+          nfseStatus: row.nfse_status,
+          nfseUrl: row.nfse_url,
+        } satisfies Receipt)
       : null;
   });
   if (!receipt) notFound();
@@ -48,6 +66,14 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
             <p className="text-muted-foreground">Valor</p>
             <p className="text-3xl font-bold tabular-nums">{formatCurrency(Number(receipt.amount))}</p>
           </div>
+          {receipt.totalCharged !== null && Number(receipt.feeAmount) > 0 && (
+            <div>
+              <p className="text-muted-foreground">Taxa e total pago</p>
+              <p className="text-lg tabular-nums">
+                Taxa {formatCurrency(Number(receipt.feeAmount))} · Total {formatCurrency(Number(receipt.totalCharged))}
+              </p>
+            </div>
+          )}
           <div>
             <p className="text-muted-foreground">Data da cobrança</p>
             <p className="text-lg">{formatDateTime(receipt.createdAt)}</p>

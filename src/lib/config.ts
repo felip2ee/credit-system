@@ -222,6 +222,26 @@ export function readCardFeeConfig(env: Environment): CardFeeConfig | null {
   return { bands, minInstallmentCents };
 }
 
+export type PixFeeConfig = { feeCents: number };
+
+export const MAX_PIX_FEE_CENTS = 1000;
+
+// Taxa fixa do Pix repassada ao pagador, em centavos inteiros (a conta do Asaas hoje: 199). Fora de produção, vazia ou
+// ausente = 0, sem taxa. Em produção a variável é obrigatória ("0" explícito = sem taxa): esquecê-la faria o Pix cobrar
+// só a recarga e a taxa do Asaas sairia da margem. Falha fechada: ausente em produção, valor que não é inteiro não
+// negativo, ou acima de MAX_PIX_FEE_CENTS, lança.
+export function readPixFeeConfig(env: Environment): PixFeeConfig {
+  const raw = env.PIX_FEE_CENTS?.trim();
+  if (!raw) {
+    if (env.NODE_ENV === "production") throw new Error("PIX_FEE_CENTS is required in production (0 = no fee)");
+    return { feeCents: 0 };
+  }
+  if (!/^\d{1,4}$/.test(raw)) throw new Error("PIX_FEE_CENTS must be a non-negative integer");
+  const feeCents = Number(raw);
+  if (feeCents > MAX_PIX_FEE_CENTS) throw new Error(`PIX_FEE_CENTS must be at most ${MAX_PIX_FEE_CENTS}`);
+  return { feeCents };
+}
+
 export type NfseConfig = {
   municipalServiceId?: string;
   municipalServiceCode?: string;

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
 import { toCents } from "@/lib/catalog/money";
-import { readCardFeeConfig, type CardFeeConfig } from "@/lib/config";
+import { readCardFeeConfig, readPixFeeConfig, type CardFeeConfig, type PixFeeConfig } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { isNfseConfigured } from "@/lib/nfse/invoice";
@@ -14,6 +14,7 @@ import { checkoutContextSchema } from "@/lib/validators/checkout";
 import { topupAmountSchema } from "@/lib/validators/wallet";
 import { listInstallmentOptions } from "@/lib/wallet/card-fees";
 import { getChargeStatus, type ChargeScope } from "@/lib/wallet/pix-charges";
+import { computePixCharge, type ChargeSummary } from "@/lib/wallet/pix-fees";
 
 // Dados que a tela do checkout precisa antes de enviar: só máscaras e o que falta. Nada em claro sai daqui.
 export type CheckoutContextResult = {
@@ -22,6 +23,10 @@ export type CheckoutContextResult = {
 	missing?: { PIX: PayerField[]; CREDIT_CARD: PayerField[] };
 	cardEnabled?: boolean;
 	installmentOptions?: Array<{ installments: number; totalCents: number; installmentCents: number }>;
+	// Pix: false = taxa mal configurada (a recarga por Pix falha fechada). pixCharge = recarga + taxa = total para o valor
+	// digitado (nulo se o valor é inválido). A tela mostra "Recarga + taxa Pix = total".
+	pixEnabled?: boolean;
+	pixCharge?: ChargeSummary | null;
 };
 
 const NOT_ALLOWED = "Você não tem permissão para recarregar a carteira.";
@@ -61,6 +66,15 @@ function cardConfig(): CardFeeConfig | null {
 	}
 }
 
+function pixConfig(): PixFeeConfig | null {
+	try {
+		return readPixFeeConfig(process.env);
+	} catch (error) {
+		console.error("[checkout] taxa do Pix inválida", { name: error instanceof Error ? error.name : typeof error });
+		return null;
+	}
+}
+
 export async function getCheckoutContextAction(values: unknown): Promise<CheckoutContextResult> {
 	const parsed = checkoutContextSchema.safeParse(values);
 	if (!parsed.success) return { error: "Dados inválidos." };
@@ -74,6 +88,7 @@ export async function getCheckoutContextAction(values: unknown): Promise<Checkou
 		const nfseOn = isNfseConfigured();
 		const feeConfig = cardConfig();
 		const amountOk = topupAmountSchema.safeParse(parsed.data.amount).success;
+		const pixFee = pixConfig();
 		return {
 			error: null,
 			owner,
@@ -83,6 +98,8 @@ export async function getCheckoutContextAction(values: unknown): Promise<Checkou
 			},
 			cardEnabled: feeConfig !== null,
 			installmentOptions: feeConfig && amountOk ? listInstallmentOptions(feeConfig, toCents(parsed.data.amount)) : [],
+			pixEnabled: pixFee !== null,
+			pixCharge: pixFee && amountOk ? computePixCharge(pixFee, toCents(parsed.data.amount)) : null,
 		};
 	} catch (error) {
 		console.error("[checkout] getCheckoutContextAction falhou", { name: error instanceof Error ? error.name : typeof error });

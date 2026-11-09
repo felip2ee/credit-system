@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { ClientBalance } from "@/components/credits/ClientBalance";
 import { ClientStatement } from "@/components/credits/ClientStatement";
 import { PendingChargeButton } from "@/components/credits/PendingChargeButton";
+import { toCents } from "@/lib/catalog/money";
+import type { ChargeSummary } from "@/lib/wallet/pix-fees";
 import { ClientTopupDialog } from "@/components/credits/ClientTopupDialog";
 import { PageHeader } from "@/components/layout/page-header";
 import { StatusBanner } from "@/components/ui/status-banner";
@@ -16,6 +18,13 @@ import { getClientWallet, listClientLedger } from "@/lib/wallet/client-queries";
 import { listClientPixCharges } from "@/lib/wallet/pix-charges";
 
 export const metadata = { title: "Créditos" };
+
+// Sem total gravado = sem taxa (total = recarga).
+const summaryOf = (c: { amount: string; feeAmount: string; totalCharged: string | null }): ChargeSummary => ({
+	rechargeCents: toCents(c.amount),
+	feeCents: toCents(c.feeAmount),
+	totalCents: toCents(c.totalCharged ?? c.amount),
+});
 
 export default async function ClientCreditsPage({ searchParams }: { searchParams: { pix?: string } }) {
   const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
@@ -35,7 +44,7 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
   const extras = Object.fromEntries(
     data.charges.flatMap((c) =>
       c.status === "pending" && c.pixPayload
-        ? [[`charge:${c.id}`, <PendingChargeButton key={c.id} pixPayload={c.pixPayload} defaultOpen={searchParams.pix === c.id} />]]
+        ? [[`charge:${c.id}`, <PendingChargeButton key={c.id} pixPayload={c.pixPayload} summary={summaryOf(c)} defaultOpen={searchParams.pix === c.id} />]]
         : [],
     ),
   );

@@ -16,7 +16,7 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
       # Test-only key ring (public, 32 bytes); never a production value.
       PII_ENCRYPTION_KEY: ci:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
-      CARD_FEE_TABLE: 1:2.99:49,6:3.49:49,12:3.99:49
+      CARD_FEE_TABLE: 1:2.99:49,6:2.99:49,12:2.99:49
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -75,7 +75,7 @@ jobs:
           TRAEFIK_PROXY_CIDR: 10.0.0.0/8
           ASAAS_DRIVER: fake
           PII_ENCRYPTION_KEY: ci:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
-          CARD_FEE_TABLE: 1:2.99:49,6:3.49:49,12:3.99:49
+          CARD_FEE_TABLE: 1:2.99:49,6:2.99:49,12:2.99:49
           WHATSAPP_DRIVER: fake
           NOTIFICATIONS_DISPATCH_SECRET: e2e-dispatch-secret-0123456789abcdef
           # The affiliate spec requests a withdrawal; the flag is off by default.

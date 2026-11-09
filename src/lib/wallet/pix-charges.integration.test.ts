@@ -599,6 +599,7 @@ describe("reserveClientPixCharge", () => {
 			[result.id],
 		);
 		expect(audit.rows).toHaveLength(1);
+		expect(audit.rows[0].metadata).toMatchObject({ amount: "100.00", feeAmount: "0.00", totalCharged: "100.00" });
 	});
 
 	it.each(["9.99", "5000.01", "10.005", "x"])("rejects amount %s", async (amount) => {
@@ -972,6 +973,8 @@ describe("reserveCharge (Pix and card, both scopes)", () => {
 			amount: "100.00",
 			billingType: "CREDIT_CARD",
 			installments: 3,
+			feeAmount: "6.50",
+			totalCharged: "106.50",
 			payerKind: "owner",
 			payerMask: "***.456.***-**",
 		});

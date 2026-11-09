@@ -7,7 +7,7 @@ import type { PoolClient } from "pg";
 import { getClientAccountStatus } from "@/lib/account/queries";
 import { AsaasOutcomeUnknownError, CardDeclinedError, getAsaasClient } from "@/lib/asaas";
 import { toCents } from "@/lib/catalog/money";
-import { readCardFeeConfig, readPiiKeyring, type PiiKeyring } from "@/lib/config";
+import { readCardFeeConfig, readPiiKeyring, readPixFeeConfig, type PiiKeyring } from "@/lib/config";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { maskPayerDocument } from "@/lib/mask-document";
 import { isNfseConfigured } from "@/lib/nfse/invoice";
@@ -18,6 +18,7 @@ import { BlockedError, otherPayer, ownerPayer, type PayerSource } from "./payer-
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { getClientWallet } from "@/lib/wallet/client-queries";
 import { CardFeeError, computeCardCharge } from "@/lib/wallet/card-fees";
+import { computePixCharge, PixFeeError, type ChargeSummary } from "@/lib/wallet/pix-fees";
 import {
 	bindAsaasCharge,
 	cancelUnboundPixCharge,
@@ -40,9 +41,17 @@ import {
 import { getWallet } from "@/lib/wallet/queries";
 
 export type CheckoutResult =
-	| { error: null; id: string; method: "PIX"; pixPayload: string; qrImageBase64: string; expiresAt: string }
+	| {
+			error: null;
+			id: string;
+			method: "PIX";
+			pixPayload: string;
+			qrImageBase64: string;
+			expiresAt: string;
+			summary: ChargeSummary;
+	  }
 	// Cartão enviado: o crédito só vem pelo webhook. A tela consulta o status.
-	| { error: null; id: string; method: "CREDIT_CARD" }
+	| { error: null; id: string; method: "CREDIT_CARD"; summary: ChargeSummary }
 	// Mesma chave de idempotência já usada: o pedido original segue; a tela consulta o status.
 	| { error: null; id: string; method: BillingType; reused: true }
 	| { error: string };
@@ -55,6 +64,8 @@ export interface CheckoutActionResult {
 	pixPayload?: string;
 	qrImageBase64?: string;
 	expiresAt?: string;
+	// Recarga (o que sobe no saldo), taxa repassada e total cobrado do pagador, em centavos. Não vem em `reused`.
+	summary?: ChargeSummary;
 	// true = a mesma chave de idempotência já tinha pedido: a tela consulta o status em vez de mostrar o QR.
 	reused?: boolean;
 }
@@ -88,6 +99,17 @@ function logFailure(step: string, error: unknown): void {
 			? { name: error.name, code: "code" in error ? error.code : undefined }
 			: { name: typeof error };
 	console.error(`[checkout] falhou em ${step}`, meta);
+}
+
+// Pix: taxa fixa do Asaas repassada ao pagador (PIX_FEE_CENTS). Config inválida falha fechada, como a do cartão.
+function planPix(input: CheckoutInput): ChargeSummary {
+	try {
+		return computePixCharge(readPixFeeConfig(process.env), toCents(input.amount));
+	} catch (error) {
+		if (error instanceof PixFeeError) throw new BlockedError(BAD_AMOUNT);
+		logFailure("taxa do Pix", error);
+		throw new BlockedError(UNAVAILABLE);
+	}
 }
 
 type CardPlan = { totalCents: number; feeCents: number; installmentCents: number[] };
@@ -165,6 +187,7 @@ async function reserve(
 	scope: ChargeScope,
 	input: CheckoutInput,
 	plan: CardPlan | null,
+	charged: { feeCents: number; totalCents: number },
 	keyring: PiiKeyring,
 	remoteIp: string,
 ): Promise<Reserved> {
@@ -183,8 +206,9 @@ async function reserve(
 			amount: input.amount,
 			billingType: input.method,
 			installments: plan ? (input.installments ?? 1) : 1,
-			feeAmount: plan ? centsToReais(plan.feeCents) : "0.00",
-			totalCharged: plan ? centsToReais(plan.totalCents) : null,
+			feeAmount: centsToReais(charged.feeCents),
+			// Pix sem taxa mantém total_charged nulo (o total é o próprio amount); com taxa, e sempre no cartão, é o total.
+			totalCharged: plan || charged.feeCents > 0 ? centsToReais(charged.totalCents) : null,
 			payerKind: input.payerKind,
 			payerDocumentMasked: maskPayerDocument(source.payer.cpfCnpj),
 			requestIp: plan ? remoteIp || null : null,
@@ -310,6 +334,7 @@ async function createPix(
 	scope: ChargeScope,
 	input: CheckoutInput,
 	reserved: Reserved,
+	pix: ChargeSummary,
 	customerId: string,
 	meta: CheckoutMeta,
 	retried = false,
@@ -318,14 +343,15 @@ async function createPix(
 	try {
 		charge = await getAsaasClient().createPixCharge({
 			customerId,
-			amount: input.amount,
+			// O Asaas cobra recarga + taxa; o saldo só sobe pela recarga (pix_charges.amount).
+			amount: centsToReais(pix.totalCents),
 			externalReference: input.idempotencyKey,
 			description: meta.description,
 		});
 	} catch (error) {
 		logFailure("asaas", error);
 		const recovery = retried ? null : await recoverGoneCustomer(session, reserved, customerId, error);
-		if (recovery && recovery !== "failed") return createPix(session, scope, input, reserved, recovery.customerId, meta, true);
+		if (recovery && recovery !== "failed") return createPix(session, scope, input, reserved, pix, recovery.customerId, meta, true);
 		if (recovery === "failed") {
 			await cancelReserved(session, reserved.chargeId);
 			return { error: FAILED_PIX };
@@ -347,8 +373,15 @@ async function createPix(
 		pixPayload: charge.pixPayload,
 		qrImageBase64: charge.qrImageBase64,
 		expiresAt: reserved.expiresAt.toISOString(),
+		summary: pix,
 	};
 }
+
+const summaryOf = (input: CheckoutInput, charged: { feeCents: number; totalCents: number }): ChargeSummary => ({
+	rechargeCents: toCents(input.amount),
+	feeCents: charged.feeCents,
+	totalCents: charged.totalCents,
+});
 
 async function createCard(
 	session: DbIdentity,
@@ -403,7 +436,9 @@ async function createCard(
 			return { error: FAILED_CARD };
 		}
 		// Resultado desconhecido: a cobrança pode existir. Sem segunda chamada; a linha fica pendente e o webhook decide.
-		if (error instanceof AsaasOutcomeUnknownError) return { error: null, id: reserved.chargeId, method: "CREDIT_CARD" };
+		if (error instanceof AsaasOutcomeUnknownError) {
+			return { error: null, id: reserved.chargeId, method: "CREDIT_CARD", summary: summaryOf(input, plan) };
+		}
 		await cancelReserved(session, reserved.chargeId);
 		return { error: error instanceof CardDeclinedError ? error.message : FAILED_CARD };
 	}
@@ -415,7 +450,7 @@ async function createCard(
 		cardLast4: charge.last4,
 	});
 	revalidatePath(REVALIDATE[scope.kind]);
-	return { error: null, id: reserved.chargeId, method: "CREDIT_CARD" };
+	return { error: null, id: reserved.chargeId, method: "CREDIT_CARD", summary: summaryOf(input, plan) };
 }
 
 // A action já validou o corpo (checkoutSchema), a sessão e a permissão (`wallet:topup` ou `credits:topup`).
@@ -428,6 +463,9 @@ export async function runCheckout(
 	const failed = input.method === "PIX" ? FAILED_PIX : FAILED_CARD;
 	try {
 		const plan = planCard(input);
+		const pix = plan ? null : planPix(input);
+		const charged = plan ?? pix;
+		if (!charged) throw new Error("plano de cobrança ausente");
 		// Sem chave PII válida a recarga falha fechada (Pix e cartão).
 		let keyring: PiiKeyring;
 		try {
@@ -437,7 +475,7 @@ export async function runCheckout(
 			return { error: UNAVAILABLE };
 		}
 
-		const reserved = await reserve(session, scope, input, plan, keyring, meta.remoteIp);
+		const reserved = await reserve(session, scope, input, plan, charged, keyring, meta.remoteIp);
 		if (reserved.reused) return { error: null, id: reserved.chargeId, method: input.method, reused: true };
 
 		let customerId: string;
@@ -454,7 +492,7 @@ export async function runCheckout(
 
 		return plan
 			? await createCard(session, scope, input, reserved, plan, customerId, meta)
-			: await createPix(session, scope, input, reserved, customerId, meta);
+			: await createPix(session, scope, input, reserved, summaryOf(input, charged), customerId, meta);
 	} catch (error) {
 		if (error instanceof BlockedError) return { error: error.message };
 		if (error instanceof PiiDecryptError) {
