@@ -121,6 +121,20 @@ class Building(unittest.TestCase):
         self.assertIn(f"postgres:{values['postgres_password']}@reino-db:5432/credit_system", values["database_owner_url"])
         self.assertNotEqual(values["postgres_password"], values["app_runtime_password"])
 
+    def test_pii_key_is_a_32_byte_k1_ring_and_not_reused(self):
+        import base64
+        key = sp.build_secrets(PROVIDED)["pii_encryption_key"]
+        prefix, _, b64 = key.partition(":")
+        self.assertEqual(prefix, "k1")
+        self.assertEqual(len(base64.b64decode(b64, validate=True)), 32)
+        self.assertNotEqual(key, sp.build_secrets(PROVIDED)["pii_encryption_key"])
+
+    def test_credentials_warn_about_pii_key(self):
+        values = sp.build_secrets(PROVIDED)
+        text = sp.render_credentials({}, {**values})
+        self.assertIn("pii_encryption_key=k1:", text)
+        self.assertIn("ilegíveis", text)
+
     def test_generates_notification_secrets(self):
         values = sp.build_secrets(PROVIDED)
         for name in ("notifications_dispatch_secret", "whatsapp_verify_token"):
@@ -144,6 +158,14 @@ class Building(unittest.TestCase):
         for k in ("WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_SUBJECT"):
             self.assertIn(k, sp.ENV_KEYS)
         self.assertNotIn("WEB_PUSH_VAPID_PRIVATE_KEY", sp.ENV_KEYS)
+
+    def test_env_keys_deliver_the_asaas_fee_settings(self):
+        for key in ("CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS", "PIX_FEE_CENTS"):
+            self.assertIn(key, sp.ENV_KEYS)
+        self.assertIn("PIX_FEE_CENTS=199\n", sp.render_env(answers()))
+        self.assertIn("PIX_FEE_CENTS=0\n", sp.render_env(answers(PIX_FEE_CENTS="0")))
+        self.assertIn("PIX_FEE_CENTS=250\n", sp.render_env(answers(PIX_FEE_CENTS="250")))
+        self.assertIn("PIX_FEE_CENTS=199\n", sp.render_credentials(answers(), {n: "x" for n in sp.SECRET_NAMES}))
 
     def test_env_keys_have_whatsapp_settings(self):
         for key in ("WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION"):

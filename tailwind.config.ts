@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 import tailwindcssAnimate from "tailwindcss-animate";
 
 const config: Config = {
@@ -64,6 +65,13 @@ const config: Config = {
         "money-in": { bg: "hsl(var(--money-in-bg))", fg: "hsl(var(--money-in-fg))" },
         "money-out": { bg: "hsl(var(--money-out-bg))", fg: "hsl(var(--money-out-fg))" },
         "money-void": { bg: "hsl(var(--money-void-bg))", fg: "hsl(var(--money-void-fg))" },
+        chart: {
+          1: "hsl(var(--chart-1))",
+          2: "hsl(var(--chart-2))",
+          3: "hsl(var(--chart-3))",
+          4: "hsl(var(--chart-4))",
+          5: "hsl(var(--chart-5))",
+        },
         surface: "hsl(var(--surface))",
         ink: "hsl(var(--ink))",
         "brand-soft": {
@@ -100,7 +108,7 @@ const config: Config = {
         md: "var(--shadow-mid)",
         lg: "var(--shadow-high)",
         // Brilho só no CTA principal da tela.
-        glow: "0 4px 14px rgba(207, 169, 104, 0.45)",
+        glow: "0 4px 14px rgba(255, 196, 0, 0.35)",
       },
       keyframes: {
         "accordion-down": {
@@ -118,6 +126,10 @@ const config: Config = {
       },
     },
   },
-  plugins: [tailwindcssAnimate],
+  plugins: [
+    tailwindcssAnimate,
+    // Variante `admin:` aplica a classe só dentro de `.theme-admin` (painel do Bureau e Superadmin: escala compacta).
+    plugin(({ addVariant }) => addVariant("admin", ".theme-admin &")),
+  ],
 };
 export default config;

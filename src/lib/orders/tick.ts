@@ -4,16 +4,12 @@
 import { config } from "@/lib/config";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
-import { recordHolderEvent } from "@/lib/holders/queries";
 import { listSweepTargets, purgeBureauData, purgeTechnicalData } from "@/lib/lgpd/queries";
-import { generateScrCode } from "@/lib/scr/code";
-import { buildScrConsentTerm } from "@/lib/scr/consent-term";
-import { issueSelfScrAuthorization, type IssueSelfScrResult } from "@/lib/scr/queries";
-import { readScrTermSettings, type ScrTermSettings } from "@/lib/settings/readers";
-import { formatCNPJ, formatCPF, formatDate } from "@/lib/utils";
+import { readScrTermSettings } from "@/lib/settings/readers";
 
 import { generateOrderAi } from "./ai";
 import { runReadyOrders } from "./execute";
+import { issueRequest } from "./issue-request";
 import { refreshOrderState, releaseDelivery } from "./queries";
 import {
 	cancelStalledOrders,
@@ -24,7 +20,6 @@ import {
 	listOrdersToPromote,
 	listScrRequestsToIssue,
 	setAiStatus,
-	type ScrRequestToIssue,
 } from "./tick-queries";
 import { MAX_AI_ATTEMPTS, type OrderState } from "./types";
 
@@ -78,47 +73,6 @@ async function guarded<T>(counters: Counters, step: string, work: () => Promise<
 	}
 }
 
-async function issueRequest(
-	identity: DbIdentity,
-	request: ScrRequestToIssue,
-	term: ScrTermSettings,
-	siteUrl: string,
-): Promise<IssueSelfScrResult> {
-	const document = request.type === "PJ" ? formatCNPJ(request.document) : formatCPF(request.document);
-	const consent = buildScrConsentTerm({
-		authorizedName: term.authorizedName,
-		authorizedDocument: term.authorizedDocument || undefined,
-		institutionName: term.institutionName,
-		clientName: request.name,
-		document,
-		city: term.city,
-		date: formatDate(new Date()),
-	});
-	const issued = await issueSelfScrAuthorization(identity, request.scrId, {
-		code: generateScrCode(),
-		email: request.email,
-		consentText: consent.fullText,
-		consentName: request.name,
-		consentDocument: document,
-		notification: {
-			recipient: request.email,
-			clientName: request.name,
-			authorizedName: term.authorizedName,
-			siteUrl,
-			phone: request.phoneE164,
-		},
-	});
-	if (issued.ok) {
-		await withUserTransaction(identity, (client) =>
-			recordHolderEvent(client, identity.userId, request.holderId, {
-				eventType: "scr.requested",
-				title: "Pedido de autorização SCR enviado",
-			}),
-		);
-	}
-	return issued;
-}
-
 async function promoteOrder(identity: DbIdentity, dossierId: string): Promise<boolean> {
 	return withUserTransaction(identity, async (client) => {
 		const before = await client.query<{ state: OrderState }>("select state from dossier_orders where dossier_id = $1", [dossierId]);
@@ -141,7 +95,8 @@ async function runBureau(identity: DbIdentity, counters: Counters, executionLeft
 		for (const request of toIssue) {
 			const issued = await guarded(counters, "request", () => issueRequest(identity, request, term, siteUrl));
 			if (issued?.ok) counters.requested += 1;
-			else if (issued) {
+			// superseded: o contato mudou depois da leitura; o próximo tick emite para o contato novo.
+			else if (issued && issued.reason !== "superseded") {
 				counters.errors += 1;
 				console.error("[orders-tick] passo falhou", { step: "request", reason: issued.reason });
 			}

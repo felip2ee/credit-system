@@ -132,7 +132,7 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
           <Dialog open={voiding !== null} onClose={cancel} title="Anular pagamento" dismissible={!isPending}>
             {voiding && (
               <form onSubmit={confirmVoid} noValidate className="space-y-4">
-                <p className="rounded-md bg-muted p-3 text-sm">
+                <p className="rounded-md bg-accent p-3 text-sm">
                   {dateFormat.format(new Date(voiding.receivedAt))} · {METHOD_LABEL[voiding.method]} ·{" "}
                   <strong>{formatCurrency(Number(voiding.amount))}</strong>
                 </p>

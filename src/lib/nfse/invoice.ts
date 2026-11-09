@@ -17,6 +17,7 @@ import {
 	findNfseRetryTarget,
 	setNfseStatus,
 	type NfseCharge,
+	type NfseChargeByPayment,
 } from "./queries";
 import type { DbIdentity } from "@/lib/db/transaction";
 
@@ -88,13 +89,17 @@ async function scheduleAndRecord(
 	chargeId: string,
 	paymentId: string,
 	amount: string,
+	installmentId: string | null,
 ): Promise<ScheduleOutcome> {
 	let client: AsaasClient;
 	let existing: ExistingInvoice | undefined;
 	try {
 		if (state.kind !== "ready") throw new Error("NFS-e config invalid");
 		client = getAsaasClient();
-		[existing] = await client.findInvoicesByPayment(paymentId);
+		// Parcelamento: a nota é do `installment`; consultar só o pagamento não a acharia e agendaria outra.
+		[existing] = installmentId
+			? await client.findInvoicesByInstallment(installmentId)
+			: await client.findInvoicesByPayment(paymentId);
 	} catch (error) {
 		logFailure("consulta das notas", error);
 		if (error instanceof AsaasOutcomeUnknownError) return "pending";
@@ -109,6 +114,7 @@ async function scheduleAndRecord(
 		const scheduled = await client.scheduleInvoice({
 			paymentId,
 			amount,
+			...(installmentId ? { installmentId } : {}),
 			externalReference: chargeId,
 			service: state.service,
 		});
@@ -125,15 +131,19 @@ async function scheduleAndRecord(
 // set_nfse_status(pending) muda not_requested e também reivindica pending com mais de 10 min (quem a perdeu: o processo
 // caiu, ou o resultado do Asaas era desconhecido). Só quem reivindica agenda; nota pending recente, issued ou failed
 // nunca é agendada de novo. Nunca lança.
-async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<ScheduleOutcome> {
+async function claimAndSchedule(
+	asaasPaymentId: string,
+	step: string,
+	installmentId?: string,
+): Promise<ScheduleOutcome> {
 	const state = nfseConfigState();
 	if (state.kind === "off") return "not_requested";
 	try {
-		const charge: NfseCharge | null = await findNfseChargeByPayment(asaasPaymentId);
+		const charge: NfseChargeByPayment | null = await findNfseChargeByPayment(asaasPaymentId, installmentId);
 		if (!charge) return "unknown_charge";
 		const claim = await setNfseStatus(charge.chargeId, "pending");
 		if (!claim.ok || !claim.changed) return "not_requested";
-		return await scheduleAndRecord(state, charge.chargeId, asaasPaymentId, charge.amount);
+		return await scheduleAndRecord(state, charge.chargeId, asaasPaymentId, charge.amount, charge.installmentId);
 	} catch (error) {
 		// Estado desconhecido (a reivindicação pode ter gravado): não registra failed. A nota pending é reivindicada de novo.
 		logFailure(step, error);
@@ -142,13 +152,13 @@ async function claimAndSchedule(asaasPaymentId: string, step: string): Promise<S
 }
 
 // Depois do crédito, fora da transação. Nunca lança: a falha da nota não pode virar 500 nem desfazer o crédito.
-export const requestInvoiceForPayment = (asaasPaymentId: string): Promise<ScheduleOutcome> =>
-	claimAndSchedule(asaasPaymentId, "pedido da nota");
+export const requestInvoiceForPayment = (asaasPaymentId: string, installmentId?: string): Promise<ScheduleOutcome> =>
+	claimAndSchedule(asaasPaymentId, "pedido da nota", installmentId);
 
 // Reenvio do webhook de um pagamento já creditado: repara a nota que ficou em not_requested ou presa em pending há mais
 // de 10 min (reivindicação do SQL); nota recente, issued ou failed fica como está.
-export const repairInvoiceForPayment = (asaasPaymentId: string): Promise<ScheduleOutcome> =>
-	claimAndSchedule(asaasPaymentId, "reparo da nota");
+export const repairInvoiceForPayment = (asaasPaymentId: string, installmentId?: string): Promise<ScheduleOutcome> =>
+	claimAndSchedule(asaasPaymentId, "reparo da nota", installmentId);
 
 // Nova tentativa depois de request_nfse_retry (a cobrança já está pending). Nunca lança.
 export async function rescheduleInvoice(identity: DbIdentity, chargeId: string): Promise<ScheduleOutcome> {
@@ -160,7 +170,7 @@ export async function rescheduleInvoice(identity: DbIdentity, chargeId: string):
 			await tryRecordFailed(chargeId);
 			return "unknown_charge";
 		}
-		return await scheduleAndRecord(state, chargeId, target.asaasPaymentId, target.amount);
+		return await scheduleAndRecord(state, chargeId, target.asaasPaymentId, target.amount, target.installmentId);
 	} catch (error) {
 		logFailure("nova tentativa", error);
 		await tryRecordFailed(chargeId);

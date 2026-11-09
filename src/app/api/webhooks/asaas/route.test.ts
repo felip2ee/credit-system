@@ -146,7 +146,7 @@ describe("POST /api/webhooks/asaas result", () => {
 		});
 	});
 
-	it.each(["credited", "refunded", "duplicate", "ignored", "unknown_charge", "partial_refund_ignored"])("answers 200 for %s", async (result) => {
+	it.each(["credited", "refunded", "duplicate", "ignored", "unknown_charge", "partial_refund_ignored", "chargeback_ignored", "amount_mismatch"])("answers 200 for %s", async (result) => {
 		state.applyAsaasPayment.mockResolvedValue(result);
 
 		expect((await call(body)).status).toBe(200);
@@ -160,6 +160,69 @@ describe("POST /api/webhooks/asaas result", () => {
 
 		expect(response.status).toBe(500);
 		expect(await response.text()).not.toContain("connection lost");
+	});
+});
+
+describe("POST /api/webhooks/asaas payload hygiene and logs", () => {
+	it("keeps only brand and last4 of the card; the token and other card keys never reach the database call", async () => {
+		const payload = {
+			...body,
+			payment: {
+				...body.payment,
+				creditCard: { creditCardNumber: "4242", creditCardBrand: "VISA", creditCardToken: "tok_secret", holder: "X" },
+			},
+		};
+
+		await call(payload);
+
+		const sent = state.applyAsaasPayment.mock.calls[0][0].payload;
+		expect(sent.payment.creditCard).toEqual({ creditCardNumber: "4242", creditCardBrand: "VISA" });
+		expect(JSON.stringify(sent)).not.toContain("tok_secret");
+		expect(sent.payment.id).toBe("pay_1");
+		expect(sent.payment.value).toBe(9999);
+	});
+
+	it("drops a card number that is not exactly 4 digits and a non-object creditCard", async () => {
+		await call({ ...body, payment: { ...body.payment, creditCard: { creditCardNumber: "4242424242424242", creditCardBrand: "VISA" } } });
+		await call({ ...body, payment: { ...body.payment, creditCard: "tok_secret" } });
+
+		expect(state.applyAsaasPayment.mock.calls[0][0].payload.payment.creditCard).toEqual({ creditCardBrand: "VISA" });
+		expect(state.applyAsaasPayment.mock.calls[1][0].payload.payment.creditCard).toEqual({});
+	});
+
+	it("passes payment.installment to the invoice steps, and ignores a malformed installment", async () => {
+		await call({ ...body, payment: { ...body.payment, installment: "ins_1" } });
+		await call({ ...body, id: "evt_2", payment: { ...body.payment, installment: 7 } });
+
+		expect(state.requestInvoiceForPayment).toHaveBeenNthCalledWith(1, "pay_1", "ins_1");
+		expect(state.requestInvoiceForPayment).toHaveBeenNthCalledWith(2, "pay_1", undefined);
+	});
+
+	it("logs a chargeback without handling with the event and charge id only", async () => {
+		state.applyAsaasPayment.mockResolvedValue("chargeback_ignored");
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const response = await call({ ...body, event: "PAYMENT_CHARGEBACK_DISPUTE", payment: { ...body.payment, creditCard: { creditCardToken: "tok_secret" } } });
+
+		expect(response.status).toBe(200);
+		expect(log).toHaveBeenCalledWith("[asaas-webhook] chargeback sem tratamento", {
+			event: "PAYMENT_CHARGEBACK_DISPUTE",
+			asaasPaymentId: "pay_1",
+		});
+		expect(JSON.stringify(log.mock.calls)).not.toContain("tok_secret");
+		log.mockRestore();
+	});
+
+	it("logs a diverging amount with the charge id only and does not schedule an invoice", async () => {
+		state.applyAsaasPayment.mockResolvedValue("amount_mismatch");
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const response = await call(body);
+
+		expect(response.status).toBe(200);
+		expect(log).toHaveBeenCalledWith("[asaas-webhook] valor divergente", { asaasPaymentId: "pay_1" });
+		expect(state.requestInvoiceForPayment).not.toHaveBeenCalled();
+		log.mockRestore();
 	});
 });
 
@@ -217,7 +280,7 @@ describe("POST /api/webhooks/asaas invoice scheduling after the credit", () => {
 		const response = await call(body);
 
 		expect(response.status).toBe(200);
-		expect(state.requestInvoiceForPayment).toHaveBeenCalledWith("pay_1");
+		expect(state.requestInvoiceForPayment).toHaveBeenCalledWith("pay_1", undefined);
 		expect(state.applyAsaasPayment.mock.invocationCallOrder[0]).toBeLessThan(
 			state.requestInvoiceForPayment.mock.invocationCallOrder[0],
 		);
@@ -235,7 +298,7 @@ describe("POST /api/webhooks/asaas invoice scheduling after the credit", () => {
 		state.applyAsaasPayment.mockResolvedValue("duplicate");
 
 		expect((await call(body)).status).toBe(200);
-		expect(state.repairInvoiceForPayment).toHaveBeenCalledWith("pay_1");
+		expect(state.repairInvoiceForPayment).toHaveBeenCalledWith("pay_1", undefined);
 	});
 
 	it.each([
@@ -275,7 +338,7 @@ describe("POST /api/webhooks/asaas invoice scheduling after the credit", () => {
 		const response = await call(body);
 
 		expect(response.status).toBe(200);
-		expect(state.requestInvoiceForPayment).toHaveBeenCalledWith("pay_1");
+		expect(state.requestInvoiceForPayment).toHaveBeenCalledWith("pay_1", undefined);
 		finish("pending");
 	});
 

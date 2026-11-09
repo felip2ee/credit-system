@@ -60,7 +60,7 @@ export function Dialog({
         else ref.current?.showModal();
       }}
       className={cn(
-        "m-auto w-full max-w-md rounded-modal border border-border bg-background p-6 text-foreground shadow-lg backdrop:bg-ink/60",
+        "m-auto w-full max-w-md rounded-modal border border-border bg-card p-6 text-card-foreground shadow-lg backdrop:bg-background/80",
         className,
       )}
     >

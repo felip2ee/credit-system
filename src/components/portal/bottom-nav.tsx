@@ -66,7 +66,7 @@ export function InlineNav({ items }: { items: PortalNavItem[] }) {
 								href={href}
 								aria-current={active ? "page" : undefined}
 								className={cn(
-									"inline-flex min-h-12 items-center gap-2 rounded-full px-4 text-base hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+									"inline-flex min-h-12 items-center gap-2 rounded-full px-4 text-base hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 									active ? "bg-brand-soft font-bold text-brand-soft-foreground" : "text-foreground",
 								)}
 							>

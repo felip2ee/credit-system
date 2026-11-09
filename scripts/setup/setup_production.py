@@ -13,6 +13,7 @@ Uso:  python3 scripts/setup/setup_production.py [--dry-run] [--no-docker] [--for
 from __future__ import annotations
 
 import argparse
+import base64
 import getpass
 import ipaddress
 import json
@@ -36,7 +37,11 @@ ENV_KEYS = [
     "RESTIC_S3_ENDPOINT", "RESTIC_S3_BUCKET",
     "WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION",
     "WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_SUBJECT",
+    "CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS", "PIX_FEE_CENTS",
 ]
+
+# Chaves que o instalador não pergunta e preenche com um padrão (vazio = o app de produção recusa o Pix).
+ENV_DEFAULTS = {"PIX_FEE_CENTS": "199"}
 
 SECRET_NAMES = [
     "postgres_password", "schema_owner_password", "app_runtime_password",
@@ -45,7 +50,7 @@ SECRET_NAMES = [
     "better_auth_secret", "smtp_pass", "deps_api_password", "openai_api_key",
     "restic_password", "restic_s3_access_key", "restic_s3_secret_key", "superadmin_password",
     "whatsapp_access_token", "whatsapp_app_secret", "whatsapp_verify_token",
-    "notifications_dispatch_secret", "web_push_vapid_private_key",
+    "notifications_dispatch_secret", "web_push_vapid_private_key", "pii_encryption_key",
 ]
 
 _DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
@@ -172,6 +177,11 @@ def gen_hex(nbytes: int = 24) -> str:
     return secrets.token_hex(nbytes)
 
 
+def gen_pii_key() -> str:
+    """Key ring `id:base64` com 32 bytes; o id `k1` permite rotacionar depois."""
+    return "k1:" + base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+
+
 def gen_password() -> str:
     return secrets.token_urlsafe(18)  # 24 caracteres
 
@@ -202,7 +212,12 @@ def build_secrets(provided: dict[str, str]) -> dict[str, str]:
         "whatsapp_verify_token": gen_hex(32),
         "notifications_dispatch_secret": gen_hex(32),
         "web_push_vapid_private_key": provided.get("web_push_vapid_private_key") or PUSH_OFF_PLACEHOLDER,
+        "pii_encryption_key": gen_pii_key(),
     }
+
+
+def _env_value(values: dict[str, str], key: str) -> str:
+    return values.get(key) or ENV_DEFAULTS.get(key, "")
 
 
 def render_env(values: dict[str, str]) -> str:
@@ -210,7 +225,7 @@ def render_env(values: dict[str, str]) -> str:
         "# Gerado por scripts/setup/setup_production.py — valores NÃO secretos.",
         "# Deploy: set -a; . ./.env.production; set +a; docker stack deploy -c docker-stack.yml reino",
     ]
-    lines += [f"{key}={shlex.quote(values.get(key, ''))}" for key in ENV_KEYS]
+    lines += [f"{key}={shlex.quote(_env_value(values, key))}" for key in ENV_KEYS]
     return "\n".join(lines) + "\n"
 
 
@@ -218,6 +233,7 @@ def render_credentials(env_values: dict[str, str], secret_values: dict[str, str]
     out = [
         "CREDENCIAIS DA PLATAFORMA — mova para um gerenciador de senhas e APAGUE este arquivo.",
         "Sem restic_password não há restauração de backup.",
+        "Sem pii_encryption_key os dados de pagamento cifrados ficam ilegíveis.",
         "",
         f"Superadmin: {env_values.get('SUPERADMIN_EMAIL', '')} / {secret_values['superadmin_password']}",
         "",
@@ -225,7 +241,7 @@ def render_credentials(env_values: dict[str, str], secret_values: dict[str, str]
     ]
     out += [f"{name}={secret_values[name]}" for name in SECRET_NAMES]
     out += ["", "[.env.production]"]
-    out += [f"{key}={env_values.get(key, '')}" for key in ENV_KEYS]
+    out += [f"{key}={_env_value(env_values, key)}" for key in ENV_KEYS]
     return "\n".join(out) + "\n"
 
 

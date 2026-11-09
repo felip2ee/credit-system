@@ -26,6 +26,7 @@ vi.mock("next/headers", () => ({
 	},
 }));
 
+import { maskRecipient } from "@/lib/auth/email";
 import { quoteOrder } from "@/lib/catalog/quote";
 import { registerCounterPayment } from "@/lib/counter-payments/queries";
 import { pool } from "@/lib/db/pool";
@@ -43,6 +44,8 @@ import {
 	type SeededTenant,
 } from "@/test/seed";
 
+import { confirmPublicScrAuthorization, issueSelfScrAuthorization } from "@/lib/scr/queries";
+
 import { getMyDelivery } from "./client-queries";
 import {
 	cancelOrder,
@@ -56,6 +59,7 @@ import {
 	retryOrderLater,
 	revokeDelivery,
 } from "./queries";
+import { updateOrderContact } from "./contact";
 import { getStaffOrder } from "./staff-queries";
 import {
 	cancelStalledOrders,
@@ -1009,5 +1013,455 @@ describe("total por número de sócios (Dossiê Empresarial)", () => {
 		const id = await placeOnline(t, companyWith([partner(), partner()]));
 		await withUserTransaction(staff(t), (c) => cancelOrder(c, staff(t), id, "cancelled_by_staff"));
 		expect(await clientWallet(t)).toEqual({ available: "1000.00", reserved: "0.00" });
+	});
+});
+
+describe("balcão para o Titular do comprador (044)", () => {
+	const buyerDigits = (t: SeededTenant) => onlyDigits(t.holder.document);
+	const accountEmail = async (t: SeededTenant) =>
+		(await rows<{ email: string }>("select email from profiles where id = $1", [t.client.userId]))[0].email.toLowerCase();
+	const forBuyer = (t: SeededTenant, over: Partial<OpenOrderInput> = {}) =>
+		thirdInput({ buyerProfileId: t.client.userId, ...over });
+	const scrOf = async (dossierId: string) =>
+		(await rows<{ email: string | null; scr_email: string | null }>(
+			`select s.email, c.scr_email from consultations c join scr_authorizations s on s.id = c.scr_authorization_id
+			  where c.dossier_id = $1 order by c.created_at, c.id`,
+			[dossierId],
+		))[0];
+
+	it("accepts the buyer's own holder without contact and uses the account e-mail", async () => {
+		const t = await newTenant("ord own counter");
+		const subject = { type: "PF" as const, name: "Nome digitado", documentDigits: buyerDigits(t) };
+
+		const id = await placeCounter(t, forBuyer(t, { subject, contact: { email: null, phoneE164: null } }));
+
+		expect(await scrOf(id)).toEqual({ email: await accountEmail(t), scr_email: await accountEmail(t) });
+		const [order] = await rows("select self_research, mode from dossier_orders where dossier_id = $1", [id]);
+		expect(order).toEqual({ self_research: false, mode: "counter" });
+		const [audit] = await rows("select metadata from audit_logs where action = 'order.open' and record_id = $1", [id]);
+		expect(audit.metadata).toMatchObject({ mode: "counter", self_member: true });
+	});
+
+	it("ignores the typed contact for the buyer's own holder, even the buyer's e-mail", async () => {
+		const t = await newTenant("ord own typed");
+		const subject = { type: "PF" as const, name: "Fulano", documentDigits: buyerDigits(t) };
+		const typedOther = await placeCounter(t, forBuyer(t, { subject, contact: { email: "outro@example.test", phoneE164: "+5511912345678" } }));
+		const typedBuyer = await placeCounter(t, forBuyer(t, { subject, contact: { email: await accountEmail(t), phoneE164: null } }));
+
+		for (const id of [typedOther, typedBuyer]) {
+			expect(await scrOf(id)).toEqual({ email: await accountEmail(t), scr_email: await accountEmail(t) });
+		}
+		const [phone] = await rows("select phone_e164 from scr_authorizations where bureau_id = $1 and phone_e164 is not null", [t.bureau.id]);
+		expect(phone).toBeUndefined();
+	});
+
+	it("still refuses a third party with the buyer's e-mail or without contact", async () => {
+		const t = await newTenant("ord third counter");
+		const sameEmail = await placeOrder(
+			staff(t),
+			forBuyer(t, { contact: { email: await accountEmail(t), phoneE164: null } }),
+			await quote(staff(t), "dossie_pf"),
+		);
+		expect(sameEmail).toEqual({ ok: false, reason: "contact_is_buyer" });
+		const noContact = await placeOrder(
+			staff(t),
+			forBuyer(t, { contact: { email: null, phoneE164: null } }),
+			await quote(staff(t), "dossie_pf"),
+		);
+		expect(noContact).toEqual({ ok: false, reason: "invalid_input" });
+	});
+
+	it("lets a partner whose CPF is the buyer's holder use the buyer's e-mail; another partner still cannot", async () => {
+		const t = await newTenant("ord partner counter");
+		const email = await accountEmail(t);
+		const base = (partners: OpenOrderInput["partners"]) =>
+			companyInput({ buyerProfileId: t.client.userId, partners });
+		const partner = (documentDigits: string, partnerEmail: string) => ({
+			documentDigits,
+			name: "Sócio",
+			email: partnerEmail,
+			percentage: null,
+			role: null,
+		});
+		const q = await quote(staff(t), "dossie_empresarial", 1);
+
+		const other = await placeOrder(staff(t), base([partner(cpf(), email)]), q);
+		expect(other).toEqual({ ok: false, reason: "contact_is_buyer" });
+		const own = await placeOrder(staff(t), base([partner(buyerDigits(t), email)]), q);
+		expect(own.ok).toBe(true);
+	});
+});
+
+describe("updateOrderContact (044)", () => {
+	const CODE = "ABC234";
+	const NEW_CODE = "XYZ789";
+	const mailTo = () => `novo-${crypto.randomUUID()}@example.test`;
+
+	async function member(dossierId: string) {
+		return (await rows<{ consultation_id: string; scr_id: string; token: string }>(
+			`select c.id as consultation_id, s.id as scr_id, s.public_token::text as token
+			   from consultations c join scr_authorizations s on s.id = c.scr_authorization_id
+			  where c.dossier_id = $1 order by c.created_at, c.id`,
+			[dossierId],
+		))[0];
+	}
+
+	const issueWith = (t: SeededTenant, scrId: string, email: string, code: string, publicToken?: string) =>
+		issueSelfScrAuthorization(
+			staff(t),
+			scrId,
+			{
+				code,
+				email,
+				consentText: "termo",
+				consentName: "Fulano de Tal",
+				consentDocument: "000.000.000-00",
+				notification: { recipient: email, clientName: "Fulano de Tal", authorizedName: "Bureau", siteUrl: SITE },
+			},
+			publicToken ? { publicToken } : undefined,
+		);
+
+	// Emite o que a troca devolveu, como a action e o tick fazem.
+	const issueRequestOf = (t: SeededTenant, request: { scrId: string; email: string; publicToken: string }, code: string) =>
+		issueWith(t, request.scrId, request.email, code, request.publicToken);
+
+	// Recua os instantes de troca para fora do intervalo de reenvio (continuam dentro das 24 h).
+	const ageChanges = (scrId: string) =>
+		owner.query(
+			"update scr_authorizations set contact_changes_at = array(select t - interval '10 minutes' from unnest(contact_changes_at) t) where id = $1",
+			[scrId],
+		);
+
+	const toAwaitingAuthorization = (dossierId: string) =>
+		owner.query("update dossier_orders set state = 'awaiting_authorization' where dossier_id = $1", [dossierId]);
+
+	const change = (identity: DbIdentity, dossierId: string, consultationId: string, email: string | null, phoneE164: string | null = null) =>
+		withUserTransaction(identity, (c) => updateOrderContact(c, { dossierId, consultationId, email, phoneE164 }));
+
+	const sentTo = (scrId: string) =>
+		rows<{ status: string; recipient_masked: string }>(
+			"select status, recipient_masked from notifications where reference = $1 and channel = 'email' order by created_at",
+			[`scr_authorization:${scrId}`],
+		);
+
+	// Pedido que espera a autorização, com o link já enviado ao e-mail errado.
+	async function sentToWrongEmail(t: SeededTenant) {
+		const wrong = mailTo();
+		const dossierId = await placeCounter(t, thirdInput({ contact: { email: wrong, phoneE164: null } }));
+		await toAwaitingAuthorization(dossierId);
+		const m = await member(dossierId);
+		expect(await issueWith(t, m.scr_id, wrong, CODE)).toEqual({ ok: true });
+		return { dossierId, m, wrong };
+	}
+
+	it("a new e-mail kills the old link, queues a new one and the new token works", async () => {
+		const t = await newTenant("ord contact swap");
+		const { dossierId, m, wrong } = await sentToWrongEmail(t);
+		const right = mailTo();
+
+		const result = await change(staff(t), dossierId, m.consultation_id, right);
+
+		expect(result).toMatchObject({ ok: true, deferred: false, request: { scrId: m.scr_id, email: right } });
+		const after = (await rows<{ public_token: string; auth_code: string | null; email: string; status: string }>(
+			"select public_token::text, auth_code, email, status from scr_authorizations where id = $1",
+			[m.scr_id],
+		))[0];
+		expect(after).toMatchObject({ auth_code: null, email: right, status: "pending" });
+		expect(after.public_token).not.toBe(m.token);
+		expect((await rows("select scr_email from consultations where id = $1", [m.consultation_id]))[0]).toEqual({ scr_email: right });
+		// A notificação do e-mail errado ainda estava na fila: foi anulada.
+		expect((await sentTo(m.scr_id)).map((n) => n.status)).toEqual(["suppressed"]);
+
+		// Quem recebeu o e-mail errado não autoriza mais: nem com o token antigo e o código antigo.
+		expect(await confirmPublicScrAuthorization(m.token, CODE, "authorize", "1.1.1.1")).toEqual({ status: "not_found" });
+
+		// A emissão para o contato novo manda o link novo e o token novo confirma.
+		if (!result.ok || !result.request) throw new Error("request expected");
+		expect(result.request.publicToken).toBe(after.public_token);
+		expect(await issueRequestOf(t, result.request, NEW_CODE)).toEqual({ ok: true });
+		expect(await confirmPublicScrAuthorization(after.public_token, CODE, "authorize", "1.1.1.1")).toEqual({ status: "invalid_code" });
+		expect(await confirmPublicScrAuthorization(after.public_token, NEW_CODE, "authorize", "1.1.1.1")).toEqual({ status: "authorized" });
+		const sent = await sentTo(m.scr_id);
+		expect(sent.map((n) => n.status)).toEqual(["suppressed", "pending"]);
+		expect(sent[1].recipient_masked).not.toContain(wrong);
+	});
+
+	it("while the order awaits payment it saves the contact, rotates the token and sends nothing", async () => {
+		const t = await newTenant("ord contact payment");
+		const dossierId = await placeCounter(t, thirdInput());
+		const m = await member(dossierId);
+		const right = mailTo();
+
+		const result = await change(staff(t), dossierId, m.consultation_id, right);
+
+		expect(result).toEqual({ ok: true, request: null, deferred: true });
+		const after = (await rows<{ public_token: string; email: string }>(
+			"select public_token::text, email from scr_authorizations where id = $1",
+			[m.scr_id],
+		))[0];
+		expect(after.email).toBe(right);
+		expect(after.public_token).not.toBe(m.token);
+		// O tick só emite em awaiting_authorization.
+		expect(await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, staff(t), 10))).toEqual([]);
+		expect(await sentTo(m.scr_id)).toEqual([]);
+
+		// Reenviar sem mudança não faz sentido antes do pagamento.
+		await owner.query("update scr_authorizations set contact_changes_at = '{}' where id = $1", [m.scr_id]);
+		expect(await change(staff(t), dossierId, m.consultation_id, null)).toEqual({ ok: false, reason: "invalid_state" });
+	});
+
+	it("resend to the same e-mail issues a new token and refuses a second change right away, with or without a sent link", async () => {
+		const t = await newTenant("ord contact resend");
+		const { dossierId, m, wrong } = await sentToWrongEmail(t);
+
+		const resent = await change(staff(t), dossierId, m.consultation_id, wrong);
+		expect(resent).toMatchObject({ ok: true, request: { email: wrong } });
+		expect(await confirmPublicScrAuthorization(m.token, CODE, "authorize", null)).toEqual({ status: "not_found" });
+
+		// O intervalo conta da troca, mesmo sem a emissão feita (código ainda nulo).
+		expect(await change(staff(t), dossierId, m.consultation_id, null)).toEqual({ ok: false, reason: "resend_too_soon" });
+		expect(await change(staff(t), dossierId, m.consultation_id, mailTo())).toEqual({ ok: false, reason: "resend_too_soon" });
+		await ageChanges(m.scr_id);
+		expect(await change(staff(t), dossierId, m.consultation_id, null)).toMatchObject({ ok: true });
+	});
+
+	it("allows 5 changes or resends per authorization in 24 h, resends included", async () => {
+		const t = await newTenant("ord contact daily cap");
+		const { dossierId, m } = await sentToWrongEmail(t);
+
+		for (let i = 0; i < 5; i += 1) {
+			expect(await change(staff(t), dossierId, m.consultation_id, null)).toMatchObject({ ok: true });
+			await ageChanges(m.scr_id);
+		}
+		expect(await change(staff(t), dossierId, m.consultation_id, null)).toEqual({ ok: false, reason: "contact_limit_reached" });
+		expect(await change(staff(t), dossierId, m.consultation_id, mailTo())).toEqual({ ok: false, reason: "contact_limit_reached" });
+
+		// Fora das 24 h os instantes saem da conta.
+		await owner.query("update scr_authorizations set contact_changes_at = array(select t - interval '25 hours' from unnest(contact_changes_at) t) where id = $1", [m.scr_id]);
+		expect(await change(staff(t), dossierId, m.consultation_id, null)).toMatchObject({ ok: true });
+	});
+
+	it("an issue made before a newer change is superseded: only the last recipient gets a valid link", async () => {
+		const t = await newTenant("ord contact race");
+		const { dossierId, m } = await sentToWrongEmail(t);
+		const first = mailTo();
+		const last = mailTo();
+
+		const a = await change(staff(t), dossierId, m.consultation_id, first);
+		await ageChanges(m.scr_id);
+		const b = await change(staff(t), dossierId, m.consultation_id, last);
+		if (!a.ok || !a.request || !b.ok || !b.request) throw new Error("requests expected");
+
+		// A emissão do primeiro operador chega depois da troca do segundo: não grava e não enfileira.
+		expect(await issueRequestOf(t, a.request, "AAA111")).toEqual({ ok: false, reason: "superseded" });
+		expect(await issueRequestOf(t, b.request, NEW_CODE)).toEqual({ ok: true });
+
+		const after = (await rows<{ email: string; auth_code: string; public_token: string }>(
+			"select email, auth_code, public_token::text from scr_authorizations where id = $1",
+			[m.scr_id],
+		))[0];
+		expect(after).toMatchObject({ email: last, auth_code: NEW_CODE, public_token: b.request.publicToken });
+		const sent = await sentTo(m.scr_id);
+		expect(sent.map((n) => n.status)).toEqual(["suppressed", "pending"]);
+		expect(sent[1].recipient_masked).toBe(maskRecipient(last));
+		expect(await confirmPublicScrAuthorization(a.request.publicToken, "AAA111", "authorize", null)).toEqual({ status: "not_found" });
+	});
+
+	it("a tick that read the contact before the change cannot bring the old e-mail back", async () => {
+		const t = await newTenant("ord contact tick race");
+		const wrong = mailTo();
+		const dossierId = await placeCounter(t, thirdInput({ contact: { email: wrong, phoneE164: null } }));
+		await toAwaitingAuthorization(dossierId);
+		const m = await member(dossierId);
+
+		const [stale] = await withUserTransaction(staff(t), (c) => listScrRequestsToIssue(c, staff(t), 10));
+		expect(stale).toMatchObject({ scrId: m.scr_id, email: wrong, publicToken: m.token });
+		const right = mailTo();
+		const changed = await change(staff(t), dossierId, m.consultation_id, right);
+		if (!changed.ok || !changed.request) throw new Error("request expected");
+
+		expect(await issueRequestOf(t, stale, "OLD111")).toEqual({ ok: false, reason: "superseded" });
+		expect(await sentTo(m.scr_id)).toEqual([]);
+		// O mesmo token só emite uma vez: um segundo emissor (tick e action juntos) não troca o código já enviado.
+		expect(await issueRequestOf(t, changed.request, NEW_CODE)).toEqual({ ok: true });
+		expect(await issueRequestOf(t, changed.request, "OTHER1")).toEqual({ ok: false, reason: "superseded" });
+		expect((await rows("select email, auth_code from scr_authorizations where id = $1", [m.scr_id]))[0]).toEqual({ email: right, auth_code: NEW_CODE });
+	});
+
+	it("two changes at the same time: exactly one wins, the other waits and is refused by the interval", async () => {
+		const t = await newTenant("ord contact concurrent");
+		const { dossierId, m } = await sentToWrongEmail(t);
+		const x = mailTo();
+		const y = mailTo();
+
+		const results = await Promise.all([
+			change(staff(t), dossierId, m.consultation_id, x),
+			change(staff(t), dossierId, m.consultation_id, y),
+		]);
+
+		const winners = results.filter((r) => r.ok);
+		expect(winners).toHaveLength(1);
+		expect(results.filter((r) => !r.ok)).toEqual([{ ok: false, reason: "resend_too_soon" }]);
+		const winner = winners[0];
+		if (!winner.ok || !winner.request) throw new Error("request expected");
+		expect(await issueRequestOf(t, winner.request, NEW_CODE)).toEqual({ ok: true });
+		expect((await rows<{ email: string }>("select email from scr_authorizations where id = $1", [m.scr_id]))[0].email).toBe(winner.request.email);
+	});
+
+	it("audits in the same transaction with the masked e-mail, never the full address", async () => {
+		const t = await newTenant("ord contact audit");
+		const { dossierId, m, wrong } = await sentToWrongEmail(t);
+		const right = mailTo();
+
+		await change(staff(t), dossierId, m.consultation_id, right, "+5511912345678");
+
+		const [audit] = await rows<{ metadata: Record<string, unknown>; user_id: string }>(
+			"select metadata, user_id from audit_logs where action = 'order.update_contact' and record_id = $1",
+			[dossierId],
+		);
+		expect(audit.user_id).toBe(t.operator.userId);
+		expect(audit.metadata).toMatchObject({
+			consultation_id: m.consultation_id,
+			authorization_id: m.scr_id,
+			previous_email_masked: maskRecipient(wrong),
+			email_masked: maskRecipient(right),
+			phone_set: true,
+			resend_only: false,
+			buyer_override: false,
+		});
+		expect(JSON.stringify(audit.metadata)).not.toContain(right);
+		expect(JSON.stringify(audit.metadata)).not.toContain(wrong);
+
+		await ageChanges(m.scr_id);
+		await change(staff(t), dossierId, m.consultation_id, null);
+		const resends = await rows<{ metadata: Record<string, unknown> }>(
+			"select metadata from audit_logs where action = 'order.update_contact' and record_id = $1 order by created_at desc, id limit 1",
+			[dossierId],
+		);
+		expect(resends[0].metadata).toMatchObject({ resend_only: true, email_masked: maskRecipient(right) });
+	});
+
+	it("writes one audit event per order that shares the authorization and skips the ones already answered", async () => {
+		const t = await newTenant("ord contact shared");
+		const subject = { type: "PF" as const, name: "Fulano de Tal", documentDigits: cpf() };
+		const input = () => thirdInput({ buyerProfileId: t.client.userId, subject, contact: { email: mailTo(), phoneE164: null } });
+		const first = await placeCounter(t, input());
+		const second = await placeCounter(t, input());
+		const m = await member(first);
+		expect((await member(second)).scr_id).toBe(m.scr_id);
+		await toAwaitingAuthorization(first);
+		await owner.query("update dossier_orders set state = 'cancelled', state_reason = 'cancelled_by_staff' where dossier_id = $1", [second]);
+		const third = await placeCounter(t, input());
+		expect((await member(third)).scr_id).toBe(m.scr_id);
+
+		expect(await change(staff(t), first, m.consultation_id, mailTo())).toMatchObject({ ok: true });
+
+		const audited = async (id: string) =>
+			rows<{ metadata: Record<string, unknown> }>("select metadata from audit_logs where action = 'order.update_contact' and record_id = $1", [id]);
+		expect(await audited(first)).toHaveLength(1);
+		const shared = await audited(third);
+		expect(shared).toHaveLength(1);
+		expect(shared[0].metadata).toMatchObject({ authorization_id: m.scr_id, shared_from_dossier_id: first });
+		// Pedido que não espera mais: fica de fora, sem erro.
+		expect(await audited(second)).toHaveLength(0);
+	});
+
+	it("refuses the buyer's e-mail for a third party and audits the refusal without the contact", async () => {
+		const t = await newTenant("ord contact d12");
+		const buyerEmail = (await rows<{ email: string }>("select email from profiles where id = $1", [t.client.userId]))[0].email.toLowerCase();
+		const third = await placeCounter(t, thirdInput({ buyerProfileId: t.client.userId }));
+		await toAwaitingAuthorization(third);
+		const thirdMember = await member(third);
+		expect(await change(staff(t), third, thirdMember.consultation_id, buyerEmail)).toEqual({ ok: false, reason: "contact_is_buyer" });
+
+		const [refused] = await rows<{ metadata: Record<string, unknown> }>(
+			"select metadata from audit_logs where action = 'order.update_contact_refused' and record_id = $1",
+			[third],
+		);
+		expect(refused.metadata).toMatchObject({ reason: "contact_is_buyer", authorization_id: thirdMember.scr_id, email_changed: true });
+		expect(JSON.stringify(refused.metadata)).not.toContain(buyerEmail);
+		// A recusa não gasta o limite de trocas.
+		expect((await rows("select cardinality(contact_changes_at) as n from scr_authorizations where id = $1", [thirdMember.scr_id]))[0]).toEqual({ n: 0 });
+	});
+
+	it("keeps the account e-mail for the buyer's own holder and flags the discarded typed contact", async () => {
+		const t = await newTenant("ord contact own holder");
+		const buyerEmail = (await rows<{ email: string }>("select email from profiles where id = $1", [t.client.userId]))[0].email.toLowerCase();
+		const own = await placeCounter(
+			t,
+			thirdInput({
+				buyerProfileId: t.client.userId,
+				subject: { type: "PF", name: "Comprador", documentDigits: onlyDigits(t.holder.document) },
+				contact: { email: null, phoneE164: null },
+			}),
+		);
+		await toAwaitingAuthorization(own);
+		const ownMember = await member(own);
+
+		const result = await change(staff(t), own, ownMember.consultation_id, "digitado@example.test", "+5511912345678");
+
+		expect(result).toMatchObject({ ok: true, request: { email: buyerEmail, phoneE164: null } });
+		const [audit] = await rows<{ metadata: Record<string, unknown> }>(
+			"select metadata from audit_logs where action = 'order.update_contact' and record_id = $1",
+			[own],
+		);
+		expect(audit.metadata).toMatchObject({ buyer_override: true, email_masked: maskRecipient(buyerEmail) });
+		expect(JSON.stringify(audit.metadata)).not.toContain("digitado@example.test");
+	});
+
+	it("is invalid_input, not a SQL error, when the buyer's account e-mail is not usable", async () => {
+		const t = await newTenant("ord contact bad account email");
+		const own = await placeCounter(
+			t,
+			thirdInput({
+				buyerProfileId: t.client.userId,
+				subject: { type: "PF", name: "Comprador", documentDigits: onlyDigits(t.holder.document) },
+				contact: { email: null, phoneE164: null },
+			}),
+		);
+		await toAwaitingAuthorization(own);
+		const ownMember = await member(own);
+		await owner.query("update profiles set email = 'sem-arroba' where id = $1", [t.client.userId]);
+
+		expect(await change(staff(t), own, ownMember.consultation_id, null)).toEqual({ ok: false, reason: "invalid_input" });
+	});
+
+	it("respects the recipient cap of new requests", async () => {
+		const t = await newTenant("ord contact cap");
+		const crowded = mailTo();
+		for (let i = 0; i < 3; i += 1) await placeCounter(t, thirdInput({ contact: { email: crowded, phoneE164: null } }));
+		const dossierId = await placeCounter(t, thirdInput());
+		const m = await member(dossierId);
+
+		expect(await change(staff(t), dossierId, m.consultation_id, crowded)).toEqual({ ok: false, reason: "too_many_requests" });
+	});
+
+	it("is invalid_state once the order is cancelled or the authorization was answered", async () => {
+		const t = await newTenant("ord contact state");
+		const answered = await placeCounter(t);
+		const answeredMember = await member(answered);
+		await authorizeAll(answered);
+		expect(await change(staff(t), answered, answeredMember.consultation_id, mailTo())).toEqual({ ok: false, reason: "invalid_state" });
+
+		const cancelled = await placeCounter(t);
+		const cancelledMember = await member(cancelled);
+		await withUserTransaction(staff(t), (c) => cancelOrder(c, staff(t), cancelled, "cancelled_by_staff"));
+		expect(await change(staff(t), cancelled, cancelledMember.consultation_id, mailTo())).toEqual({ ok: false, reason: "invalid_state" });
+	});
+
+	it("another Bureau and the client role cannot change it", async () => {
+		const t = await newTenant("ord contact owner");
+		const other = await newTenant("ord contact other");
+		const { dossierId, m, wrong } = await sentToWrongEmail(t);
+
+		expect(await change(staff(other), dossierId, m.consultation_id, mailTo())).toEqual({ ok: false, reason: "not_found" });
+		expect(await change(buyerOf(t), dossierId, m.consultation_id, mailTo())).toEqual({ ok: false, reason: "not_allowed" });
+		// Consulta de outro pedido do mesmo Bureau também não vale.
+		const sibling = await placeCounter(t);
+		expect(await change(staff(t), sibling, m.consultation_id, mailTo())).toEqual({ ok: false, reason: "not_found" });
+
+		const [row] = await rows("select email, auth_code from scr_authorizations where id = $1", [m.scr_id]);
+		expect(row).toEqual({ email: wrong, auth_code: CODE });
+		expect(await rows("select 1 from audit_logs where action = 'order.update_contact' and bureau_id = $1", [t.bureau.id])).toHaveLength(0);
 	});
 });

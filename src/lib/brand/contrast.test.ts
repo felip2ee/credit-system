@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contrastRatio } from "./contrast";
-import { BRAND_COLORS, NEUTRAL_COLORS, STATE_COLORS } from "./tokens";
+import { ADMIN_COLORS, APP_COLORS, APP_STATE_COLORS, BRAND_COLORS, NEUTRAL_COLORS, STATE_COLORS } from "./tokens";
 
 describe("contrastRatio", () => {
 	it("returns 21 for black on white", () => {
@@ -143,5 +143,119 @@ describe("state colors", () => {
 	// A borda clara do sucesso é decorativa: rótulo e ícone já carregam o sentido.
 	it.each(Object.entries(STATE_COLORS).filter(([name]) => name !== "success"))("%s border is at least 3:1 on page background", (_name, s) => {
 		expect(contrastRatio(s.border, BRAND_COLORS.background)).toBeGreaterThanOrEqual(3);
+	});
+});
+
+describe("paleta do app (verde escuro + amarelo)", () => {
+	const a = APP_COLORS;
+
+	it.each([
+		["texto no fundo", a.foreground, a.background, 7],
+		["texto no cartão", a.foreground, a.card, 7],
+		["texto secundário no fundo", a.mutedForeground, a.background, 7],
+		["texto secundário no cartão", a.mutedForeground, a.card, 4.5],
+		["texto do botão primário", a.primaryForeground, a.primary, 4.5],
+		["texto do botão primário no hover", a.primaryForeground, a.primaryHover, 4.5],
+		["amarelo como texto no fundo", a.primary, a.background, 4.5],
+		["amarelo como texto no cartão", a.primary, a.card, 4.5],
+		["texto do botão destrutivo", a.destructiveForeground, a.destructive, 4.5],
+		["vermelho como texto no cartão", a.destructive, a.card, 4.5],
+		["anel de foco no fundo", a.ring, a.background, 3],
+		["anel de foco no cartão", a.ring, a.card, 3],
+		["borda de controle no cartão", a.controlBorder, a.card, 3],
+	])("%s: pelo menos %s:1", (_n, fg, bg, min) => {
+		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
+	});
+
+	it.each(Object.entries(APP_STATE_COLORS))("estado %s: texto no fundo do estado é pelo menos 4,5:1", (_n, s) => {
+		expect(contrastRatio(s.fg, s.bg)).toBeGreaterThanOrEqual(4.5);
+	});
+
+	it.each(Object.entries(APP_STATE_COLORS))("estado %s: borda é pelo menos 3:1 no fundo do app", (_n, s) => {
+		expect(contrastRatio(s.border, a.background)).toBeGreaterThanOrEqual(3);
+	});
+});
+
+describe("painel admin (página clara, blocos verdes)", () => {
+	const p = ADMIN_COLORS;
+	const a = APP_COLORS;
+
+	it.each([
+		["texto na página", p.pageForeground, p.pageBackground, 7],
+		["texto secundário na página", p.pageMutedForeground, p.pageBackground, 7],
+		["texto secundário no tom claro", p.pageMutedForeground, p.pageTint, 4.5],
+		["texto secundário no botão amarelo", p.pageMutedForeground, a.primary, 4.5],
+		["texto no tom claro (hover, campo de busca)", p.pageForeground, p.pageTint, 7],
+		["erro na página", p.pageDestructive, p.pageBackground, 4.5],
+		["erro no tom claro", p.pageDestructive, p.pageTint, 4.5],
+		["texto do botão destrutivo na página", p.pageDestructiveForeground, p.pageDestructive, 4.5],
+		["texto do botão amarelo na página", a.primaryForeground, a.primary, 4.5],
+		["botão de contorno: texto verde escuro na página", p.pageForeground, p.pageBackground, 7],
+		["borda de campo na página", p.pageControlBorder, p.pageBackground, 3],
+		["borda de campo no tom claro", p.pageControlBorder, p.pageTint, 3],
+		["anel de foco na página", p.pageRing, p.pageBackground, 3],
+		["anel de foco amarelo no bloco verde", a.ring, a.card, 3],
+		["menu lateral: texto branco", a.foreground, a.background, 7],
+		["menu lateral: item ativo", a.primaryForeground, a.primary, 4.5],
+		["bloco: texto branco no cartão", a.foreground, a.card, 7],
+		["bloco: texto branco no hover de linha", a.foreground, a.cardRaised, 7],
+		["bloco: texto secundário no hover de linha", a.mutedForeground, a.cardRaised, 4.5],
+		["bloco: amarelo como texto no hover de linha", a.primary, a.cardRaised, 4.5],
+	])("%s: pelo menos %s:1", (_n, fg, bg, min) => {
+		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
+	});
+
+	it("prova que amarelo como texto na página clara NÃO tem contraste (por isso text-primary vira verde escuro)", () => {
+		expect(contrastRatio(a.primary, p.pageBackground)).toBeLessThan(2);
+	});
+
+	it("o destaque verde destaca da página clara (>= 3:1)", () => {
+		expect(contrastRatio(a.card, p.pageBackground)).toBeGreaterThanOrEqual(3);
+	});
+});
+
+describe("painel admin: cartões brancos e hero verde", () => {
+	const p = ADMIN_COLORS;
+	const a = APP_COLORS;
+
+	const rows: [string, string, string, number][] = [
+		["texto verde escuro no cartão branco", p.pageForeground, p.cardBackground, 7],
+		["texto secundário no cartão branco", p.pageMutedForeground, p.cardBackground, 7],
+		["erro no cartão branco", p.pageDestructive, p.cardBackground, 4.5],
+		["borda de campo no cartão branco", p.pageControlBorder, p.cardBackground, 3],
+		["anel de foco no cartão branco", p.pageRing, p.cardBackground, 3],
+		["ícone verde escuro no quadradinho claro", p.pageForeground, p.iconTile, 7],
+		["texto secundário no quadradinho claro", p.pageMutedForeground, p.iconTile, 4.5],
+		["segmented: texto secundário no contêiner branco", p.pageMutedForeground, p.cardBackground, 4.5],
+		["segmented: opção ativa (verde escuro no amarelo)", a.primaryForeground, a.primary, 4.5],
+		["hero: número branco no verde bloco", a.foreground, a.card, 7],
+		["hero: rótulo amarelo no verde bloco", a.primary, a.card, 4.5],
+		["hero: texto secundário no verde bloco", a.mutedForeground, a.card, 4.5],
+		["hero: foco amarelo no verde bloco", a.ring, a.card, 3],
+		...p.chart.map((hex, i): [string, string, string, number] => [`série ${i + 1} do gráfico no cartão branco (gráfico >= 3:1)`, hex, p.cardBackground, 3]),
+		["contorno âmbar da barra amarela no cartão branco", p.chart[2], p.cardBackground, 3],
+	];
+
+	it.each(rows)("%s: pelo menos %s:1", (_n, fg, bg, min) => {
+		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
+	});
+
+	it("estados claros (STATE_COLORS) leem no cartão branco: borda >= 3:1, exceto a de sucesso (decorativa)", () => {
+		for (const [name, s] of Object.entries(STATE_COLORS)) {
+			expect(contrastRatio(s.fg, s.bg), name).toBeGreaterThanOrEqual(4.5);
+			if (name !== "success") expect(contrastRatio(s.border, p.cardBackground), name).toBeGreaterThanOrEqual(3);
+		}
+	});
+
+	it("a borda fina do cartão é decorativa (< 3:1): nunca usar em campo", () => {
+		expect(contrastRatio(p.cardBorder, p.cardBackground)).toBeLessThan(3);
+	});
+
+	it("prova que o amarelo não lê sobre o cartão branco (por isso gráfico usa verde e âmbar escuro)", () => {
+		expect(contrastRatio(a.primary, p.cardBackground)).toBeLessThan(2);
+	});
+
+	it("o cartão branco destaca da página #F7F9F8 só pela borda: página e cartão são quase iguais", () => {
+		expect(contrastRatio(p.cardBackground, p.pageBackground)).toBeLessThan(1.2);
 	});
 });

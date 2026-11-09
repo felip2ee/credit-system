@@ -75,6 +75,17 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(saved.stat().st_mode), 0o600)
             self.assertFalse(list(Path(tmp).glob("credenciais*")))
 
+    def test_missing_pii_key_is_generated_and_existing_ones_are_untouched(self):
+        have = [n for n in sp.SECRET_NAMES if n != "pii_encryption_key"]
+        with tempfile.TemporaryDirectory() as tmp, DNS_OK:
+            run = server(secrets=have)
+            inst, out = installer(make_root(tmp), run)
+            inst.execute()
+            self.assertEqual([c[0][3] for c in run.ran("docker", "secret", "create")], ["pii_encryption_key"])
+            saved = Path(tmp) / "secure" / "credenciais-novos-T1-GUARDAR.txt"
+            self.assertTrue(saved.read_text().startswith("pii_encryption_key=k1:"))
+            self.assertIn("pii_encryption_key", "\n".join(out))
+
     def test_earlier_credential_file_is_never_truncated(self):
         have = [n for n in sp.SECRET_NAMES if n != "notifications_dispatch_secret"]
         with tempfile.TemporaryDirectory() as tmp, DNS_OK:

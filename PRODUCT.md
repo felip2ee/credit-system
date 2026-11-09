@@ -56,7 +56,9 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 ## Requisitos
 
 - **Moeda:** 1 crédito = R$ 1. Créditos não expiram.
-- **Gateway:** Asaas (PIX e cartão), com webhooks. A NFS-e é emitida pelo Asaas.
+- **Gateway:** Asaas (PIX e cartão em até 12x), com webhooks. A NFS-e é emitida pelo Asaas.
+- **Taxas do Asaas:** o pagador paga as taxas. O cartão repassa percentual e taxa fixa (`CARD_FEE_TABLE`). O Pix repassa a taxa fixa por cobrança (`PIX_FEE_CENTS`, hoje R$ 1,99). O saldo sobe só pela recarga. O limite de R$ 10,00 a R$ 5.000,00 vale para a recarga. Runbook: [docs/operations/payments.md](docs/operations/payments.md).
+- **Pagador:** o checkout pergunta quem paga: o dono da conta ou outra pessoa ou empresa. Cada cobrança leva o cliente Asaas de quem paga. Os dados de pagamento do dono ficam cifrados. Runbook: [docs/operations/payments.md](docs/operations/payments.md). Spec: [docs/superpowers/specs/2026-11-06-pagamento-por-pagador-design.md](docs/superpowers/specs/2026-11-06-pagamento-por-pagador-design.md).
 - **Venda online:** o cliente paga a plataforma. Ao consumir um produto, a plataforma retém o custo do Bureau. A diferença (preço de venda menos custo) vira valor a repassar. O repasse é manual.
 - **Venda de balcão:** o cliente paga o Bureau. O custo da consulta sai do saldo pré-pago do Bureau, comprado via Asaas.
 - **Reserva, captura e estorno:** o valor é reservado ao pedir. É capturado quando a consulta DEPS retorna sucesso. É liberado se a consulta falha.
@@ -68,7 +70,7 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - **Avisos no aparelho (portal):** em Conta › Notificações (`/portal/notificacoes`) o cliente liga os avisos push neste aparelho e vê como instalar o app. Sair remove o aparelho.
 - **Afiliados:** todo cliente tem um link de indicação (`/b/<slug>/cadastro?ref=<código>`). O vínculo nasce só no cadastro. A comissão é uma % da margem do Bureau (preço menos custo), definida pelo Bureau por afiliado ou como padrão. Ela nasce na captura de um pedido online. O indicado precisa ter o celular verificado. A comissão fica em carência (dias definidos pelo superadmin) e depois fica disponível. A afiliada converte o saldo em créditos ou pede saque por PIX com taxa. O superadmin paga fora do sistema e anexa o comprovante. O estorno do pedido reverte a comissão. Runbook: [docs/operations/affiliates.md](docs/operations/affiliates.md). Spec: [docs/superpowers/specs/2026-10-24-programa-de-afiliados-design.md](docs/superpowers/specs/2026-10-24-programa-de-afiliados-design.md).
 - **SCR:** consulta de terceiros exige autorização do próprio titular, com trilha auditável.
-- **Auditoria:** eventos append-only, na mesma transação da mutação. Nunca grave CPF/CNPJ completo.
+- **Auditoria:** eventos append-only, na mesma transação da mutação. CPF/CNPJ completo só fica cifrado no banco (`src/lib/pii/`; colunas de CRM em `holders` são exceção documentada). Nunca grave CPF/CNPJ completo em log, auditoria, erro ou exportação: use a forma mascarada.
 - **Segurança:** isolamento por Bureau com RLS no Postgres. Autorização é checada no servidor.
 - **Idioma:** interface em pt-BR.
 - **Notificações:** e-mail (SMTP) e WhatsApp Cloud API oficial da Meta, com templates aprovados.

@@ -18,7 +18,7 @@ export default function SuperadminSettingsPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {SECTIONS.map((s) => (
           <Link key={s.href} href={s.href}>
-            <Card className="h-full transition-colors hover:bg-muted/50">
+            <Card className="h-full transition-colors hover:bg-accent">
               <CardHeader>
                 <CardTitle className="text-lg">{s.title}</CardTitle>
                 <CardDescription>{s.description}</CardDescription>

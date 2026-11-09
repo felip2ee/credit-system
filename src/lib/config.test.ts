@@ -31,6 +31,10 @@ import {
   readDispatchDatabaseUrl,
   readNfseConfig,
   readNotificationsDispatchSecret,
+  readCardFeeConfig,
+  readPixFeeConfig,
+  PII_DEV_KEY_EXAMPLE,
+  readPiiKeyring,
   readPushConfig,
   readWebhookDatabaseUrl,
   readWhatsappConfig,
@@ -167,7 +171,6 @@ describe("readAsaasConfig", () => {
     ASAAS_DRIVER: "asaas",
     ASAAS_API_KEY: "test-api-key",
     ASAAS_API_BASE_URL: "https://api-sandbox.asaas.example",
-    ASAAS_CUSTOMER_ID: "cus_test",
     ASAAS_WEBHOOK_TOKEN: webhookToken,
   };
 
@@ -196,7 +199,7 @@ describe("readAsaasConfig", () => {
     });
   });
 
-  it.each(["ASAAS_API_KEY", "ASAAS_API_BASE_URL", "ASAAS_CUSTOMER_ID", "ASAAS_WEBHOOK_TOKEN"])(
+  it.each(["ASAAS_API_KEY", "ASAAS_API_BASE_URL", "ASAAS_WEBHOOK_TOKEN"])(
     "requires %s for the asaas driver",
     (name) => {
       expect(() => readAsaasConfig({ ...asaas, [name]: " " })).toThrow(`${name} is required`);
@@ -230,12 +233,16 @@ describe("readAsaasConfig", () => {
     );
   });
 
+  it("starts without ASAAS_CUSTOMER_ID and ignores it when set", () => {
+    expect(readAsaasConfig(asaas)).not.toHaveProperty("customerId");
+    expect(readAsaasConfig({ ...asaas, ASAAS_CUSTOMER_ID: "cus_old" })).not.toHaveProperty("customerId");
+  });
+
   it("returns the asaas settings", () => {
     expect(readAsaasConfig(asaas)).toEqual({
       driver: "asaas",
       apiKey: "test-api-key",
       baseUrl: "https://api-sandbox.asaas.example",
-      customerId: "cus_test",
       webhookToken,
     });
   });
@@ -246,7 +253,6 @@ describe("readAsaasConfig webhook token placeholder", () => {
     ASAAS_DRIVER: "asaas",
     ASAAS_API_KEY: "test-api-key",
     ASAAS_API_BASE_URL: "https://api-sandbox.asaas.example",
-    ASAAS_CUSTOMER_ID: "cus_test",
     ASAAS_WEBHOOK_TOKEN: ASAAS_WEBHOOK_TOKEN_EXAMPLE,
   };
 
@@ -491,5 +497,145 @@ describe("readPushConfig", () => {
     [{ WEB_PUSH_VAPID_SUBJECT: "http://x" }, "WEB_PUSH_VAPID_SUBJECT must start with mailto: or https://"],
   ])("rejects an invalid value %j", (override, message) => {
     expect(() => readPushConfig({ ...push, ...override })).toThrow(message);
+  });
+});
+
+describe("readPiiKeyring", () => {
+  const k1 = Buffer.alloc(32, 1).toString("base64");
+  const k2 = Buffer.alloc(32, 2).toString("base64");
+
+  it("reads the active (first) key and every key", () => {
+    const ring = readPiiKeyring({ PII_ENCRYPTION_KEY: ` k2:${k2}, k1:${k1} ` });
+    expect(ring.activeKeyId).toBe("k2");
+    expect(Array.from(ring.keys.keys())).toEqual(["k2", "k1"]);
+    expect(ring.keys.get("k1")).toEqual(Buffer.alloc(32, 1));
+  });
+
+  it("fails when empty or missing", () => {
+    expect(() => readPiiKeyring({})).toThrow("PII_ENCRYPTION_KEY is required");
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: "  " })).toThrow("PII_ENCRYPTION_KEY is required");
+  });
+
+  it.each([
+    ["no id", k1],
+    ["bad id", `K 1:${k1}`],
+    ["empty entry", `k1:${k1},`],
+    ["not base64", "k1:%%%%"],
+  ])("rejects a wrong format (%s) with a message free of the key", (_label, value) => {
+    expect.assertions(2);
+    try {
+      readPiiKeyring({ PII_ENCRYPTION_KEY: value });
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toBe("PII_ENCRYPTION_KEY must look like id:base64,id:base64");
+      expect(message).not.toContain(k1);
+    }
+  });
+
+  it("rejects a key that is not 32 bytes (31 bytes) without echoing it", () => {
+    const short = Buffer.alloc(31, 7).toString("base64");
+    expect.assertions(2);
+    try {
+      readPiiKeyring({ PII_ENCRYPTION_KEY: `k1:${short}` });
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toBe("PII_ENCRYPTION_KEY keys must have 32 bytes");
+      expect(message).not.toContain(short);
+    }
+  });
+
+  it("refuses the public .env.example dev key in production, by id and by value, and allows it elsewhere", () => {
+    const dev = `dev:${PII_DEV_KEY_EXAMPLE}`;
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: dev, NODE_ENV: "production" })).toThrow(
+      "PII_ENCRYPTION_KEY must not be the .env.example dev key",
+    );
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: `ci:${PII_DEV_KEY_EXAMPLE}`, NODE_ENV: "production" })).toThrow(
+      "must not be the .env.example dev key",
+    );
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: `dev:${k1}`, NODE_ENV: "production" })).toThrow(
+      "must not be the .env.example dev key",
+    );
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: `k2:${k2},${dev}`, NODE_ENV: "production" })).toThrow();
+    expect(readPiiKeyring({ PII_ENCRYPTION_KEY: dev, NODE_ENV: "development" }).activeKeyId).toBe("dev");
+    expect(readPiiKeyring({ PII_ENCRYPTION_KEY: dev, NODE_ENV: "test" }).activeKeyId).toBe("dev");
+    expect(readPiiKeyring({ PII_ENCRYPTION_KEY: `k1:${k1}`, NODE_ENV: "production" }).activeKeyId).toBe("k1");
+  });
+
+  it("rejects a repeated key id", () => {
+    expect(() => readPiiKeyring({ PII_ENCRYPTION_KEY: `k1:${k1},k1:${k2}` })).toThrow(
+      "PII_ENCRYPTION_KEY has a repeated key id",
+    );
+  });
+});
+
+describe("readPixFeeConfig", () => {
+  it("is zero (no fee) when empty or missing outside production", () => {
+    expect(readPixFeeConfig({})).toEqual({ feeCents: 0 });
+    expect(readPixFeeConfig({ PIX_FEE_CENTS: "  " })).toEqual({ feeCents: 0 });
+    expect(readPixFeeConfig({ NODE_ENV: "test" })).toEqual({ feeCents: 0 });
+  });
+
+  it("requires the variable in production: missing or empty fails closed, an explicit 0 is no fee", () => {
+    expect(() => readPixFeeConfig({ NODE_ENV: "production" })).toThrow("PIX_FEE_CENTS is required in production");
+    expect(() => readPixFeeConfig({ NODE_ENV: "production", PIX_FEE_CENTS: " " })).toThrow(/PIX_FEE_CENTS/);
+    expect(readPixFeeConfig({ NODE_ENV: "production", PIX_FEE_CENTS: "0" })).toEqual({ feeCents: 0 });
+    expect(readPixFeeConfig({ NODE_ENV: "production", PIX_FEE_CENTS: "199" })).toEqual({ feeCents: 199 });
+  });
+
+  it.each([
+    ["199", 199],
+    [" 199 ", 199],
+    ["0", 0],
+    ["1000", 1000],
+  ])("reads %s", (value, feeCents) => {
+    expect(readPixFeeConfig({ PIX_FEE_CENTS: value })).toEqual({ feeCents });
+  });
+
+  it.each(["-1", "1.99", "1,99", "abc", "1001", "99999", "00000"])("fails closed on %s", (value) => {
+    expect(() => readPixFeeConfig({ PIX_FEE_CENTS: value })).toThrow(/PIX_FEE_CENTS/);
+  });
+});
+
+describe("readCardFeeConfig", () => {
+  it("returns null when the table is empty or missing (card off)", () => {
+    expect(readCardFeeConfig({})).toBeNull();
+    expect(readCardFeeConfig({ CARD_FEE_TABLE: "  " })).toBeNull();
+  });
+
+  it("reads bands and the default minimum installment", () => {
+    expect(readCardFeeConfig({ CARD_FEE_TABLE: "1:2.99:49, 6:3.49:49,12:3.99:49" })).toEqual({
+      bands: [
+        { maxInstallments: 1, percent: 2.99, fixedCents: 49 },
+        { maxInstallments: 6, percent: 3.49, fixedCents: 49 },
+        { maxInstallments: 12, percent: 3.99, fixedCents: 49 },
+      ],
+      minInstallmentCents: 500,
+    });
+  });
+
+  it("reads CARD_MIN_INSTALLMENT_CENTS", () => {
+    expect(readCardFeeConfig({ CARD_FEE_TABLE: "12:3:0", CARD_MIN_INSTALLMENT_CENTS: "1000" })?.minInstallmentCents).toBe(
+      1000,
+    );
+  });
+
+  it.each([
+    ["1:2.99", "CARD_FEE_TABLE must look like maxInstallments:percent:fixedCents,..."],
+    ["a:2.99:49", "CARD_FEE_TABLE must look like maxInstallments:percent:fixedCents,..."],
+    ["1:2.999:49", "CARD_FEE_TABLE must look like maxInstallments:percent:fixedCents,..."],
+    ["1:2.99:0.5", "CARD_FEE_TABLE must look like maxInstallments:percent:fixedCents,..."],
+    ["13:2.99:49", "CARD_FEE_TABLE installments must be between 1 and 12"],
+    ["0:2.99:49", "CARD_FEE_TABLE installments must be between 1 and 12"],
+    ["6:3:0,6:4:0", "CARD_FEE_TABLE bands must have increasing installments"],
+    ["6:3:0,1:4:0", "CARD_FEE_TABLE bands must have increasing installments"],
+    ["1:100:0", "CARD_FEE_TABLE percent must be below 100"],
+  ])("rejects %s", (table, message) => {
+    expect(() => readCardFeeConfig({ CARD_FEE_TABLE: table })).toThrow(message);
+  });
+
+  it.each(["0", "-1", "5.5", "abc"])("rejects CARD_MIN_INSTALLMENT_CENTS %s", (value) => {
+    expect(() => readCardFeeConfig({ CARD_FEE_TABLE: "12:3:0", CARD_MIN_INSTALLMENT_CENTS: value })).toThrow(
+      "CARD_MIN_INSTALLMENT_CENTS must be a positive integer",
+    );
   });
 });

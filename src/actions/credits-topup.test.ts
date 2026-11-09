@@ -2,21 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const BUREAU_ID = "00000000-0000-4000-8000-0000000000b1";
 const USER_ID = "00000000-0000-4000-8000-000000000001";
+const KEY = "5f1c1d5e-3c34-4e55-9c3a-0d1b6a7c9e10";
 
 const state = vi.hoisted(() => ({
 	role: "client" as string,
+	bureauId: "00000000-0000-4000-8000-0000000000b1" as string | null,
 	sessionError: null as Error | null,
-	adapterCreate: vi.fn(),
-	reserveCharge: vi.fn(),
-	bindCharge: vi.fn(),
-	cancelCharge: vi.fn(),
-	countPending: vi.fn(),
-	lock: vi.fn(),
-	getClientWallet: vi.fn(),
-	getClientAccountStatus: vi.fn(),
+	ip: "203.0.113.7" as string | null,
+	runCheckout: vi.fn(),
 }));
 
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+vi.mock("@/lib/account/request-meta", () => ({
+	requestMeta: () => ({ ip: state.ip, userAgent: null }),
+}));
 vi.mock("@/lib/auth/session", () => ({
 	SessionAccessError: class SessionAccessError extends Error {
 		constructor(readonly code: string) {
@@ -25,264 +24,90 @@ vi.mock("@/lib/auth/session", () => ({
 	},
 	getRequiredSession: vi.fn(async () => {
 		if (state.sessionError) throw state.sessionError;
-		return {
-			userId: USER_ID,
-			role: state.role,
-			bureauId: BUREAU_ID,
-			supportSessionId: null,
-		};
+		return { userId: USER_ID, role: state.role, bureauId: state.bureauId, supportSessionId: null };
 	}),
 }));
-vi.mock("@/lib/db/transaction", () => ({
-	withUserTransaction: async (
-		_identity: unknown,
-		work: (client: unknown) => unknown,
-	) => work({}),
-}));
-vi.mock("@/lib/asaas", () => ({
-	getAsaasClient: () => ({ createPixCharge: state.adapterCreate }),
-}));
-vi.mock("@/lib/wallet/pix-charges", () => ({
-	reserveClientPixCharge: state.reserveCharge,
-	bindPixCharge: state.bindCharge,
-	cancelUnboundPixCharge: state.cancelCharge,
-	countPendingClientPixCharges: state.countPending,
-	lockClientPixCharges: state.lock,
-	MAX_PENDING_PIX_CHARGES: 10,
-}));
-vi.mock("@/lib/wallet/client-queries", () => ({
-	getClientWallet: state.getClientWallet,
-}));
+vi.mock("@/lib/payments/checkout", () => ({ runCheckout: state.runCheckout }));
 
-vi.mock("@/lib/account/queries", () => ({
-	getClientAccountStatus: state.getClientAccountStatus,
-}));
-
-import { revalidatePath } from "next/cache";
-
-import { AsaasOutcomeUnknownError } from "@/lib/asaas/client";
 import { SessionAccessError } from "@/lib/auth/session";
 
 import { requestClientTopupAction } from "./credits-topup";
 
 const NOT_ALLOWED = "Você não tem permissão para recarregar a carteira.";
-const FAILED = "Não foi possível gerar o PIX. Tente novamente.";
+const pix = { amount: "100.00", method: "PIX", payerKind: "owner", idempotencyKey: KEY };
+const card = {
+	amount: "100.00",
+	method: "CREDIT_CARD",
+	payerKind: "owner",
+	idempotencyKey: KEY,
+	installments: 3,
+	card: { number: "4242 4242 4242 4242", holderName: "Ana Souza", expiryMonth: "12", expiryYear: "2099", cvv: "123" },
+};
 
 beforeEach(() => {
 	vi.clearAllMocks();
 	state.role = "client";
+	state.bureauId = BUREAU_ID;
 	state.sessionError = null;
-	state.adapterCreate.mockResolvedValue({
-		asaasPaymentId: "pay_secret_id",
-		pixPayload: "000201pix",
-		qrImageBase64: "QUJD",
-	});
-	state.getClientWallet.mockResolvedValue({
-		available: "0.00",
-		reserved: "0.00",
-	});
-	state.getClientAccountStatus.mockResolvedValue({ emailVerified: true, phoneVerified: true });
-	state.countPending.mockResolvedValue(0);
-	state.reserveCharge.mockResolvedValue({
-		ok: true,
-		id: "charge-1",
-		expiresAt: new Date("2030-01-01T00:30:00Z"),
-	});
-	state.bindCharge.mockResolvedValue(true);
-	state.cancelCharge.mockResolvedValue(undefined);
+	state.ip = "203.0.113.7";
+	state.runCheckout.mockResolvedValue({ error: null, id: "c1", method: "PIX", pixPayload: "000201pix", qrImageBase64: "QUJD", expiresAt: "2030-01-01T00:00:00.000Z" });
 });
 
 describe("requestClientTopupAction", () => {
-	it("creates the charge for a client and returns what the QR needs, not the Asaas id", async () => {
-		const result = await requestClientTopupAction({ amount: "100.00" });
-
-		expect(result).toEqual({
-			error: null,
-			id: "charge-1",
-			pixPayload: "000201pix",
-			qrImageBase64: "QUJD",
-			expiresAt: "2030-01-01T00:30:00.000Z",
-		});
-		expect(JSON.stringify(result)).not.toContain("pay_secret_id");
-		expect(state.getClientWallet).toHaveBeenCalledWith(
-			expect.anything(),
-			USER_ID,
-		);
-		expect(state.countPending).toHaveBeenCalledWith(expect.anything(), USER_ID);
-		const reference = state.adapterCreate.mock.calls[0][0].externalReference;
-		expect(state.reserveCharge).toHaveBeenCalledWith(
-			expect.anything(),
-			expect.objectContaining({
-				userId: USER_ID,
-				role: "client",
-				bureauId: BUREAU_ID,
-			}),
-			{ externalReference: reference, amount: "100.00" },
-		);
-		expect(state.bindCharge).toHaveBeenCalledWith(expect.anything(), "charge-1", {
-			asaasPaymentId: "pay_secret_id",
-			pixPayload: "000201pix",
-		});
-		expect(revalidatePath).toHaveBeenCalledWith("/portal/credits");
-	});
-
-	it.each(["operator", "bureau_admin", "superadmin"])(
-		"denies %s before calling Asaas",
-		async (role) => {
-			state.role = role;
-
-			expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(
-				NOT_ALLOWED,
-			);
-			expect(state.adapterCreate).not.toHaveBeenCalled();
-			expect(state.reserveCharge).not.toHaveBeenCalled();
-		},
-	);
-
-	it("maps an invalid session to no permission", async () => {
-		state.sessionError = new SessionAccessError("session_required");
-
-		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(
-			NOT_ALLOWED,
-		);
-	});
-
-	it("topup is refused while the email is not verified", async () => {
-		state.getClientAccountStatus.mockResolvedValue({ emailVerified: false, phoneVerified: true });
-
-		const result = await requestClientTopupAction({ amount: "100.00" });
-
-		expect(result.error).toBe("Confirme seu e-mail antes de comprar créditos.");
-		expect(state.getClientAccountStatus).toHaveBeenCalledWith(expect.anything(), USER_ID);
-		expect(state.getClientWallet).not.toHaveBeenCalled();
-		expect(state.lock).not.toHaveBeenCalled();
-		expect(state.reserveCharge).not.toHaveBeenCalled();
-		expect(state.adapterCreate).not.toHaveBeenCalled();
-	});
-
-	it("unverified phone does not block topup", async () => {
-		state.getClientAccountStatus.mockResolvedValue({ emailVerified: true, phoneVerified: false });
-
-		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBeNull();
-		expect(state.adapterCreate).toHaveBeenCalledTimes(1);
-	});
-
-	it.each(["9.99", "5000.01", "10.005", "abc", "", "-10.00"])(
-		"rejects amount %j",
-		async (amount) => {
-			const result = await requestClientTopupAction({ amount });
-
-			expect(result.error).toBeTruthy();
-			expect(state.adapterCreate).not.toHaveBeenCalled();
-		},
-	);
-
-	it.each(["10.00", "5000.00"])(
-		"accepts the boundary amount %s",
-		async (amount) => {
-			expect((await requestClientTopupAction({ amount })).error).toBeNull();
-		},
-	);
-
-	it("returns an error and creates no Asaas charge when the client has no wallet", async () => {
-		state.getClientWallet.mockResolvedValue(null);
-
-		const result = await requestClientTopupAction({ amount: "100.00" });
-
-		expect(result.error).toBe("Carteira não encontrada. Contate o suporte.");
-		expect(state.adapterCreate).not.toHaveBeenCalled();
-		expect(state.reserveCharge).not.toHaveBeenCalled();
-	});
-
-	it("blocks a new charge at 10 pending charges and calls no Asaas", async () => {
-		state.countPending.mockResolvedValue(10);
-
-		const result = await requestClientTopupAction({ amount: "100.00" });
-
-		expect(result.error).toBe(
-			"Há PIX pendentes demais. Pague ou aguarde expirar antes de gerar outro.",
-		);
-		expect(state.adapterCreate).not.toHaveBeenCalled();
-	});
-
-	it("still allows a charge at 9 pending charges", async () => {
-		state.countPending.mockResolvedValue(9);
-
-		expect(
-			(await requestClientTopupAction({ amount: "100.00" })).error,
-		).toBeNull();
-	});
-
-	it("closes the reserved charge when the adapter fails, and binds nothing", async () => {
-		state.adapterCreate.mockRejectedValue(new Error("Asaas respondeu 500"));
-		vi.spyOn(console, "error").mockImplementation(() => {});
-
-		const result = await requestClientTopupAction({ amount: "100.00" });
-
-		expect(result.error).toBe(FAILED);
-		expect(state.cancelCharge).toHaveBeenCalledWith(expect.anything(), "charge-1");
-		expect(state.bindCharge).not.toHaveBeenCalled();
-	});
-
-	it("keeps the reserved row pending when the Asaas outcome is unknown, so a later payment still credits", async () => {
-		state.adapterCreate.mockRejectedValue(new AsaasOutcomeUnknownError("Asaas respondeu 502"));
-		vi.spyOn(console, "error").mockImplementation(() => {});
-
-		const result = await requestClientTopupAction({ amount: "100.00" });
-
-		expect(result.error).toBe(FAILED);
-		expect(state.cancelCharge).not.toHaveBeenCalled();
-		expect(state.bindCharge).not.toHaveBeenCalled();
-	});
-
-	it("still reports the failure when closing the reserved charge fails too", async () => {
-		state.adapterCreate.mockRejectedValue(new Error("Asaas respondeu 500"));
-		state.cancelCharge.mockRejectedValue(new Error("db down"));
-		vi.spyOn(console, "error").mockImplementation(() => {});
-
-		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(FAILED);
-	});
-
-	it("reports an error and skips Asaas when the reservation fails", async () => {
-		state.getClientWallet.mockRejectedValue(new Error("db down"));
-		vi.spyOn(console, "error").mockImplementation(() => {});
-
-		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(FAILED);
-		expect(state.adapterCreate).not.toHaveBeenCalled();
-	});
-
 	it.each([
-		["the bind throws", () => state.bindCharge.mockRejectedValue(new Error("db down"))],
-		["the bind refuses", () => state.bindCharge.mockResolvedValue(false)],
-	])("when %s: keeps the row pending, cancels nothing, and logs payment id and reference", async (_name, arrange) => {
-		arrange();
-		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		["amount below the minimum", { ...pix, amount: "9.99" }],
+		["missing idempotency key", { ...pix, idempotencyKey: "x" }],
+		["card method without card data", { ...pix, method: "CREDIT_CARD" }],
+		["other payer without the declaration", { ...pix, payerKind: "other" }],
+		["a Pix with installments", { ...pix, installments: 3 }],
+	])("rejects %s before the session", async (_name, body) => {
+		const result = await requestClientTopupAction(body);
 
-		expect((await requestClientTopupAction({ amount: "100.00" })).error).toBe(FAILED);
-		const reference = state.adapterCreate.mock.calls[0][0].externalReference;
-		expect(state.cancelCharge).not.toHaveBeenCalled();
-		expect(log).toHaveBeenCalledWith(expect.stringContaining("sem ligação"), {
-			chargeId: "charge-1",
-			asaasPaymentId: "pay_secret_id",
-			externalReference: reference,
-		});
+		expect(result.error).toEqual(expect.any(String));
+		expect(state.runCheckout).not.toHaveBeenCalled();
 	});
 
-	it("locks the client, checks the cap, then reserves, all before Asaas", async () => {
-		const order: string[] = [];
-		state.lock.mockImplementation(async () => void order.push("lock"));
-		state.countPending.mockImplementation(async () => (order.push("count"), 0));
-		state.reserveCharge.mockImplementation(
-			async () => (order.push("reserve"), { ok: true, id: "c", expiresAt: new Date() }),
+	it("denies a session error and roles without credits:topup", async () => {
+		state.sessionError = new SessionAccessError("session_required");
+		expect(await requestClientTopupAction(pix)).toEqual({ error: NOT_ALLOWED });
+		state.sessionError = null;
+		for (const role of ["operator", "bureau_admin", "superadmin"]) {
+			state.role = role;
+			expect(await requestClientTopupAction(pix)).toEqual({ error: NOT_ALLOWED });
+		}
+		expect(state.runCheckout).not.toHaveBeenCalled();
+	});
+
+	it("hands the client scope, the parsed input and the device IP to runCheckout", async () => {
+		const result = await requestClientTopupAction(pix);
+
+		expect(result).toMatchObject({ error: null, id: "c1" });
+		expect(state.runCheckout).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: USER_ID }),
+			{ kind: "client", clientProfileId: USER_ID },
+			expect.objectContaining({ method: "PIX", idempotencyKey: KEY }),
+			{ remoteIp: "203.0.113.7", description: "Recarga de créditos" },
 		);
-		state.adapterCreate.mockImplementation(async () => {
-			order.push("asaas");
-			return { asaasPaymentId: "p", pixPayload: "x", qrImageBase64: "y" };
-		});
+	});
 
-		await requestClientTopupAction({ amount: "100.00" });
+	it("never forwards a client-sent total", async () => {
+		await requestClientTopupAction({ ...card, total: "1.00", totalCents: 100, feeAmount: "0.00" });
 
-		expect(order).toEqual(["lock", "count", "reserve", "asaas"]);
-		expect(state.lock).toHaveBeenCalledWith(expect.anything(), USER_ID);
+		const input = state.runCheckout.mock.calls[0][2];
+		expect(input).not.toHaveProperty("total");
+		expect(input).not.toHaveProperty("totalCents");
+		expect(input).not.toHaveProperty("feeAmount");
+		expect(input.card.number).toBe("4242424242424242");
+	});
+
+	it("refuses a card charge when the request has no valid device IP, and still allows Pix", async () => {
+		state.ip = null;
+
+		const refused = await requestClientTopupAction(card);
+		const allowed = await requestClientTopupAction(pix);
+
+		expect(refused.error).toMatch(/conexão/);
+		expect(allowed.error).toBeNull();
+		expect(state.runCheckout).toHaveBeenCalledTimes(1);
 	});
 });

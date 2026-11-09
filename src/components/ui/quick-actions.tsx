@@ -25,7 +25,7 @@ export function QuickAction({ icon: Icon, label, href, onClick, active = false }
         aria-hidden
         className={cn(
           "flex size-14 items-center justify-center rounded-hero transition-transform group-active:scale-95 motion-reduce:group-active:scale-100",
-          active ? "bg-primary text-primary-foreground" : "bg-muted text-primary",
+          active ? "bg-primary text-primary-foreground" : "bg-card text-primary border border-border",
         )}
       >
         <Icon className="size-6" />

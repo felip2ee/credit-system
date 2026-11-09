@@ -19,7 +19,7 @@ npm run dev
 
 Depois:
 
-1. Edite `.env.local`. O `.env.local.example` traz os valores de dev. O `.env.example` lista todas as variáveis, inclusive as de produção (Asaas, NFS-e, webhooks). Preencha SMTP, DEPS e OpenAI só se for usar.
+1. Edite `.env.local`. O `.env.local.example` traz os valores de dev. O `.env.example` lista todas as variáveis, inclusive as de produção (Asaas, NFS-e, webhooks). Preencha SMTP, DEPS e OpenAI só se for usar. Para cartão e Pix, `.env.local.example` traz `CARD_FEE_TABLE`, `PIX_FEE_CENTS` e uma `PII_ENCRYPTION_KEY` de dev. A chave de dev é pública: não a use fora de dev. Ver [operations/payments.md](operations/payments.md).
 2. Defina `SUPERADMIN_EMAIL` e `SUPERADMIN_PASSWORD` (12 a 128 caracteres). Na primeira subida com banco vazio, o app cria o superadmin.
 3. Abra http://localhost:3000. Entre com essas credenciais. Configure o MFA no primeiro login.
 
@@ -74,3 +74,9 @@ Leia [AGENTS.md](../AGENTS.md). [CLAUDE.md](../CLAUDE.md) importa as mesmas inst
 - **Sintoma:** `npm run test` falha em `*.integration.test.ts`.
   **Causa:** o Postgres de dev não está no ar ou as variáveis de teste faltam.
   **Correção:** suba o Compose e defina `TEST_DATABASE_URL` e `TEST_DATABASE_OWNER_URL` como na CI.
+- **Sintoma:** a opção de cartão não aparece no checkout.
+  **Causa:** `CARD_FEE_TABLE` vazia (cartão desligado).
+  **Correção:** defina `CARD_FEE_TABLE` como em `.env.local.example`. Ver [operations/payments.md](operations/payments.md).
+- **Sintoma:** a recarga falha com "Pagamento indisponível. Contate o suporte.".
+  **Causa:** `PII_ENCRYPTION_KEY` ausente ou inválida.
+  **Correção:** confira o formato em [setup.md](setup.md) e o runbook [operations/payments.md](operations/payments.md).

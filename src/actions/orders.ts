@@ -9,14 +9,19 @@ import { config } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { toE164 } from "@/lib/notifications/recipient";
-import { ORDER_FAILED, STAFF_ORDER_MESSAGES } from "@/lib/orders/failure-messages";
+import { CONTACT_SEND_PENDING, CONTACT_UPDATED_AWAITING_PAYMENT, ORDER_FAILED, STAFF_ORDER_MESSAGES, UPDATE_CONTACT_MESSAGES } from "@/lib/orders/failure-messages";
 import { runOrderNow, type RunOutcome } from "@/lib/orders/execute";
+import { updateOrderContact } from "@/lib/orders/contact";
+import { issueRequest } from "@/lib/orders/issue-request";
 import { cancelOrder, placeOrder, releaseDelivery, revokeDelivery } from "@/lib/orders/queries";
-import { counterOrderSchema, orderIdSchema, revokeSchema } from "@/lib/validators/order";
+import { readScrTermSettings } from "@/lib/settings/readers";
+import { counterOrderSchema, orderIdSchema, revokeSchema, updateOrderContactSchema } from "@/lib/validators/order";
 
 export interface ActionResult {
 	error: string | null;
 	id?: string;
+	// Texto de sucesso quando o resultado não é o padrão da tela.
+	notice?: string;
 }
 
 const NOT_ALLOWED = "Ação não permitida.";
@@ -41,8 +46,8 @@ function logFailure(step: string, detail: unknown): void {
 	console.error(`[orders] ${step} falhou`, meta);
 }
 
-function failureOf(step: string, reason: string): ActionResult {
-	const message = STAFF_ORDER_MESSAGES[reason];
+function failureOf(step: string, reason: string, messages: Record<string, string> = STAFF_ORDER_MESSAGES): ActionResult {
+	const message = messages[reason];
 	if (!message) logFailure(step, reason);
 	return { error: message ?? ORDER_FAILED };
 }
@@ -149,4 +154,45 @@ export async function revokeOrderAction(values: unknown): Promise<ActionResult> 
 	return transitionOrder("revokeOrderAction", parsed.data.dossierId, (client, session) =>
 		revokeDelivery(client, session, parsed.data.dossierId, parsed.data.reason),
 	);
+}
+
+// Troca (ou só reenvia) o contato de um membro cujo pedido ainda espera a autorização SCR. O link antigo deixa de valer na
+// mesma transação. Em awaiting_authorization o envio do novo vem logo depois e, se falhar, o tick envia na próxima rodada;
+// em awaiting_payment só o contato é gravado e a autorização sai depois do pagamento.
+export async function updateOrderContactAction(values: unknown): Promise<ActionResult> {
+	const parsed = updateOrderContactSchema.safeParse(values);
+	if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? NOT_ALLOWED };
+
+	const auth = await requireStaffWriter();
+	if ("error" in auth) return auth;
+
+	const phoneE164 = parsed.data.contactPhone === null ? null : toE164(parsed.data.contactPhone);
+	if (parsed.data.contactPhone !== null && !phoneE164) return { error: INVALID_PHONE };
+
+	const { dossierId, consultationId, contactEmail } = parsed.data;
+	try {
+		const result = await withUserTransaction(auth.session, (client) =>
+			updateOrderContact(client, { dossierId, consultationId, email: contactEmail, phoneE164 }),
+		);
+		if (!result.ok) return failureOf("updateOrderContactAction", result.reason, UPDATE_CONTACT_MESSAGES);
+		revalidatePath(`/dossiers/${dossierId}`);
+		if (result.deferred) return { error: null, id: dossierId, notice: CONTACT_UPDATED_AWAITING_PAYMENT };
+		if (!result.request) return { error: null, id: dossierId };
+		try {
+			const term = await readScrTermSettings(auth.session);
+			const issued = await issueRequest(auth.session, result.request, term, config.betterAuthUrl.replace(/\/$/, ""));
+			// superseded: outra troca de contato veio depois e é ela que envia o link.
+			if (!issued.ok && issued.reason !== "superseded") {
+				logFailure("updateOrderContactAction.issue", issued.reason);
+				return { error: CONTACT_SEND_PENDING, id: dossierId };
+			}
+		} catch (error) {
+			logFailure("updateOrderContactAction.issue", error);
+			return { error: CONTACT_SEND_PENDING, id: dossierId };
+		}
+		return { error: null, id: dossierId };
+	} catch (error) {
+		logFailure("updateOrderContactAction", error);
+		return { error: ORDER_FAILED };
+	}
 }

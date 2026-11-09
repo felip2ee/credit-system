@@ -19,6 +19,18 @@ class StackVarMessages(unittest.TestCase):
         # O provider swarm expõe tudo por padrão: os 5 serviços internos precisam de traefik.enable=false.
         self.assertEqual(text.count("traefik.enable=false"), 5)
 
+    def test_pii_key_is_a_secret_not_an_env_var(self) -> None:
+        text = STACK.read_text(encoding="utf-8")
+        self.assertIn("PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key", text)
+        self.assertNotRegex(text, r"(?m)^\s+PII_ENCRYPTION_KEY:")
+        self.assertIn("pii_encryption_key: { external: true }", text)
+        self.assertEqual(text.count("ASAAS_CUSTOMER_ID"), 0)
+
+    def test_asaas_fee_vars_reach_the_app(self) -> None:
+        text = STACK.read_text(encoding="utf-8")
+        self.assertIn("CARD_FEE_TABLE: ${CARD_FEE_TABLE:-}", text)
+        self.assertIn("PIX_FEE_CENTS: ${PIX_FEE_CENTS:?", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatCents, pixQrNote } from "@/components/payments/checkout-summary";
+import type { ChargeSummary } from "@/lib/wallet/pix-fees";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
@@ -15,12 +17,13 @@ const POLL_MS = 5000;
 
 interface PendingChargeButtonProps {
   pixPayload: string;
+  summary?: ChargeSummary;
   // Abre já na carga da página: é o PIX recém-gerado (?pix=<id>).
   defaultOpen?: boolean;
 }
 
 // PIX de uma cobrança pendente: o QR é refeito a partir do código copia e cola guardado.
-export function PendingChargeButton({ pixPayload, defaultOpen = false }: PendingChargeButtonProps) {
+export function PendingChargeButton({ pixPayload, summary, defaultOpen = false }: PendingChargeButtonProps) {
   const router = useRouter();
   const [open, setOpen] = useState(defaultOpen);
   const [qr, setQr] = useState<string | null>(null);
@@ -74,6 +77,13 @@ export function PendingChargeButton({ pixPayload, defaultOpen = false }: Pending
       </button>
       <Dialog open={open} onClose={close} title="PIX aguardando pagamento">
         <div className="space-y-4">
+          {summary && (
+            <div className="text-center" aria-live="polite">
+              <p className="text-sm text-muted-foreground">Valor a pagar</p>
+              <p className="text-2xl font-bold">{formatCents(summary.totalCents)}</p>
+              {pixQrNote(summary) && <p className="text-xs text-muted-foreground">{pixQrNote(summary)}</p>}
+            </div>
+          )}
           {qr && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={qr} alt="QR Code do PIX" className="mx-auto size-52" />

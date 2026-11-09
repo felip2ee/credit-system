@@ -164,10 +164,10 @@ describe("nfse_charge_by_payment (app_webhook)", () => {
 		const { tenant, charge } = await setup();
 		const refunded = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.bureauAdmin.userId, status: "refunded", amount: "50.00" });
 
-		expect(await findNfseChargeByPayment(charge.asaasPaymentId)).toEqual({ chargeId: charge.id, amount: "100.00", invoiceId: null });
+		expect(await findNfseChargeByPayment(charge.asaasPaymentId)).toEqual({ chargeId: charge.id, amount: "100.00", invoiceId: null, installmentId: null });
 		expect(await findNfseChargeByPayment(refunded.asaasPaymentId)).toBeNull();
 		const raw = await getWebhookPool().query("select * from nfse_charge_by_payment($1)", [charge.asaasPaymentId]);
-		expect(raw.fields.map((f) => f.name)).toEqual(["charge_id", "amount", "asaas_invoice_id"]);
+		expect(raw.fields.map((f) => f.name)).toEqual(["charge_id", "amount", "asaas_invoice_id", "asaas_installment_id"]);
 	});
 
 	it("finds nothing for an unpaid charge or an unknown payment", async () => {
@@ -192,9 +192,9 @@ describe("nfse_charge_payment (superadmin)", () => {
 		const { superadmin, charge } = await setup();
 		await setNfseStatus(charge.id, "failed");
 
-		expect(await findNfseRetryTarget(superadmin, charge.id)).toEqual({ asaasPaymentId: charge.asaasPaymentId, amount: "100.00" });
+		expect(await findNfseRetryTarget(superadmin, charge.id)).toEqual({ asaasPaymentId: charge.asaasPaymentId, amount: "100.00", installmentId: null });
 		await requestNfseRetry(superadmin, charge.id);
-		expect(await findNfseRetryTarget(superadmin, charge.id)).toEqual({ asaasPaymentId: charge.asaasPaymentId, amount: "100.00" });
+		expect(await findNfseRetryTarget(superadmin, charge.id)).toEqual({ asaasPaymentId: charge.asaasPaymentId, amount: "100.00", installmentId: null });
 	});
 
 	it("gives nothing for a charge that is not failed or retried, or an unknown charge", async () => {

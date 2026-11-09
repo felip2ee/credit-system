@@ -12,9 +12,9 @@ interface AccountLinkProps {
 
 function AccountLink({ href, icon: Icon, label }: AccountLinkProps) {
 	return (
-		<Button asChild variant="ghost" className="h-14 w-full justify-start gap-3 rounded-card border border-brand-gold-light bg-brand-cream px-3 text-cta-foreground hover:bg-brand-gold-light hover:text-cta-foreground">
+		<Button asChild variant="ghost" className="h-14 w-full justify-start gap-3 rounded-card border border-input bg-card px-3 text-foreground hover:bg-accent hover:text-foreground">
 			<Link href={href}>
-				<span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-gold">
+				<span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
 					<Icon aria-hidden />
 				</span>
 				{label}

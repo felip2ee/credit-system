@@ -11,6 +11,8 @@ import { formatCNPJ, formatCPF } from "@/lib/utils";
 export interface Buyer {
   profileId: string;
   name: string;
+  // Documento do Titular escolhido (pesquisa própria).
+  document: string;
 }
 
 interface BuyerPickerProps {
@@ -76,10 +78,10 @@ export function BuyerPicker({ value, onChange, disabled }: BuyerPickerProps) {
                     type="button"
                     onClick={() => {
                       if (!h.clientProfileId) return;
-                      onChange({ profileId: h.clientProfileId, name: h.name });
+                      onChange({ profileId: h.clientProfileId, name: h.name, document: h.document });
                       setTerm("");
                     }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
                   >
                     <span className="font-medium">{h.name}</span>
                     <span className="text-muted-foreground">

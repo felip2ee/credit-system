@@ -8,7 +8,7 @@ export interface LegalDocumentViewProps {
 
 export function LegalDocumentView({ document }: LegalDocumentViewProps) {
   return (
-    <article className="space-y-3 rounded-card bg-background p-5 sm:p-8">
+    <article className="space-y-3 rounded-card border border-border bg-card p-5 sm:p-8">
       <h1 className="text-3xl font-bold">{document.title}</h1>
       <p className="text-base text-muted-foreground">
         Versão {document.version} · publicada em {formatDate(document.publishedAt)}

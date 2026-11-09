@@ -33,6 +33,16 @@ export type OpenOrderFailure =
 	| "buyer_not_found"
 	| "too_many_requests"
 	| "too_many_orders";
+// Motivos de update_order_contact (044): correção do contato do pedido de autorização SCR.
+export type UpdateContactFailure =
+	| "not_allowed"
+	| "invalid_input"
+	| "not_found"
+	| "invalid_state"
+	| "contact_is_buyer"
+	| "too_many_requests"
+	| "resend_too_soon"
+	| "contact_limit_reached";
 export type OpenOrderInput = {
 	productCode: OrderProductCode;
 	self: boolean;

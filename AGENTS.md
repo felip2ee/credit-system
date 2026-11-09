@@ -51,7 +51,7 @@ Use these exact commands. Do not invent scripts.
 
 - Data access: raw SQL through the shared `pg` Pool. No ORM. Run each query in `withUserTransaction({ userId, role }, fn)` (sets the RLS context). Never let a `PoolClient` leave a queries module.
 - Validate input with zod (`src/lib/validators/`). Use parameterized SQL only.
-- Write an audit event in the same transaction as each mutation. Never store a full CPF/CNPJ.
+- Write an audit event in the same transaction as each mutation. Store a full CPF/CNPJ only encrypted at rest, through `src/lib/pii/` (existing CRM columns in `holders` are the documented exception). Never put a full CPF/CNPJ in logs, audit metadata, error messages or exports: use the masked form.
 - Migrations: `db/migrations/NNN_snake_case.sql`. Never edit an applied migration. Never reintroduce Supabase.
 - Log with `console`. The project has no logger. Do not log secrets or full request bodies.
 - UI strings, errors and comments are in pt-BR.

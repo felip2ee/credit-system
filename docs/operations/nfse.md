@@ -1,6 +1,6 @@
 # NFS-e (nota fiscal de serviço) pelo Asaas
 
-> **AVISO FISCAL (decisão D3).** A plataforma emite uma nota para todo PIX confirmado: recarga do Bureau e recarga do cliente.
+> **AVISO FISCAL (decisão D3).** A plataforma emite uma nota para todo pagamento confirmado (PIX ou cartão): recarga do Bureau e recarga do cliente.
 > Esse tratamento pode estar errado se a receita da plataforma nascer só no consumo do crédito.
 > **O contador deve validar o tratamento fiscal antes do deploy.** Não preencha as variáveis abaixo antes dessa validação.
 > Sem as variáveis, a plataforma não agenda nota e registra `not_requested`.
@@ -40,10 +40,18 @@ Todas são lidas sob demanda. Nenhuma é obrigatória para o sistema subir.
 4. Cadastre o **serviço municipal**. Escolha o código de serviço (LC 116/2003) e a alíquota de ISS.
 5. Anote o id do serviço (ou o código). Use o nome exato do serviço cadastrado em `NFSE_MUNICIPAL_SERVICE_NAME`.
 6. Confirme se a prefeitura aceita emissão pelo Asaas. Se aceitar o Portal Nacional, use o código em `NFSE_MUNICIPAL_SERVICE_CODE`.
-7. Valide com o contador: (a) emitir nota na recarga está correto; (b) o código de serviço; (c) a alíquota; (d) a retenção de ISS.
+7. Valide com o contador: (a) emitir nota na recarga está correto; (b) o código de serviço; (c) a alíquota; (d) a retenção de ISS; (e) a nota de cartão e a de Pix usam o total cobrado do pagador, com a taxa repassada. **Pendente do contador:** a nota do Pix passou a sair por recarga + taxa do Pix (por exemplo, R$ 101,99 para uma recarga de R$ 100,00), igual ao cartão. Antes saía só pela recarga.
 8. Cadastre o webhook de notas no Asaas, com o mesmo endereço e o mesmo token do webhook de pagamentos (`/api/webhooks/asaas`).
    Marque os eventos `INVOICE_AUTHORIZED`, `INVOICE_ERROR`, `INVOICE_UPDATED` e `INVOICE_SYNCHRONIZED`.
 9. Entregue ao time técnico: id (ou código), nome, descrição, alíquota e retenção.
+
+## Tomador e valor da nota
+
+- **Tomador:** o cliente Asaas de quem pagou. A nota sai no nome e no CPF/CNPJ do pagador. Regra de cliente: [payments.md](payments.md).
+- **Endereço:** CEP e número do pagador vão ao cliente Asaas. Com a NFS-e ligada, o Pix também exige esses campos. Ver [payments.md](payments.md).
+- **Valor:** Pix e cartão usam `coalesce(total_charged, amount)`, o total que o pagador pagou. No Pix sem taxa o total é o próprio `amount`. Com taxa (`PIX_FEE_CENTS`), é recarga + taxa. O contador valida esta regra (passo 7). Ver [payments.md](payments.md) para a taxa.
+- **Parcelado:** uma nota para o parcelamento inteiro, com o id do parcelamento (`installment` em `POST /v3/invoices`), se a API aceitar. Se não aceitar, a nota sai na primeira parcela, com o total.
+- **Cobranças antigas:** ver [payments.md](payments.md).
 
 ## Teste antes de ligar em produção
 
@@ -61,6 +69,7 @@ Conferido em 2026-10-14. Estes pontos só a prova real confirma (item `post-depl
 - Quais subcampos de `taxes` a prefeitura exige. A plataforma envia `retainIss` e `iss`.
 - Se o campo `observations` pode ir vazio.
 - Se o id do serviço municipal serve a todas as prefeituras. O código é a alternativa.
+- Se `POST /v3/invoices` aceita `installment` (nota de parcelamento).
 - Se os eventos de nota trazem `invoice.externalReference`. A plataforma não depende dele: casa a nota pelo pagamento (`invoice.payment`).
 
 ## Operação

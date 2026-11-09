@@ -72,7 +72,8 @@ export async function resolveScrContact(identity: DbIdentity, id: string) {
   });
 }
 
-export type IssueSelfScrResult = { ok: true } | { ok: false; reason: "not_found" | EnqueueFailure };
+// superseded: o contato ou o link mudou depois da leitura do chamador; nada foi gravado nem enfileirado.
+export type IssueSelfScrResult = { ok: true } | { ok: false; reason: "not_found" | "superseded" | EnqueueFailure };
 
 // ScrIssueIsAtomic: o erro derruba a transação, então o auth_code antigo continua valendo.
 class ScrEnqueueError extends Error {
@@ -86,6 +87,9 @@ export async function issueSelfScrAuthorization(
     code: string; email: string; consentText: string; consentName: string; consentDocument: string;
     notification: { recipient: string; clientName: string; authorizedName: string; siteUrl: string; phone?: string | null };
   },
+  // Pedido de autorização de um pedido: só emite se ainda é o que o chamador leu (pendente, sem código, mesmo token e
+  // e-mail). Sem isso, uma troca de contato concorrente seria desfeita e o link iria para o e-mail antigo.
+  expected?: { publicToken: string },
 ): Promise<IssueSelfScrResult> {
   const phone = input.notification.phone ? toE164(input.notification.phone) : null;
   if (input.notification.phone && !phone) return { ok: false, reason: "invalid_recipient" };
@@ -96,10 +100,11 @@ export async function issueSelfScrAuthorization(
          consent_text=$4,consent_name=$5,consent_document=$6,status='pending',requested_at=now(),
          last_checked_at=now(),authorized_at=null,consented_at=null,refused_at=null,
          request_expires_at=now() + interval '7 days',phone_e164=coalesce($7,phone_e164)
-         where id=$1 returning public_token::text,requested_at::text`,
-        [id, input.code, input.email, input.consentText, input.consentName, input.consentDocument, phone]);
+         where id=$1 and ($8::uuid is null or (status='pending' and auth_code is null and public_token=$8::uuid and email=$3))
+         returning public_token::text,requested_at::text`,
+        [id, input.code, input.email, input.consentText, input.consentName, input.consentDocument, phone, expected?.publicToken ?? null]);
       const row = rows[0];
-      if (!row) return { ok: false, reason: "not_found" };
+      if (!row) return { ok: false, reason: expected ? "superseded" : "not_found" };
       // Reemissão: o e-mail antigo ainda na fila traria um código que já não vale.
       await client.query("select supersede_notifications($1, $2)", ["scr_authorization", `scr_authorization:${id}`]);
       const { recipient, clientName, authorizedName, siteUrl } = input.notification;

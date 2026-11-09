@@ -47,7 +47,7 @@ export function MobileNav({ items, permissions = [], signOutAction }: MobileNavP
       <Button
         type="button"
         variant="outline"
-        className="min-h-11 min-w-11"
+        className="min-w-10"
         aria-expanded={open}
         aria-controls="mobile-nav-drawer"
         onClick={() => setOpen(true)}
@@ -64,14 +64,14 @@ export function MobileNav({ items, permissions = [], signOutAction }: MobileNavP
         onClick={(e) => e.target === ref.current && setOpen(false)}
         className="m-0 mr-auto h-full max-h-none w-72 max-w-[85vw] bg-sidebar p-0 text-sidebar-foreground backdrop:bg-ink/60"
       >
-        <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
+        <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-4">
           <span className="text-lg font-bold">{BRAND_NAME}</span>
           <Button
             type="button"
             variant="ghost"
             size="icon"
             aria-label="Fechar menu"
-            className="min-h-11 min-w-11 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             onClick={() => setOpen(false)}
           >
             <X aria-hidden />
@@ -86,10 +86,10 @@ export function MobileNav({ items, permissions = [], signOutAction }: MobileNavP
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex min-h-11 items-center rounded-full px-4 py-2 text-base font-bold",
+                  "flex min-h-10 items-center rounded-full px-3.5 py-2 text-sm font-bold",
                   active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
               >
                 {item.label}
@@ -101,9 +101,9 @@ export function MobileNav({ items, permissions = [], signOutAction }: MobileNavP
           <form action={signOutAction} className="border-t border-sidebar-border p-3">
             <button
               type="submit"
-              className="flex min-h-11 w-full items-center gap-3 rounded-full px-4 py-2 text-base font-bold text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+              className="flex min-h-10 w-full items-center gap-2.5 rounded-full px-3.5 py-2 text-sm font-bold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             >
-              <LogOut aria-hidden className="h-5 w-5" />
+              <LogOut aria-hidden className="size-[18px]" />
               Sair
             </button>
           </form>

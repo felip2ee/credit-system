@@ -15,11 +15,11 @@ export default async function PortalOnboardingLayout({ children }: { children: R
   if (status.termsAccepted) redirect("/portal");
 
   return (
-    <div className="area-portal flex min-h-screen flex-col bg-surface">
+    <div className="area-portal flex min-h-screen flex-col bg-background">
       <IdleTimeout />
       <header className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-screen py-3">
-          <BrandLogo variant="full" />
+          <BrandLogo variant="full" tone="light" />
           <PortalSignOutButton variant="outline" className="h-10 w-auto" />
         </div>
       </header>

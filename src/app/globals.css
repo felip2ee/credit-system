@@ -3,57 +3,63 @@
 @tailwind utilities;
 
 @layer base {
-  /* Identidade Rainha Cred (verde profundo + dourado). Valores em hex espelhados em src/lib/brand/tokens.ts.
-     Dourado #CFA968 só em fundo de CTA (texto #2A1F0A), faixa escura e destaque; texto, links e foco usam --primary (#0A3329). */
+  /* Identidade Rainha Cred: verde escuro de fundo + amarelo forte de destaque; branco só em texto corrido.
+     Valores em hex espelhados em APP_COLORS (src/lib/brand/tokens.ts). Um único vermelho, só para erro e ação destrutiva. */
   :root {
-    --background: 40 53% 97%;              /* #FBF8F2, fundo quente (cartões ficam brancos) */
-    --foreground: 166 45% 13%;             /* #123029 */
-    --card: 0 0% 100%;
-    --card-foreground: 166 45% 13%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 166 45% 13%;
-    --primary: 165 67% 12%;                /* #0A3329, verde profundo: links, foco, cartão de saldo */
-    --primary-foreground: 0 0% 100%;
-    --cta: 38 52% 61%;                     /* #CFA968, fundo do botão principal */
-    --cta-foreground: 39 62% 10%;          /* #2A1F0A */
-    --cta-hover: 39 63% 74%;               /* #E6C891 */
-    --secondary: 39 57% 90%;               /* #F4EAD7 */
-    --secondary-foreground: 166 45% 13%;
-    --muted: 41 36% 91%;                   /* #F1ECE1 */
-    --muted-foreground: 166 23% 26%;       /* #33514A */
-    --accent: 39 57% 90%;                  /* creme #F4EAD7 */
-    --accent-foreground: 166 45% 13%;
-    --destructive: 4 76% 31%;              /* #8A1C14 */
-    --destructive-foreground: 0 0% 100%;
-    --border: 41 28% 85%;                  /* #E3DCCD, borda plana de cartão (decorativa) */
-    --input: 146 7% 53%;                   /* #7F8F86, borda de controle >= 3:1 */
-    --ring: 165 67% 12%;                   /* anel de foco #0A3329, >= 3:1 */
-    --surface: 40 48% 94%;                 /* #F7F2E8, seção alternada */
-    --brand-soft: 39 57% 90%;              /* #F4EAD7, tag positiva e item ativo */
-    --brand-soft-foreground: 167 77% 8%;   /* #05261F */
-    --ink: 166 45% 13%;                    /* #123029, botão escuro */
-    --brand-deep: 167 77% 8%;              /* #05261F, faixa escura e barra lateral */
-    --brand-gold: 38 52% 61%;              /* #CFA968 */
-    --brand-gold-light: 39 63% 74%;        /* #E6C891 */
-    --brand-cream: 39 57% 90%;             /* #F4EAD7 */
-    --money-in-bg: 150 27% 91%;            /* #E3EFE9, tag de entrada (igual ao sucesso) */
-    --money-in-fg: 165 67% 12%;            /* #0A3329 */
-    --money-out-bg: 7 76% 93%;             /* #FBE4E1, tag de gasto */
-    --money-out-fg: 4 75% 31%;             /* #8A1C14 */
-    --money-void-bg: 45 11% 93%;           /* #EEEDEA, tag de cancelado ou sem efeito no saldo */
-    --money-void-fg: 215 14% 34%;          /* #4B5563 */
+    --background: 167 77% 8%;              /* #05261F, fundo dominante */
+    --foreground: 0 0% 100%;               /* #FFFFFF, texto corrido */
+    --card: 165 68% 14%;                   /* #0B3A2E, superfície elevada (cartão, tabela, campo) */
+    --card-foreground: 0 0% 100%;
+    --popover: 165 68% 14%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 46 100% 50%;                /* #FFC400, amarelo: botão, link, foco, número */
+    --primary-foreground: 167 77% 8%;      /* #05261F */
+    --cta: 46 100% 50%;                    /* #FFC400, igual ao primary */
+    --cta-foreground: 167 77% 8%;
+    --cta-hover: 45 100% 44%;              /* #E0A800 */
+    --secondary: 165 68% 14%;              /* #0B3A2E */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 165 68% 14%;                  /* #0B3A2E */
+    --muted-foreground: 156 22% 77%;       /* #B9D2C8, 10:1 no fundo, 7,9:1 no cartão */
+    --accent: 165 56% 18%;                 /* #14473A, hover e item ativo */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 100% 72%;             /* #FF7A70, único fora da paleta: erro e destrutivo */
+    --destructive-foreground: 167 77% 8%;  /* #05261F, 6,3:1 */
+    --border: 162 49% 24%;                 /* #1F5A48, borda plana de cartão (decorativa) */
+    --input: 160 24% 48%;                  /* #5E9985, borda de controle >= 3:1 */
+    --ring: 46 100% 50%;                   /* #FFC400 */
+    --link: 46 100% 50%;                   /* #FFC400, texto/borda amarelos (.theme-admin troca na página clara) */
+    --surface: 165 68% 14%;                /* #0B3A2E, seção alternada */
+    --brand-soft: 165 56% 18%;             /* #14473A, tag positiva e item ativo */
+    --brand-soft-foreground: 0 0% 100%;
+    --ink: 165 68% 14%;                    /* #0B3A2E, botão escuro */
+    --brand-deep: 167 77% 8%;              /* #05261F */
+    --brand-gold: 46 100% 50%;             /* #FFC400 (nome antigo, aponta ao amarelo) */
+    --brand-gold-light: 45 100% 44%;       /* #E0A800 (nome antigo, aponta ao hover) */
+    --brand-cream: 165 56% 18%;            /* #14473A (nome antigo, aponta ao verde claro) */
+    --money-in-bg: 165 56% 18%;            /* #14473A, tag de entrada */
+    --money-in-fg: 46 100% 50%;            /* #FFC400 */
+    --money-out-bg: 0 45% 16%;             /* #3D1717, tag de gasto */
+    --money-out-fg: 5 100% 78%;            /* #FF9A90 */
+    --money-void-bg: 165 56% 18%;          /* #14473A, tag de cancelado */
+    --money-void-fg: 156 22% 77%;          /* #B9D2C8 */
     --radius: 0.75rem;                     /* 12 px: cartão (lg); md 10, sm 8 */
-    --shadow-low: 0 1px 3px rgba(5, 38, 31, 0.08);
-    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);
-    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.12);
+    --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.5);
     --sidebar: 167 77% 8%;                 /* #05261F */
-    --sidebar-foreground: 39 57% 90%;      /* #F4EAD7 */
-    --sidebar-primary: 38 52% 61%;         /* #CFA968, item ativo */
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 46 100% 50%;        /* #FFC400, item ativo */
     --sidebar-primary-foreground: 167 77% 8%;
-    --sidebar-accent: 165 67% 12%;         /* #0A3329 */
-    --sidebar-accent-foreground: 39 57% 90%;
-    --sidebar-border: 166 45% 20%;         /* #1C4A3F */
-    --sidebar-ring: 38 52% 61%;
+    --sidebar-accent: 165 68% 14%;         /* #0B3A2E */
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 162 49% 24%;         /* #1F5A48 */
+    --sidebar-ring: 46 100% 50%;
+    --chart-1: 46 100% 50%;                /* #FFC400 */
+    --chart-2: 156 22% 77%;                /* #B9D2C8 */
+    --chart-3: 45 100% 44%;                /* #E0A800 */
+    --chart-4: 160 24% 48%;                /* #5E9985 */
+    --chart-5: 0 0% 100%;
   }
 }
 
@@ -69,6 +75,9 @@
   h3 {
     @apply font-heading;
   }
+  html {
+    color-scheme: dark;
+  }
   body {
     @apply bg-background text-foreground;
     line-height: 1.5;
@@ -81,6 +90,107 @@
   /* Portal do cliente e páginas públicas: base 18 px. */
   .area-portal {
     font-size: 1.125rem;
+  }
+}
+
+/* Painel do Bureau e Superadmin (.theme-admin): página CLARA, cartões BRANCOS, destaques VERDES.
+   Fora dos destaques valem as variáveis claras abaixo: bg-card é branco (#FFFFFF), borda #D5E3DC, texto verde escuro.
+   Destaque escuro (hero, menu lateral, no máximo um por tela): <Card variant="dark"> ou a classe .card-dark; também
+   bg-sidebar, bg-ink, bg-secondary e .on-dark. Eles re-declaram as variáveis escuras de :root,
+   então texto, campos, bordas, anel e gráficos dentro deles ficam como no tema escuro. Escala compacta: variante
+   `admin:` do Tailwind (tailwind.config.ts). Hex de referência em ADMIN_COLORS (src/lib/brand/tokens.ts). */
+@layer base {
+  .theme-admin {
+    color-scheme: light;
+    color: hsl(var(--foreground));
+    --background: 150 14% 97%;             /* #F7F9F8, fundo da página */
+    --foreground: 167 77% 8%;              /* #05261F */
+    --card: 0 0% 100%;                     /* #FFFFFF, cartão padrão */
+    --card-foreground: 167 77% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 167 77% 8%;
+    --muted: 150 27% 91%;                  /* #E3EFE9, campo de busca, quadradinho de ícone e linha em caixa */
+    --muted-foreground: 159 19% 30%;       /* #3D5A50, 7,2:1 na página, 8,1:1 no cartão */
+    --accent: 150 27% 91%;                 /* #E3EFE9, hover de linha, pílula e botão de contorno */
+    --accent-foreground: 167 77% 8%;
+    --border: 150 20% 86%;                 /* #D5E3DC, borda fina de cartão (decorativa) */
+    --input: 157 25% 39%;                  /* #4A7C69, borda de campo, 4,5:1 */
+    --ring: 167 77% 8%;                    /* #05261F, anel de foco sobre o claro */
+    --destructive: 4 76% 40%;              /* #B42318, erro sobre o claro */
+    --destructive-foreground: 0 0% 100%;
+    --surface: 150 27% 91%;                /* #E3EFE9, seção e estado vazio */
+    --brand-soft: 150 27% 91%;             /* #E3EFE9, quadradinho de ícone, tag positiva e item ativo */
+    --brand-soft-foreground: 167 77% 8%;
+    --link: 167 77% 8%;                    /* texto/borda "primary" sobre o claro (amarelo não tem contraste) */
+    --shadow-low: 0 1px 3px rgba(5, 38, 31, 0.12);
+    --shadow-mid: 0 4px 12px rgba(5, 38, 31, 0.16);
+    --shadow-high: 0 8px 24px rgba(5, 38, 31, 0.2);
+    /* Gráficos sobre branco: verdes e âmbar escuro (amarelo #FFC400 não lê sobre branco). Todos >= 3:1 em #FFFFFF. */
+    --chart-1: 165 68% 14%;                /* #0B3A2E */
+    --chart-2: 155 44% 33%;                /* #2F7A5F */
+    --chart-3: 43 100% 30%;                /* #9A7200 */
+    --chart-4: 157 25% 39%;                /* #4A7C69 */
+    --chart-5: 159 19% 30%;                /* #3D5A50 */
+    /* Estados sobre o claro: tons claros de STATE_COLORS (tokens.ts). Fora do admin valem os escuros de APP_STATE_COLORS. */
+    --st-success-bg: #E3EFE9; --st-success-fg: #0A3329; --st-success-border: #B9D3C6;
+    --st-waiting-bg: #FCEFC7; --st-waiting-fg: #5C4200; --st-waiting-border: #9A7200;
+    --st-progress-bg: #E4EEF3; --st-progress-fg: #17384A; --st-progress-border: #3B6E8A;
+    --st-attention-bg: #FFE6D0; --st-attention-fg: #7A3300; --st-attention-border: #B45309;
+    --st-danger-bg: #FDE4E1; --st-danger-fg: #8A1C14; --st-danger-border: #C53030;
+    --st-neutral-bg: #ECEFEE; --st-neutral-fg: #2F3F3E; --st-neutral-border: #6B7F7E;
+  }
+  /* Destaque escuro: mesmas variáveis do :root. :where mantém especificidade baixa (utilitários de cor vencem). */
+  .theme-admin :where(.card-dark, .bg-sidebar, .bg-ink, .bg-secondary, .on-dark) {
+    color-scheme: dark;
+    color: hsl(var(--card-foreground));
+    --background: 167 77% 8%;
+    --foreground: 0 0% 100%;
+    --card: 165 68% 14%;
+    --card-foreground: 0 0% 100%;
+    --popover: 165 68% 14%;
+    --popover-foreground: 0 0% 100%;
+    --muted: 165 68% 14%;
+    --muted-foreground: 156 22% 77%;
+    --accent: 165 56% 18%;
+    --accent-foreground: 0 0% 100%;
+    --border: 162 49% 24%;
+    --input: 160 24% 48%;
+    --ring: 46 100% 50%;
+    --destructive: 4 100% 72%;
+    --destructive-foreground: 167 77% 8%;
+    --link: 46 100% 50%;
+    --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --chart-1: 46 100% 50%;
+    --chart-2: 156 22% 77%;
+    --chart-3: 45 100% 44%;
+    --chart-4: 160 24% 48%;
+    --chart-5: 0 0% 100%;
+  }
+}
+
+@layer utilities {
+  /* Amarelo como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
+  .theme-admin .text-primary {
+    color: hsl(var(--link));
+  }
+  .theme-admin .border-primary {
+    border-color: hsl(var(--link));
+  }
+}
+
+/* Landing pública do Bureau (/b/[slug]): mesma paleta do app. Tokens em hex mantidos em .landing. */
+@layer base {
+  .landing {
+    --landing-green: #05261f;        /* fundo dominante (= brand-deep) */
+    --landing-green-alt: #0b3a2e;    /* verde alternado, mesmo matiz */
+    --landing-yellow: #ffc400;       /* amarelo forte: títulos, bordas, ícones, preços, botões */
+    --landing-yellow-hover: #e0a800; /* hover do botão */
+    --landing-text: #ffffff;         /* só texto corrido */
+  }
+  .landing :focus-visible {
+    outline-color: var(--landing-yellow);
   }
 }
 

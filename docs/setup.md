@@ -94,6 +94,21 @@ Em produção, `docker-stack.yml` (serviço `reino_app`) recebe a chave pública
 
 Chave pública e contato vazios desligam o push (a chave privada é ignorada). Preencha as três: configuração pela metade ou inválida falha na leitura (`readPushConfig`).
 
+## Variáveis de pagamento (deploy)
+
+Regras e runbook: [operations/payments.md](operations/payments.md). NFS-e: [operations/nfse.md](operations/nfse.md).
+
+| Variável | Valor |
+|---|---|
+| `PII_ENCRYPTION_KEY` | Anel de chaves `id:base64,id:base64`. Cada chave tem 32 bytes. Em produção vem do Docker secret `pii_encryption_key` (`PII_ENCRYPTION_KEY_FILE`). O instalador gera a chave. |
+| `CARD_FEE_TABLE` | Faixas `maxParcelas:percent:fixoCentavos`, separadas por vírgula, em ordem crescente até 12. Exemplo (taxas reais da conta): `1:2.99:49,6:2.99:49,12:2.99:49`. Vazia = cartão desligado. |
+| `CARD_MIN_INSTALLMENT_CENTS` | Parcela mínima em centavos. Padrão `500`. |
+| `PIX_FEE_CENTS` | Taxa fixa do Pix repassada ao pagador, em centavos inteiros de 0 a 1000. Exemplo: `199` (R$ 1,99). `0` = sem taxa. Em produção é obrigatória: vazia ou ausente, ou valor inválido, faz o Pix recusar (falha fechada), e o deploy da stack falha se ela estiver vazia. Fora de produção, ausente = 0. O instalador grava `199`. |
+
+- Em produção, `docker-stack.yml` (serviço `reino_app`) recebe `CARD_FEE_TABLE`, `CARD_MIN_INSTALLMENT_CENTS` e `PIX_FEE_CENTS` como variáveis (o instalador grava `PIX_FEE_CENTS=199` e deixa `CARD_FEE_TABLE` vazia no `.env.production`: preencha-a), e `PII_ENCRYPTION_KEY` pelo secret.
+- `ASAAS_CUSTOMER_ID` não existe mais. Cada cobrança usa o cliente Asaas do pagador.
+- A chave de dev em `.env.example` e `.env.local.example` é pública. Use só em dev.
+
 ## Repetir o setup
 
 1. Clone o toolkit em diretório temporário e anote a revisão.

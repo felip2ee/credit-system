@@ -1,3 +1,5 @@
+> **SUBSTITUÍDO** por `2026-11-06-pagamento-por-pagador-design.md` (2026-11-06). Não implemente a partir deste arquivo.
+
 # Pagamento com cartão de crédito via Asaas — design
 
 ## Intenção

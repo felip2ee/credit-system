@@ -17,6 +17,8 @@ Os prazos são hipóteses (decisão D4 do [spec do M7](../superpowers/specs/2026
 | Pedido, razão, pagamento, repasse, NFS-e, webhook Asaas | `dossier_orders`, `order_settlements`, `*_ledger_entries`, `counter_payments`, `payouts`, `asaas_webhook_events` | 5 anos (fiscal) | Manter |
 | Auditoria | `audit_logs` | 5 anos | Manter (append-only) |
 | Aceite de termos | `legal_acceptances` | Conta + 5 anos | Manter |
+| Dados de pagamento do dono: documento, CEP e número (cifrados) | `payer_profiles` | Conta do cliente: até a anonimização da conta. Conta do Bureau: ver seção 7 | Apagar na anonimização da conta do cliente |
+| Forma mascarada do pagador de cada cobrança | `pix_charges.payer_document_masked`, `pix_charges.payer_kind` | 5 anos (fiscal) | Manter (só máscara) |
 
 A "última atividade" de um Titular é a data mais recente entre a atualização do Titular, a conclusão de um dossiê e a data de uma consulta. A varredura do Bureau usa essa data.
 
@@ -28,6 +30,7 @@ Exclusão a pedido significa anonimização. A plataforma não apaga as linhas d
 - **Razão, pagamentos, repasses, NFS-e e webhooks:** obrigação fiscal (LGPD, art. 16, I). Os prazos são hipótese (seção 1).
 - **`audit_logs`:** trilha de quem fez o quê. Append-only.
 - **Aceite de termos:** prova do aceite.
+- **Dados de pagamento de outra pessoa ou empresa:** nada fica em `payer_profiles`. A cobrança guarda só a forma mascarada do documento, o tipo de pagador e o id do cliente Asaas. Esse dado segue o prazo fiscal da tabela da seção 1.
 
 Os campos de identificação saem. O nome e o documento do titular deixam de existir nas tabelas de consulta, de resultado e de parecer.
 
@@ -37,7 +40,7 @@ O prazo de resposta é de **15 dias**. Quem atende é o admin do Bureau (`bureau
 
 1. Confirme a identidade de quem pede antes de agir. O spec não define o canal de pedido. Defina o canal na operação.
 2. Abra a ficha do Titular em `/holders/[id]`. A seção **LGPD** aparece para quem tem `lgpd:manage`.
-3. Para entregar os dados, clique em **Exportar dados**. O navegador baixa `titular-<id>.json`. O arquivo traz o titular, as parcerias, os dossiês, os pareceres, as consultas com o resultado, as autorizações SCR sem o código de autorização e sem o link público, os pedidos, a timeline e as notas. Não traz dados de outro titular. A exportação grava `lgpd.export_holder`.
+3. Para entregar os dados, clique em **Exportar dados**. O navegador baixa `titular-<id>.json`. O arquivo traz o titular, as parcerias, os dossiês, os pareceres, as consultas com o resultado, as autorizações SCR sem o código de autorização e sem o link público, os pedidos, a timeline e as notas. Não traz dados de outro titular. A exportação grava `lgpd.export_holder`. Os dados de pagamento da conta do cliente (bloco `paymentData`) trazem só: documento mascarado, CEP mascarado, se há número de endereço e se há cliente Asaas ligado.
 4. Para excluir os dados do titular, clique em **Anonimizar titular**. Informe o motivo com 10 a 500 caracteres. A ação grava `lgpd.anonymize_holder` com o motivo. Ela não tem volta.
 5. Se o titular tem conta de cliente (`client_profile_id`), a seção oferece **Anonimizar conta do cliente**. Informe o motivo. A ação grava `lgpd.anonymize_client_account`.
 6. Registre o pedido, a data e o resultado no sistema de tickets da operação.
@@ -68,6 +71,7 @@ O prazo de resposta é de **15 dias**. Quem atende é o admin do Bureau (`bureau
 
 - Troca nome e e-mail por valores genéricos. Desativa o login.
 - Apaga as sessões, as contas de login, o 2FA e os códigos de verificação do usuário.
+- Apaga a linha de `payer_profiles` da conta. O cliente Asaas fica no Asaas (prazo fiscal).
 - Não toca os titulares que essa conta comprou. Titulares de terceiros não são anonimizados em cascata (D7).
 
 ## 5. Limpeza automática
@@ -85,3 +89,9 @@ A varredura é idempotente. Ela grava `lgpd.purge_bureau` em toda execução, me
 - `audit_logs`, razão, pagamentos e webhooks não são apagados depois de 5 anos. Isso fica fora do M7.
 - O portal não tem botões de exportação ou de exclusão. O cliente depende do Bureau (D6).
 - O e2e e os testes de integração cobrem a anonimização e a exportação. Veja [quality.md](../quality.md).
+
+## 7. Riscos e perguntas abertas
+
+- **R1: documento em claro no CRM.** `holders` guarda documento, CEP e número do titular em claro. O Bureau lê esses dados no CRM, porque a consulta precisa do documento. `payer_profiles` não aumenta essa exposição. Cifrar `holders` está fora de escopo.
+  - Pergunta aberta ao operador. Não bloqueia a entrega.
+- **Prazo do dono Bureau:** o spec não define a retenção de `payer_profiles` da conta do Bureau. Pergunta aberta ao operador.

@@ -55,7 +55,14 @@ services:
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
       WEB_PUSH_VAPID_SUBJECT: ${WEB_PUSH_VAPID_SUBJECT:-}
       WEB_PUSH_VAPID_PRIVATE_KEY_FILE: /run/secrets/web_push_vapid_private_key
-    secrets: [database_url, database_webhook_url, dispatch_database_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret, web_push_vapid_private_key]
+      # PII key ring (id:base64). Docker secret on purpose: never a plain env var.
+      PII_ENCRYPTION_KEY_FILE: /run/secrets/pii_encryption_key
+      # Card installment fees "months:percent:fixed_cents,..." (empty = card disabled (no default table)) and the minimum installment.
+      CARD_FEE_TABLE: ${CARD_FEE_TABLE:-}
+      CARD_MIN_INSTALLMENT_CENTS: ${CARD_MIN_INSTALLMENT_CENTS:-500}
+      # Pix fee passed on to the payer, in cents (199 = R$ 1,99; 0 = no fee). Required: deploy fails when empty or unset.
+      PIX_FEE_CENTS: ${PIX_FEE_CENTS:?PIX_FEE_CENTS required (199 = R$ 1,99; 0 = no fee)}
+    secrets: [database_url, database_webhook_url, dispatch_database_url, better_auth_secret, smtp_pass, deps_api_password, openai_api_key, superadmin_password, whatsapp_access_token, whatsapp_app_secret, whatsapp_verify_token, notifications_dispatch_secret, web_push_vapid_private_key, pii_encryption_key]
     volumes:
       - documents:/var/lib/reino/documents
     healthcheck:
@@ -317,6 +324,7 @@ secrets:
   whatsapp_verify_token: { external: true }
   notifications_dispatch_secret: { external: true }
   web_push_vapid_private_key: { external: true }
+  pii_encryption_key: { external: true }
   postgres_password: { external: true }
   schema_owner_password: { external: true }
   app_runtime_password: { external: true }

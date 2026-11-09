@@ -37,7 +37,7 @@ export default async function DashboardLayout({
     : null;
 
   return (
-    <div className="flex min-h-screen bg-surface">
+    <div className="theme-admin flex min-h-screen bg-background">
       <IdleTimeout />
       <Sidebar permissions={permissions} name={session.name} email={email} />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -47,7 +47,7 @@ export default async function DashboardLayout({
             expiresAt={session.support.expiresAt.toISOString()}
           />
         )}
-        <header className="flex min-h-16 items-center justify-between gap-2 border-b border-border bg-background px-4 md:hidden">
+        <header className="flex min-h-14 items-center justify-between gap-2 border-b border-sidebar-border bg-sidebar px-4 md:hidden">
           <MobileBrand />
           <MobileNav items={DASHBOARD_NAV_ITEMS} permissions={permissions} signOutAction={signOut} />
         </header>

@@ -143,6 +143,8 @@ async function renewExpiredAuthorizations(client: PoolClient, identity: DbIdenti
 
 export type ScrRequestToIssue = {
 	scrId: string;
+	// Token lido junto com o contato: a emissão só grava se a autorização ainda tem este token (ver issueSelfScrAuthorization).
+	publicToken: string;
 	holderId: string;
 	type: "PF" | "PJ";
 	document: string;
@@ -165,8 +167,9 @@ export async function listScrRequestsToIssue(
 		name: string;
 		email: string;
 		phone_e164: string | null;
+		public_token: string;
 	}>(
-		`select s.id, s.holder_id, s.type::text as type, s.document, s.name, s.email, s.phone_e164
+		`select s.id, s.holder_id, s.type::text as type, s.document, s.name, s.email, s.phone_e164, s.public_token::text
 		   from scr_authorizations s
 		  where s.bureau_id = app_bureau_id() and s.channel = 'internal' and s.status = 'pending'
 		    and s.auth_code is null and s.email is not null and s.name is not null
@@ -179,6 +182,7 @@ export async function listScrRequestsToIssue(
 	);
 	return rows.map((r) => ({
 		scrId: r.id,
+		publicToken: r.public_token,
 		holderId: r.holder_id,
 		type: r.type,
 		document: r.document,

@@ -27,6 +27,19 @@ Spec: [docs/superpowers/specs/2026-10-15-m6-pesquisa-e-entrega-design.md](../sup
 
 A página do pedido lista cada membro com o estado: pendente, autorizado, recusado ou vencido. Se um membro recusa ou deixa vencer, o pedido não roda e a página mostra o aviso.
 
+### Correção do contato pela equipe
+
+- `updateOrderContactAction` troca o e-mail e/ou o celular de um membro, ou só reenvia ao mesmo contato. Vale em `awaiting_payment` e `awaiting_authorization`, com a autorização do membro ainda `pending` e dentro do prazo. Outro estado devolve `invalid_state`.
+- O link enviado antes deixa de valer na hora: o token muda, o código é apagado e o aviso ainda na fila é anulado. Quem recebeu o e-mail errado não autoriza mais.
+- Em `awaiting_authorization` o aviso novo sai logo em seguida. Se o envio falhar, o contato já está salvo e o tick envia na próxima rodada (cerca de 1 minuto): o tick reemite toda autorização pendente sem código.
+- Em `awaiting_payment` a troca só grava o contato e gira o token. Nada é enviado: a autorização sai depois do pagamento, quando o pedido passa a `awaiting_authorization`. A tela mostra "Contato atualizado. A autorização sai depois do pagamento." "Reenviar" sem mudança nesse estado devolve `invalid_state`, e o botão fica oculto.
+- A emissão só grava se a autorização ainda tem o token lido (`superseded` caso contrário, sem erro): duas trocas quase juntas, ou um tick que leu o contato antes da troca, não trazem o e-mail antigo de volta. Vale o último contato trocado.
+- Contato digitado não pode ser o do comprador (`contact_is_buyer`), exceto quando o membro é um Titular do comprador: aí o servidor usa o e-mail da conta e descarta o digitado. A recusa fica na trilha (`order.update_contact_refused`), sem o contato.
+- Limites: 3 pedidos novos por destinatário em 24 h (`too_many_requests`), 2 minutos desde a última troca ou reenvio da mesma autorização (`resend_too_soon`, vale também sem envio feito) e 5 trocas ou reenvios por autorização em 24 h (`contact_limit_reached`).
+- A autorização é compartilhada entre pedidos do mesmo comprador e Titular (D10): a troca vale para todos. Cada pedido que ainda espera pagamento ou autorização recebe o seu evento `order.update_contact`; pedidos já autorizados ou concluídos ficam de fora.
+- A auditoria `order.update_contact` é gravada na própria função, na mesma transação, com ids, `previous_email_masked`, `email_masked`, `resend_only` e `buyer_override`. Nunca guarda o e-mail completo.
+- Risco residual conhecido: a regra D12 compara o e-mail sem normalizar `+tag` nem pontos (`a+x@dominio` e `a.b@gmail.com` passam como e-mails diferentes do comprador). A limitação já existia na abertura do pedido e não foi tratada aqui.
+
 ### Cancelamento pelo cliente
 
 - O cliente cancela o próprio pedido em `awaiting_authorization` ou `ready`, com o botão "Cancelar pedido".

@@ -5,7 +5,15 @@ import { createAsaasClient } from "./client";
 import { createFakeAsaasClient } from "./fake";
 import type { AsaasClient } from "./types";
 
-export type { AsaasClient, PixChargeInput, PixChargeResult } from "./types";
+export { AsaasHttpError, AsaasOutcomeUnknownError, CardDeclinedError } from "./client";
+export type {
+	AsaasClient,
+	AsaasCustomerInput,
+	CardChargeInput,
+	CardChargeResult,
+	PixChargeInput,
+	PixChargeResult,
+} from "./types";
 
 export function getAsaasClient(): AsaasClient {
 	const settings = readAsaasConfig(process.env);

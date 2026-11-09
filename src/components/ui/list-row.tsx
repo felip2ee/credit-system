@@ -21,21 +21,21 @@ interface ListRowProps {
 // Linha de lançamento/transação: ícone circular cinza, título, subtítulo e valor à direita.
 export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = false, iconClassName, className }: ListRowProps) {
   const cls = cn(
-    "flex min-h-14 items-center gap-3 px-4 py-3",
+    "flex min-h-14 items-center gap-3 px-4 py-3 admin:min-h-12 admin:py-2.5",
     boxed && "rounded-card bg-muted",
     href && "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
     className,
   );
   const body = (
     <>
-      <span aria-hidden className={cn("flex size-11 shrink-0 items-center justify-center rounded-full bg-muted", iconClassName ?? "text-primary")}>
-        <Icon className="size-5" />
+      <span aria-hidden className={cn("flex size-11 shrink-0 items-center justify-center rounded-full bg-accent admin:size-9 admin:rounded-[10px]", iconClassName ?? "text-primary")}>
+        <Icon className="size-5 admin:size-[18px]" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-base font-bold">{title}</span>
-        {subtitle && <span className="block truncate text-base text-muted-foreground">{subtitle}</span>}
+        <span className="block truncate text-base font-bold admin:text-sm">{title}</span>
+        {subtitle && <span className="block truncate text-base text-muted-foreground admin:text-[13px]">{subtitle}</span>}
       </span>
-      {value && <span className="shrink-0 whitespace-nowrap text-right text-base font-bold tabular-nums">{value}</span>}
+      {value && <span className="shrink-0 whitespace-nowrap text-right text-base font-bold admin:text-sm tabular-nums">{value}</span>}
     </>
   );
   return href ? (
