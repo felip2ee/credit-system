@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { maskRecipient } from "@/lib/auth/email";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
@@ -77,6 +78,14 @@ export default async function DossierDetailPage({
           order={order}
           canWrite={canWrite && !session.supportSessionId}
           canRegisterPayment={hasPermission(session, "counter:write")}
+          pendingContacts={ordered
+            .filter((m) => m.status === "pending_authorization")
+            .map((m) => ({
+              consultationId: m.id,
+              name: m.document_name ?? "Titular sem nome",
+              role: m.type === "PJ" ? "Empresa" : d.kind === "PF" ? "Titular" : "Sócio",
+              maskedEmail: m.scr_email ? maskRecipient(m.scr_email) : null,
+            }))}
         />
       )}
 

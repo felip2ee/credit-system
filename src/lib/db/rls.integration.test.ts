@@ -2128,6 +2128,7 @@ describe("orders and delivery (022)", () => {
 		"cancel_client_order(uuid)",
 		"client_order_members(uuid)",
 		"record_order_declaration(uuid, integer, inet, text)",
+		"update_order_contact(uuid, uuid, text, text)",
 	];
 	const INTERNAL_FUNCTIONS = ["create_bureau_system_profile()", "order_mask_document(text)"];
 
@@ -2319,6 +2320,46 @@ describe("orders and delivery (022)", () => {
 		for (const signature of PUBLIC_FUNCTIONS) expect(await privilege(signature)).toBe(true);
 		await expectCode(app, "select order_mask_document('12345678901')", [], "42501");
 		await expectCode(app, "select create_bureau_system_profile()", [], "42501");
+	});
+
+	it("update_order_contact: another Bureau and the client role change nothing; staff of the Bureau does, and is audited", async () => {
+		const dossier = await insertId(
+			"insert into dossiers (bureau_id, kind, holder_id, product, created_by) values ($1, 'PF', $2, 'smart_pf', $3) returning id",
+			[T.bureau.id, thirdPartyHolder, T.bureauAdmin.userId],
+		);
+		const scr = await insertId(
+			`insert into scr_authorizations (bureau_id, document, type, holder_id, channel, email, status)
+       values ($1, $2, 'PF', $3, 'internal', 'antigo@example.test', 'pending') returning id`,
+			[T.bureau.id, digits(11), thirdPartyHolder],
+		);
+		const consultation = await insertId(
+			`insert into consultations (bureau_id, type, document, holder_id, dossier_id, created_by, status, scr_authorization_id)
+       values ($1, 'PF', $2, $3, $4, $5, 'pending_authorization', $6) returning id`,
+			[T.bureau.id, digits(11), thirdPartyHolder, dossier, T.bureauAdmin.userId, scr],
+		);
+		await insertOrder(dossier, null, "awaiting_authorization");
+		const sql = "select ok, reason from update_order_contact($1, $2, 'novo@example.test', null)";
+		const call = (actor: Actor) =>
+			withDbContext(app, actor, async (client) => (await client.query<{ ok: boolean; reason: string | null }>(sql, [dossier, consultation])).rows[0]);
+		const stored = async () =>
+			(await owner.query("select email, cardinality(contact_changes_at) as n from scr_authorizations where id = $1", [scr])).rows[0];
+
+		expect(await call(ctxOf(foreign.operator))).toEqual({ ok: false, reason: "not_found" });
+		expect(await call(ctxOf(foreign.bureauAdmin))).toEqual({ ok: false, reason: "not_found" });
+		expect(await call(ctxOf(T.client))).toEqual({ ok: false, reason: "not_allowed" });
+		expect(await call(ctxOf(otherClient))).toEqual({ ok: false, reason: "not_allowed" });
+		expect(await stored()).toEqual({ email: "antigo@example.test", n: 0 });
+
+		// withDbContext desfaz no fim: o efeito do Bureau dono é lido na mesma transação (só o admin lê a auditoria).
+		const own = await withDbContext(app, ctxOf(T.bureauAdmin), async (client) => {
+			const result = (await client.query<{ ok: boolean; reason: string | null }>(sql, [dossier, consultation])).rows[0];
+			const scrRow = (await client.query("select email, cardinality(contact_changes_at) as n from scr_authorizations where id = $1", [scr])).rows[0];
+			const audits = (await client.query("select action from audit_logs where record_id = $1", [dossier])).rows;
+			return { result, scrRow, audits };
+		});
+		expect(own.result).toEqual({ ok: true, reason: null });
+		expect(own.scrRow).toEqual({ email: "novo@example.test", n: 1 });
+		expect(own.audits).toEqual([{ action: "order.update_contact" }]);
 	});
 
 	it("order_declarations is isolated by bureau and by client, and is append-only", async () => {

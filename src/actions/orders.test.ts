@@ -16,6 +16,9 @@ const state = vi.hoisted(() => ({
 	releaseDelivery: vi.fn(),
 	revokeDelivery: vi.fn(),
 	runOrderNow: vi.fn(),
+	updateOrderContact: vi.fn(),
+	issueRequest: vi.fn(),
+	readScrTermSettings: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -31,6 +34,9 @@ vi.mock("@/lib/db/transaction", () => ({
 	withUserTransaction: async (_identity: unknown, work: (client: unknown) => unknown) => work(TX_CLIENT),
 }));
 vi.mock("@/lib/catalog/quote", () => ({ quoteOrder: state.quoteOrder }));
+vi.mock("@/lib/orders/contact", () => ({ updateOrderContact: state.updateOrderContact }));
+vi.mock("@/lib/orders/issue-request", () => ({ issueRequest: state.issueRequest }));
+vi.mock("@/lib/settings/readers", () => ({ readScrTermSettings: state.readScrTermSettings }));
 vi.mock("@/lib/orders/execute", () => ({ runOrderNow: state.runOrderNow }));
 vi.mock("@/lib/orders/queries", () => ({
 	placeOrder: state.placeOrder,
@@ -49,12 +55,16 @@ import {
 	releaseOrderAction,
 	revokeOrderAction,
 	runOrderNowAction,
+	updateOrderContactAction,
 } from "./orders";
 
 const NOT_ALLOWED = "Ação não permitida.";
 const SUPPORT = "Encerre a sessão de suporte para operar pedidos.";
 const GENERIC = "Não foi possível concluir. Tente novamente.";
 const QUOTE = { ok: true, lines: [], totalCostCents: 1000, totalPriceCents: 3000 };
+const CONSULTATION_ID = "00000000-0000-4000-8000-0000000000e1";
+const contactChange = { dossierId: DOSSIER_ID, consultationId: CONSULTATION_ID, contactEmail: "Novo@Example.test", contactPhone: "" };
+const REQUEST = { scrId: "s1", publicToken: "t1", holderId: "h1", type: "PF", document: "39053344705", name: "Maria", email: "novo@example.test", phoneE164: null };
 const counterOrder = {
 	productCode: "dossie_pf",
 	buyerProfileId: BUYER_ID,
@@ -74,6 +84,9 @@ beforeEach(() => {
 	state.releaseDelivery.mockResolvedValue({ ok: true });
 	state.revokeDelivery.mockResolvedValue({ ok: true });
 	state.runOrderNow.mockResolvedValue("completed");
+	state.updateOrderContact.mockResolvedValue({ ok: true, request: REQUEST, deferred: false });
+	state.readScrTermSettings.mockResolvedValue({ authorizedName: "Bureau" });
+	state.issueRequest.mockResolvedValue({ ok: true });
 });
 
 describe("staff gate", () => {
@@ -83,6 +96,7 @@ describe("staff gate", () => {
 		["cancelOrderAction", () => cancelOrderAction(DOSSIER_ID)],
 		["releaseOrderAction", () => releaseOrderAction(DOSSIER_ID)],
 		["revokeOrderAction", () => revokeOrderAction({ dossierId: DOSSIER_ID, reason: "Erro" })],
+		["updateOrderContactAction", () => updateOrderContactAction(contactChange)],
 	];
 
 	it.each(actions)("%s refuses a role without consultations:write", async (_name, run) => {
@@ -108,7 +122,7 @@ describe("staff gate", () => {
 		state.role = "client";
 		for (const [, run] of actions) await run();
 
-		for (const fn of [state.quoteOrder, state.placeOrder, state.cancelOrder, state.releaseDelivery, state.revokeDelivery, state.runOrderNow]) {
+		for (const fn of [state.quoteOrder, state.placeOrder, state.cancelOrder, state.releaseDelivery, state.revokeDelivery, state.runOrderNow, state.updateOrderContact, state.issueRequest]) {
 			expect(fn).not.toHaveBeenCalled();
 		}
 	});
@@ -159,6 +173,12 @@ describe("openCounterOrderAction", () => {
 
 		expect(result).toEqual({ error: "Celular inválido. Use DDD e número." });
 		expect(state.placeOrder).not.toHaveBeenCalled();
+	});
+
+	it("accepts a counter order without contact: the server decides when the subject is the buyer", async () => {
+		await expect(openCounterOrderAction({ ...counterOrder, contactEmail: "", contactPhone: "" })).resolves.toEqual({ error: null, id: DOSSIER_ID });
+
+		expect(state.placeOrder.mock.calls[0][1].contact).toEqual({ email: null, phoneE164: null });
 	});
 
 	it("keeps a missing phone as null", async () => {
@@ -310,5 +330,105 @@ describe("revokeOrderAction", () => {
 		await expect(revokeOrderAction({ dossierId: DOSSIER_ID, reason: "Erro" })).resolves.toEqual({
 			error: "O pedido mudou de estado. Recarregue a página.",
 		});
+	});
+});
+
+describe("updateOrderContactAction", () => {
+	it("changes the contact in a transaction, issues the new request and revalidates the page", async () => {
+		await expect(updateOrderContactAction(contactChange)).resolves.toEqual({ error: null, id: DOSSIER_ID });
+
+		expect(state.updateOrderContact).toHaveBeenCalledWith(TX_CLIENT, {
+			dossierId: DOSSIER_ID,
+			consultationId: CONSULTATION_ID,
+			email: "Novo@Example.test",
+			phoneE164: null,
+		});
+		expect(state.issueRequest).toHaveBeenCalledWith(expect.objectContaining({ userId: USER_ID }), REQUEST, { authorizedName: "Bureau" }, "https://app.example.test");
+		expect(revalidatePath).toHaveBeenCalledWith(`/dossiers/${DOSSIER_ID}`);
+	});
+
+	it("accepts a resend with no contact and normalizes the phone", async () => {
+		await updateOrderContactAction({ ...contactChange, contactEmail: "", contactPhone: "(11) 91234-5678" });
+
+		expect(state.updateOrderContact.mock.calls[0][1]).toMatchObject({ email: null, phoneE164: "+5511912345678" });
+	});
+
+	it.each([
+		["a bad dossier id", { ...contactChange, dossierId: "abc" }],
+		["a bad e-mail", { ...contactChange, contactEmail: "sem-arroba" }],
+	])("zod refuses %s before the database", async (_name, values) => {
+		const result = await updateOrderContactAction(values);
+
+		expect(result.error).toBeTruthy();
+		expect(state.updateOrderContact).not.toHaveBeenCalled();
+	});
+
+	it("refuses an invalid phone without calling the database", async () => {
+		await expect(updateOrderContactAction({ ...contactChange, contactPhone: "123" })).resolves.toEqual({
+			error: "Celular inválido. Use DDD e número.",
+		});
+		expect(state.updateOrderContact).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["invalid_state", "O pedido não aguarda mais a autorização ou não há contato novo para enviar. Recarregue a página."],
+		["contact_limit_reached", "Esta autorização já teve 5 trocas ou reenvios nas últimas 24 horas. Tente novamente amanhã."],
+		["not_found", "Pedido não encontrado."],
+		["contact_is_buyer", "Informe o e-mail e o celular do titular, não os do comprador."],
+		["too_many_requests", "Este titular já recebeu pedidos de autorização recentes. Tente novamente amanhã."],
+		["resend_too_soon", "O pedido de autorização acabou de ser enviado. Aguarde 2 minutos para reenviar."],
+		["invalid_input", "Contato inválido. Confira o e-mail e o celular."],
+	])("maps %s and sends nothing", async (reason, message) => {
+		state.updateOrderContact.mockResolvedValue({ ok: false, reason });
+
+		await expect(updateOrderContactAction(contactChange)).resolves.toEqual({ error: message });
+		expect(state.issueRequest).not.toHaveBeenCalled();
+		expect(revalidatePath).not.toHaveBeenCalled();
+	});
+
+	it("reports a failed immediate send; the tick retries because the contact is already saved", async () => {
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		state.issueRequest.mockResolvedValue({ ok: false, reason: "invalid_recipient" });
+
+		const result = await updateOrderContactAction(contactChange);
+
+		expect(result.error).toContain("Contato atualizado");
+		expect(result.id).toBe(DOSSIER_ID);
+		expect(revalidatePath).toHaveBeenCalledWith(`/dossiers/${DOSSIER_ID}`);
+		spy.mockRestore();
+	});
+
+	it("saves the contact but sends nothing while the order awaits payment", async () => {
+		state.updateOrderContact.mockResolvedValue({ ok: true, request: null, deferred: true });
+
+		await expect(updateOrderContactAction(contactChange)).resolves.toEqual({
+			error: null,
+			id: DOSSIER_ID,
+			notice: "Contato atualizado. A autorização sai depois do pagamento.",
+		});
+		expect(state.issueRequest).not.toHaveBeenCalled();
+		expect(revalidatePath).toHaveBeenCalledWith(`/dossiers/${DOSSIER_ID}`);
+	});
+
+	it("treats a superseded issue as success: a newer contact change sends the link", async () => {
+		state.issueRequest.mockResolvedValue({ ok: false, reason: "superseded" });
+
+		await expect(updateOrderContactAction(contactChange)).resolves.toEqual({ error: null, id: DOSSIER_ID });
+	});
+
+	it("does not issue when the authorization has no name or e-mail", async () => {
+		state.updateOrderContact.mockResolvedValue({ ok: true, request: null, deferred: false });
+
+		await expect(updateOrderContactAction(contactChange)).resolves.toEqual({ error: null, id: DOSSIER_ID });
+		expect(state.issueRequest).not.toHaveBeenCalled();
+	});
+
+	it("turns an exception into the generic message without leaking the contact", async () => {
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		state.updateOrderContact.mockRejectedValue(new Error("boom novo@example.test"));
+
+		await expect(updateOrderContactAction(contactChange)).resolves.toEqual({ error: GENERIC });
+		expect(JSON.stringify(spy.mock.calls)).not.toContain("novo@example.test");
+		spy.mockRestore();
 	});
 });

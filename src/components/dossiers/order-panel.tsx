@@ -10,6 +10,7 @@ import {
   runOrderNowAction,
   type ActionResult,
 } from "@/actions/orders";
+import { OrderContactDialogList, type PendingContact } from "@/components/dossiers/order-contact-dialog";
 import { RevokeOrderDialog } from "@/components/dossiers/revoke-order-dialog";
 import { OrderStateBadge } from "@/components/dossiers/order-state-badge";
 import { Button } from "@/components/ui/button";
@@ -20,12 +21,15 @@ import type { StaffOrderView } from "@/lib/orders/staff-queries";
 import type { OrderState } from "@/lib/orders/types";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
+const AUTH_PENDING: OrderState[] = ["awaiting_payment", "awaiting_authorization"];
 const CANCELLABLE: OrderState[] = ["awaiting_payment", "awaiting_authorization", "ready"];
 
 interface OrderPanelProps {
   order: StaffOrderView;
   canWrite: boolean;
   canRegisterPayment: boolean;
+  // Membros com autorização pendente (e-mail já mascarado).
+  pendingContacts?: PendingContact[];
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -37,7 +41,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function OrderPanel({ order, canWrite, canRegisterPayment }: OrderPanelProps) {
+export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContacts = [] }: OrderPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +115,10 @@ export function OrderPanel({ order, canWrite, canRegisterPayment }: OrderPanelPr
               </Button>
             )}
           </div>
+        )}
+
+        {canWrite && AUTH_PENDING.includes(state) && pendingContacts.length > 0 && (
+          <OrderContactDialogList dossierId={order.dossierId} contacts={pendingContacts} canResend={state === "awaiting_authorization"} />
         )}
 
         <div aria-live="polite">{error && <p className="text-sm text-destructive">{error}</p>}</div>

@@ -19,6 +19,7 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { countBillablePartners, orderTotalCents } from "@/components/orders/order-rules";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { formatCurrency } from "@/lib/utils";
+import { isOwnResearch, missingThirdPartyEmail } from "@/components/dossiers/contact-rules";
 import { counterOrderSchema } from "@/lib/validators/order";
 
 type OrderFormValues = z.input<typeof counterOrderSchema>;
@@ -52,6 +53,7 @@ export function DossierForm({ products }: DossierFormProps) {
     watch,
     setValue,
     getValues,
+    setError,
     control,
     formState: { errors },
   } = useForm<OrderFormValues>({
@@ -68,6 +70,7 @@ export function DossierForm({ products }: DossierFormProps) {
   const { fields, append, remove, replace } = useFieldArray({ control, name: "partners" });
 
   const productCode = watch("productCode");
+  const ownResearch = isOwnResearch(watch("subject.document") ?? "", buyer?.document);
   const partnerCount = countBillablePartners(watch("partners") ?? [], watch("subject.document"));
   const product = products.find((p) => p.code === productCode);
   const isEmpresarial = productCode === EMPRESARIAL_PRODUCT;
@@ -98,8 +101,13 @@ export function DossierForm({ products }: DossierFormProps) {
   // O schema valida e transforma; a ação valida de novo no servidor com os valores brutos.
   const onSubmit = () => {
     setServerError(null);
+    if (missingThirdPartyEmail(ownResearch, String(getValues("contactEmail") ?? ""))) {
+      setError("contactEmail", { message: "Informe o e-mail do titular." });
+      return;
+    }
     startTransition(async () => {
-      const res = await openCounterOrderAction({ ...getValues(), buyerProfileId: buyer?.profileId ?? null });
+      const values = ownResearch ? { ...getValues(), contactEmail: "", contactPhone: "" } : getValues();
+      const res = await openCounterOrderAction({ ...values, buyerProfileId: buyer?.profileId ?? null });
       if (res.error || !res.id) {
         setServerError(res.error ?? "Falha ao abrir o pedido.");
         return;
@@ -198,6 +206,12 @@ export function DossierForm({ products }: DossierFormProps) {
                 />
                 {errors.subject?.name && <p className="text-sm text-destructive">{errors.subject.name.message}</p>}
               </div>
+              {ownResearch ? (
+                <p className="text-sm text-muted-foreground sm:col-span-2" aria-live="polite">
+                  Os dados de contato vêm da conta do cliente.
+                </p>
+              ) : (
+                <>
               <div className="space-y-1">
                 <Label htmlFor="contactEmail">E-mail do titular</Label>
                 <Input
@@ -222,6 +236,8 @@ export function DossierForm({ products }: DossierFormProps) {
                 />
                 {errors.contactPhone && <p className="text-sm text-destructive">{errors.contactPhone.message}</p>}
               </div>
+                </>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
               O titular recebe o pedido de autorização para consultar o SCR por e-mail e celular.

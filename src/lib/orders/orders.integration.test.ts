@@ -628,7 +628,18 @@ describe("open_order", () => {
 		expect(sameCpf.ok).toBe(true);
 		const [audit] = await rows("select metadata from audit_logs where action = 'order.open' and record_id = $1", [sameCpf.dossier_id]);
 		expect(audit.metadata).toMatchObject({ members: 2, self_member: true });
-		// Balcão: o e-mail do comprador nunca vale, nem com o CPF dele.
+		// Balcão (044): igual ao portal, o sócio com o CPF do Titular do comprador pode usar o e-mail dele; outro CPF não.
+		const counterOther = await committed(staff(T), (c) =>
+			openOrder(c, {
+				product: "dossie_empresarial",
+				type: "PJ",
+				document: cnpj(),
+				email: mail(),
+				partners: partners(cpf()),
+				buyer: b.identity.userId,
+			}),
+		);
+		expect(counterOther).toMatchObject({ ok: false, reason: "contact_is_buyer" });
 		const counter = await committed(staff(T), (c) =>
 			openOrder(c, {
 				product: "dossie_empresarial",
@@ -639,7 +650,7 @@ describe("open_order", () => {
 				buyer: b.identity.userId,
 			}),
 		);
-		expect(counter).toMatchObject({ ok: false, reason: "contact_is_buyer" });
+		expect(counter.ok).toBe(true);
 	});
 
 	it("D12 exception: online, the company contact may be the buyer e-mail only when the account CPF is a partner", async () => {

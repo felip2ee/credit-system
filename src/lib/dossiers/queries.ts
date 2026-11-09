@@ -49,6 +49,8 @@ export interface DossierMember {
 	status: QueryStatus;
 	consulted_at: string | null;
 	created_at: string;
+	// Só para a equipe, mascarado antes de chegar ao cliente do navegador.
+	scr_email: string | null;
 }
 
 export interface DossierListItem {
@@ -145,7 +147,7 @@ async function loadDossierDetail(
 
 		const members = await client.query<DossierMember>(
 			`select id, type, document, document_name, product, status::text, consulted_at::text,
-              created_at::text
+              created_at::text, scr_email
          from consultations
         where dossier_id = $1 ${onlyCompleted ? "and status = 'completed'" : ""}
         order by type, created_at`,

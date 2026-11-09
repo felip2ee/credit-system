@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_PARTNERS, clientOrderSchema, counterOrderSchema, orderIdSchema, revokeSchema } from "./order";
+import { MAX_PARTNERS, clientOrderSchema, counterOrderSchema, orderIdSchema, revokeSchema, updateOrderContactSchema } from "./order";
 
 const CPF = "529.982.247-25";
 const CPF_DIGITS = "52998224725";
@@ -161,5 +161,34 @@ describe("orderIdSchema and revokeSchema", () => {
 		expect(revokeSchema.safeParse({ dossierId: UUID, reason: "   " }).success).toBe(false);
 		expect(revokeSchema.safeParse({ dossierId: UUID, reason: "x".repeat(501) }).success).toBe(false);
 		expect(revokeSchema.parse({ dossierId: UUID, reason: "  erro de cadastro " }).reason).toBe("erro de cadastro");
+	});
+});
+
+describe("updateOrderContactSchema", () => {
+	const base = { dossierId: UUID, consultationId: UUID };
+
+	it("treats blank contact as null (resend to the current contact)", () => {
+		expect(updateOrderContactSchema.parse({ ...base, contactEmail: "  ", contactPhone: "" })).toMatchObject({
+			contactEmail: null,
+			contactPhone: null,
+		});
+	});
+
+	it("checks the ids and the e-mail format", () => {
+		expect(updateOrderContactSchema.safeParse({ ...base, consultationId: "abc" }).success).toBe(false);
+		expect(updateOrderContactSchema.safeParse({ ...base, contactEmail: "sem-arroba" }).success).toBe(false);
+		expect(updateOrderContactSchema.parse({ ...base, contactEmail: " novo@example.test " }).contactEmail).toBe("novo@example.test");
+	});
+});
+
+describe("counterOrderSchema without contact", () => {
+	it("accepts no contact: the server decides when the subject is the buyer's own holder", () => {
+		const parsed = counterOrderSchema.parse({
+			productCode: "dossie_pf",
+			subject: { name: "Maria", document: CPF },
+			contactEmail: "",
+			contactPhone: "",
+		});
+		expect(parsed).toMatchObject({ contactEmail: null, contactPhone: null });
 	});
 });

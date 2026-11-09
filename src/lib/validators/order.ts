@@ -148,6 +148,15 @@ export const counterOrderSchema = z
 
 export const orderIdSchema = uuidSchema;
 
+// Correção do contato do pedido de autorização. E-mail e celular em branco = manter o atual (reenvio). Para o próprio
+// Titular do comprador o servidor usa o e-mail da conta e descarta o que for digitado.
+export const updateOrderContactSchema = z.object({
+	dossierId: uuidSchema,
+	consultationId: uuidSchema,
+	contactEmail: optionalEmail,
+	contactPhone: optionalPhone,
+});
+
 export const revokeSchema = z.object({
 	dossierId: uuidSchema,
 	reason: z.string().trim().min(1, "Informe o motivo.").max(MAX_REASON, `Motivo com no máximo ${MAX_REASON} caracteres.`),
