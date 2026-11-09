@@ -10,6 +10,7 @@ import { PieChart } from "@/components/reports/pie-chart";
 import { Button } from "@/components/ui/button";
 import { BalanceCard } from "@/components/ui/balance-card";
 import { SectionHeader } from "@/components/ui/section-header";
+import { SegmentedNav } from "@/components/ui/segmented-nav";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { getRequiredSession } from "@/lib/auth/session";
@@ -129,7 +130,7 @@ export default async function DashboardPage({
   const orders = revenue?.total.orders ?? 0;
   const indicatorCount = 2 + (revenue ? 1 : 0) + (balances ? 1 : 0);
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader title="Dashboard" description={showRevenue ? "Vendas, faturamento e repasse do seu Bureau" : "Consultas e carteira do seu Bureau"}>
         {hasPermission(session, "consultations:write") && (
           <Button asChild variant="cta">
@@ -139,8 +140,9 @@ export default async function DashboardPage({
       </PageHeader>
 
       {revenue && (
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <BalanceCard
+          tone="dark"
           className={payable !== null ? "lg:col-span-2" : "lg:col-span-3"}
           label="Faturamento total"
           value={formatCurrency(revenue.total.amount)}
@@ -148,16 +150,16 @@ export default async function DashboardPage({
           hint={`${orders} ${orders === 1 ? "pedido concluído" : "pedidos concluídos"} desde o início`}
         />
         {payable !== null && (
-          <Link href="/settings/wallet?aba=a-receber" className="rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <Card className="flex h-full flex-col justify-between gap-3 p-5 transition-shadow hover:shadow-md">
+          <Link href="/settings/wallet?aba=a-receber" className="rounded-[18px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Card className="flex h-full flex-col justify-between gap-3 p-4 transition-shadow hover:shadow-md">
               <div className="flex items-center gap-3">
-                <span aria-hidden className="flex size-11 items-center justify-center rounded-full bg-muted text-primary">
-                  <HandCoins className="size-5" />
+                <span aria-hidden className="flex size-9 items-center justify-center rounded-[10px] bg-brand-soft text-brand-soft-foreground">
+                  <HandCoins className="size-[18px]" />
                 </span>
-                <p className="text-base font-bold">A receber</p>
+                <p className="text-[13px] text-muted-foreground">A receber</p>
               </div>
-              <p className="text-3xl font-bold tabular-nums">{formatCurrency(Number(payable))}</p>
-              <p className="text-base text-muted-foreground">Repasse pendente da Rainha Cred</p>
+              <p className="text-2xl font-bold tabular-nums">{formatCurrency(Number(payable))}</p>
+              <p className="text-xs text-muted-foreground">Repasse pendente da Rainha Cred</p>
             </Card>
           </Link>
         )}
@@ -166,25 +168,15 @@ export default async function DashboardPage({
 
       {revenue && (
       <section className="space-y-3">
-        <SectionHeader title="Faturamento do período" />
-        <nav aria-label="Período" className="flex flex-wrap gap-2">
-          {REVENUE_PERIODS.map((p) => (
-            <Link
-              key={p.key}
-              href={p.key === "mes" ? "/" : `/?periodo=${p.key}`}
-              aria-current={p.key === periodKey ? "true" : undefined}
-              className={cn(
-                "inline-flex min-h-11 items-center rounded-full border px-4 text-base font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                p.key === periodKey
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-background hover:bg-muted"
-              )}
-            >
-              {p.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SectionHeader title="Faturamento do período" />
+          <SegmentedNav
+            label="Período"
+            activeKey={periodKey}
+            items={REVENUE_PERIODS.map((p) => ({ key: p.key, label: p.label, href: p.key === "mes" ? "/" : `/?periodo=${p.key}` }))}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Stat label={`Faturado: ${periodLabel.toLowerCase()}`} value={formatCurrency(revenue.period.amount)} hint="Pedidos concluídos no período" icon={TrendingUp} />
           <Stat
             label="Vendas no período"
@@ -198,7 +190,7 @@ export default async function DashboardPage({
 
       <section className="space-y-3">
         <SectionHeader title="Indicadores" />
-        <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2", indicatorCount === 4 ? "lg:grid-cols-4" : indicatorCount === 3 ? "lg:grid-cols-3" : "")}>
+        <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2", indicatorCount === 4 ? "lg:grid-cols-4" : indicatorCount === 3 ? "lg:grid-cols-3" : "")}>
           {revenue && <Stat label="Clientes" value={String(revenue.clients)} hint="Cadastrados no portal" icon={Users} />}
           <Stat label="Consultas hoje" value={String(counts.today)} hint="Criadas hoje" icon={Search} href="/dossiers" />
           <Stat label="Consultas no mês" value={String(counts.month)} hint="Mês corrente" icon={Search} href="/dossiers" />
@@ -210,15 +202,16 @@ export default async function DashboardPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Consultas por mês</CardTitle>
+          <CardTitle>Consultas por mês</CardTitle>
           <CardDescription>Últimos {QUERY_MONTHS} meses, PF e PJ</CardDescription>
         </CardHeader>
         <CardContent>
           {totalPf + totalPj === 0 ? (
-            <p className="text-base text-muted-foreground">Nenhuma consulta no período.</p>
+            <p className="text-sm text-muted-foreground">Nenhuma consulta no período.</p>
           ) : (
             <div className="grid grid-cols-1 items-center gap-6 lg:grid-cols-2">
               <PieChart
+                size={132}
                 segments={[
                   { label: "PF", value: totalPf, fillClass: HUE.brand.fill, barClass: HUE.brand.bar },
                   { label: "PJ", value: totalPj, fillClass: HUE.sky.fill, barClass: HUE.sky.bar },
@@ -251,16 +244,17 @@ export default async function DashboardPage({
       {revenue && (
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Histórico de faturamento</CardTitle>
+          <CardTitle>Histórico de faturamento</CardTitle>
           <CardDescription>Últimos {HISTORY_MONTHS} meses</CardDescription>
         </CardHeader>
         <CardContent>
-          <ul className="space-y-2">
+          <ul className="space-y-1.5">
             {history.map((h) => (
-              <li key={h.key} className="grid grid-cols-[2.5rem_1fr_6.5rem] items-center gap-3 text-base">
+              <li key={h.key} className="grid grid-cols-[2.5rem_1fr_6.5rem] items-center gap-3 text-sm">
                 <span className="text-muted-foreground">{h.label}</span>
-                <span className="h-3 overflow-hidden rounded-full bg-muted">
-                  <span className="block h-full rounded-full bg-primary" style={{ width: `${(h.amount / historyMax) * 100}%` }} />
+                <span className="h-2.5 overflow-hidden rounded-full bg-accent">
+                  {/* Amarelo não lê sobre branco: contorno âmbar escuro (--chart-3, 4:1) dá o limite da barra. */}
+                  <span className="block h-full rounded-full border border-chart-3 bg-primary" style={{ width: `${(h.amount / historyMax) * 100}%` }} />
                 </span>
                 <span className="text-right font-bold tabular-nums">{formatCurrency(h.amount)}</span>
               </li>

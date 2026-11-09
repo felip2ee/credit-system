@@ -15,10 +15,11 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SearchInput } from "@/components/ui/search-input";
+import { SegmentedNav } from "@/components/ui/segmented-nav";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { listDossiers, type DossierKindFilter } from "@/lib/dossiers/queries";
-import { cn, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 
 const TABS: { kind: DossierKindFilter | undefined; label: string }[] = [
   { kind: undefined, label: "Todos" },
@@ -62,26 +63,12 @@ export default async function DossiersPage({
       </PageHeader>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav aria-label="Tipo de pesquisa" className="flex flex-wrap gap-2">
-          {TABS.map((t) => {
-            const active = t.kind === kind;
-            return (
-              <Link
-                key={t.label}
-                href={tabHref(t.kind, searchParams.q)}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "inline-flex min-h-11 items-center rounded-full border px-4 text-base font-bold",
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-input bg-card text-foreground hover:bg-brand-soft"
-                )}
-              >
-                {t.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <SegmentedNav
+          label="Tipo de pesquisa"
+          current="page"
+          activeKey={kind ?? "all"}
+          items={TABS.map((t) => ({ key: t.kind ?? "all", label: t.label, href: tabHref(t.kind, searchParams.q) }))}
+        />
         <form action="/dossiers" className="flex gap-2 sm:w-96">
           {kind && <input type="hidden" name="tipo" value={dossierFilterParam(kind)} />}
           <SearchInput
@@ -106,7 +93,7 @@ export default async function DossiersPage({
               {dossiers.map((d) => (
                 <li key={d.id}>
                   <details className="group">
-                    <summary className="flex cursor-pointer list-none flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 hover:bg-muted/50 sm:items-center">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 hover:bg-accent sm:items-center">
                       <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 sm:mt-0" />
                       <div className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] sm:basis-0">
                         <p className="truncate text-base font-bold">{d.holder_name}</p>
@@ -123,7 +110,7 @@ export default async function DossiersPage({
                         <DossierStatusBadge status={d.status} />
                       </div>
                     </summary>
-                    <div className="space-y-2 border-t bg-muted/20 px-4 py-3 sm:pl-11">
+                    <div className="space-y-2 border-t bg-background/40 px-4 py-3 sm:pl-11">
                       <ul className="space-y-2">
                         {d.members.map((m) => (
                           <li key={m.id} className="grid grid-cols-1 gap-1 text-sm sm:flex sm:items-center sm:gap-3">

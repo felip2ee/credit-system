@@ -19,11 +19,14 @@ interface BalanceCardProps {
   action?: React.ReactNode;
   // Chave do localStorage que guarda a preferência de ocultar. Sem ela, o estado vale só nesta página.
   storageKey?: string;
+  // "dark": hero verde escuro do painel admin (número branco, rótulo amarelo). Padrão: amarelo do portal.
+  tone?: "brand" | "dark";
   className?: string;
 }
 
-// Cartão de saldo: fundo verde profundo da marca (#0A3329, branco 13:1), texto branco em negrito.
-export function BalanceCard({ label = "Saldo", value, hideable = false, hint, action, storageKey, className }: BalanceCardProps) {
+// Cartão de saldo: fundo amarelo forte (#FFC400), texto verde escuro em negrito (10:1). tone="dark": verde #0B3A2E, texto branco.
+export function BalanceCard({ label = "Saldo", value, hideable = false, hint, action, storageKey, tone = "brand", className }: BalanceCardProps) {
+  const dark = tone === "dark";
   const [hidden, setHidden] = React.useState(false);
 
   React.useEffect(() => {
@@ -47,11 +50,11 @@ export function BalanceCard({ label = "Saldo", value, hideable = false, hint, ac
   }
 
   return (
-    <Card variant="hero" className={cn("space-y-4 p-5", className)}>
+    <Card variant={dark ? "dark" : "hero"} className={cn("space-y-4 p-5", dark && "space-y-3 p-5", className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-base font-bold">{label}</p>
-          <p className="mt-1 break-words text-4xl font-bold tabular-nums leading-tight">
+          <p className={cn("text-base font-bold", dark && "text-[13px] text-primary")}>{label}</p>
+          <p className={cn("mt-1 break-words text-4xl font-bold tabular-nums leading-tight", dark && "font-heading text-[2rem]")}>
             <span aria-hidden={hidden || undefined}>{displayBalance(value, hidden)}</span>
             {hidden && <span className="sr-only">{label} oculto</span>}
           </p>
@@ -61,14 +64,14 @@ export function BalanceCard({ label = "Saldo", value, hideable = false, hint, ac
             type="button"
             onClick={toggle}
             aria-label={hidden ? `Mostrar ${label.toLowerCase()}` : `Ocultar ${label.toLowerCase()}`}
-            className="-m-1 flex size-12 shrink-0 items-center justify-center rounded-full hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className={cn("-m-1 flex size-12 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2", dark ? "size-10 hover:bg-white/15 focus-visible:ring-primary" : "hover:bg-primary-foreground/15 focus-visible:ring-primary-foreground")}
           >
             {/* O ícone mostra a ação, como no chip do cabeçalho: olho = mostrar, olho riscado = ocultar. */}
             {hidden ? <Eye aria-hidden className="size-6" /> : <EyeOff aria-hidden className="size-6" />}
           </button>
         )}
       </div>
-      {hint && <div className="text-base">{hint}</div>}
+      {hint && <div className={cn("text-base", dark && "text-[13px] text-muted-foreground")}>{hint}</div>}
       {action && <div className="flex flex-col gap-3 sm:flex-row [&>*]:w-full sm:[&>*]:w-auto">{action}</div>}
     </Card>
   );

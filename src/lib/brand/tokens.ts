@@ -1,3 +1,50 @@
+// Paleta do app (UI): verde escuro de fundo + amarelo de destaque; branco só em texto corrido. Espelha globals.css.
+// PDF e e-mail seguem em BRAND_COLORS e STATE_COLORS (abaixo), fora desta paleta.
+export const APP_COLORS = {
+	background: "#05261F",
+	card: "#0B3A2E",
+	cardRaised: "#14473A",
+	foreground: "#FFFFFF",
+	mutedForeground: "#B9D2C8",
+	primary: "#FFC400",
+	primaryHover: "#E0A800",
+	primaryForeground: "#05261F",
+	destructive: "#FF7A70",
+	destructiveForeground: "#05261F",
+	border: "#1F5A48",
+	controlBorder: "#5E9985",
+	ring: "#FFC400",
+} as const;
+
+// Painel do Bureau e Superadmin (.theme-admin em globals.css): página clara, cartões brancos, destaques verdes. Mude os dois juntos.
+export const ADMIN_COLORS = {
+	pageBackground: "#F7F9F8",
+	pageForeground: "#05261F",
+	pageMutedForeground: "#3D5A50",
+	pageTint: "#E3EFE9",
+	pageBorder: "#BFD6CB",
+	pageControlBorder: "#4A7C69",
+	pageRing: "#05261F",
+	pageDestructive: "#B42318",
+	pageDestructiveForeground: "#FFFFFF",
+	// Cartão padrão branco com borda fina; quadradinho de ícone em verde claro (= pageTint).
+	cardBackground: "#FFFFFF",
+	cardBorder: "#D5E3DC",
+	iconTile: "#E3EFE9",
+	// Destaque escuro (hero): APP_COLORS.card (#0B3A2E). Séries de gráfico sobre branco (amarelo #FFC400 não lê sobre branco).
+	chart: ["#0B3A2E", "#2F7A5F", "#9A7200", "#4A7C69", "#3D5A50"],
+} as const;
+
+// Estados do app sobre fundo escuro. Sucesso e aviso em amarelo/verde; só o erro usa vermelho.
+export const APP_STATE_COLORS: Record<StateName, { bg: string; fg: string; border: string }> = {
+	success: { bg: "#0B3A2E", fg: "#FFC400", border: "#5E9985" },
+	waiting: { bg: "#3D3200", fg: "#FFD84D", border: "#FFC400" },
+	progress: { bg: "#0B3A2E", fg: "#FFFFFF", border: "#5E9985" },
+	attention: { bg: "#4A3A00", fg: "#FFC400", border: "#E0A800" },
+	danger: { bg: "#3D1717", fg: "#FF9A90", border: "#FF7A70" },
+	neutral: { bg: "#0B3A2E", fg: "#D6E6E0", border: "#5E9985" },
+};
+
 // Espelho em hex das variáveis CSS de src/app/globals.css. Mude os dois juntos (e tailwind.config.ts).
 export const BRAND_COLORS = {
 	// Verde profundo: faixa escura, barra lateral, themeColor.

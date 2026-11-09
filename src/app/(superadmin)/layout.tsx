@@ -12,7 +12,7 @@ export default async function SuperadminLayout({ children }: { children: React.R
   if (session.role !== "superadmin") redirect("/");
 
   return (
-    <div className="flex min-h-screen bg-surface">
+    <div className="theme-admin flex min-h-screen bg-background">
       <SuperadminNav />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar email={session.email} navItems={SUPERADMIN_NAV_ITEMS} />

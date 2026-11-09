@@ -49,7 +49,7 @@ export function PieChart({ segments, size = 168 }: PieChartProps) {
               const largeArc = slice > 180 ? 1 : 0;
               const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
               angle += slice;
-              return <path key={s.label} d={d} className={cn(s.fillClass)} />;
+              return <path key={s.label} d={d} className={cn(s.fillClass, "stroke-card stroke-2")} />;
             });
           })()
         )}

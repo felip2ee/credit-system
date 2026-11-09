@@ -1,6 +1,8 @@
 // Paleta dos gráficos do Dashboard. Classes Tailwind LITERAIS (bar/fill/stroke)
 // para sobreviver ao purge e manter os tokens do tema. Cada categoria mapeia
-// seus itens para uma "hue" daqui.
+// seus itens para uma "hue" daqui. Nomes antigos mantidos (outros arquivos os
+// usam); os valores agora são verde/amarelo/branco do tema escuro (--chart-1..5).
+// Séries vizinhas variam em luminosidade: amarelo, verde claro, verde médio, branco.
 
 export type Hue =
   | "emerald"
@@ -21,14 +23,14 @@ export interface HueClasses {
 }
 
 export const HUE: Record<Hue, HueClasses> = {
-  emerald: { bar: "bg-primary", fill: "fill-primary", stroke: "stroke-primary" },
-  emeraldDark: { bar: "bg-brand-deep", fill: "fill-brand-deep", stroke: "stroke-brand-deep" },
-  amber: { bar: "bg-amber-500", fill: "fill-amber-500", stroke: "stroke-amber-500" },
-  sky: { bar: "bg-sky-500", fill: "fill-sky-500", stroke: "stroke-sky-500" },
-  indigo: { bar: "bg-indigo-500", fill: "fill-indigo-500", stroke: "stroke-indigo-500" },
-  red: { bar: "bg-red-500", fill: "fill-red-500", stroke: "stroke-red-500" },
-  slate: { bar: "bg-slate-400", fill: "fill-slate-400", stroke: "stroke-slate-400" },
-  slateLight: { bar: "bg-slate-300", fill: "fill-slate-300", stroke: "stroke-slate-300" },
-  brand: { bar: "bg-primary", fill: "fill-primary", stroke: "stroke-primary" },
-  violet: { bar: "bg-violet-500", fill: "fill-violet-500", stroke: "stroke-violet-500" },
+  emerald: { bar: "bg-chart-1", fill: "fill-chart-1", stroke: "stroke-chart-1" },
+  emeraldDark: { bar: "bg-chart-4", fill: "fill-chart-4", stroke: "stroke-chart-4" },
+  amber: { bar: "bg-chart-3", fill: "fill-chart-3", stroke: "stroke-chart-3" },
+  sky: { bar: "bg-chart-2", fill: "fill-chart-2", stroke: "stroke-chart-2" },
+  indigo: { bar: "bg-chart-5", fill: "fill-chart-5", stroke: "stroke-chart-5" },
+  red: { bar: "bg-destructive", fill: "fill-destructive", stroke: "stroke-destructive" },
+  slate: { bar: "bg-chart-4", fill: "fill-chart-4", stroke: "stroke-chart-4" },
+  slateLight: { bar: "bg-chart-2", fill: "fill-chart-2", stroke: "stroke-chart-2" },
+  brand: { bar: "bg-chart-1", fill: "fill-chart-1", stroke: "stroke-chart-1" },
+  violet: { bar: "bg-chart-5", fill: "fill-chart-5", stroke: "stroke-chart-5" },
 };

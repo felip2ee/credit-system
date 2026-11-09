@@ -35,9 +35,9 @@ export function ClientOrderList({ orders }: { orders: ClientOrderListItem[] }) {
 					<li key={o.dossierId}>
 						<Link
 							href={`/portal/pesquisas/${o.dossierId}`}
-							className="flex min-h-14 items-start gap-3 rounded-card px-4 py-3 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							className="flex min-h-14 items-start gap-3 rounded-card px-4 py-3 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 						>
-							<span aria-hidden className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-primary">
+							<span aria-hidden className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
 								<FileText className="size-5" />
 							</span>
 							<span className="min-w-0 flex-1 space-y-1">

@@ -57,13 +57,13 @@ export function Toaster() {
             type={t.tone === "danger" || t.tone === "attention" ? "foreground" : "background"}
             style={toneStyle(t.tone)}
             onOpenChange={(open) => !open && dismiss(t.id)}
-            className={cn("flex items-start gap-3 rounded-card border p-4 shadow-lg")}
+            className={cn("flex items-start gap-3 rounded-card border p-4 shadow-lg admin:p-3")}
           >
             <Icon aria-hidden className="mt-0.5 size-6 shrink-0" />
             <div className="flex-1 space-y-1">
-              <ToastPrimitive.Title className="text-base font-bold">{t.title}</ToastPrimitive.Title>
+              <ToastPrimitive.Title className="text-base font-bold admin:text-sm">{t.title}</ToastPrimitive.Title>
               {t.description && (
-                <ToastPrimitive.Description className="text-base">{t.description}</ToastPrimitive.Description>
+                <ToastPrimitive.Description className="text-base admin:text-sm">{t.description}</ToastPrimitive.Description>
               )}
             </div>
             <ToastPrimitive.Close

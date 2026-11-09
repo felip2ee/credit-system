@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-3 py-1 text-sm font-bold transition-colors focus:outline-none",
+  "inline-flex items-center rounded-full border px-3 py-1 text-sm font-bold transition-colors focus:outline-none admin:px-2.5 admin:py-0.5 admin:text-xs",
   {
     variants: {
       variant: {
@@ -14,9 +14,9 @@ const badgeVariants = cva(
           "border-transparent bg-secondary text-secondary-foreground",
         destructive:
           "border-transparent bg-destructive text-destructive-foreground",
-        outline: "border-border text-foreground",
+        outline: "border-primary text-primary",
         success:
-          "border-[#B9D3C6] bg-[#E3EFE9] text-primary",
+          "border-input bg-card text-primary",
         // Tag positiva na cor da marca (ex.: "Ativo").
         brand: "border-transparent bg-brand-soft text-brand-soft-foreground",
         muted: "border-transparent bg-muted text-muted-foreground",

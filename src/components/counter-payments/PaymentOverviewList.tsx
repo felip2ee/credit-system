@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Landmark, Smartphone } from "lucide-react";
 
+import { SegmentedNav } from "@/components/ui/segmented-nav";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { derivePaymentState, paymentMethodLabel, type PaymentFilter, PAYMENT_FILTERS, PAYMENT_FILTER_LABEL } from "@/lib/counter-payments/overview";
 import type { PaymentOverviewRow } from "@/lib/counter-payments/queries";
 import { statusInfo } from "@/lib/ui/status";
-import { cn, formatCurrency, formatDateSP } from "@/lib/utils";
+import { formatCurrency, formatDateSP } from "@/lib/utils";
 
 // `basePath` + `baseParams` deixam a lista viver em outra rota (a aba da Carteira).
 export function PaymentFilterChips({
@@ -19,29 +20,14 @@ export function PaymentFilterChips({
   basePath?: string;
   baseParams?: Record<string, string>;
 }) {
-  return (
-    <nav aria-label="Filtrar por forma de pagamento" className="flex flex-wrap gap-2">
-      {PAYMENT_FILTERS.map((f) => {
-        const params = new URLSearchParams(baseParams);
-        if (f !== "all") params.set("filter", f);
-        if (q) params.set("q", q);
-        const qs = params.toString();
-        return (
-          <Link
-            key={f}
-            href={`${basePath}${qs ? `?${qs}` : ""}`}
-            aria-current={f === active ? "page" : undefined}
-            className={cn(
-              "inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              f === active ? "border-transparent bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted",
-            )}
-          >
-            {PAYMENT_FILTER_LABEL[f]}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+  const items = PAYMENT_FILTERS.map((f) => {
+    const params = new URLSearchParams(baseParams);
+    if (f !== "all") params.set("filter", f);
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    return { key: f, label: PAYMENT_FILTER_LABEL[f], href: `${basePath}${qs ? `?${qs}` : ""}` };
+  });
+  return <SegmentedNav label="Filtrar por forma de pagamento" items={items} activeKey={active} current="page" />;
 }
 
 export function PaymentOverviewList({ rows }: { rows: PaymentOverviewRow[] }) {
@@ -56,7 +42,7 @@ export function PaymentOverviewList({ rows }: { rows: PaymentOverviewRow[] }) {
           <li key={r.dossierId}>
             <Link
               href={`/settings/counter-payments?dossier=${r.dossierId}`}
-              className="flex min-h-14 flex-col gap-2 px-4 py-3 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
+              className="flex min-h-14 flex-col gap-2 px-4 py-3 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
             >
               <span className="min-w-0">
                 <span className="block truncate text-base font-bold">{r.subjectName}</span>

@@ -55,7 +55,7 @@ const markdownComponents: Components = {
     </div>
   ),
   th: ({ children }) => (
-    <th className="border bg-muted px-2 py-1 text-left font-semibold">{children}</th>
+    <th className="border bg-accent px-2 py-1 text-left font-semibold">{children}</th>
   ),
   td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
 };

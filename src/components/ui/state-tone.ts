@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Clock, Info, Loader2, XCircle, type LucideIcon } from "lucide-react";
 import type { CSSProperties } from "react";
 
-import { STATE_COLORS, type StateName } from "@/lib/brand/tokens";
+import { APP_STATE_COLORS, type StateName } from "@/lib/brand/tokens";
 
 export type StateTone = StateName;
 
@@ -19,9 +19,14 @@ export function toneRole(tone: StateTone): "alert" | "status" {
   return tone === "attention" || tone === "danger" ? "alert" : "status";
 }
 
+// Cores escuras de APP_STATE_COLORS; `.theme-admin` troca por tons claros pelas variáveis --st-<tom>-* (globals.css).
 export function toneStyle(tone: StateTone): CSSProperties {
-  const { bg, fg, border } = STATE_COLORS[tone];
-  return { backgroundColor: bg, color: fg, borderColor: border };
+  const { bg, fg, border } = APP_STATE_COLORS[tone];
+  return {
+    backgroundColor: `var(--st-${tone}-bg, ${bg})`,
+    color: `var(--st-${tone}-fg, ${fg})`,
+    borderColor: `var(--st-${tone}-border, ${border})`,
+  };
 }
 
 export type StepState = "done" | "current" | "todo" | "failed";

@@ -214,7 +214,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                     <li key={d.id}>
                       <Link
                         href={`/dossiers/${d.id}`}
-                        className="-mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-muted/50"
+                        className="-mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-accent"
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">
@@ -250,7 +250,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
                     <li key={c.id}>
                       <Link
                         href={`/consultations/${c.id}`}
-                        className="-mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-muted/50"
+                        className="-mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-accent"
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">

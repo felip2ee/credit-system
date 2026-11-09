@@ -15,7 +15,7 @@ interface TopbarProps {
 
 export function Topbar({ email, navItems, permissions }: TopbarProps) {
   return (
-    <header className="flex min-h-16 items-center justify-between gap-2 border-b border-border bg-background px-4 md:px-6">
+    <header className="flex min-h-14 items-center justify-between gap-2 border-b border-sidebar-border bg-sidebar px-4 md:px-6">
       <div className="flex items-center gap-3 md:hidden">
         <MobileBrand />
       </div>
@@ -26,7 +26,7 @@ export function Topbar({ email, navItems, permissions }: TopbarProps) {
         </div>
         <form action={signOut}>
           <Button type="submit" variant="ghost" size="sm">
-            <LogOut aria-hidden className="h-4 w-4" />
+            <LogOut aria-hidden />
             Sair
           </Button>
         </form>

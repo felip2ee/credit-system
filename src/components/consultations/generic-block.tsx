@@ -9,7 +9,7 @@ export function GenericValueView({ value }: { value: GenericValue }) {
     case "text":
       return <p className="text-sm">{value.text}</p>;
     case "json":
-      return <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-sm">{value.text}</pre>;
+      return <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-accent p-3 text-sm">{value.text}</pre>;
     case "fields":
       return (
         <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">

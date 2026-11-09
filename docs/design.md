@@ -44,6 +44,19 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 - PDFs e e-mails usam `BRAND_COLORS` de `tokens.ts`. Os modelos de e-mail no banco são recoloridos por migration. Não recolora modelo à mão.
 - Neutros: `NEUTRAL_COLORS` em `tokens.ts` (50 a 900, escala `gray` do Tailwind). `500` para texto secundário (4,8:1). `400` só para placeholder ou ícone inativo decorativo, nunca texto de leitura.
 
+## Painel do Bureau e Superadmin (`.theme-admin`)
+
+- Só essas duas áreas têm página clara (`#F7F9F8`, texto `#05261F`). Portal, auth e landing ficam escuros.
+- **Cartão padrão é branco.** `.theme-admin` em `src/app/globals.css` define `--card` `#FFFFFF`, borda `#D5E3DC` (decorativa), texto verde escuro, quadradinho de ícone `#E3EFE9` (`bg-brand-soft`). Campo e botão de contorno usam `--input` `#4A7C69` (4,8:1).
+- **Destaque escuro** (`#0B3A2E`): `<Card variant="dark">` ou a classe `card-dark`, `<BalanceCard tone="dark">`. Use no hero e no máximo em um segundo destaque por tela. Menu lateral (`bg-sidebar` `#05261F`), `bg-ink`, `bg-secondary` e `on-dark` também re-declaram as variáveis escuras. Não use `bg-background` para fazer bloco.
+- **Amarelo `#FFC400`** só em botão primário, estado ativo (menu, segmented, pílula), barra de gráfico com contorno e pequeno selo. Como texto ou borda sobre branco, `text-primary` e `border-primary` viram verde escuro (variável `--link`); amarelo como texto só dentro de destaque escuro.
+- **Escala compacta, só no admin.** Variante Tailwind `admin:` (plugin em `tailwind.config.ts`, seletor `.theme-admin &`). O portal não muda. Título de página 24 px, subtítulo 14 px, corpo 14 px, rótulo 12 a 13 px. Hero com número serifado de 32 px; demais números de 24 px. Cartão com raio 18 px, padding 16 a 20 px, gap 12 px entre cartões, 20 a 24 px entre seções. Botão `h-10` (40 px, `sm` `h-9`), campo `h-10`, linha de tabela `py-2.5`, ícone em quadradinho de 36 px. Alvo mínimo de 36 px.
+- Menu lateral de 224 px (`w-56`): item `h-10`, texto 14 px, ícone 18 px, logo `h-10`. Item ativo amarelo com texto `#05261F`.
+- **Filtro de período e abas:** `SegmentedNav` (`src/components/ui/segmented-nav.tsx`): contêiner pílula branco com borda, opção `h-9`, ativa amarela. Usado no Dashboard (período), na lista de pesquisas (tipo) e na lista de pagamentos no balcão (forma de pagamento). Cada opção é link; `current="page"` para abas.
+- **Estados** (`StatusBadge`, `StatusBanner`, toast): `toneStyle` lê `--st-<tom>-bg|fg|border`. No admin são os tons claros de `STATE_COLORS`; fora dele, os escuros de `APP_STATE_COLORS`.
+- **Gráficos:** no admin `--chart-1..5` são `#0B3A2E`, `#2F7A5F`, `#9A7200`, `#4A7C69`, `#3D5A50` (todos 3:1 ou mais no branco). Dentro de destaque escuro voltam ao amarelo, verde claro e branco. Barra amarela sobre branco leva contorno `border-chart-3`.
+- Valores e contrastes: `ADMIN_COLORS` em `src/lib/brand/tokens.ts` e `src/lib/brand/contrast.test.ts`.
+
 ## Forma, camadas e espaço
 
 - Raios: campo `rounded-input` 8, cartão `rounded-card`/`rounded-lg` 12, destaque `rounded-hero` 16, modal `rounded-modal` 24. Botão, tag, busca e item ativo da barra: `rounded-full`.
@@ -97,7 +110,7 @@ Primitivos em `src/components/ui/` (Radix + `cva` + `cn()`). Não crie botão, c
 
 - Ação: `Button` (pílula). `default` é creme com borda dourada clara e texto `--cta-foreground`; `cta` é dourado cheio (`--cta`, hover `--cta-hover`) só para as entradas "Nova pesquisa" e "Novo pedido"; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#123029`, `--ink`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho dourado só ao `default` e ao `cta` e só no CTA principal da tela. `IconButton` é circular de 48 px e exige `aria-label`.
 - Formulário: `Input`, `Textarea`, `Select` (8 px, 48 px de altura; erro por `aria-invalid`), `Field` (rótulo sempre visível, ajuda e erro ligados por `aria-describedby`), `SearchInput` (pílula), `Label`, `Checkbox`, `RadioGroup`, `Dialog` (24 px, scrim escuro).
-- Cartão: `Card` com `variant` `flat` (padrão, borda de 1 px), `elevated` e `hero` (verde-escuro `--primary`, texto branco).
+- Cartão: `Card` com `variant` `flat` (padrão, borda de 1 px), `elevated`, `hero` (amarelo do portal) e `dark` (verde escuro do painel admin).
 - Cartões de produto mostram nome e descrição completos (sem corte); o bloco "O que você recebe" é um `<details>` com seta (chevron) que gira ao abrir.
 - Saldo e atalhos: `BalanceCard` (valor grande com `tabular-nums`, `hideable` mostra o olho; `displayBalance` em `balance.ts`), `QuickActions` + `QuickAction` (tile de 56 px com ícone, rótulo embaixo, `active` para a ação principal, link ou botão), `ListRow` (ícone circular cinza, título, subtítulo, valor à direita), `SectionHeader` (título e link).
 - Estado: `StatusBadge`, `Badge` (pílula; `variant="brand"` para tag positiva), `StatusBanner`, `EmptyState`, `Skeleton`, `Stepper` (círculos, "Agora:"), toast (`Toaster`, `role="status"`).

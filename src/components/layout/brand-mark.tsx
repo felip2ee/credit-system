@@ -6,10 +6,10 @@ const LOGO_ON_DARK = "/brand/rainha-cred/logo/rainha-cred-logo-completa-fundo-es
 /* eslint-disable @next/next/no-img-element -- SVG estático do kit, sem otimização de imagem */
 export function SidebarBrand({ label }: { label?: string }) {
   return (
-    <div className="flex h-20 items-end justify-between gap-3 border-b border-sidebar-border px-6 pb-3">
-      <img src={LOGO_ON_DARK} alt={BRAND_NAME} className="h-14 w-auto object-contain" />
+    <div className="flex h-16 items-end justify-between gap-2 border-b border-sidebar-border px-4 pb-2.5">
+      <img src={LOGO_ON_DARK} alt={BRAND_NAME} className="h-10 w-auto object-contain" />
       {label && (
-        <span className="text-base font-bold uppercase leading-none tracking-wide text-sidebar-foreground/70">{label}</span>
+        <span className="text-xs font-bold uppercase leading-none tracking-wide text-sidebar-foreground/70">{label}</span>
       )}
     </div>
   );

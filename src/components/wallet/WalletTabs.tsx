@@ -14,7 +14,7 @@ export function WalletTabs({ tabs, active }: { tabs: readonly WalletTab[]; activ
           aria-current={t === active ? "page" : undefined}
           className={cn(
             "inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            t === active ? "border-transparent bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted",
+            t === active ? "border-transparent bg-primary text-primary-foreground" : "border-border bg-background hover:bg-accent",
           )}
         >
           {WALLET_TAB_LABEL[t]}

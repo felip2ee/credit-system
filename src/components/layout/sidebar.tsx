@@ -43,9 +43,9 @@ export function Sidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex">
+    <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
       <SidebarBrand label="Admin" />
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
+      <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2.5">
         {visibleNavItems(DASHBOARD_NAV_ITEMS, permissions).map((item) => {
           const active = isNavActive(pathname, item.href);
           const Icon = ICONS[item.href];
@@ -55,27 +55,27 @@ export function Sidebar({
               aria-current={active ? "page" : undefined}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 min-h-11 rounded-full px-4 py-2 text-base font-bold transition-colors",
+                "flex items-center gap-2.5 min-h-10 rounded-full px-3.5 py-2 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               )}
             >
-              <Icon className="h-5 w-5" />
+              <Icon aria-hidden className="size-[18px] shrink-0" />
               {item.label}
             </Link>
           );
         })}
       </nav>
-      <div className="space-y-1 border-t border-sidebar-border p-3">
-        <p className="truncate px-4 text-base font-bold">{name}</p>
-        {email && <p className="truncate px-4 text-sm text-sidebar-foreground/70">{email}</p>}
+      <div className="space-y-0.5 border-t border-sidebar-border p-2.5">
+        <p className="truncate px-3.5 text-sm font-bold">{name}</p>
+        {email && <p className="truncate px-3.5 text-xs text-sidebar-foreground">{email}</p>}
         <form action={signOut}>
           <button
             type="submit"
-            className="flex min-h-11 w-full items-center gap-3 rounded-full px-4 py-2 text-base font-bold text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+            className="flex min-h-10 w-full items-center gap-2.5 rounded-full px-3.5 py-2 text-sm font-bold text-sidebar-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
-            <LogOut aria-hidden className="h-5 w-5" />
+            <LogOut aria-hidden className="size-[18px] shrink-0" />
             Sair
           </button>
         </form>

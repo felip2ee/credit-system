@@ -18,7 +18,7 @@ export function PublicShell({
 	const column = cn("mx-auto w-full", width === "md" ? "max-w-md" : "max-w-3xl");
 	return (
 		<main className="area-portal min-h-screen bg-background">
-			<div className="bg-brand-deep px-screen pb-10 pt-8 text-brand-cream">
+			<div className="bg-brand-deep px-screen pb-10 pt-8 text-foreground">
 				<header className={cn(column, "space-y-6")}>
 					<div className="flex flex-col items-center gap-3 text-center">
 						<BrandLogo variant="full" tone="light" />

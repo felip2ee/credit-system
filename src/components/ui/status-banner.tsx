@@ -18,12 +18,12 @@ export function StatusBanner({ tone, title, description, action, className }: St
     <div
       role={toneRole(tone)}
       style={toneStyle(tone)}
-      className={cn("flex flex-col gap-3 rounded-card border p-4 sm:flex-row sm:items-start", className)}
+      className={cn("flex flex-col gap-3 rounded-card border p-4 sm:flex-row sm:items-start admin:p-3 admin:text-sm", className)}
     >
       <Icon aria-hidden className={cn("mt-0.5 size-6 shrink-0", tone === "progress" && "motion-safe:animate-spin")} />
       <div className="flex-1 space-y-1">
-        <p className="text-base font-bold">{title}</p>
-        {description && <div className="text-base">{description}</div>}
+        <p className="text-base font-bold admin:text-sm">{title}</p>
+        {description && <div className="text-base admin:text-sm">{description}</div>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>
