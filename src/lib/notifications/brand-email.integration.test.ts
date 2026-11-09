@@ -38,7 +38,7 @@ type Row = { key: string; version: number; status: string; params: string[]; ema
 async function templates(status: "active" | "retired"): Promise<Row[]> {
 	const { rows } = await owner.query<Row>(
 		`select key, version, status, params, email_subject, email_html, email_text from notification_templates
-      where channel = 'email' and status = $1 and key = any($2) order by key`,
+      where channel = 'email' and status = $1 and key = any($2) order by key, version`,
 		[status, SEEDED_KEYS],
 	);
 	return rows;
