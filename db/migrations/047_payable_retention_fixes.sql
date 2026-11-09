@@ -1,4 +1,4 @@
--- Correções da retenção (036). A 036 já foi aplicada e não muda.
+-- Correções da retenção (046). A 046 já foi aplicada e não muda.
 -- 1) Só o acréscimo (accrual) espera o prazo. O estorno (reversal) conta na hora: create_payout e payable_buckets
 --    tratam o estorno como liberado, para um estorno recente nunca deixar o repasse pagar valor que já foi devolvido.
 -- 2) payable_buckets muda de colunas (por isso drop + create, não create or replace). Semântica, sobre os

@@ -1,4 +1,4 @@
-// Migrations 036 e 037: retenção do valor a receber (payable_retention_days, payable_buckets, create_payout).
+// Migrations 046 e 047: retenção do valor a receber (payable_retention_days, payable_buckets, create_payout).
 // O prazo é uma configuração global compartilhada com outros arquivos de teste em paralelo: quem o muda faz isso
 // numa transação que volta atrás (withRetention). Nenhum commit altera a configuração.
 import { Pool, type PoolClient } from "pg";
