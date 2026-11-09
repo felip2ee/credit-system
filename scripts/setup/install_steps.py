@@ -97,7 +97,7 @@ class Steps(Core):
         return {"TRAEFIK_NETWORK": network, "TRAEFIK_CERT_RESOLVER": resolver}
 
     def registry_login(self) -> None:
-        if not self.gh_token and not self.yes:
+        if not self.gh_token and not self.yes and not self.update:
             self.gh_token = self.getpass_fn("Token do GHCR com SÓ read:packages (vazio = imagens públicas): ")
         if not self.gh_token:
             self.ok("GHCR: sem token, sem login (imagens públicas)")
@@ -123,17 +123,19 @@ class Steps(Core):
 
     def resolve_digests(self, env: dict[str, str]) -> dict[str, str]:
         code, sha = self.run(["git", "-C", str(self.root), "rev-parse", "HEAD"])
-        tag = self.ask("Tag das imagens (commit SHA publicado pelo CI)", sha.strip() if code == 0 else "",
-                       lambda v: bool(v.strip()))
+        quiet = self.yes or self.update
+        tag = sha.strip() if quiet and code == 0 else self.ask(
+            "Tag das imagens (commit SHA publicado pelo CI)", sha.strip() if code == 0 else "", lambda v: bool(v.strip()))
         owner = env["REINO_IMAGE_OWNER"]
         result: dict[str, str] = {}
         for key, image in (("REINO_IMAGE_DIGEST", "reino-credito"), ("REINO_BACKUP_DIGEST", "reino-backup")):
             found = det.resolve_digest(f"{GHCR}/{owner}/{image}:{tag}", self.run, allow_pull=not self.dry_run)
             (self.ok if found else self.fail)(
                 f"Digest {image}:{tag[:12]} -> {'sha256:' + found if found else 'não encontrado'}")
-            if not found and self.yes and not self.dry_run:
-                raise Stop(f"Não achei o digest de {image}:{tag}. Com --yes não uso o digest antigo; "
-                           "confira se o CI publicou a imagem e o login no GHCR, ou rode sem --yes.")
-            result[key] = self.ask(f"Digest de {image} (64 hex)", found or env.get(key, ""),
-                                   lambda v: bool(sp._DIGEST.match(v)))
+            if not found and quiet and not self.dry_run:
+                raise Stop(f"Não achei o digest de {image}:{tag}. Não uso o digest antigo: a imagem desse commit ainda "
+                           "não foi publicada (confira se o workflow 'Build and push images' desse commit terminou com "
+                           "sucesso e espere), ou o login no GHCR falhou. Nada foi alterado no servidor.")
+            result[key] = (found or env.get(key, "")) if self.update else self.ask(
+                f"Digest de {image} (64 hex)", found or env.get(key, ""), lambda v: bool(sp._DIGEST.match(v)))
         return result

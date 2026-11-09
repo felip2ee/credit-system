@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Bootstrap do instalador: baixa o repositório numa versão FIXA em /opt/credit-system e chama install.py.
-# Uso:  sudo bash install.sh [--dry-run] [--yes] [--update-only]
+# Uso:  sudo bash install.sh [--dry-run] [--yes] [--confirm-backup] [--update-only] [--update]
 # Variáveis:
-#   CS_REF            obrigatória: tag ou SHA completo (nunca um branch).
+#   CS_REF            SHA completo (40 hex minúsculos) ou tag no formato refs/tags/<nome>. Nunca um branch (develop,
+#                     feature/x, refs/heads/*, origin/*, refs/pull/*). 'latest-main' (ou CS_REF vazio) SÓ vale com --update:
+#                     usa o commit atual da main (git ls-remote), uso consciente: a imagem publicada NÃO prova CI verde.
+#                     O install.py só segue se a imagem desse commit já existir no GHCR.
+#   CS_BACKUP_OK=1    (ou --confirm-backup) afirma backup recente: libera --yes quando há migrations pendentes.
 #   CS_EXPECTED_SHA   opcional: o script para se o commit baixado for outro.
 #   CS_GH_TOKEN       PAT fine-grained só leitura (contents:read) para o git clone. Pede com entrada oculta se faltar.
 #   CS_GHCR_TOKEN     token SEPARADO só com read:packages, para o GHCR. Vazio = imagens públicas.
@@ -19,29 +23,38 @@ REF="${CS_REF:-}"
 DIR="${CS_DIR:-/opt/credit-system}"
 EXPECTED_SHA="${CS_EXPECTED_SHA:-}"
 ASKPASS_DIR=""
+UPDATE=0
+CHECK_ONLY=0 # --check-ref: só valida os argumentos e sai (usado pelos testes)
 
-[ -n "$REF" ] || die "defina CS_REF com uma tag ou um SHA completo (ex.: export CS_REF=v1.0.0). O padrão 'main' é proibido."
-case "$REF" in
-  -*) die "CS_REF não pode começar com '-'." ;;
-  main | master | HEAD) die "CS_REF não pode ser um branch ('$REF'). Use uma tag ou um SHA completo." ;;
-esac
-[[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || die "CS_REF tem caracteres inválidos (use tag ou SHA, ex.: v1.0.0)."
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run | --yes | --confirm-backup | --update-only) ;;
+    --update) UPDATE=1; [ -n "$REF" ] || REF="latest-main" ;;
+    --check-ref) CHECK_ONLY=1 ;;
+    *) die "opção desconhecida: $arg (use --dry-run, --yes, --confirm-backup, --update-only, --update)" ;;
+  esac
+done
+
+SHA_RE='^[0-9a-f]{40}$'
+TAG_RE='^refs/tags/[A-Za-z0-9][A-Za-z0-9._-]*$'
+[ -n "$REF" ] || die "defina CS_REF com um SHA completo ou refs/tags/<tag> (ex.: export CS_REF=refs/tags/v1.0.0). O padrão 'main' é proibido."
+if [ "$REF" = "latest-main" ]; then
+  [ "$UPDATE" = 1 ] || die "CS_REF=latest-main só vale com --update. Use um SHA completo ou refs/tags/<tag>."
+elif [[ "$REF" =~ $SHA_RE ]]; then :
+elif [[ "$REF" =~ $TAG_RE && "$REF" != *..* ]]; then :
+else
+  die "CS_REF inválido ('$REF'): use um SHA completo (40 hex minúsculos) ou refs/tags/<tag>. Branches (main, develop, feature/x, refs/heads/*, origin/*, refs/pull/*) são proibidos."
+fi
 [[ "$REPO_URL" =~ ^https://github\.com/[^/]+/[^/]+\.git$ ]] || die "CS_REPO_URL deve ser https://github.com/<dono>/<repo>.git."
 [[ "$DIR" == /* ]] || die "CS_DIR deve ser um caminho absoluto."
 [ -z "$EXPECTED_SHA" ] || [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || die "CS_EXPECTED_SHA deve ter 40 caracteres hexadecimais."
+if [ "$CHECK_ONLY" = 1 ]; then info "ref válido: $REF"; exit 0; fi
 
 cleanup() {
   [ -n "$ASKPASS_DIR" ] && rm -rf "$ASKPASS_DIR"
   return 0
 }
 trap cleanup EXIT
-
-for arg in "$@"; do
-  case "$arg" in
-    --dry-run | --yes | --update-only) ;;
-    *) die "opção desconhecida: $arg (use --dry-run, --yes, --update-only)" ;;
-  esac
-done
 
 [ "$(uname -s)" = "Linux" ] || die "só Linux é suportado (este é $(uname -s))."
 case "$(uname -m)" in
@@ -52,7 +65,14 @@ esac
 if [ "$(id -u)" -ne 0 ]; then
   command -v sudo >/dev/null 2>&1 || die "rode como root ou instale o sudo."
   info "Reexecutando com sudo."
-  exec sudo --preserve-env=CS_GH_TOKEN,CS_GHCR_TOKEN,CS_GH_USER,CS_REPO_URL,CS_REF,CS_EXPECTED_SHA,CS_DIR bash "$0" "$@"
+  exec sudo --preserve-env=CS_GH_TOKEN,CS_GHCR_TOKEN,CS_GH_USER,CS_REPO_URL,CS_REF,CS_EXPECTED_SHA,CS_DIR,CS_BACKUP_OK bash "$0" "$@"
+fi
+
+# Lock contra duas execuções ao mesmo tempo (o fd 9 segue aberto no exec do install.py, que então não trava de novo).
+if command -v flock >/dev/null 2>&1; then
+  exec 9>/var/lock/credit-system-install.lock
+  flock -n 9 || die "outra execução do instalador está em andamento (lock /var/lock/credit-system-install.lock). Espere e rode de novo."
+  export CS_LOCK_HELD=1
 fi
 
 for tool in curl git python3; do
@@ -95,9 +115,18 @@ ASKPASS
 chmod 700 "$ASKPASS_DIR/askpass.sh"
 export GIT_ASKPASS="$ASKPASS_DIR/askpass.sh" GIT_TERMINAL_PROMPT=0
 
+if [ "$REF" = "latest-main" ]; then
+  # Só o git ls-remote (mesmo token contents:read): sem API, sem escopo extra. Não prova que o build terminou:
+  # quem prova é o install.py, que recusa instalar se a imagem desse commit não existir no GHCR.
+  remote_main="$(git ls-remote "$REPO_URL" refs/heads/main)" || die "git ls-remote falhou (rede ou token contents:read)."
+  REF="$(printf '%s\n' "$remote_main" | head -n1 | cut -f1)"
+  [[ "$REF" =~ $SHA_RE ]] || die "não consegui resolver o commit da main (confira o token contents:read)."
+  info "latest-main = $REF"
+fi
+
 [ -d "$DIR/.git" ] || { mkdir -p "$DIR" && git init --quiet "$DIR"; }
 info "Baixando $REF para $DIR."
-git -C "$DIR" fetch --quiet "$REPO_URL" "$REF"
+git -C "$DIR" fetch --quiet "$REPO_URL" "$REF" # SHA completo ou refs/tags/<nome>: sempre explícito
 git -C "$DIR" checkout --quiet --detach FETCH_HEAD
 
 HEAD_SHA="$(git -C "$DIR" rev-parse HEAD)"

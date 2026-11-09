@@ -105,7 +105,7 @@ Regras e runbook: [operations/payments.md](operations/payments.md). NFS-e: [oper
 | `CARD_MIN_INSTALLMENT_CENTS` | Parcela mínima em centavos. Padrão `500`. |
 | `PIX_FEE_CENTS` | Taxa fixa do Pix repassada ao pagador, em centavos inteiros de 0 a 1000. Exemplo: `199` (R$ 1,99). `0` = sem taxa. Em produção é obrigatória: vazia ou ausente, ou valor inválido, faz o Pix recusar (falha fechada), e o deploy da stack falha se ela estiver vazia. Fora de produção, ausente = 0. O instalador grava `199`. |
 
-- Em produção, `docker-stack.yml` (serviço `reino_app`) recebe `CARD_FEE_TABLE`, `CARD_MIN_INSTALLMENT_CENTS` e `PIX_FEE_CENTS` como variáveis (o instalador grava `PIX_FEE_CENTS=199` e deixa `CARD_FEE_TABLE` vazia no `.env.production`: preencha-a), e `PII_ENCRYPTION_KEY` pelo secret.
+- Em produção, `docker-stack.yml` (serviço `reino_app`) recebe `CARD_FEE_TABLE`, `CARD_MIN_INSTALLMENT_CENTS` e `PIX_FEE_CENTS` como variáveis (a primeira instalação grava `PIX_FEE_CENTS=199` e deixa `CARD_FEE_TABLE` vazia: preencha-a; a atualização `--update` acrescenta as três variáveis ausentes com os valores reais da conta e nunca altera as preenchidas), e `PII_ENCRYPTION_KEY` pelo secret.
 - `ASAAS_CUSTOMER_ID` não existe mais. Cada cobrança usa o cliente Asaas do pagador.
 - A chave de dev em `.env.example` e `.env.local.example` é pública. Use só em dev.
 

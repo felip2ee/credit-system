@@ -1,6 +1,7 @@
 """Base do instalador: runner, estado compartilhado e utilitários de interação."""
 from __future__ import annotations
 
+import fcntl
 import getpass
 import os
 import subprocess
@@ -18,6 +19,7 @@ SECURE_DIR = Path("/root/credit-system-credentials")  # fora do git: credenciais
 ENV_FILE = ".env.production"
 GHCR = "ghcr.io"
 STACK = det.STACK
+LOCK_FILE = Path("/var/lock/credit-system-install.lock")
 GH_ENV = ("CS_GH_TOKEN", "CS_GHCR_TOKEN", "CS_GH_USER")  # nunca vão para processos filhos
 
 
@@ -36,6 +38,56 @@ def default_runner(args: list[str], input: str | None = None, env: dict[str, str
     return result.returncode, result.stdout + result.stderr
 
 
+def acquire_lock(path: Path | None = None) -> int:
+    """Lock exclusivo (flock) contra duas execuções ao mesmo tempo. Devolve o fd: o chamador o mantém aberto."""
+    fd = os.open(path or LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise Stop("Outra execução do instalador está em andamento (lock em "
+                   f"{path or LOCK_FILE}). Espere ela terminar e rode de novo.") from None
+    return fd
+
+
+def read_env_text(path: Path) -> str:
+    """Lê sem normalizar fim de linha (CRLF fica) nem perder bytes (surrogateescape)."""
+    with open(path, encoding="utf-8", errors="surrogateescape", newline="") as fh:
+        return fh.read()
+
+
+def write_env_atomic(path: Path, text: str) -> None:
+    """tmp 0600 no mesmo diretório + os.replace: nunca deixa o .env.production pela metade."""
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def backup_env(path: Path, stamp: str) -> Path:
+    """Cópia byte a byte `<arquivo>.bak-<stamp>` (0600, O_EXCL; sufixo -N se já existe). Nunca sobrescreve."""
+    data = path.read_bytes()
+    for n in range(1, 100):
+        target = path.with_name(f"{path.name}.bak-{stamp}" + ("" if n == 1 else f"-{n}"))
+        try:
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.chmod(target, 0o600)
+        return target
+    raise Stop(f"Não consegui criar a cópia de {path.name}: há cópias demais com o mesmo carimbo.")
+
+
 @dataclass
 class Core:
     run: det.Runner = default_runner
@@ -44,6 +96,8 @@ class Core:
     yes: bool = False
     dry_run: bool = False
     update_only: bool = False
+    update: bool = False  # atualização rápida: reaproveita tudo e só confirma uma vez
+    confirm_backup: bool = False  # operador afirma backup recente (libera --yes com migrations)
     input_fn: Callable[[str], str] = input
     getpass_fn: Callable[[str], str] = getpass.getpass
     http: ver.HttpGet = ver.http_status
@@ -60,6 +114,9 @@ class Core:
     logged_in: bool = False
     dns_ok: bool = True
     credential_files: list[Path] = field(default_factory=list)
+    reconciled: dict[str, str] = field(default_factory=dict)  # variáveis novas gravadas no .env.production
+    previous: str | None = None  # digest do app no ar, lido antes de qualquer mudança
+    old_credentials: list[Path] = field(default_factory=list)  # credenciais-novos-* de execuções anteriores
 
     def __post_init__(self) -> None:
         self.gh_token = self.gh_token or self.environ.get("CS_GHCR_TOKEN", "")
@@ -77,11 +134,12 @@ class Core:
     def fail(self, msg: str) -> None:
         self.say(f"✘ {msg}")
 
-    def confirm(self, question: str) -> bool:
+    def confirm(self, question: str, default_yes: bool = False) -> bool:
         if self.yes:
             self.say(f"{question} [sim: --yes]")
             return True
-        return self.input_fn(f"{question} [s/N]: ").strip().lower() in ("s", "sim", "y", "yes")
+        answer = self.input_fn(f"{question} [{'S/n' if default_yes else 's/N'}]: ").strip().lower()
+        return default_yes if not answer else answer in ("s", "sim", "y", "yes")
 
     def ask(self, prompt: str, default: str, validator: Callable[[str], bool]) -> str:
         if self.yes and default and validator(default):
