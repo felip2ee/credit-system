@@ -28,7 +28,7 @@ class StackVarMessages(unittest.TestCase):
 
     def test_asaas_fee_vars_reach_the_app(self) -> None:
         text = STACK.read_text(encoding="utf-8")
-        self.assertIn("CARD_FEE_TABLE: ${CARD_FEE_TABLE:-}", text)
+        self.assertIn("CARD_FEE_TABLE: ${CARD_FEE_TABLE:-1:2.99:49,6:2.99:49,12:2.99:49}", text)
         self.assertIn("PIX_FEE_CENTS: ${PIX_FEE_CENTS:?", text)
 
 
