@@ -97,7 +97,7 @@
    Fora dos destaques valem as variáveis claras abaixo: bg-card é branco (#FFFFFF), borda #D5E3DC, texto verde escuro.
    Destaque escuro (hero, menu lateral, no máximo um por tela): <Card variant="dark"> ou a classe .card-dark; também
    bg-sidebar, bg-ink, bg-secondary e .on-dark. Eles re-declaram as variáveis escuras de :root,
-   então texto, campos, bordas, anel e gráficos dentro deles ficam como no tema escuro. Escala compacta: variante
+   então texto, campos, bordas, anel e gráficos dentro deles ficam como no tema escuro. Escala compacta (só de md para cima): variante
    `admin:` do Tailwind (tailwind.config.ts). Hex de referência em ADMIN_COLORS (src/lib/brand/tokens.ts). */
 @layer base {
   .theme-admin {

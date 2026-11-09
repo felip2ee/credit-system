@@ -86,7 +86,7 @@ export function MobileNav({ items, permissions = [], signOutAction }: MobileNavP
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex min-h-10 items-center rounded-full px-3.5 py-2 text-sm font-bold",
+                  "flex min-h-11 items-center rounded-full px-3.5 py-2 text-sm font-bold",
                   active
                     ? "bg-sidebar-primary text-sidebar-primary-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -101,7 +101,7 @@ export function MobileNav({ items, permissions = [], signOutAction }: MobileNavP
           <form action={signOutAction} className="border-t border-sidebar-border p-3">
             <button
               type="submit"
-              className="flex min-h-10 w-full items-center gap-2.5 rounded-full px-3.5 py-2 text-sm font-bold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              className="flex min-h-11 w-full items-center gap-2.5 rounded-full px-3.5 py-2 text-sm font-bold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             >
               <LogOut aria-hidden className="size-[18px]" />
               Sair

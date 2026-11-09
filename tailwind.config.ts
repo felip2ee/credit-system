@@ -128,8 +128,9 @@ const config: Config = {
   },
   plugins: [
     tailwindcssAnimate,
-    // Variante `admin:` aplica a classe só dentro de `.theme-admin` (painel do Bureau e Superadmin: escala compacta).
-    plugin(({ addVariant }) => addVariant("admin", ".theme-admin &")),
+    // Variante `admin:` aplica a classe só dentro de `.theme-admin` e só de `md` (768 px) para cima, onde o layout
+    // mostra a sidebar. Abaixo disso vale a escala base (alvos de toque >= 44 px, e2e/mobile.spec.ts).
+    plugin(({ addVariant }) => addVariant("admin", "@media (min-width: 768px) { .theme-admin & }")),
   ],
 };
 export default config;
