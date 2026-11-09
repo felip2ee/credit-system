@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import install_detect as det
 import setup_production as sp
 from install_collect import collect_installer
-from install_core import ENV_FILE, Stop
+from install_core import ENV_FILE, Stop, read_env_text
 from install_steps import Steps
 
 OPTIONAL_KEYS = ("smtp_pass", "deps_api_password", "openai_api_key", "restic_s3_access_key",
@@ -19,7 +20,7 @@ class Secrets(Steps):
         """Devolve (valores do env, segredos informados). Em reuso, lê .env.production."""
         env_path = self.root / ENV_FILE
         if reuse:
-            values = det.parse_env(env_path.read_text(encoding="utf-8"))
+            values = det.parse_env(read_env_text(env_path))
             self.say(f"Reaproveitando {env_path}.")
             for key in ("TRAEFIK_NETWORK", "TRAEFIK_CERT_RESOLVER"):
                 if defaults.get(key) and values.get(key) != defaults[key]:
@@ -61,21 +62,38 @@ class Secrets(Steps):
         self.secret_values |= {values[n] for n in missing}
         if not self.act(f"criando {len(missing)} secret(s) do Docker"):
             return
-        written = [] if reuse else self.write_first_install(env, values)
+        if reuse:  # os valores vão para o disco ANTES de existirem no Docker (que nunca os mostra de volta)
+            cred = self.new_credentials_file("\n".join(f"{n}={values[n]}" for n in missing) + "\n")
+            self.credential_files.append(cred)
+            written = [cred]
+        else:
+            written = self.write_first_install(env, values)
         try:
             report = sp.create_docker_secrets({n: values[n] for n in sp.SECRET_NAMES}, self.run)
         except sp.SecretCreationError as exc:
             self.undo_partial(exc.report.created, written)
-            raise Stop(f"{exc}. Desfiz o que esta execução criou ({len(exc.report.created)} secret(s) e os arquivos "
-                       "gerados). Corrija o Docker e rode de novo.") from exc
+            raise Stop(f"{exc}. Desfiz o que esta execução criou ({len(exc.report.created)} secret(s); "
+                       "veja os avisos acima). Corrija o Docker e rode de novo.") from exc
         self.say("Secrets criados: " + (", ".join(report.created) or "nenhum"))
         if report.skipped:
             self.say("AVISO: já existiam e NÃO foram alterados: " + ", ".join(report.skipped))
-        if reuse and report.created:
-            body = "\n".join(f"{n}={values[n]}" for n in report.created) + "\n"
-            self.credential_files.append(self.secure_file(f"credenciais-novos-{self.stamp()}-GUARDAR.txt", body))
-        elif not reuse and report.skipped:
+        if report.skipped and self.credential_files:
             self.drop_skipped(self.credential_files[-1], set(report.skipped))
+
+    def new_credentials_file(self, body: str) -> Path:
+        """`credenciais-novos-<carimbo>[-N]-GUARDAR.txt` (O_EXCL, 0600): nunca sobrescreve um arquivo antigo."""
+        base = f"credenciais-novos-{self.stamp()}"
+        for n in range(1, 100):
+            name = f"{base}-GUARDAR.txt" if n == 1 else f"{base}-{n}-GUARDAR.txt"
+            try:
+                return self.secure_file(name, body)
+            except FileExistsError:
+                continue
+            except OSError as exc:  # a mensagem não leva o conteúdo
+                (self.secure_dir / name).unlink(missing_ok=True)
+                raise Stop(f"Não consegui gravar o arquivo de credenciais em {self.secure_dir} ({type(exc).__name__}). "
+                           "Nenhum secret foi criado. Corrija o disco/permissões e rode de novo.") from None
+        raise Stop(f"Há arquivos credenciais-novos-* demais com o mesmo carimbo em {self.secure_dir}.")
 
     def write_first_install(self, env: dict[str, str], values: dict[str, str]) -> list:
         """.env.production fica na raiz (a stack o lê); as credenciais vão para `secure_dir`."""
@@ -91,11 +109,14 @@ class Secrets(Steps):
 
     def undo_partial(self, created: list[str], files: list) -> None:
         stuck = [n for n in created if self.run(["docker", "secret", "rm", n])[0] != 0]
+        keep = [p for p in files if stuck and p.name.startswith("credenciais")]  # secret preso: o valor só existe no arquivo
         for path in files:
-            path.unlink(missing_ok=True)
-        self.credential_files.clear()
+            if path not in keep:
+                path.unlink(missing_ok=True)
+        self.credential_files[:] = keep
         if stuck:
-            self.say("AVISO: não consegui remover estes secrets: " + ", ".join(stuck) + ". Remova com 'docker secret rm'.")
+            self.say("AVISO: não consegui remover estes secrets: " + ", ".join(stuck) + ". Remova com 'docker secret rm'."
+                     + (f" Os valores deles ficaram (não impressos) em: {', '.join(str(p) for p in keep)}." if keep else ""))
 
     @staticmethod
     def drop_skipped(path, skipped: set[str]) -> None:

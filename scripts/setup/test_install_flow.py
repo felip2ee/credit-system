@@ -92,9 +92,10 @@ class InstallerTests(unittest.TestCase):
             inst, _ = installer(make_root(tmp), server(secrets=have))
             (Path(tmp) / "secure").mkdir()
             (Path(tmp) / "secure" / "credenciais-novos-T1-GUARDAR.txt").write_text("antigo")
-            with self.assertRaises(FileExistsError):
-                inst.provision_secrets(True, {}, {}, det.detect(server(secrets=have)))
+            inst.provision_secrets(True, {}, {}, det.detect(server(secrets=have)))
             self.assertEqual((Path(tmp) / "secure" / "credenciais-novos-T1-GUARDAR.txt").read_text(), "antigo")
+            self.assertTrue((Path(tmp) / "secure" / "credenciais-novos-T1-2-GUARDAR.txt").read_text().startswith(
+                "notifications_dispatch_secret="))  # carimbo repetido: sufixo, nunca truncar
 
     def test_first_install_path(self):
         with tempfile.TemporaryDirectory() as tmp, DNS_OK:

@@ -20,7 +20,7 @@ STACK_SERVICES = "\n".join(f"reino_{k}" for k in ("reino_app", "migrate", "backu
 READ_ONLY = {("docker", "version"), ("docker", "info"), ("docker", "stack", "ls"), ("docker", "stack", "services"),
              ("docker", "secret", "ls"), ("docker", "secret", "inspect"), ("docker", "service", "ls"),
              ("docker", "service", "inspect"), ("docker", "network", "inspect"), ("docker", "volume", "ls"),
-             ("docker", "ps"), ("ss",), ("git",), ("curl",), ("docker", "buildx")}
+             ("docker", "ps"), ("ss",), ("git",), ("curl",), ("docker", "buildx"), ("docker", "stack", "config")}
 
 
 class Fake:
@@ -110,6 +110,7 @@ def make_root(tmp, with_env=True):
 def installer(root, run, **kw):
     out = []
     kw.setdefault("yes", True)
+    kw.setdefault("confirm_backup", True)  # testes de migrations pendentes passam confirm_backup=False
     kw.setdefault("environ", {"CS_GHCR_TOKEN": TOKEN, "CS_GH_USER": "felip2ee", "CS_GH_TOKEN": CLONE_TOKEN})
     kw.setdefault("http", lambda url, t: 200)
     kw.setdefault("tls", lambda host: (True, "certificado válido"))

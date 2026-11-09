@@ -224,10 +224,11 @@ def parse_env(text: str) -> dict[str, str]:
 def set_env_value(text: str, key: str, value: str) -> str:
     """Troca (ou acrescenta) uma linha KEY=... sem tocar no resto do arquivo."""
     line = f"{key}={value}"
-    pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
+    eol = "\r\n" if "\r\n" in text else "\n"  # preserva CRLF
+    pattern = re.compile(rf"^{re.escape(key)}=[^\r\n]*", re.MULTILINE)
     if pattern.search(text):
         return pattern.sub(lambda _m: line, text)
-    return text.rstrip("\n") + "\n" + line + "\n"
+    return text.rstrip("\r\n") + eol + line + eol
 
 
 _DIGEST_LINE = re.compile(r"Digest:\s+sha256:([0-9a-f]{64})")
