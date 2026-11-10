@@ -4,6 +4,7 @@ import { ClientBalance } from "@/components/credits/ClientBalance";
 import { ClientStatement } from "@/components/credits/ClientStatement";
 import { PendingChargeButton } from "@/components/credits/PendingChargeButton";
 import { toCents } from "@/lib/catalog/money";
+import { referencePriceRows } from "@/lib/catalog/reference-prices";
 import type { ChargeSummary } from "@/lib/wallet/pix-fees";
 import { ClientTopupDialog } from "@/components/credits/ClientTopupDialog";
 import { PageHeader } from "@/components/layout/page-header";
@@ -40,6 +41,10 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
 
   const catalog = data.slug ? await getPublicCatalog(data.slug) : [];
   const suggestions = pfTopupSuggestions(catalog.find((item) => item.code === "dossie_pf")?.salePrice ?? null);
+  const priceRows = referencePriceRows(
+    catalog.find((item) => item.code === "dossie_pf"),
+    catalog.find((item) => item.code === "dossie_empresarial"),
+  );
 
   const extras = Object.fromEntries(
     data.charges.flatMap((c) =>
@@ -56,7 +61,7 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
         <ClientBalance wallet={data.wallet}>
           {hasPermission(session, "credits:topup") &&
             (data.status.emailVerified ? (
-              <ClientTopupDialog suggestions={suggestions} />
+              <ClientTopupDialog suggestions={suggestions} priceRows={priceRows} />
             ) : (
               <p className="text-base font-bold">Confirme seu e-mail para comprar créditos.</p>
             ))}
