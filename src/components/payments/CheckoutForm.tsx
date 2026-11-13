@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { getCheckoutContextAction, type CheckoutContextResult } from "@/actions/checkout-context";
-import { toCents } from "@/lib/catalog/money";
+import { fromCents, toCents } from "@/lib/catalog/money";
+import { isTopupAmountCents, type ReferencePriceRow } from "@/lib/catalog/reference-prices";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,8 @@ type Props = {
   onPix: (charge: { id: string; pixPayload: string; qrImageBase64: string; summary?: ChargeSummary }) => void;
   onClose: () => void;
   suggestions?: TopupSuggestion[];
+  /** Preços de referência dos dossiês (só no fluxo do cliente). */
+  priceRows?: ReferencePriceRow[];
 };
 
 const OUTCOME: Record<Exclude<PollOutcome, "aborted">, { tone: "success" | "attention" | "neutral" | "waiting"; title: string; description?: string }> = {
@@ -48,7 +51,7 @@ const OUTCOME: Record<Exclude<PollOutcome, "aborted">, { tone: "success" | "atte
   refunded: { tone: "neutral", title: "Pagamento estornado." },
 };
 
-export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }: Props) {
+export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], priceRows = [] }: Props) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<Method>("PIX");
@@ -201,6 +204,42 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [] }
   return (
     <form onSubmit={submit} className="space-y-5" noValidate>
       <div className="space-y-2">
+        {priceRows.length > 0 && (
+          <section aria-labelledby="price-ref-title" className="space-y-2 rounded-md border border-border bg-muted p-3">
+            <h3 id="price-ref-title" className="text-base font-bold">
+              Quanto custa cada dossiê
+            </h3>
+            <ul className="space-y-2">
+              {priceRows.map((row) => {
+                const ok = isTopupAmountCents(row.cents);
+                return (
+                  <li key={row.key}>
+                    <button
+                      type="button"
+                      disabled={isPending || !ok}
+                      onClick={() => {
+                        setAmount(fromCents(row.cents).replace(".", ","));
+                        amountRef.current?.focus();
+                      }}
+                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-background disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-bold">{row.label}</span>
+                        <span className="block text-muted-foreground">
+                          {ok ? formatCurrency(row.cents / 100) : "Fora do limite de recarga (R$ 10,00 a R$ 5.000,00)"}
+                        </span>
+                      </span>
+                      {ok && <span className="shrink-0 font-bold">Recarregar {formatCurrency(row.cents / 100)}</span>}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="text-sm text-muted-foreground">
+              O valor da recarga é creditado inteiro no saldo. Pix e cartão têm taxa, mostrada antes de pagar.
+            </p>
+          </section>
+        )}
         {suggestions.length > 0 && (
           <div className="flex flex-wrap gap-2" role="group" aria-label="Valores sugeridos">
             {suggestions.map((s) => (
