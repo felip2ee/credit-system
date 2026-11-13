@@ -123,3 +123,24 @@ where billing_type = 'PIX' and status in ('paid', 'refunded') and fee_amount = 0
 - `notificationDisabled` evita e-mail ao pagador.
 - A NFS-e de teste mostra nome e CPF/CNPJ do pagador.
 - A chave PII está no gerenciador de senhas da operação.
+
+## 8. Variáveis do Asaas no .env.production
+
+O `docker-stack.yml` passa quatro variáveis ao app. Elas vêm do `.env.production`, em texto puro (arquivo 0600, só root). Esta é uma escolha aceita: o app também lê `ASAAS_API_KEY_FILE` e `ASAAS_WEBHOOK_TOKEN_FILE` (Docker secrets), mas a operação prefere o valor direto no arquivo.
+
+| Variável | Valor em produção |
+|---|---|
+| `ASAAS_DRIVER` | `asaas`. Vazio = Asaas desligado: o app sobe, mas Pix, cartão e webhook respondem erro. |
+| `ASAAS_API_BASE_URL` | `https://api.asaas.com` (deve ser https). |
+| `ASAAS_API_KEY` | Chave de produção da conta Asaas. |
+| `ASAAS_WEBHOOK_TOKEN` | Mínimo de 32 caracteres e diferente do valor de exemplo do `.env.example`. Gere com `openssl rand -hex 24`. |
+
+Como preencher:
+
+1. Edite o `.env.production` e preencha as quatro linhas. O `install.sh --update` as cria **vazias** quando faltam e nunca muda um valor já preenchido.
+2. Repita o `install.sh --update`. O resumo mostra `Asaas: DESLIGADO` ou avisa (sem mostrar valores) quando o driver é `asaas`, mas falta a chave ou o token, ou o token é curto ou é o valor de exemplo. O aviso não bloqueia a atualização.
+3. No Asaas, abra a tela de webhooks e use o **mesmo** token no campo de token de autenticação:
+   - URL: `https://<APP_DOMAIN>/api/webhooks/asaas`
+   - Eventos: `PAYMENT_RECEIVED`, `PAYMENT_CONFIRMED`, `PAYMENT_REFUNDED`, `PAYMENT_CHARGEBACK_REQUESTED`. Com NFS-e ligada, acrescente os eventos `INVOICE_*`.
+
+Fonte única: o `docker-stack.yml` mais o `.env.production`. Não edite o serviço em execução à mão (`docker service update`): o próximo `--update` redeploya a stack e apaga a edição.

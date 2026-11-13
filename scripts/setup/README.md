@@ -88,7 +88,7 @@ A lista de migrations novas vem do diff de arquivos entre o commit anterior (gra
 
 Opções: `--update` (atualização rápida; exige instalação completa), `--yes` (sem perguntas), `--confirm-backup` (afirma backup recente; libera `--yes` com migrations), `--dry-run` (só mostra o resumo). Antes de uma atualização com migration nova, rode o backup manual.
 
-**Caminho manual** (sem o instalador, `docker stack deploy` à mão): exporte também as variáveis novas (`PIX_FEE_CENTS`, `CARD_FEE_TABLE`, `CARD_MIN_INSTALLMENT_CENTS`) além do `.env.production`; sem `PIX_FEE_CENTS` o deploy falha (`${PIX_FEE_CENTS:?}`).
+**Caminho manual** (sem o instalador, `docker stack deploy` à mão): exporte também as variáveis novas (`PIX_FEE_CENTS`, `CARD_FEE_TABLE`, `CARD_MIN_INSTALLMENT_CENTS`, `ASAAS_DRIVER`, `ASAAS_API_BASE_URL`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN`) além do `.env.production`; sem `PIX_FEE_CENTS` o deploy falha (`${PIX_FEE_CENTS:?}`).
 
 ### Portainer
 
@@ -105,6 +105,8 @@ Depois de uma atualização com o PR de pagamentos por pagador:
 
 - Revisar `CARD_FEE_TABLE` no `.env.production` (valor real da conta: `1:2.99:49,6:2.99:49,12:2.99:49`; vazio desliga o cartão). Depois repita o comando.
 - Guardar a chave PII (`pii_encryption_key`, do bloco de credenciais) no gerenciador de senhas. Sem ela, os dados cifrados do pagador ficam ilegíveis.
+- Preencher as quatro variáveis do Asaas no `.env.production` (o `--update` as cria **vazias** quando faltam e nunca muda um valor preenchido): `ASAAS_DRIVER=asaas`, `ASAAS_API_BASE_URL=https://api.asaas.com`, `ASAAS_API_KEY=<chave de produção>` e `ASAAS_WEBHOOK_TOKEN=$(openssl rand -hex 24)`. Com `ASAAS_DRIVER` vazio o Asaas fica desligado: o app sobe, mas Pix, cartão e webhook respondem erro. O resumo do instalador avisa quando falta chave ou token, ou quando o token tem menos de 32 caracteres. Os valores ficam em texto puro no arquivo (0600, só root): é uma escolha aceita. Depois repita o comando. Detalhes e a tela de webhook do Asaas: [payments.md, seção 8](../../docs/operations/payments.md#8-variáveis-do-asaas-no-envproduction).
+- Não edite o serviço em execução à mão (`docker service update --env-add`): o próximo `--update` redeploya o `docker-stack.yml` e apaga a edição. A fonte é o `docker-stack.yml` mais o `.env.production`.
 - Trocar a chave da API do Asaas (se ainda é a antiga).
 - Teste real de cartão e de Pix com taxa, e o resto do checklist **(post-deploy)** de [payments.md, seção 7](../../docs/operations/payments.md#7-checagens-após-o-deploy).
 

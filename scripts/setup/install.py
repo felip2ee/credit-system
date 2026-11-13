@@ -14,6 +14,7 @@ import os
 import sys
 from pathlib import Path
 
+import install_asaas as asaas
 import install_detect as det
 import install_update as upd
 import install_verify as ver
@@ -92,12 +93,18 @@ class Installer(Rollback):
         digests = self.resolve_digests(env)
         plan = upd.plan_env(old_text)
         self.reconcile_env(env, plan)
+        added_asaas = asaas.missing_keys(old_text)
+        for key in added_asaas:  # ausentes entram vazias; preenchidas nunca são tocadas
+            env[key] = self.reconciled[key] = ""
+        self.secret_values |= asaas.secret_values(old_text)
         self.preflight_stack({**env, **digests})
         head = self.run(["git", "-C", str(self.root), "rev-parse", "HEAD"])[1].strip()
         note, pending = upd.migrations_note(self.run, self.root, env.get("CS_DEPLOYED_SHA", ""))
         for line in upd.render_summary(
                 domain=env["APP_DOMAIN"], previous=self.previous, target=head, secrets=det.missing_secrets(pre.existing_secrets),
                 plan=plan, migrations=note, values=self.reconciled, card_table=env.get("CARD_FEE_TABLE", "")):
+            self.say(line)
+        for line in asaas.status_lines(old_text, added_asaas):
             self.say(line)
         self.confirm_update(pending)
         return digests
