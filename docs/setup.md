@@ -94,6 +94,12 @@ Em produção, `docker-stack.yml` (serviço `reino_app`) recebe a chave pública
 
 Chave pública e contato vazios desligam o push (a chave privada é ignorada). Preencha as três: configuração pela metade ou inválida falha na leitura (`readPushConfig`).
 
+## Variável de identidade visual
+
+| Variável | Valor |
+|---|---|
+| `BRAND_THEME` | `atual` (padrão) ou `classico`. Opcional: ausente ou inválida vale `atual`, sem erro. Só cores e fontes. O app lê no servidor a cada pedido (não vai para o build). Em produção, `docker-stack.yml` passa `${BRAND_THEME:-atual}`; o instalador grava `atual` na primeira instalação e `--update` nunca a reescreve. Como trocar: [operations/deploy.md](operations/deploy.md), seção 7. |
+
 ## Variáveis de pagamento (deploy)
 
 Regras e runbook: [operations/payments.md](operations/payments.md). NFS-e: [operations/nfse.md](operations/nfse.md).

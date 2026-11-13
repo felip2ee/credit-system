@@ -35,6 +35,44 @@ export const ADMIN_COLORS = {
 	chart: ["#0B3A2E", "#2F7A5F", "#9A7200", "#4A7C69", "#3D5A50"],
 } as const;
 
+// Tema "clássico" (BRAND_THEME=classico, bloco html[data-brand-theme="classico"] em globals.css): página creme, cartões brancos,
+// verde profundo nos blocos escuros, dourado como destaque. Os valores não listados aqui vêm de BRAND_COLORS e STATE_COLORS (mesma identidade antiga).
+export const CLASSIC_COLORS = {
+	card: "#FFFFFF",
+	primaryHover: "#05261F",
+	// Borda de controle: um pouco mais escura que BRAND_COLORS.controlBorder para ficar >= 3:1 também no creme #F4EAD7.
+	controlBorder: "#6E7F76",
+	destructive: "#8A1C14",
+	// Séries de gráfico sobre branco e creme (>= 3:1).
+	chart: ["#0A3329", "#2F7A5F", "#8F6B1F", "#4A7C69", "#33514A"],
+	// Blocos escuros (menu lateral, hero, botão escuro).
+	dark: {
+		background: "#05261F",
+		card: "#0A3329",
+		foreground: "#FFFFFF",
+		mutedForeground: "#E3DCCD",
+		primary: "#CFA968",
+		primaryForeground: "#2A1F0A",
+		primaryHover: "#E6C891",
+		accent: "#1C4A3F",
+		controlBorder: "#7FA597",
+		destructive: "#FF7A70",
+		destructiveForeground: "#05261F",
+	},
+	landing: {
+		green: "#05261F",
+		greenAlt: "#0A3329",
+		yellow: "#CFA968",
+		yellowHover: "#E6C891",
+		offwhite: "#FBF8F2",
+		white: "#FFFFFF",
+		muted: "#33514A",
+		soft: "#E3DCCD",
+		border: "#E3DCCD",
+		mint: "#F4EAD7",
+	},
+} as const;
+
 // Estados do app sobre fundo escuro. Sucesso e aviso em amarelo/verde; só o erro usa vermelho.
 export const APP_STATE_COLORS: Record<StateName, { bg: string; fg: string; border: string }> = {
 	success: { bg: "#0B3A2E", fg: "#FFC400", border: "#5E9985" },

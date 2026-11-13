@@ -38,10 +38,12 @@ ENV_KEYS = [
     "WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION",
     "WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_SUBJECT",
     "CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS", "PIX_FEE_CENTS",
+    "BRAND_THEME",
 ]
 
 # Chaves que o instalador não pergunta e preenche com um padrão (vazio = o app de produção recusa o Pix).
-ENV_DEFAULTS = {"PIX_FEE_CENTS": "199"}
+# BRAND_THEME: opcional (atual | classico); o operador troca à mão no .env.production (docs/operations/deploy.md).
+ENV_DEFAULTS = {"PIX_FEE_CENTS": "199", "BRAND_THEME": "atual"}
 
 SECRET_NAMES = [
     "postgres_password", "schema_owner_password", "app_runtime_password",

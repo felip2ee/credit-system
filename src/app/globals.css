@@ -17,6 +17,7 @@
     --cta: 46 100% 50%;                    /* #FFC400, igual ao primary */
     --cta-foreground: 167 77% 8%;
     --cta-hover: 45 100% 44%;              /* #E0A800 */
+    --primary-hover: 45 100% 44%;          /* #E0A800, hover do botão primário */
     --secondary: 165 68% 14%;              /* #0B3A2E */
     --secondary-foreground: 0 0% 100%;
     --muted: 165 68% 14%;                  /* #0B3A2E */
@@ -47,6 +48,7 @@
     --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.35);
     --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.4);
     --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-glow: 0 4px 14px rgba(255, 196, 0, 0.35);
     --sidebar: 167 77% 8%;                 /* #05261F */
     --sidebar-foreground: 0 0% 100%;
     --sidebar-primary: 46 100% 50%;        /* #FFC400, item ativo */
@@ -257,5 +259,153 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Tema "clássico" (BRAND_THEME=classico, atributo data-brand-theme no <html>): identidade antiga, creme + dourado + verde profundo.
+   Só cores. Hex de referência em CLASSIC_COLORS (src/lib/brand/tokens.ts). Todo token novo do tema atual precisa de par aqui.
+   Os blocos ficam depois dos do tema atual e têm especificidade maior, então vencem sem !important. */
+@layer base {
+  /* Página clara: raiz e painel (.theme-admin). Cartões brancos, texto verde escuro, dourado só em fundo de botão e faixa escura. */
+  html[data-brand-theme="classico"],
+  html[data-brand-theme="classico"] .theme-admin {
+    color-scheme: light;
+    --background: 40 53% 97%;              /* #FBF8F2 */
+    --foreground: 166 45% 13%;             /* #123029 */
+    --card: 0 0% 100%;
+    --card-foreground: 166 45% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 166 45% 13%;
+    --primary: 165 67% 12%;                /* #0A3329, verde profundo: botão, link, foco */
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 167 77% 8%;           /* #05261F */
+    --cta: 38 52% 61%;                     /* #CFA968, fundo do botão dourado */
+    --cta-foreground: 39 62% 10%;          /* #2A1F0A */
+    --cta-hover: 39 63% 74%;               /* #E6C891 */
+    --secondary: 39 57% 90%;               /* #F4EAD7 */
+    --secondary-foreground: 166 45% 13%;
+    --muted: 41 36% 91%;                   /* #F1ECE1 */
+    --muted-foreground: 166 23% 26%;       /* #33514A */
+    --accent: 39 57% 90%;                  /* #F4EAD7 */
+    --accent-foreground: 166 45% 13%;
+    --destructive: 4 75% 31%;              /* #8A1C14 */
+    --destructive-foreground: 0 0% 100%;
+    --border: 41 28% 85%;                  /* #E3DCCD, decorativa */
+    --input: 148 7% 46%;                   /* #6E7F76, borda de controle >= 3:1 também no creme */
+    --ring: 165 67% 12%;
+    --link: 165 67% 12%;
+    --surface: 40 48% 94%;                 /* #F7F2E8 */
+    --brand-soft: 39 57% 90%;
+    --brand-soft-foreground: 167 77% 8%;
+    --ink: 166 45% 13%;
+    --brand-deep: 167 77% 8%;
+    --brand-gold: 38 52% 61%;
+    --brand-gold-light: 39 63% 74%;
+    --brand-cream: 39 57% 90%;
+    --money-in-bg: 150 27% 91%;            /* #E3EFE9 */
+    --money-in-fg: 165 67% 12%;
+    --money-out-bg: 7 76% 93%;             /* #FBE4E1 */
+    --money-out-fg: 4 75% 31%;
+    --money-void-bg: 45 11% 93%;           /* #EEEDEA */
+    --money-void-fg: 215 14% 34%;
+    --shadow-low: 0 1px 3px rgba(5, 38, 31, 0.08);
+    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.12);
+    --shadow-glow: 0 4px 14px rgba(207, 169, 104, 0.45);
+    --sidebar: 167 77% 8%;
+    --sidebar-foreground: 39 57% 90%;
+    --sidebar-primary: 38 52% 61%;
+    --sidebar-primary-foreground: 167 77% 8%;
+    --sidebar-accent: 165 67% 12%;
+    --sidebar-accent-foreground: 39 57% 90%;
+    --sidebar-border: 166 45% 20%;
+    --sidebar-ring: 38 52% 61%;
+    /* Gráficos sobre branco e creme: todos >= 3:1 em #FFFFFF e #FBF8F2. */
+    --chart-1: 165 67% 12%;                /* #0A3329 */
+    --chart-2: 158 44% 33%;                /* #2F7A5F */
+    --chart-3: 41 64% 34%;                 /* #8F6B1F, dourado escuro */
+    --chart-4: 157 25% 39%;                /* #4A7C69 */
+    --chart-5: 166 23% 26%;                /* #33514A */
+    /* Estados claros (STATE_COLORS). */
+    --st-success-bg: #E3EFE9; --st-success-fg: #0A3329; --st-success-border: #B9D3C6;
+    --st-waiting-bg: #FCEFC7; --st-waiting-fg: #5C4200; --st-waiting-border: #9A7200;
+    --st-progress-bg: #E4EEF3; --st-progress-fg: #17384A; --st-progress-border: #3B6E8A;
+    --st-attention-bg: #FFE6D0; --st-attention-fg: #7A3300; --st-attention-border: #B45309;
+    --st-danger-bg: #FDE4E1; --st-danger-fg: #8A1C14; --st-danger-border: #C53030;
+    --st-neutral-bg: #ECEFEE; --st-neutral-fg: #2F3F3E; --st-neutral-border: #6B7F7E;
+  }
+  /* No tema atual .bg-secondary é verde escuro (bloco escuro). No clássico é creme: volta às variáveis claras. */
+  html[data-brand-theme="classico"] .theme-admin .bg-secondary {
+    color-scheme: light;
+    color: hsl(var(--foreground));
+    --background: 40 53% 97%;
+    --foreground: 166 45% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 166 45% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 166 45% 13%;
+    --muted: 41 36% 91%;
+    --muted-foreground: 166 23% 26%;
+    --accent: 39 57% 90%;
+    --accent-foreground: 166 45% 13%;
+    --border: 41 28% 85%;
+    --input: 148 7% 46%;
+    --ring: 165 67% 12%;
+    --destructive: 4 75% 31%;
+    --destructive-foreground: 0 0% 100%;
+    --link: 165 67% 12%;
+    --shadow-low: 0 1px 3px rgba(5, 38, 31, 0.08);
+    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.12);
+    --chart-1: 165 67% 12%;
+    --chart-2: 158 44% 33%;
+    --chart-3: 41 64% 34%;
+    --chart-4: 157 25% 39%;
+    --chart-5: 166 23% 26%;
+  }
+  /* Blocos de verde profundo (menu lateral, hero, botão escuro): dourado como destaque, texto creme/branco. Vale também fora do painel. */
+  html[data-brand-theme="classico"] :where(.card-dark, .bg-sidebar, .bg-ink, .on-dark) {
+    color-scheme: dark;
+    color: hsl(var(--card-foreground));
+    --background: 167 77% 8%;              /* #05261F */
+    --foreground: 0 0% 100%;
+    --card: 165 67% 12%;                   /* #0A3329 */
+    --card-foreground: 0 0% 100%;
+    --popover: 165 67% 12%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 38 52% 61%;                 /* #CFA968 */
+    --primary-foreground: 39 62% 10%;      /* #2A1F0A */
+    --primary-hover: 39 63% 74%;           /* #E6C891 */
+    --muted: 165 67% 12%;
+    --muted-foreground: 41 28% 85%;        /* #E3DCCD */
+    --accent: 166 45% 20%;                 /* #1C4A3F */
+    --accent-foreground: 0 0% 100%;
+    --border: 166 45% 22%;
+    --input: 158 17% 57%;                  /* #7FA597 */
+    --ring: 38 52% 61%;
+    --destructive: 4 100% 72%;             /* #FF7A70 */
+    --destructive-foreground: 167 77% 8%;
+    --link: 38 52% 61%;
+    --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --chart-1: 38 52% 61%;                 /* #CFA968 */
+    --chart-2: 39 57% 90%;                 /* #F4EAD7 */
+    --chart-3: 39 63% 74%;                 /* #E6C891 */
+    --chart-4: 158 17% 57%;
+    --chart-5: 0 0% 100%;
+  }
+  /* Landing pública: verde profundo mantém; amarelo vira dourado; claros viram creme. */
+  html[data-brand-theme="classico"] .landing {
+    --landing-green: #05261f;
+    --landing-green-alt: #0a3329;
+    --landing-yellow: #cfa968;
+    --landing-yellow-hover: #e6c891;
+    --landing-offwhite: #fbf8f2;
+    --landing-white: #ffffff;
+    --landing-muted: #33514a;
+    --landing-soft: #e3dccd;
+    --landing-border: #e3dccd;
+    --landing-mint: #f4ead7;
   }
 }

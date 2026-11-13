@@ -94,6 +94,16 @@ class PlanEnvTests(unittest.TestCase):
         text = det.set_env_value("A=1\r\nB=2\r\n", "B", "3")
         self.assertEqual(det.set_env_value(text, "C", "4"), "A=1\r\nB=3\r\nC=4\r\n")
 
+    def test_brand_theme_is_optional_and_update_keeps_the_operator_value(self):
+        self.assertNotIn("BRAND_THEME", upd.REQUIRED_ENV)
+        self.assertNotIn("BRAND_THEME", upd.NEW_VARS)
+        text = "APP_DOMAIN=a.b.co\nBRAND_THEME=classico\nPIX_FEE_CENTS=199\n"
+        plan = upd.plan_env(text)
+        self.assertNotIn("BRAND_THEME", plan.added + plan.filled + plan.invalid)
+        self.assertEqual(upd.missing_required(text), ["REINO_IMAGE_OWNER", "SMTP_HOST", "SUPERADMIN_EMAIL", "RESTIC_S3_ENDPOINT", "RESTIC_S3_BUCKET"])
+        self.assertIn("BRAND_THEME=classico\n", upd.apply_values(text, {"CARD_FEE_TABLE": "1:2.99:49"}))
+        self.assertEqual(upd.missing_required("APP_DOMAIN=a.b.co\n"), upd.missing_required(text))  # sem BRAND_THEME não muda nada
+
     def test_apply_values_only_touches_given_keys(self):
         text = upd.apply_values("A=1\nPIX_FEE_CENTS=\n", {"PIX_FEE_CENTS": "199", "CARD_FEE_TABLE": "1:2.99:49,6:2.99:49"})
         self.assertEqual(text, "A=1\nPIX_FEE_CENTS=199\nCARD_FEE_TABLE=1:2.99:49,6:2.99:49\n")
