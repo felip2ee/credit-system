@@ -180,6 +180,49 @@
   }
 }
 
+/* Landing pública do Bureau (/b/[slug]): "Editorial claro". Tokens em hex só em .landing; não altera o tema global. */
+@layer base {
+  .landing {
+    --landing-green: #05261f;        /* verde escuro: topo, hero, cartão empresarial, textos sobre claro */
+    --landing-green-alt: #0b3a2e;    /* faixa do diferencial */
+    --landing-yellow: #ffc400;       /* só sobre verde escuro (texto) ou como fundo de botão e faixa */
+    --landing-yellow-hover: #ffd433; /* hover do botão amarelo */
+    --landing-offwhite: #f7f9f8;     /* fundo da página */
+    --landing-white: #ffffff;        /* cartões */
+    --landing-muted: #3d5a50;        /* texto secundário sobre claro */
+    --landing-soft: #d9e6e1;         /* texto secundário sobre verde escuro */
+    --landing-border: #d5e3dc;       /* borda decorativa dos cartões */
+    --landing-mint: #e3efe9;         /* quadradinho de ícone e barras skeleton */
+    --landing-serif: var(--font-landing-serif), Georgia, "Times New Roman", serif;
+    --landing-sans: var(--font-landing-sans), system-ui, sans-serif;
+    font-family: var(--landing-sans);
+    background: var(--landing-offwhite);
+    color: var(--landing-green);
+  }
+  /* Anel de duas cores: o contorno verde lê sobre claro, o halo amarelo lê sobre verde escuro. */
+  .landing :focus-visible {
+    outline: 3px solid var(--landing-green);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 6px var(--landing-yellow);
+  }
+}
+
+@layer utilities {
+  .lp-serif {
+    font-family: var(--landing-serif);
+  }
+}
+
+@layer utilities {
+  /* Amarelo como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
+  .theme-admin .text-primary {
+    color: hsl(var(--link));
+  }
+  .theme-admin .border-primary {
+    border-color: hsl(var(--link));
+  }
+}
+
 /* Landing pública do Bureau (/b/[slug]): mesma paleta do app. Tokens em hex mantidos em .landing. */
 @layer base {
   .landing {

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { contrastRatio } from "./contrast";
 import { ADMIN_COLORS, APP_COLORS, APP_STATE_COLORS, BRAND_COLORS, NEUTRAL_COLORS, STATE_COLORS } from "./tokens";
@@ -257,5 +259,64 @@ describe("painel admin: cartões brancos e hero verde", () => {
 
 	it("o cartão branco destaca da página #F7F9F8 só pela borda: página e cartão são quase iguais", () => {
 		expect(contrastRatio(p.cardBackground, p.pageBackground)).toBeLessThan(1.2);
+	});
+});
+
+describe("landing pública (Editorial claro)", () => {
+	const L = {
+		green: "#05261F",
+		greenAlt: "#0B3A2E",
+		yellow: "#FFC400",
+		yellowHover: "#FFD433",
+		offwhite: "#F7F9F8",
+		white: "#FFFFFF",
+		muted: "#3D5A50",
+		soft: "#D9E6E1",
+		border: "#D5E3DC",
+		mint: "#E3EFE9",
+	};
+
+	it("os hex do teste são os tokens de .landing em globals.css", () => {
+		const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8").toLowerCase();
+		const block = css.slice(css.indexOf(".landing {"), css.indexOf(".landing :focus-visible"));
+		for (const hex of Object.values(L)) expect(block, hex).toContain(hex.toLowerCase());
+	});
+
+	it.each([
+		["branco no verde escuro (topo, hero, cartão empresarial)", L.white, L.green, 7],
+		["texto suave no verde escuro", L.soft, L.green, 7],
+		["amarelo como texto no verde escuro", L.yellow, L.green, 7],
+		["branco na faixa do diferencial", L.white, L.greenAlt, 7],
+		["texto suave na faixa do diferencial", L.soft, L.greenAlt, 7],
+		["amarelo na faixa do diferencial", L.yellow, L.greenAlt, 7],
+		["verde escuro na página off-white", L.green, L.offwhite, 7],
+		["texto secundário na página off-white", L.muted, L.offwhite, 7],
+		["verde escuro no cartão branco", L.green, L.white, 7],
+		["texto secundário no cartão branco", L.muted, L.white, 7],
+		["texto secundário no cartão menta", L.muted, L.mint, 4.5],
+		["verde escuro no cartão menta e no ícone", L.green, L.mint, 7],
+		["verde escuro no botão amarelo", L.green, L.yellow, 7],
+		["verde escuro no botão amarelo em hover", L.green, L.yellowHover, 7],
+		["amarelo no botão verde escuro da faixa final", L.yellow, L.green, 7],
+		["amarelo no botão verde escuro em hover", L.yellow, L.greenAlt, 7],
+		["etiqueta amarela no cartão verde escuro (ícone e rótulo)", L.yellow, L.green, 4.5],
+		["selo PDF: amarelo sobre verde escuro", L.yellow, L.green, 4.5],
+		["foco: contorno verde escuro na página off-white", L.green, L.offwhite, 3],
+		["foco: contorno verde escuro no cartão branco", L.green, L.white, 3],
+		["foco: contorno verde escuro na faixa amarela", L.green, L.yellow, 3],
+		["foco: halo amarelo no hero verde escuro", L.yellow, L.green, 3],
+		["foco: halo amarelo na faixa do diferencial", L.yellow, L.greenAlt, 3],
+		["foco: halo amarelo sobre o cartão menta/branco não é necessário (contorno verde lê)", L.green, L.mint, 3],
+	])("%s: pelo menos %s:1", (_n, fg, bg, min) => {
+		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
+	});
+
+	it("prova que o amarelo NÃO lê como texto sobre fundo claro (por isso vira #05261F)", () => {
+		expect(contrastRatio(L.yellow, L.offwhite)).toBeLessThan(2);
+		expect(contrastRatio(L.yellow, L.white)).toBeLessThan(2);
+	});
+
+	it("a borda do cartão é decorativa (< 3:1): o cartão não depende dela", () => {
+		expect(contrastRatio(L.border, L.white)).toBeLessThan(3);
 	});
 });
