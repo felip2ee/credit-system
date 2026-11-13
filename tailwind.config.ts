@@ -30,6 +30,7 @@ const config: Config = {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          hover: "hsl(var(--primary-hover))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -108,7 +109,7 @@ const config: Config = {
         md: "var(--shadow-mid)",
         lg: "var(--shadow-high)",
         // Brilho só no CTA principal da tela.
-        glow: "0 4px 14px rgba(255, 196, 0, 0.35)",
+        glow: "var(--shadow-glow)",
       },
       keyframes: {
         "accordion-down": {

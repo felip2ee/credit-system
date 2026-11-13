@@ -57,6 +57,14 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 - **Gráficos:** no admin `--chart-1..5` são `#0B3A2E`, `#2F7A5F`, `#9A7200`, `#4A7C69`, `#3D5A50` (todos 3:1 ou mais no branco). Dentro de destaque escuro voltam ao amarelo, verde claro e branco. Barra amarela sobre branco leva contorno `border-chart-3`.
 - Valores e contrastes: `ADMIN_COLORS` em `src/lib/brand/tokens.ts` e `src/lib/brand/contrast.test.ts`.
 
+## Dois temas de cor: `atual` e `classico`
+
+- `BRAND_THEME` (variável de servidor; `atual` é o padrão e vale para valor ausente ou inválido) vira o atributo `data-brand-theme` no `<html>` (`src/app/layout.tsx`, lido em runtime; função `resolveBrandTheme` em `src/lib/brand/theme.ts`). O tema só troca cores. Layout, tamanhos e componentes são os mesmos. Fontes: o app usa Atkinson Hyperlegible e Georgia nos dois temas, e a landing usa Fraunces e Inter nos dois; por isso nenhuma fonte troca.
+- `atual`: verde escuro + amarelo forte. Tokens em `:root` e `.theme-admin` de `src/app/globals.css`; hex em `APP_COLORS`, `ADMIN_COLORS`, `APP_STATE_COLORS`.
+- `classico`: creme `#FBF8F2`, cartões brancos, dourado `#CFA968` (só fundo de botão e destaque sobre verde escuro), verde profundo `#05261F` e `#0A3329`. Blocos `html[data-brand-theme="classico"]` no fim de `globals.css`; hex em `BRAND_COLORS` e `CLASSIC_COLORS` (`src/lib/brand/tokens.ts`). Os blocos escuros (`.card-dark`, `.bg-sidebar`, `.bg-ink`, `.on-dark`) e `.landing` têm bloco próprio no clássico.
+- Cor nunca fica em hex dentro de componente: use classe de token (`bg-primary`, `text-muted-foreground`, `bg-chart-1`), `var(--st-<tom>-bg|fg|border)` ou `var(--landing-...)`. PDF e e-mail usam `BRAND_COLORS` e não mudam com o tema. Fora do tema: `src/app/global-error.tsx` (renderiza sem o CSS do app) e `manifest.ts` (`background_color`; o manifesto não vê o tema).
+- Para acrescentar um token: declare-o em `:root`, no bloco escuro e em `.theme-admin` do tema atual, e declare o par no bloco `html[data-brand-theme="classico"]` (claro e escuro). Acrescente o hex a `CLASSIC_COLORS`, os pares de contraste a `src/lib/brand/contrast.test.ts` (AA 4,5:1 texto, 3:1 componente e foco) e rode `e2e/a11y.spec.ts` e `e2e/mobile.spec.ts` com `BRAND_THEME=classico`.
+
 ## Forma, camadas e espaço
 
 - Raios: campo `rounded-input` 8, cartão `rounded-card`/`rounded-lg` 12, destaque `rounded-hero` 16, modal `rounded-modal` 24. Botão, tag, busca e item ativo da barra: `rounded-full`.

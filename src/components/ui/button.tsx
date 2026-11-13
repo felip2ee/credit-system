@@ -10,7 +10,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // Primário (CTA): fundo amarelo, texto verde escuro em negrito.
-        default: "bg-primary text-primary-foreground hover:bg-cta-hover",
+        default: "bg-primary text-primary-foreground hover:bg-primary-hover",
         // Entrada principal ("Nova pesquisa", "Novo pedido"): amarelo cheio.
         cta: "bg-cta text-cta-foreground hover:bg-cta-hover",
         destructive:
@@ -26,7 +26,7 @@ const buttonVariants = cva(
         // Escuro: verde de superfície com borda amarela.
         dark: "border border-primary bg-ink text-card-foreground hover:bg-accent",
         // Pílula amarela sobre o cartão de saldo.
-        onBrand: "bg-primary text-primary-foreground hover:bg-cta-hover",
+        onBrand: "bg-primary text-primary-foreground hover:bg-primary-hover",
       },
       size: {
         default: "h-12 px-6 py-2 admin:h-10 admin:px-4",
