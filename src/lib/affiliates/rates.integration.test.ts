@@ -1,4 +1,4 @@
-// % de comissão do Bureau sob RLS contra um Postgres real: padrão, % própria, isolamento entre Bureaus e auditoria.
+// % de afiliados do Bureau (048) sob RLS contra um Postgres real: só o superadmin escreve; trava de 100%; auditoria.
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
@@ -28,18 +28,19 @@ vi.mock("next/headers", () => ({
 
 import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedClientProfile, seedTenant, type SeededTenant, type SeedIdentity } from "@/test/seed";
+import { seedClientProfile, seedSuperadmin, seedTenant, type SeededTenant, type SeedIdentity, type SeedSuperadmin } from "@/test/seed";
 
-import { affiliateLink, getBureauDefaultPct, listBureauAffiliates, setAffiliatePct, setBureauDefaultPct } from "./rates";
+import { affiliateLink, getBureauDefaultPct, listBureauAffiliates, setBureauDefaultPct } from "./rates";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 
 let A: SeededTenant;
 let B: SeededTenant;
 let second: SeedIdentity;
+let SA: SeedSuperadmin;
 
 beforeAll(async () => {
-	[A, B] = await Promise.all([seedTenant(owner, "Rates A"), seedTenant(owner, "Rates B")]);
+	[A, B, SA] = await Promise.all([seedTenant(owner, "Rates A"), seedTenant(owner, "Rates B"), seedSuperadmin(owner)]);
 	second = await seedClientProfile(owner, A.bureau.id);
 });
 
@@ -47,23 +48,20 @@ afterAll(async () => {
 	await Promise.all([owner.end(), pool.end()]);
 });
 
-const codeOf = async (profileId: string) =>
-	(await owner.query<{ code: string }>("select code from affiliate_codes where profile_id = $1", [profileId])).rows[0].code;
-
-const defaultPct = async (bureauId: string) =>
+const stored = async (bureauId: string) =>
 	(await owner.query<{ default_pct: string }>("select default_pct from bureau_affiliate_settings where bureau_id = $1", [bureauId]))
 		.rows[0]?.default_pct;
 
-describe("getBureauDefaultPct", () => {
-	it("is 0.00 without a stored setting and returns the stored value after it is set", async () => {
-		const T = await seedTenant(owner, "Default pct");
-		const admin = { ...T.bureauAdmin };
+const setOverride = (bureauId: string, pct: string | null) =>
+	owner.query("insert into bureau_commission_rates (bureau_id, pct, set_by) values ($1, $2, $3)", [bureauId, pct, SA.userId]);
 
-		expect(await getBureauDefaultPct(admin)).toBe("0.00");
-		await setBureauDefaultPct(admin, "12.50");
-		expect(await getBureauDefaultPct(admin)).toBe("12.50");
-	});
-});
+const auditRows = async (bureauId: string) =>
+	(
+		await owner.query<{ user_id: string; record_id: string; metadata: Record<string, string> }>(
+			"select user_id, record_id, metadata from audit_logs where action = 'affiliate.rate' and bureau_id = $1",
+			[bureauId],
+		)
+	).rows;
 
 describe("affiliateLink", () => {
 	it("builds the registration link with the code", () => {
@@ -71,16 +69,78 @@ describe("affiliateLink", () => {
 	});
 });
 
-describe("% do Bureau", () => {
-	it("sets the default and a own % for one affiliate; the others keep null (use default)", async () => {
-		await setBureauDefaultPct(A.bureauAdmin, "5");
-		expect(await defaultPct(A.bureau.id)).toBe("5.00");
-		await setBureauDefaultPct(A.bureauAdmin, "6.5"); // upsert
-		expect(await defaultPct(A.bureau.id)).toBe("6.50");
+describe("getBureauDefaultPct", () => {
+	it("is 0.00 without a stored setting; the superadmin and the Bureau team read it, another Bureau does not", async () => {
+		const T = await seedTenant(owner, "Default pct");
+		expect(await getBureauDefaultPct(T.bureauAdmin)).toBe("0.00");
+		await expect(setBureauDefaultPct(SA, T.bureau.id, "12.50")).resolves.toEqual({ ok: true });
+		expect(await getBureauDefaultPct(T.bureauAdmin)).toBe("12.50");
+		expect(await getBureauDefaultPct(SA, T.bureau.id)).toBe("12.50");
+		expect(await getBureauDefaultPct(B.bureauAdmin, T.bureau.id)).toBe("0.00"); // RLS: não vê outro Bureau
+	});
+});
 
-		await expect(setAffiliatePct(A.bureauAdmin, A.client.userId, "10")).resolves.toEqual({ ok: true });
+describe("setBureauDefaultPct", () => {
+	it("upserts one % per Bureau and audits from/to with the target bureau_id, actor = superadmin", async () => {
+		const T = await seedTenant(owner, "Upsert");
+		await setBureauDefaultPct(SA, T.bureau.id, "5");
+		await setBureauDefaultPct(SA, T.bureau.id, "6.5");
+		expect(await stored(T.bureau.id)).toBe("6.50");
+		const rows = await auditRows(T.bureau.id);
+		expect(rows).toHaveLength(2);
+		expect(rows.map((r) => r.user_id)).toEqual([SA.userId, SA.userId]);
+		const first = rows.find((r) => r.metadata.to === "5");
+		const last = rows.find((r) => r.metadata.to === "6.5");
+		expect(last?.record_id).toBe(T.bureau.id);
+		expect(last?.metadata).toEqual({ scope: "default", bureau_id: T.bureau.id, from: "5.00", to: "6.5" });
+		expect(first?.metadata.from).toBe("0.00");
+	});
 
-		// Cria uma comissão para conferir o total e a contagem de indicados.
+	it("refuses the Bureau admin, the operator and the client; nothing is stored", async () => {
+		const T = await seedTenant(owner, "Writers");
+		for (const who of [T.bureauAdmin, T.operator, T.client]) {
+			await expect(setBureauDefaultPct(who, T.bureau.id, "5")).rejects.toThrow();
+		}
+		expect(await stored(T.bureau.id)).toBeUndefined();
+		expect(await auditRows(T.bureau.id)).toHaveLength(0);
+	});
+
+	it("refuses a % above 100 (check) and reports an unknown Bureau as not_found", async () => {
+		await expect(setBureauDefaultPct(SA, A.bureau.id, "101")).rejects.toThrow();
+		await expect(setBureauDefaultPct(SA, randomUUID(), "5")).resolves.toEqual({ ok: false, reason: "not_found" });
+	});
+
+	it("blocks bureau_pct + affiliate_pct > 100 with the Bureau override; rolls back the write and the audit", async () => {
+		const T = await seedTenant(owner, "Split override");
+		await setOverride(T.bureau.id, "80");
+		await expect(setBureauDefaultPct(SA, T.bureau.id, "20")).resolves.toEqual({ ok: true }); // exatamente 100
+		await expect(setBureauDefaultPct(SA, T.bureau.id, "20.01")).resolves.toEqual({ ok: false, reason: "split_over_100" });
+		expect(await stored(T.bureau.id)).toBe("20.00");
+		expect(await auditRows(T.bureau.id)).toHaveLength(1);
+	});
+
+	it("uses the global % when the Bureau has no override (null override falls back to global)", async () => {
+		const T = await seedTenant(owner, "Split global");
+		const previous = (await owner.query("select value from settings where key = 'bureau_commission_pct'")).rows[0]?.value;
+		await owner.query(
+			`insert into settings (key, value) values ('bureau_commission_pct', '70'::jsonb)
+			 on conflict (key) do update set value = excluded.value`,
+		);
+		try {
+			await expect(setBureauDefaultPct(SA, T.bureau.id, "30.01")).resolves.toEqual({ ok: false, reason: "split_over_100" });
+			await setOverride(T.bureau.id, null);
+			await expect(setBureauDefaultPct(SA, T.bureau.id, "30.01")).resolves.toEqual({ ok: false, reason: "split_over_100" });
+			await setOverride(T.bureau.id, "10");
+			await expect(setBureauDefaultPct(SA, T.bureau.id, "30.01")).resolves.toEqual({ ok: true });
+		} finally {
+			if (previous === undefined) await owner.query("delete from settings where key = 'bureau_commission_pct'");
+			else await owner.query("update settings set value = $1::jsonb where key = 'bureau_commission_pct'", [JSON.stringify(previous)]);
+		}
+	});
+});
+
+describe("listBureauAffiliates", () => {
+	it("lists only this Bureau's affiliates with referrals and net commission total (no per-affiliate %)", async () => {
 		await owner.query(
 			`insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $2, $3)`,
 			[second.userId, A.client.userId, A.bureau.id],
@@ -91,44 +151,11 @@ describe("% do Bureau", () => {
 			 values ($1, $2, $3, $4, 10, 50, 5, 1, now())`,
 			[randomUUID(), A.bureau.id, A.client.userId, second.userId],
 		);
-
 		const list = await listBureauAffiliates(A.bureauAdmin);
 		const mine = list.find((a) => a.profileId === A.client.userId);
-		expect(mine).toMatchObject({ pct: "10.00", code: await codeOf(A.client.userId), referrals: 1, totalCommission: "4.00" });
+		expect(mine).toMatchObject({ referrals: 1, totalCommission: "4.00" });
 		expect(mine?.name).toBeTruthy();
-		const other = list.find((a) => a.profileId === second.userId);
-		expect(other).toMatchObject({ pct: null, referrals: 0, totalCommission: "0.00" });
+		expect(list.find((a) => a.profileId === second.userId)).toMatchObject({ referrals: 0, totalCommission: "0.00" });
 		expect(list.every((a) => a.profileId !== B.client.userId)).toBe(true);
-	});
-
-	it("removes the own % with null", async () => {
-		await setAffiliatePct(A.bureauAdmin, second.userId, "3");
-		await expect(setAffiliatePct(A.bureauAdmin, second.userId, null)).resolves.toEqual({ ok: true });
-		const list = await listBureauAffiliates(A.bureauAdmin);
-		expect(list.find((a) => a.profileId === second.userId)?.pct).toBeNull();
-	});
-
-	it("does not let another Bureau change the affiliate of this one", async () => {
-		await expect(setAffiliatePct(B.bureauAdmin, A.client.userId, "50")).resolves.toEqual({ ok: false, reason: "not_found" });
-		const { rows } = await owner.query<{ pct: string }>(
-			"select pct from affiliate_rates where affiliate_profile_id = $1",
-			[A.client.userId],
-		);
-		expect(rows).toEqual([{ pct: "10.00" }]);
-	});
-
-	it("refuses a % above 100 and a non-admin writer", async () => {
-		await expect(setBureauDefaultPct(A.bureauAdmin, "101")).rejects.toThrow();
-		await expect(setAffiliatePct(A.bureauAdmin, A.client.userId, "101")).rejects.toThrow();
-		await expect(setBureauDefaultPct(A.operator, "5")).rejects.toThrow();
-		expect(await defaultPct(A.bureau.id)).toBe("6.50");
-	});
-
-	it("audits each write in the same transaction", async () => {
-		const { rows } = await owner.query<{ n: number }>(
-			"select count(*)::int as n from audit_logs where action = 'affiliate.rate' and bureau_id = $1 and user_id = $2",
-			[A.bureau.id, A.bureauAdmin.userId],
-		);
-		expect(rows[0].n).toBeGreaterThanOrEqual(4);
 	});
 });
