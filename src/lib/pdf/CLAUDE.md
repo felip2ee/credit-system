@@ -29,7 +29,7 @@ Rules active in this directory — read them before touching code here:
 ## Local conventions
 
 - Documents are rendered on the server only; they return a `Buffer`, not JSX, to callers.
-- Font is the react-pdf built-in Helvetica (`PDF_FONT_FAMILY` in `fonts.ts`); the Atkinson TTF files in `fonts/` are no longer used. Body ≥ 10 pt, tables ≥ 9 pt. Page metrics and colours live in `theme.ts`.
+- Font is the react-pdf built-in Helvetica (`PDF_FONT_FAMILY` in `fonts.ts`); no font file is registered. Body ≥ 10 pt, tables ≥ 9 pt. Page metrics and colours live in `theme.ts`.
 - Page size is A4; `PDF_PAGE` in `theme.ts` holds the metrics and the safe area of the letterhead.
 - react-pdf quirks: a page-level `lineHeight` collapses large Text; a `fixed` element with explicit `height` or `alignItems: "center"` that holds a `render` text paints empty on pages that break.
 - Visible text is pt-BR.
