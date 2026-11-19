@@ -18,6 +18,7 @@ export const DASHBOARD_NAV_ITEMS: readonly NavItem[] = [
   { href: "/holders", label: "Titulares" },
   { href: "/scr", label: "Autorizações SCR" },
   { href: "/settings/catalog", label: "Catálogo" },
+  { href: "/settings/cupons", label: "Cupons", permission: "coupons:read" },
   { href: "/settings/wallet", label: "Carteira" },
   { href: "/afiliados", label: "Afiliados", permission: "affiliates:manage" },
   { href: "/settings", label: "Configurações" },
@@ -36,7 +37,7 @@ export const SUPERADMIN_NAV_ITEMS: readonly NavItem[] = [
   { href: "/superadmin/settings/repasses", label: "Prazo dos repasses" },
 ];
 
-const SETTINGS_SUBPAGES = ["/settings/catalog", "/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
+const SETTINGS_SUBPAGES = ["/settings/catalog", "/settings/cupons", "/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
 
 // Carteira também cobre as rotas antigas de repasses e balcão, que agora são abas dela.
 const WALLET_ROUTES = ["/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
