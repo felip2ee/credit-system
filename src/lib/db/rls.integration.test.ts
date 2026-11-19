@@ -12,6 +12,8 @@ import {
 import {
 	randomCpf,
 	seedClientProfile,
+	seedPayableEntry,
+	seedProduct,
 	seedSupportSession,
 	seedSuperadmin,
 	seedTenant,
@@ -2123,7 +2125,7 @@ describe("orders and delivery (022)", () => {
 		"open_order(text, boolean, text, text, text, jsonb, text, text, uuid)",
 		"refresh_order_state(uuid)",
 		"due_order_bureaus()",
-		"reserve_order(uuid, text, uuid, numeric, numeric, jsonb)",
+		"reserve_order(uuid, text, uuid, numeric, numeric, jsonb, text)",
 		"confirm_public_scr_authorization(text, text, text, text, text)",
 		"cancel_client_order(uuid)",
 		"client_order_members(uuid)",
@@ -3038,5 +3040,186 @@ describe("payer_profiles (040)", () => {
 		await expect(bad("document_masked", "123.456.789-09")).rejects.toThrow(/document_masked/);
 		await expect(bad("postal_code_masked", "01310-100")).rejects.toThrow(/postal_code_masked/);
 		await expect(bad("phone_e164", "11999990000")).rejects.toThrow(/phone_e164/);
+	});
+});
+
+describe("coupons", () => {
+	let C: SeededTenant;
+	let couponA: string;
+	let couponB: string;
+	let productId: string;
+	const DAY_MS = 24 * HOUR_MS;
+
+	async function insertCoupon(t: SeededTenant, code: string): Promise<string> {
+		return insertId(
+			`insert into coupons (bureau_id, code, kind, value, all_products, created_by)
+			 values ($1, $2, 'percent', 10, false, $3) returning id`,
+			[t.bureau.id, code, t.bureauAdmin.userId],
+		);
+	}
+
+	async function insertSettlement(
+		t: SeededTenant,
+		input: { price: string; cost: string; couponId?: string | null; mode?: "online" | "counter" },
+	): Promise<string> {
+		const orderRef = randomUUID();
+		const mode = input.mode ?? "online";
+		await owner.query(
+			`insert into order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost, coupon_id, discount)
+			 values ($1, $2, $3, $4, $5, $6, $7, case when $7::uuid is null then 0 else 1 end)`,
+			[orderRef, t.bureau.id, mode, mode === "online" ? t.client.userId : null, input.price, input.cost, input.couponId ?? null],
+		);
+		return orderRef;
+	}
+
+	async function insertRedemption(t: SeededTenant, couponId: string): Promise<string> {
+		const orderRef = await insertSettlement(t, { price: "0", cost: "5", couponId });
+		return insertId(
+			`insert into coupon_redemptions (coupon_id, bureau_id, client_profile_id, order_ref, discount, funded_wallet, funded_payable)
+			 values ($1, $2, $3, $4, 5, 3, 2) returning id`,
+			[couponId, t.bureau.id, t.client.userId, orderRef],
+		);
+	}
+
+	beforeAll(async () => {
+		C = await seedTenant(owner, "tenant C");
+		couponA = await insertCoupon(A, `RLS-${randomBytes(4).toString("hex")}`);
+		couponB = await insertCoupon(B, `RLS-${randomBytes(4).toString("hex")}`);
+		productId = (await seedProduct(owner)).id;
+		for (const [t, couponId] of [[A, couponA], [B, couponB]] as const) {
+			await owner.query("insert into coupon_products (coupon_id, bureau_id, product_id) values ($1, $2, $3)", [couponId, t.bureau.id, productId]);
+			await insertRedemption(t, couponId);
+		}
+	});
+
+	const readIds = (actor: Actor, table: string) =>
+		withDbContext(app, actor, async (c) => {
+			const { rows } = await c.query<{ bureau_id: string }>(`select bureau_id from ${table} where bureau_id = any($1::uuid[])`, [[A.bureau.id, B.bureau.id]]);
+			return Array.from(new Set(rows.map((r) => r.bureau_id)));
+		});
+
+	it.each(["coupons", "coupon_products", "coupon_redemptions"])("%s: admin of A reads only A; operator and client read nothing", async (table) => {
+		expect(await readIds(ctxOf(A.bureauAdmin), table)).toEqual([A.bureau.id]);
+		expect(await readIds(ctxOf(A.operator), table)).toEqual([]);
+		expect(await readIds(ctxOf(A.client), table)).toEqual([]);
+	});
+
+	it("admin of B cannot write coupons, coupon_products or coupon_redemptions of A", async () => {
+		const admin = ctxOf(B.bureauAdmin);
+		await expectNoEffect(withDbContext(app, admin, (c) => c.query("update coupons set active = false where id = $1", [couponA])));
+		await expectNoEffect(withDbContext(app, admin, (c) => c.query("delete from coupon_products where coupon_id = $1", [couponA])));
+		const asB = (sql: string, params: unknown[]) => withDbContext(app, admin, (c) => c.query(sql, params));
+		await expect(
+			asB("insert into coupons (bureau_id, code, kind, value, all_products, created_by) values ($1, 'CROSS', 'fixed', 1, true, $2)", [A.bureau.id, B.bureauAdmin.userId]),
+		).rejects.toMatchObject({ code: "42501" });
+		await expect(
+			asB("insert into coupon_products (coupon_id, bureau_id, product_id) values ($1, $2, $3)", [couponA, A.bureau.id, productId]),
+		).rejects.toMatchObject({ code: "42501" });
+		// Ninguém grava redenção pela sessão do app: só as funções do banco.
+		await expect(
+			asB("insert into coupon_redemptions (coupon_id, bureau_id, client_profile_id, order_ref, discount) values ($1, $2, $3, $4, 1)", [couponB, B.bureau.id, B.client.userId, randomUUID()]),
+		).rejects.toMatchObject({ code: "42501" });
+		await expect(withDbContext(app, admin, (c) => c.query("update coupon_redemptions set status = 'released'"))).rejects.toMatchObject({ code: "42501" });
+	});
+
+	it("coupon_attempt_misses: no app role reads or writes it (only the definer functions)", async () => {
+		for (const actor of [A.bureauAdmin, A.operator, A.client]) {
+			const run = (sql: string, params: unknown[] = []) => withDbContext(app, ctxOf(actor), (c) => c.query(sql, params));
+			await expect(run("select 1 from coupon_attempt_misses")).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				run("insert into coupon_attempt_misses (profile_id, bureau_id) values ($1, $2)", [A.client.userId, A.bureau.id]),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(run("delete from coupon_attempt_misses")).rejects.toMatchObject({ code: "42501" });
+			await expect(run("select coupon_attempts_blocked($1)", [A.client.userId])).rejects.toMatchObject({ code: "42501" });
+		}
+	});
+
+	it("coupon_record_miss: app_runtime runs it, public does not; only a client session records, and it returns nothing", async () => {
+		const sig = "coupon_record_miss()";
+		const can = async (role: string) =>
+			(await owner.query<{ ok: boolean }>("select has_function_privilege($1, $2::regprocedure, 'execute') as ok", [role, sig])).rows[0].ok;
+		expect(await can("app_runtime")).toBe(true);
+		expect(await can("public")).toBe(false);
+		for (const actor of [A.bureauAdmin, A.operator]) {
+			await expect(withDbContext(app, ctxOf(actor), (c) => c.query("select coupon_record_miss()"))).rejects.toMatchObject({ code: "42501" });
+		}
+		const res = await withDbContext(app, ctxOf(A.client), (c) => c.query("select coupon_record_miss() as r"));
+		expect(res.rows).toEqual([{ r: "" }]);
+	});
+
+	it("admin of A creates a coupon; operator and client cannot", async () => {
+		const insert = (actor: Actor) =>
+			withDbContext(app, actor, (c) =>
+				c.query(
+					"insert into coupons (bureau_id, code, kind, value, all_products, created_by) values ($1, $2, 'fixed', 5, true, $3)",
+					[A.bureau.id, `OK-${randomBytes(3).toString("hex")}`, actor.userId],
+				),
+			);
+		await expect(insert(ctxOf(A.bureauAdmin))).resolves.toMatchObject({ rowCount: 1 });
+		await expect(insert(ctxOf(A.operator))).rejects.toMatchObject({ code: "42501" });
+		await expect(insert(ctxOf(A.client))).rejects.toMatchObject({ code: "42501" });
+	});
+
+	it("code is stored in upper case without edge spaces and is unique per Bureau, case-insensitively", async () => {
+		const suffix = randomBytes(3).toString("hex");
+		const id = await insertCoupon(C, ` demo-${suffix} `);
+		const { rows } = await owner.query<{ code: string }>("select code from coupons where id = $1", [id]);
+		expect(rows[0].code).toBe(`DEMO-${suffix.toUpperCase()}`);
+		const insertCode = (code: string, kind = "fixed", value = 1) =>
+			owner.query("insert into coupons (bureau_id, code, kind, value, all_products, created_by) values ($1, $2, $3, $4, true, $5)", [C.bureau.id, code, kind, value, C.bureauAdmin.userId]);
+		await expect(insertCode(`Demo-${suffix}`)).rejects.toMatchObject({ code: "23505" });
+		await expect(insertCoupon(B, `demo-${suffix}`)).resolves.toBeTruthy();
+		await expect(insertCode("a b")).rejects.toMatchObject({ code: "23514" });
+		await expect(insertCode("PCT101", "percent", 101)).rejects.toMatchObject({ code: "23514" });
+	});
+
+	it("order_settlements accepts price 0 or below cost only with a coupon", async () => {
+		await expect(insertSettlement(C, { price: "0", cost: "5" })).rejects.toMatchObject({ code: "23514" });
+		await expect(insertSettlement(C, { price: "3", cost: "5" })).rejects.toMatchObject({ code: "23514" });
+		await expect(insertSettlement(C, { price: "0", cost: "0" })).rejects.toMatchObject({ code: "23514" });
+		const coupon = await insertCoupon(C, `ST-${randomBytes(3).toString("hex")}`);
+		await expect(insertSettlement(C, { price: "0", cost: "5", couponId: coupon })).resolves.toBeTruthy();
+		await expect(insertSettlement(C, { price: "3", cost: "5", couponId: coupon })).resolves.toBeTruthy();
+		await expect(insertSettlement(C, { price: "5", cost: "5" })).resolves.toBeTruthy();
+		// Cupom só no portal (online), e só de cupom do mesmo Bureau.
+		await expect(insertSettlement(C, { price: "5", cost: "5", couponId: coupon, mode: "counter" })).rejects.toMatchObject({ code: "23514" });
+		await expect(insertSettlement(C, { price: "0", cost: "5", couponId: couponA })).rejects.toMatchObject({ code: "23503" });
+	});
+
+	it("coupon_redemptions allows only reserved -> consumed | released, with no other change", async () => {
+		const consume = await insertRedemption(C, await insertCoupon(C, `RD-${randomBytes(3).toString("hex")}`));
+		await expectCode(owner, "update coupon_redemptions set discount = 9 where id = $1", [consume], "23514");
+		await expectCode(owner, "update coupon_redemptions set status = 'consumed', closed_at = now(), funded_wallet = 0 where id = $1", [consume], "23514");
+		await expectCode(owner, "update coupon_redemptions set status = 'reserved' where id = $1", [consume], "23514");
+		await expect(owner.query("update coupon_redemptions set status = 'consumed', closed_at = now() where id = $1", [consume])).resolves.toMatchObject({ rowCount: 1 });
+		await expectCode(owner, "update coupon_redemptions set status = 'released' where id = $1", [consume], "23514");
+		await expectCode(owner, "delete from coupon_redemptions where id = $1", [consume], "23514");
+		await expectCode(owner, "truncate coupon_redemptions", [], "23514");
+
+		const release = await insertRedemption(C, await insertCoupon(C, `RD-${randomBytes(3).toString("hex")}`));
+		await expect(owner.query("update coupon_redemptions set status = 'released', closed_at = now() where id = $1", [release])).resolves.toMatchObject({ rowCount: 1 });
+	});
+
+	it("coupon_cost and coupon_refund: sign and order_ref are checked, and payable_buckets and create_payout count them at once", async () => {
+		const order = await insertSettlement(C, { price: "0", cost: "5", couponId: await insertCoupon(C, `PB-${randomBytes(3).toString("hex")}`) });
+		const entry = (kind: string, amount: string, orderRef: string | null) =>
+			owner.query("insert into bureau_payable_entries (bureau_id, kind, amount, order_ref) values ($1, $2, $3, $4)", [C.bureau.id, kind, amount, orderRef]);
+		await expect(entry("coupon_cost", "3", order)).rejects.toMatchObject({ code: "23514" });
+		await expect(entry("coupon_cost", "-3", null)).rejects.toMatchObject({ code: "23514" });
+		await expect(entry("coupon_refund", "-3", order)).rejects.toMatchObject({ code: "23514" });
+
+		await seedPayableEntry(owner, { bureauId: C.bureau.id, kind: "accrual", amount: "10.00", createdAt: new Date(Date.now() - 60 * DAY_MS).toISOString() });
+		await entry("coupon_cost", "-3", order);
+		await expect(entry("coupon_cost", "-1", order)).rejects.toMatchObject({ code: "23505" });
+		const buckets = () =>
+			withDbContext(app, ctxOf(C.bureauAdmin), async (c) => (await c.query<{ released: string; retained: string; debt: string }>("select released, retained, debt from payable_buckets($1)", [C.bureau.id])).rows[0]);
+		expect(await buckets()).toEqual({ released: "7.00", retained: "0.00", debt: "0.00" });
+		await entry("coupon_refund", "1", order);
+		expect(await buckets()).toEqual({ released: "8.00", retained: "0.00", debt: "0.00" });
+
+		const payout = await withDbContext(app, ctxOf(sa), async (c) =>
+			(await c.query<{ ok: boolean; amount: string }>("select ok, amount from create_payout($1, $2)", [C.bureau.id, new Date(Date.now() - 35 * DAY_MS).toISOString()])).rows[0],
+		);
+		expect(payout).toEqual({ ok: true, amount: "8.00" });
 	});
 });
