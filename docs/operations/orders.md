@@ -86,3 +86,14 @@ select dossier_id, state, attempts, lease_until, next_attempt_at
 - `executing` com `lease_until` no passado: a lease venceu. O próximo tick executa o pedido de novo.
 - `ready` com `next_attempt_at` no futuro: o pedido espera a retentativa.
 - `attempts` igual a 5 e o pedido ainda não está `failed`: verifique os logs do tick antes de agir.
+
+## 6. Pedidos com cupom
+
+Regras do cupom: [spec de cupons](../superpowers/specs/2026-11-19-cupons-desconto-design.md). Fluxo do dinheiro: [architecture.md](architecture.md#cupons).
+
+- Liberação, cancelamento (equipe, cliente ou expiração) e falha passam por `release_order`. Em todos, a redenção vira `released` e o uso volta ao cupom (conta para o limite total e por cliente).
+- Os mesmos caminhos liberam a reserva na carteira do Bureau e lançam `coupon_refund`. Esse lançamento devolve ao repasse o valor que o cupom tirou dele.
+- Pedido com preço pago 0 não tem reserva na carteira do cliente. Não há nada a liberar desse lado.
+- Depois da captura, o pedido não é liberado. Um estorno de pagamento devolve só o que o cliente pagou.
+- Depois da captura, `coupon_cost`, a captura da carteira do Bureau e a redenção `consumed` não são desfeitos. O cupom fica gasto.
+- Para ver o estado de um uso, consulte `coupon_redemptions`: `reserved`, `consumed` ou `released`.

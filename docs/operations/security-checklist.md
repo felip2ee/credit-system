@@ -157,3 +157,7 @@ Run after schema migrate (`\du` and the queries below as `postgres`):
 - [ ] A named owner is responsible for monthly base-image + dependency updates
   and re-running `npm run verify:release` after each.
 - [ ] `npm audit` reviewed; no known-exploitable high/critical in production deps.
+
+## 11. Cupons
+
+- [x] Done: the coupon code attempts have a limit of 10 misses per hour per client profile (migration 052, table `coupon_attempt_misses`, no grant to `app_runtime`). `coupon_preview` records a miss for each code that gives no coupon. Over the limit it returns no rows, also for a valid code. `reserve_order` only checks the limit (a refused order rolls back, so a miss written there would be lost). Misses are also counted from the order action: when `placeOrder` aborts for a code problem (`coupon_invalid`, `coupon_expired`, `coupon_exhausted`, `coupon_client_limit`, `coupon_product_not_allowed`), it records one miss in a separate committed transaction (migration 053, `coupon_record_miss()`); `coupon_funds_insufficient` does not count. The answer stays "Cupom inválido ou indisponível" (unknown, expired, exhausted, other Bureau or out of scope).

@@ -52,6 +52,11 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - Repasse automático: o superadmin paga fora do sistema e marca como pago.
 - Template de WhatsApp de marketing: o M4 envia só mensagens transacionais.
 - Subdomínio ou domínio próprio por Bureau (pode vir depois).
+- Cupom no balcão (a equipe abre a pesquisa). Só o portal do cliente usa cupom.
+- Desconto na recarga de saldo.
+- Mais de um cupom por pesquisa.
+- Cupom criado pela plataforma ou pelo afiliado.
+- Cupom que o cliente recebe sem digitar o código.
 
 ## Requisitos
 
@@ -61,6 +66,7 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - **Pagador:** o checkout pergunta quem paga: o dono da conta ou outra pessoa ou empresa. Cada cobrança leva o cliente Asaas de quem paga. Os dados de pagamento do dono ficam cifrados. Runbook: [docs/operations/payments.md](docs/operations/payments.md). Spec: [docs/superpowers/specs/2026-11-06-pagamento-por-pagador-design.md](docs/superpowers/specs/2026-11-06-pagamento-por-pagador-design.md).
 - **Venda online:** o cliente paga a plataforma. Ao consumir um produto, a plataforma retém o custo do Bureau. A diferença (preço de venda menos custo) vira valor a repassar. O repasse é manual.
 - **Venda de balcão:** o cliente paga o Bureau. O custo da consulta sai do saldo pré-pago do Bureau, comprado via Asaas.
+- **Cupons:** o Bureau cria cupons percentuais ou de valor fixo. Cada cupom vale para todos os produtos ou para produtos escolhidos. Limites: usos totais, usos por cliente, início e validade. O cliente digita o código no portal antes de abrir uma pesquisa. Se o preço pago fica abaixo do custo, o Bureau cobre a diferença. Spec: [docs/superpowers/specs/2026-11-19-cupons-desconto-design.md](docs/superpowers/specs/2026-11-19-cupons-desconto-design.md).
 - **Reserva, captura e estorno:** o valor é reservado ao pedir. É capturado quando a consulta DEPS retorna sucesso. É liberado se a consulta falha.
 - **Livro-razão:** todo movimento é um lançamento imutável. O saldo nunca é editável.
 - **Catálogo:** o superadmin cadastra dois produtos base: Dossiê Pessoa Física e Dossiê Empresarial, mapeados aos produtos DEPS. Os dois nascem inativos. O superadmin define o custo e ativa. O Bureau escolhe o que vende e o preço.
