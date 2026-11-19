@@ -1,7 +1,7 @@
 // Correções da revisão do cartão (migration 043): chargeback, conferência do valor pago, corrida do bind, nota por
 // parcelamento e contagens de tentativas. Roda contra um Postgres real, sob RLS, pela rota pública do webhook.
 
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -356,7 +356,8 @@ describe("card attempt counters (043)", () => {
 	});
 
 	it("by IP: counts card rows of every user and Bureau with that IP; not Pix, not other IPs, not old rows", async () => {
-		const ip = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
+		// IP único por execução (24 bits): as linhas de pix_charges de execuções anteriores não são apagadas e entram na janela de 3 h.
+		const ip = `10.${randomInt(0, 256)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
 		const a = await seedTenant(owner, "Cnt A");
 		const b = await seedTenant(owner, "Cnt B");
 		const scopeA: ChargeScope = { kind: "client", clientProfileId: a.client.userId };

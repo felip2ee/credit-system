@@ -1128,7 +1128,7 @@ describe("RLS da liquidação", () => {
 				)
 			).rows[0].ok;
 		for (const fn of [
-			"public.reserve_order(uuid, text, uuid, numeric, numeric, jsonb)",
+			"public.reserve_order(uuid, text, uuid, numeric, numeric, jsonb, text)",
 			"public.capture_order(uuid)",
 			"public.release_order(uuid)",
 			"public.void_counter_payment(uuid, text)",

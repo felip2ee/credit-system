@@ -94,6 +94,8 @@ export const clientOrderSchema = z
 		declarationAccepted: z.boolean().default(false),
 		// A versão do texto que o formulário mostrou. O banco recusa se já não for a vigente.
 		declarationVersion: z.number().int().positive().nullish().transform((v) => v ?? null),
+		// Formato solto de propósito: código inválido e código de formato errado dão a mesma resposta ("Cupom inválido ou indisponível").
+		couponCode: z.string().max(64).nullish().transform((v) => v?.trim().toUpperCase() || null),
 		}),
 	)
 	.superRefine((v, ctx) => {
@@ -119,6 +121,7 @@ export const clientOrderSchema = z
 		partners: toPartners(v.partners),
 		declarationAccepted: v.declarationAccepted,
 		declarationVersion: v.declarationVersion,
+		couponCode: v.couponCode,
 	}));
 
 // Pedido de balcão (equipe). Sócios só no Dossiê Empresarial.

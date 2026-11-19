@@ -4,6 +4,9 @@
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
+import { beginCouponAttempt, clearCouponAttempt, holdCouponSlot } from "@/lib/coupons/attempt-slot";
+import { computeCouponDiscount, eligibleTotalCents } from "@/lib/coupons/discount";
+import { previewCoupon } from "@/lib/coupons/queries";
 import { refreshDossierStatus } from "@/lib/dossiers/queries";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { recordHolderEvent } from "@/lib/holders/queries";
@@ -69,13 +72,34 @@ export async function openOrder(client: PoolClient, input: OpenOrderInput): Prom
 }
 
 export type PlaceOrderFailure = OpenOrderFailure | SettlementFailure | "declaration_outdated";
-export type PlaceOrderOptions = { declaration?: { version: number; ip: string | null; userAgent: string | null } };
+export type PlaceOrderOptions = {
+	declaration?: { version: number; ip: string | null; userAgent: string | null };
+	// Só pedido online. O desconto é calculado aqui, na mesma transação da reserva; o banco confere o preço pago.
+	couponCode?: string;
+};
 
 // Carrega o motivo da reserva recusada para fora da transação: lançar desfaz Titular, Dossiê, pedido e autorizações.
 class PlaceOrderAbort extends Error {
 	constructor(readonly reason: PlaceOrderFailure) {
 		super("placeOrder aborted");
 	}
+}
+
+// Cupom inválido por qualquer motivo (inclusive pedido de balcão, que não usa cupom) é o mesmo motivo: não revela qual.
+async function resolveCoupon(
+	client: PoolClient,
+	code: string,
+	quote: OrderQuote,
+): Promise<{ code: string; discountCents: number }> {
+	const productCodes = Array.from(new Set(quote.lines.map((l) => l.code)));
+	const preview = await previewCoupon(client, code, productCodes);
+	if (!preview) throw new PlaceOrderAbort("coupon_invalid");
+	const { discountCents } = computeCouponDiscount({
+		kind: preview.kind,
+		value: preview.value,
+		eligibleTotalCents: eligibleTotalCents(quote.lines, preview.eligibleProductCodes),
+	});
+	return { code, discountCents };
 }
 
 // Uma transação: abre, grava a declaração (portal), reserva e (balcão) atualiza o estado. Saldo insuficiente ou
@@ -87,27 +111,39 @@ export async function placeOrder(
 	options: PlaceOrderOptions = {},
 ): Promise<{ ok: true; dossierId: string; state: OrderState } | { ok: false; reason: PlaceOrderFailure }> {
 	const mode: OrderMode = identity.role === "client" ? "online" : "counter";
+	// Cupom no pedido online: a tentativa é contada antes de avaliar o código (054). No limite ou com erro, recusa sem tocar no pedido.
+	const slot = options.couponCode && mode === "online" ? await beginCouponAttempt(identity) : undefined;
+	if (slot === null) return { ok: false, reason: "coupon_invalid" };
 	try {
-		return await withUserTransaction(identity, async (client) => {
+		const placed = await withUserTransaction(identity, async (client) => {
+			if (slot) await holdCouponSlot(client, slot);
 			const opened = await openOrder(client, input);
 			if (!opened.ok) throw new PlaceOrderAbort(opened.reason);
 			if (options.declaration) {
 				const declared = await recordOrderDeclaration(client, { dossierId: opened.dossierId, ...options.declaration });
 				if (!declared.ok) throw new PlaceOrderAbort(declared.reason === "outdated" ? "declaration_outdated" : "not_found");
 			}
+			const coupon = options.couponCode ? await resolveCoupon(client, options.couponCode, quote) : undefined;
 			const reserved = await reserveOrder(client, {
 				orderRef: opened.dossierId,
 				mode,
 				clientProfileId: mode === "online" ? identity.userId : null,
 				quote,
+				coupon,
 			});
 			if (!reserved.ok) throw new PlaceOrderAbort(reserved.reason);
 			if (mode === "online") return { ok: true as const, dossierId: opened.dossierId, state: opened.state };
 			const state = (await refreshOrderState(client, opened.dossierId)) ?? opened.state;
 			return { ok: true as const, dossierId: opened.dossierId, state };
 		});
+		if (slot) await clearCouponAttempt(identity, slot);
+		return placed;
 	} catch (error) {
-		if (error instanceof PlaceOrderAbort) return { ok: false, reason: error.reason };
+		if (error instanceof PlaceOrderAbort) {
+			// Só o sucesso e a falta de saldo do Bureau (que não é erro de código) devolvem a vaga; o resto conta.
+			if (slot && error.reason === "coupon_funds_insufficient") await clearCouponAttempt(identity, slot);
+			return { ok: false, reason: error.reason };
+		}
 		throw error;
 	}
 }

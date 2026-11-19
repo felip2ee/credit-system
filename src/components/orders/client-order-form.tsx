@@ -22,6 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { CouponField, useCoupon } from "@/components/orders/coupon-field";
 import { OrderPriceSummary } from "@/components/orders/order-price-summary";
 import { ProductPicker } from "@/components/orders/product-picker";
 import { ResearchIntro } from "@/components/orders/research-intro";
@@ -108,7 +109,9 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const isEmpresarial = productCode === "dossie_empresarial";
 	const hasMembers = orderHasMembers(productCode, holderType);
 	const breakdown = product ? orderPriceBreakdown(product, watch("partners") ?? [], watch("subject.document")) : null;
-	const totalCents = breakdown?.totalCents ?? 0;
+	const listCents = breakdown?.totalCents ?? 0;
+	const coupon = useCoupon({ productCode, partners: breakdown?.partnerCount ?? 0 }, listCents);
+	const totalCents = coupon.totalCents;
 	const insufficient = toCents(available) < totalCents;
 
 	// Trocar de produto descarta o que não vale mais: dados de outra pessoa, sócios e a declaração.
@@ -131,7 +134,11 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const onSubmit = () => {
 		setServerError(null);
 		startTransition(async () => {
-			const result = await openClientOrderAction({ ...getValues(), declarationVersion: declaration.version });
+			const result = await openClientOrderAction({
+				...getValues(),
+				declarationVersion: declaration.version,
+				...(coupon.couponCode ? { couponCode: coupon.couponCode } : {}),
+			});
 			if (!result || result.error || !result.id) {
 				setServerError(result?.error ?? "Não foi possível abrir o pedido.");
 				return;
@@ -298,6 +305,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 					{product?.code === "dossie_empresarial" && breakdown && (
 						<OrderPriceSummary breakdown={breakdown} pricePerPartner={Number(product.pricePerPartner)} />
 					)}
+					<CouponField coupon={coupon} />
 					<dl className="grid grid-cols-2 gap-4">
 						<div>
 							<dt className="text-muted-foreground">Total</dt>

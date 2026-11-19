@@ -6,9 +6,6 @@ import { headers } from "next/headers";
 import { requestMeta } from "@/lib/account/request-meta";
 import { getClientAccountStatus } from "@/lib/account/queries";
 import { getRequiredSession, type RequiredSession } from "@/lib/auth/session";
-import { getPublicCatalog } from "@/lib/bureaus/public";
-import { toCents } from "@/lib/catalog/money";
-import { buildQuote } from "@/lib/catalog/quote";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { toE164 } from "@/lib/notifications/recipient";
@@ -16,8 +13,8 @@ import { CLIENT_ORDER_MESSAGES, ORDER_FAILED } from "@/lib/orders/failure-messag
 import { cancelMyOrder } from "@/lib/orders/client-ops";
 import { getMyHolderType } from "@/lib/orders/client-queries";
 import { placeOrder, type PlaceOrderOptions } from "@/lib/orders/queries";
+import { quoteFromPublicCatalog } from "@/lib/orders/public-quote";
 import type { OpenOrderInput } from "@/lib/orders/types";
-import type { OrderQuote } from "@/lib/settlement/types";
 import { clientOrderSchema, orderIdSchema } from "@/lib/validators/order";
 
 export interface ActionResult {
@@ -52,36 +49,6 @@ async function requireClient(): Promise<RequiredSession | null> {
 	} catch {
 		return null;
 	}
-}
-
-// D26: o cliente não lê a tabela do catálogo. Preço de venda vem do catálogo público do Bureau; o custo é do banco
-// (reserve_order recalcula preço e custo pelo pedido e confere o total).
-async function quoteFromPublicCatalog(
-	session: RequiredSession,
-	productCode: string,
-	partnerCount: number,
-): Promise<OrderQuote | { ok: false; reason: "product_not_for_sale" }> {
-	const { rows } = await withUserTransaction(session, (client) =>
-		client.query<{ slug: string }>("select slug from bureaus where id = app_bureau_id()"),
-	);
-	if (!rows[0]) throw new Error("bureau slug not found");
-	const catalog = await getPublicCatalog(rows[0].slug);
-	const product = catalog.find((item) => item.code === productCode);
-	if (!product) return { ok: false, reason: "product_not_for_sale" };
-	return {
-		ok: true,
-		...buildQuote(
-			{
-				productVersionId: "",
-				code: product.code,
-				salePriceCents: toCents(product.salePrice),
-				salePricePerPartnerCents: toCents(product.salePricePerPartner),
-				costCents: 0,
-				costPerPartnerCents: 0,
-			},
-			partnerCount,
-		),
-	};
 }
 
 // Pedido "com membros": envolve CPFs de outras pessoas (sócios ou o responsável da empresa). Exige a declaração do comprador.
@@ -129,7 +96,10 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 			buyerProfileId: null,
 		};
 		const { declarationVersion } = parsed.data;
-		const options = withMembers && declarationVersion !== null ? await declarationOptions(declarationVersion) : undefined;
+		const declaration = withMembers && declarationVersion !== null ? await declarationOptions(declarationVersion) : {};
+		const { couponCode } = parsed.data;
+		const options: PlaceOrderOptions | undefined =
+			declaration.declaration || couponCode ? { ...declaration, ...(couponCode && { couponCode }) } : undefined;
 		const result = await placeOrder(session, input, quote, options);
 		if (!result.ok) {
 			const message = CLIENT_ORDER_MESSAGES[result.reason];

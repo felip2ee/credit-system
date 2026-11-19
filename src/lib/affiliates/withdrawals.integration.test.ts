@@ -462,9 +462,10 @@ describe("PIX key exposure", () => {
 
 		await expect(app.query("select pix_key from affiliate_withdrawals")).rejects.toMatchObject({ code: "42501" });
 
-		// A fila lista só os 100 mais antigos: encerra saques abertos de execuções anteriores.
+		// A fila lista só os 100 mais antigos: encerra saques abertos de execuções anteriores
+		// (de mais de 1 minuto: runs seguidos e outros arquivos acumulam saques abertos na mesma hora).
 		await owner.query(
-			"update affiliate_withdrawals set status = 'cancelled', cancel_reason = 'limpeza de teste' where status = 'open' and created_at < now() - interval '1 hour'",
+			"update affiliate_withdrawals set status = 'cancelled', cancel_reason = 'limpeza de teste' where status = 'open' and created_at < now() - interval '1 minute'",
 		);
 		const queue = await listWithdrawalQueue(asSuperadmin());
 		const item = queue.find((q) => q.id === id);

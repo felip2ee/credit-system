@@ -83,7 +83,7 @@ Webhooks e worker:
 
 ## Dados e migrations
 
-- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `028`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
+- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `054`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
 - A 021 cria as contas de cliente: `legal_documents`, `legal_acceptances`, `verification_challenges`, `client_register_attempts`, e as funções `register_client` e de verificação (`request_*` e `confirm_*` de e-mail e de telefone).
 - A 023 cria a retenção LGPD: anonimização do titular e da conta do cliente, varredura técnica e do Bureau. Veja [operations/lgpd.md](operations/lgpd.md).
 - A 022 cria os pedidos de pesquisa (`dossier_orders`, com estado protegido por trigger), a função `open_order` (única porta de criação de Dossiê), o perfil de sistema por Bureau (`profiles.is_system`) e a RLS de entrega do cliente. Veja [operations/orders.md](operations/orders.md).
@@ -93,6 +93,13 @@ Webhooks e worker:
 - A 027 põe a comissão em `capture_order` (só com `profiles.phone_verified_at` do indicado) e cria `release_due_commissions()`, que o tick de pedidos chama para encerrar a carência (`affiliate_commissions.release_at`). A configuração `affiliate_commission_hold_days` guarda os dias de carência.
 - A 028 cria os saques (`affiliate_withdrawals`, com a taxa de `affiliate_withdrawal_fee`), a conversão do saldo em créditos e as funções de pagar (com comprovante) e cancelar. Veja [operations/affiliates.md](operations/affiliates.md).
 - A 044 muda `open_order` no balcão: se o documento do Titular é o de um Titular do comprador, é a pesquisa própria dele (e-mail da conta, celular só se confirmado, contato digitado descartado, sem `contact_is_buyer`). O sócio com o documento de um Titular do comprador também pode usar o e-mail dele. Cria `update_order_contact`: a equipe troca ou reenvia o contato de um membro com autorização pendente em `awaiting_payment` ou `awaiting_authorization`; o token (`public_token`) muda, o código some e o aviso em fila é anulado. Em `awaiting_payment` só grava o contato (a emissão é do tick depois do pagamento). `issueSelfScrAuthorization` emite só se o token ainda é o lido (`superseded` se não). Teto de 3 pedidos novos por destinatário em 24 h, 2 minutos desde a última troca ou reenvio e 5 trocas ou reenvios por autorização em 24 h (`scr_authorizations.contact_changes_at`). A auditoria `order.update_contact` é gravada na própria função, um evento por Dossiê que usa a autorização. Veja [operations/orders.md](operations/orders.md).
+- A 048 cria os cupons: `coupons`, `coupon_products` e `coupon_redemptions` (RLS com `enable` e `force`; o admin do Bureau lê e escreve; o cliente não lê). Acrescenta `coupon_id` e `discount` em `order_settlements`, os tipos `coupon_cost` e `coupon_refund` em `bureau_payable_entries`, e faz `payable_buckets` e `create_payout` contá-los. Permissões `coupons:read` e `coupons:write`, só para o admin do Bureau. Veja a seção [Cupons](#cupons).
+- A 049 redefine `reserve_order` (com `p_coupon_code`), `capture_order` e `release_order`. Cria `coupon_preview` (prévia para o cliente, sem ler a tabela) e a função interna `coupon_release_redemption`. Ordem das travas: cupom (advisory lock `coupon:<id>`), liquidação, carteira do cliente, repasse (`payout:<bureau>`), carteira do Bureau.
+- A 050 redefine `apply_asaas_payment`: o estorno conta `coupon_cost` e `coupon_refund` no saldo a repassar, com o mesmo conjunto de `payable_buckets`. Nada mais muda.
+- A 051 corrige a revisão dos cupons: o estorno de recarga do Bureau não trava mais o pedido com cupom (captura e devolução), `order_reservation_left` desconta as reservas de cupom, a reserva repete a checagem de idempotência e os lançamentos da carteira do Bureau levam o motivo `cupom`.
+- A 052 limita as tentativas de código de cupom: 10 erros por hora por cliente (`coupon_attempt_misses`). `coupon_preview` grava o erro; `reserve_order` só confere o limite.
+- A 053 fecha a brecha da ação do pedido: o pedido dá rollback com cupom inválido, então `placeOrder` grava o erro por `coupon_record_miss()` numa transação própria já confirmada (`src/lib/coupons/record-miss.ts`).
+- A 054 troca a conta de erros por vagas de tentativa e fecha a corrida do limite: `coupon_attempt_begin()` serializa por cliente (trava consultiva), confere 10 por hora e grava a vaga antes de avaliar o código, numa transação própria já confirmada. Só o sucesso do pedido apaga a vaga (`coupon_attempt_clear`); vaga que sobra conta como erro (fecha fechado). `coupon_preview` pega a mesma trava. `coupon_record_miss` some (`src/lib/coupons/attempt-slot.ts`).
 - O catálogo guarda custo e venda por sócio ao lado do valor base: `product_versions.base_cost_per_partner`, `bureau_product_costs.cost_per_partner` e `bureau_catalog_items.sale_price_per_partner`. Só o Dossiê Empresarial usa o valor por sócio.
 - Aplicar: `npm run db:migrate`. O runner grava checksums. Não edite uma migration já aplicada.
 - A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. A partir do primeiro deploy de produção, só migrations novas (forward-only, com checksum).
@@ -107,6 +114,20 @@ Webhooks e worker:
 - Nunca reintroduza Supabase.
 - Pool único em `src/lib/db/pool.ts`. `PG_POOL_MAX` define o máximo (padrão 10).
 - Dev: Postgres 18 em `127.0.0.1:54329` via `docker-compose.dev.yml`.
+
+## Cupons
+
+Regras completas: [spec de cupons](superpowers/specs/2026-11-19-cupons-desconto-design.md). Esta seção mostra só o fluxo do dinheiro.
+
+- O desconto é calculado no banco, em `reserve_order`. A tela só mostra a prévia (`coupon_preview`). O preço enviado é conferido pelo banco.
+- Preço pago = preço de tabela − desconto. Preço pago `0` não usa a carteira do cliente. Captura e liberação também pulam o cliente.
+- Falta = `max(custo − preço pago, 0)`. O Bureau cobre a falta, nesta ordem:
+  1. Saldo disponível da carteira pré-paga do Bureau (`wallets`). Reserva na reserva do pedido e captura na captura.
+  2. O que sobra sai do repasse já liberado, com lançamento `coupon_cost` (negativo). Saldo retido não cobre.
+  3. Se ainda falta, o cupom é recusado (`coupon_funds_insufficient`). O pedido não abre.
+- Preço pago maior ou igual ao custo: falta zero. A margem só diminui. Margem zero ou negativa não gera acréscimo nem comissão de afiliado.
+- Liberação, cancelamento e expiração devolvem tudo: redenção `released`, carteira do Bureau liberada e `coupon_refund` (positivo) devolve ao repasse o valor que saiu dele.
+- Estorno depois da captura devolve só o que o cliente pagou. `coupon_cost`, a captura da carteira do Bureau e a redenção `consumed` não são desfeitos.
 
 ## Decisões
 
