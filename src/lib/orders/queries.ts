@@ -4,9 +4,9 @@
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
+import { beginCouponAttempt, clearCouponAttempt, holdCouponSlot } from "@/lib/coupons/attempt-slot";
 import { computeCouponDiscount, eligibleTotalCents } from "@/lib/coupons/discount";
 import { previewCoupon } from "@/lib/coupons/queries";
-import { isCouponCodeFailure, recordCouponMiss } from "@/lib/coupons/record-miss";
 import { refreshDossierStatus } from "@/lib/dossiers/queries";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { recordHolderEvent } from "@/lib/holders/queries";
@@ -111,8 +111,12 @@ export async function placeOrder(
 	options: PlaceOrderOptions = {},
 ): Promise<{ ok: true; dossierId: string; state: OrderState } | { ok: false; reason: PlaceOrderFailure }> {
 	const mode: OrderMode = identity.role === "client" ? "online" : "counter";
+	// Cupom no pedido online: a tentativa é contada antes de avaliar o código (054). No limite ou com erro, recusa sem tocar no pedido.
+	const slot = options.couponCode && mode === "online" ? await beginCouponAttempt(identity) : undefined;
+	if (slot === null) return { ok: false, reason: "coupon_invalid" };
 	try {
-		return await withUserTransaction(identity, async (client) => {
+		const placed = await withUserTransaction(identity, async (client) => {
+			if (slot) await holdCouponSlot(client, slot);
 			const opened = await openOrder(client, input);
 			if (!opened.ok) throw new PlaceOrderAbort(opened.reason);
 			if (options.declaration) {
@@ -132,10 +136,12 @@ export async function placeOrder(
 			const state = (await refreshOrderState(client, opened.dossierId)) ?? opened.state;
 			return { ok: true as const, dossierId: opened.dossierId, state };
 		});
+		if (slot) await clearCouponAttempt(identity, slot);
+		return placed;
 	} catch (error) {
 		if (error instanceof PlaceOrderAbort) {
-			// O rollback desfez o erro gravado pela prévia: conta de novo, fora da transação do pedido.
-			if (isCouponCodeFailure(error.reason)) await recordCouponMiss(identity);
+			// Só o sucesso e a falta de saldo do Bureau (que não é erro de código) devolvem a vaga; o resto conta.
+			if (slot && error.reason === "coupon_funds_insufficient") await clearCouponAttempt(identity, slot);
 			return { ok: false, reason: error.reason };
 		}
 		throw error;

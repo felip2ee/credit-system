@@ -1,4 +1,5 @@
-// Limite de tentativas de código de cupom (migração 052): 10 erros por hora por cliente. Postgres real, sob RLS.
+// Limite de tentativas de código de cupom (052, vagas em 054): 10 por hora por cliente, serializado por cliente.
+// Postgres real, sob RLS, com concorrência de verdade.
 import { randomBytes, randomUUID } from "node:crypto";
 
 import { Pool, type PoolClient } from "pg";
@@ -84,7 +85,7 @@ async function seedCoupon(t: SeededTenant, productsAll = true): Promise<string> 
 	return code;
 }
 
-describe("coupon attempt limit (052)", () => {
+describe("coupon attempt limit (052/054)", () => {
 	it("allows 10 misses, then blocks the 11th even for a valid code", async () => {
 		const t = await seedTenant(owner, "lim 10");
 		const code = await seedCoupon(t);
@@ -161,5 +162,86 @@ describe("coupon attempt limit (052)", () => {
 		expect(await reserve()).toMatchObject({ ok: false, reason: "coupon_invalid" });
 		// reserve_order só confere o limite: não grava erro.
 		expect(await missCount(t.client.userId)).toBe(10);
+	});
+});
+
+describe("attempt slots (054)", () => {
+	const begin_ = (ctx: Ctx) =>
+		committed(ctx, (c) => c.query<{ id: string | null }>("select coupon_attempt_begin() as id").then((r) => r.rows[0].id));
+	const clear = (ctx: Ctx, id: string) => committed(ctx, (c) => c.query("select coupon_attempt_clear($1)", [id]));
+
+	it("30 parallel previews with invalid codes record exactly 10 attempts", async () => {
+		const t = await seedTenant(owner, "slot par preview");
+		const ctx = clientCtx(t);
+		const results = await Promise.all(Array.from({ length: 30 }, (_, i) => preview(ctx, `PAR${i}`)));
+		expect(results.every((rowsOut) => rowsOut.length === 0)).toBe(true);
+		expect(await missCount(t.client.userId)).toBe(10);
+	});
+
+	it("30 parallel begins give exactly 10 slots; the rest are blocked", async () => {
+		const t = await seedTenant(owner, "slot par begin");
+		const ctx = clientCtx(t);
+		const ids = await Promise.all(Array.from({ length: 30 }, () => begin_(ctx)));
+		expect(ids.filter((id) => id !== null)).toHaveLength(10);
+		expect(ids.filter((id) => id === null)).toHaveLength(20);
+		expect(await missCount(t.client.userId)).toBe(10);
+	});
+
+	it("a valid code at attempt 11 is refused, and a cleared slot frees one attempt", async () => {
+		const t = await seedTenant(owner, "slot clear");
+		const code = await seedCoupon(t);
+		const ctx = clientCtx(t);
+		const ids: string[] = [];
+		for (let i = 0; i < 10; i++) ids.push((await begin_(ctx)) as string);
+		expect(await begin_(ctx)).toBeNull();
+		expect(await preview(ctx, code)).toHaveLength(0);
+		await clear(ctx, ids[0]);
+		expect(await missCount(t.client.userId)).toBe(9);
+		expect(await preview(ctx, code)).toHaveLength(1);
+	});
+
+	it("a client cannot clear another client's slot, and another client is unaffected", async () => {
+		const t = await seedTenant(owner, "slot other");
+		const other = await seedClientProfile(owner, t.bureau.id);
+		const id = (await begin_(clientCtx(t))) as string;
+		await clear(clientCtx(t, other.userId), id);
+		expect(await missCount(t.client.userId)).toBe(1);
+		for (let i = 0; i < 10; i++) await begin_(clientCtx(t));
+		expect(await begin_(clientCtx(t, other.userId))).not.toBeNull();
+	});
+
+	it("slots older than 1 hour do not count", async () => {
+		const t = await seedTenant(owner, "slot old");
+		const ctx = clientCtx(t);
+		for (let i = 0; i < 10; i++) await begin_(ctx);
+		expect(await begin_(ctx)).toBeNull();
+		await owner.query("update coupon_attempt_misses set at = now() - interval '61 minutes' where profile_id = $1", [t.client.userId]);
+		expect(await begin_(ctx)).not.toBeNull();
+	});
+
+	it("a held slot lets the order path evaluate without the limit and without recording", async () => {
+		const t = await seedTenant(owner, "slot held");
+		const code = await seedCoupon(t);
+		const ctx = clientCtx(t);
+		const id = (await begin_(ctx)) as string;
+		await owner.query("insert into coupon_attempt_misses (profile_id, bureau_id) select $1, $2 from generate_series(1, 9)", [t.client.userId, t.bureau.id]);
+		const held = await committed(ctx, async (c) => {
+			await c.query("select set_config('app.coupon_slot', $1, true)", [id]);
+			return (await c.query("select * from coupon_preview($1, $2::text[])", [code, ["dossie_pf"]])).rows;
+		});
+		expect(held).toHaveLength(1);
+		const none = await committed(ctx, async (c) => {
+			await c.query("select set_config('app.coupon_slot', $1, true)", [randomUUID()]);
+			return (await c.query("select * from coupon_preview($1, $2::text[])", [code, ["dossie_pf"]])).rows;
+		});
+		expect(none).toHaveLength(0);
+		expect(await missCount(t.client.userId)).toBe(10);
+	});
+
+	it("staff cannot open or clear a slot", async () => {
+		const t = await seedTenant(owner, "slot staff");
+		const staffCtx: Ctx = { userId: t.operator.userId, role: t.operator.role, bureauId: t.bureau.id };
+		await expect(begin_(staffCtx)).rejects.toMatchObject({ code: "42501" });
+		await expect(clear(staffCtx, randomUUID())).rejects.toMatchObject({ code: "42501" });
 	});
 });

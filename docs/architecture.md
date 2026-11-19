@@ -83,7 +83,7 @@ Webhooks e worker:
 
 ## Dados e migrations
 
-- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `053`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
+- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `054`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
 - A 021 cria as contas de cliente: `legal_documents`, `legal_acceptances`, `verification_challenges`, `client_register_attempts`, e as funções `register_client` e de verificação (`request_*` e `confirm_*` de e-mail e de telefone).
 - A 023 cria a retenção LGPD: anonimização do titular e da conta do cliente, varredura técnica e do Bureau. Veja [operations/lgpd.md](operations/lgpd.md).
 - A 022 cria os pedidos de pesquisa (`dossier_orders`, com estado protegido por trigger), a função `open_order` (única porta de criação de Dossiê), o perfil de sistema por Bureau (`profiles.is_system`) e a RLS de entrega do cliente. Veja [operations/orders.md](operations/orders.md).
@@ -99,6 +99,7 @@ Webhooks e worker:
 - A 051 corrige a revisão dos cupons: o estorno de recarga do Bureau não trava mais o pedido com cupom (captura e devolução), `order_reservation_left` desconta as reservas de cupom, a reserva repete a checagem de idempotência e os lançamentos da carteira do Bureau levam o motivo `cupom`.
 - A 052 limita as tentativas de código de cupom: 10 erros por hora por cliente (`coupon_attempt_misses`). `coupon_preview` grava o erro; `reserve_order` só confere o limite.
 - A 053 fecha a brecha da ação do pedido: o pedido dá rollback com cupom inválido, então `placeOrder` grava o erro por `coupon_record_miss()` numa transação própria já confirmada (`src/lib/coupons/record-miss.ts`).
+- A 054 troca a conta de erros por vagas de tentativa e fecha a corrida do limite: `coupon_attempt_begin()` serializa por cliente (trava consultiva), confere 10 por hora e grava a vaga antes de avaliar o código, numa transação própria já confirmada. Só o sucesso do pedido apaga a vaga (`coupon_attempt_clear`); vaga que sobra conta como erro (fecha fechado). `coupon_preview` pega a mesma trava. `coupon_record_miss` some (`src/lib/coupons/attempt-slot.ts`).
 - O catálogo guarda custo e venda por sócio ao lado do valor base: `product_versions.base_cost_per_partner`, `bureau_product_costs.cost_per_partner` e `bureau_catalog_items.sale_price_per_partner`. Só o Dossiê Empresarial usa o valor por sócio.
 - Aplicar: `npm run db:migrate`. O runner grava checksums. Não edite uma migration já aplicada.
 - A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. A partir do primeiro deploy de produção, só migrations novas (forward-only, com checksum).

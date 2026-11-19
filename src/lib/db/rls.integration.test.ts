@@ -3131,20 +3131,29 @@ describe("coupons", () => {
 			).rejects.toMatchObject({ code: "42501" });
 			await expect(run("delete from coupon_attempt_misses")).rejects.toMatchObject({ code: "42501" });
 			await expect(run("select coupon_attempts_blocked($1)", [A.client.userId])).rejects.toMatchObject({ code: "42501" });
+			await expect(run("select coupon_slot_held($1)", [A.client.userId])).rejects.toMatchObject({ code: "42501" });
 		}
 	});
 
-	it("coupon_record_miss: app_runtime runs it, public does not; only a client session records, and it returns nothing", async () => {
-		const sig = "coupon_record_miss()";
-		const can = async (role: string) =>
+	it("coupon_attempt_begin/clear: app_runtime runs them, public does not; only a client session, and the slot is its own", async () => {
+		const can = async (role: string, sig: string) =>
 			(await owner.query<{ ok: boolean }>("select has_function_privilege($1, $2::regprocedure, 'execute') as ok", [role, sig])).rows[0].ok;
-		expect(await can("app_runtime")).toBe(true);
-		expect(await can("public")).toBe(false);
-		for (const actor of [A.bureauAdmin, A.operator]) {
-			await expect(withDbContext(app, ctxOf(actor), (c) => c.query("select coupon_record_miss()"))).rejects.toMatchObject({ code: "42501" });
+		for (const sig of ["coupon_attempt_begin()", "coupon_attempt_clear(uuid)"]) {
+			expect(await can("app_runtime", sig)).toBe(true);
+			expect(await can("public", sig)).toBe(false);
 		}
-		const res = await withDbContext(app, ctxOf(A.client), (c) => c.query("select coupon_record_miss() as r"));
-		expect(res.rows).toEqual([{ r: "" }]);
+		expect(await can("app_runtime", "coupon_slot_held(uuid)")).toBe(false);
+		for (const actor of [A.bureauAdmin, A.operator]) {
+			await expect(withDbContext(app, ctxOf(actor), (c) => c.query("select coupon_attempt_begin()"))).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				withDbContext(app, ctxOf(actor), (c) => c.query("select coupon_attempt_clear($1)", [randomUUID()])),
+			).rejects.toMatchObject({ code: "42501" });
+		}
+		const begun = await withDbContext(app, ctxOf(A.client), (c) => c.query<{ id: string }>("select coupon_attempt_begin() as id"));
+		expect(begun.rows[0].id).toMatch(/^[0-9a-f-]{36}$/);
+		await withDbContext(app, ctxOf(A.client), (c) => c.query("select coupon_attempt_clear($1)", [begun.rows[0].id]));
+		const left = await owner.query("select 1 from coupon_attempt_misses where id = $1", [begun.rows[0].id]);
+		expect(left.rowCount).toBe(0);
 	});
 
 	it("admin of A creates a coupon; operator and client cannot", async () => {
