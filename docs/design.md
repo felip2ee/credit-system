@@ -147,7 +147,7 @@ Regras:
 ## Regras da marca
 
 - Kit em `public/brand/rainha-cred/`. Não redesenhe, não mude as cores, não estique e não crie versão horizontal, branca ou preta (veja `LEIA-ME.txt`). Não recolora o kit.
-- PDF: cabeçalho e rodapé em código, com o nome do Bureau, e-mail de suporte e "Página X de Y". Sem Instagram e sem telefone.
+- PDF: papel timbrado A4 (`public/brand/rainha-cred/timbrado/`) com logo em código e rodapé com e-mail de suporte, WhatsApp e Instagram (só os que existem) e "Página X de Y". Helvetica, corpo 10 pt, tabelas 9 pt; cores e medidas em `src/lib/pdf/theme.ts`. A consulta abre com identidade, resumo e score; o dossiê abre com uma capa que lista os membros, e cada membro começa em página nova. Da segunda página em diante, uma linha ao lado do logo diz de quem é o documento.
 - E-mail: logo por URL absoluta, fonte `Arial, sans-serif`, rodapé com "Rainha Cred" e o suporte.
 - E-mail de suporte: variável `SUPPORT_EMAIL` (padrão `suporte@rainhacred.com.br`; domínio a confirmar).
 - Ícone do app, `manifest` e `metadata` usam o nome "Rainha Cred".
