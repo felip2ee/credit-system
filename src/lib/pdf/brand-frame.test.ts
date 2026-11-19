@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import fixture from "@/lib/deps/__fixtures__/smart-pf-002.json";
 import { toConsultationContent } from "@/lib/consultations/full-view";
 import { PdfBrandFrame, runningIdentity, type PdfFrame } from "./brand-frame";
+import { estimateTextWidth } from "./table-layout";
 import { renderCompleteConsultationPdf } from "./complete-consultation-document";
 import { pdfText } from "./pdf-text.testing";
 
@@ -77,6 +78,26 @@ describe("Rainha Cred PDF frame", () => {
     expect(text).not.toContain(name);
     expect(text).toContain("CPF ***.111.222-**");
   }, 60_000);
+
+  it("fits the running line by width, not by character count", () => {
+    const budget = 330;
+    const upper = runningIdentity({ name: "A".repeat(56) });
+    expect(upper.endsWith("…")).toBe(true);
+    expect(estimateTextWidth(upper, 10.5, true)).toBeLessThanOrEqual(budget);
+    const upperDoc = runningIdentity({ name: "A".repeat(56), document: "CNPJ 12.345.678/0001-90" });
+    expect(estimateTextWidth(upperDoc, 10.5, true)).toBeLessThanOrEqual(budget);
+    expect(upperDoc.endsWith("CNPJ 12.345.678/0001-90")).toBe(true);
+    // Minúsculas estreitas cabem em mais caracteres que maiúsculas.
+    expect(runningIdentity({ name: "i".repeat(80) }).length).toBeGreaterThan(upper.length);
+    expect(runningIdentity({ name: "Maria Exemplo" })).toBe("Maria Exemplo");
+  });
+
+  it("prints no dangling separator when the name or the document is missing", () => {
+    expect(runningIdentity({ name: "", document: "123.456.789-00" })).toBe("123.456.789-00");
+    expect(runningIdentity({ name: "   ", document: "123.456.789-00" })).toBe("123.456.789-00");
+    expect(runningIdentity({ name: "Maria", document: "" })).toBe("Maria");
+    expect(runningIdentity({ name: "Maria", document: "123" })).toBe("Maria  ·  123");
+  });
 
   it("keeps the frame on a real consultation PDF", async () => {
     const text = pdfText(await renderCompleteConsultationPdf(toConsultationContent(fixture, null), header, baseFrame));

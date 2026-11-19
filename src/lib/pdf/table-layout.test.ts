@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import { PDF_COLUMN_WIDTH, PDF_PAGE } from "./theme";
-import { CELL_PADDING, chunkRows, columnLayout, dropEmptyColumns, headerMinWidth, inferColumnType } from "./table-layout";
+import {
+  CELL_PADDING,
+  chunkRows,
+  columnLayout,
+  dropEmptyColumns,
+  estimateRowHeight,
+  estimateTextWidth,
+  headerMinWidth,
+  inferColumnType,
+  keepMoneyTogether,
+  valueMinWidth,
+} from "./table-layout";
 
 describe("inferColumnType", () => {
   it("detects money, percent, number, date and yes/no columns", () => {
@@ -107,6 +118,73 @@ describe("chunkRows", () => {
     const rows = Array.from({ length: 25 }, (_, i) => i);
     const chunks = chunkRows(rows, 10, 12);
     expect(chunks.map((c) => c.length)).toEqual([10, 12, 3]);
+    expect(chunks.flat()).toEqual(rows);
+  });
+});
+
+describe("estimateTextWidth", () => {
+  it("counts uppercase wider than lowercase, and bold wider than regular", () => {
+    expect(estimateTextWidth("AAAAAAAAAA", 10, true)).toBeGreaterThan(estimateTextWidth("aaaaaaaaaa", 10, true));
+    expect(estimateTextWidth("aaaaaaaaaa", 10, true)).toBeGreaterThan(estimateTextWidth("aaaaaaaaaa", 10));
+    expect(estimateTextWidth("iiiiiiiiii", 10)).toBeLessThan(estimateTextWidth("0000000000", 10));
+    expect(estimateTextWidth("", 10)).toBe(0);
+  });
+});
+
+describe("estimateRowHeight", () => {
+  const widths = [400, 60];
+  it("keeps a normal row at the standard height", () => {
+    expect(estimateRowHeight(["Item", "Sim"], widths)).toBeLessThan(30);
+  });
+  it("grows with the text length of a cell", () => {
+    const usable = PDF_PAGE.height - PDF_PAGE.paddingTop - PDF_PAGE.paddingBottom;
+    expect(estimateRowHeight(["palavra ".repeat(250), "x"], widths)).toBeLessThan(usable / 2);
+    expect(estimateRowHeight(["palavra ".repeat(1500), "x"], widths)).toBeGreaterThan(usable);
+  });
+  it("counts explicit line breaks", () => {
+    expect(estimateRowHeight(["a\nb\nc\nd", "x"], widths)).toBeGreaterThan(estimateRowHeight(["a", "x"], widths) + 20);
+  });
+});
+
+describe("keepMoneyTogether", () => {
+  it("binds the currency sign to the number with a no-break space", () => {
+    expect(keepMoneyTogether("R$ 1.234,56")).toBe("R$\u00A01.234,56");
+    expect(keepMoneyTogether("-R$ 5,00")).toBe("-R$\u00A05,00");
+  });
+  it("leaves other text alone", () => {
+    expect(keepMoneyTogether("abc def")).toBe("abc def");
+    expect(keepMoneyTogether("—")).toBe("—");
+  });
+});
+
+describe("columnLayout with minimum widths", () => {
+  const sum = (l: { width: number }[]) => l.reduce((a, c) => a + c.width, 0);
+  it("shrinks fixed columns only down to their value width when that fits", () => {
+    const types = ["money", "money", "money", "money", "money", "money", "text"] as const;
+    const mins = [70, 70, 70, 70, 70, 70, 0];
+    const l = columnLayout([...types], PDF_PAGE.contentWidth, [], mins);
+    expect(sum(l)).toBeCloseTo(PDF_PAGE.contentWidth, 0);
+    for (let i = 0; i < 6; i += 1) expect(l[i].width).toBeGreaterThanOrEqual(70 - 0.001);
+  });
+  it("keeps the proportional scaling when the minimums do not fit", () => {
+    const types = Array.from({ length: 8 }, () => "money" as const);
+    const l = columnLayout([...types], PDF_PAGE.contentWidth, [], types.map(() => 80));
+    expect(sum(l)).toBeCloseTo(PDF_PAGE.contentWidth, 0);
+  });
+});
+
+describe("valueMinWidth", () => {
+  it("is the width of the longest cell plus the padding", () => {
+    expect(valueMinWidth(["R$ 1,00", "R$ 1.234.567,00"], 9)).toBeGreaterThan(valueMinWidth(["R$ 1,00"], 9));
+    expect(valueMinWidth([], 9)).toBe(CELL_PADDING * 2);
+  });
+});
+
+describe("chunkRows solo rows", () => {
+  it("puts a solo row alone in its chunk and loses no row", () => {
+    const rows = ["a", "b", "S", "c", "d"];
+    const chunks = chunkRows(rows, 4, 4, () => false, (r) => r === "S");
+    expect(chunks).toEqual([["a", "b"], ["S"], ["c", "d"]]);
     expect(chunks.flat()).toEqual(rows);
   });
 });

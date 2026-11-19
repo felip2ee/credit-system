@@ -4,6 +4,7 @@ import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 
 import { BRAND_ASSETS } from "@/lib/brand/brand";
 import { PDF_FONT_FAMILY, PDF_FONT_FAMILY_BOLD, registerPdfFonts } from "./fonts";
+import { estimateTextWidth } from "./table-layout";
 import { PDF_COLORS, PDF_PAGE } from "./theme";
 
 registerPdfFonts();
@@ -26,6 +27,7 @@ const LOGO_HEIGHT = 52;
 const LOGO_TOP = 29;
 const LOGO_GAP = 8;
 const RUNNING_WIDTH = 330;
+const RUNNING_FONT_SIZE = 10.5;
 const RUNNING_LEFT = PDF_PAGE.paddingX + LOGO_HEIGHT + LOGO_GAP;
 // Centraliza as duas linhas (cerca de 29 pt) na altura da logo.
 const RUNNING_TOP_OFFSET = 11;
@@ -44,8 +46,9 @@ const f = StyleSheet.create({
     top: LOGO_TOP + RUNNING_TOP_OFFSET,
     width: RUNNING_WIDTH,
     fontFamily: PDF_FONT_FAMILY_BOLD,
-    fontSize: 10.5,
+    fontSize: RUNNING_FONT_SIZE,
     color: PDF_COLORS.ink,
+    maxLines: 1,
   },
   runningLabel: {
     position: "absolute",
@@ -83,17 +86,23 @@ export function footerContacts({ supportEmail, whatsapp, instagram }: PdfFrame):
   return [supportEmail, whatsapp && `WhatsApp ${whatsapp}`, instagram && `Instagram ${instagram}`].filter(Boolean).join("   ·   ");
 }
 
-// Orçamento de caracteres da linha 1 (Helvetica-Bold 10,5 pt cabe em ~330 pt, antes da chave dourada).
-// shortcut: estimativa por contagem de caracteres, trocar por medição da fonte se o texto passar a ter outra largura.
-const RUNNING_MAX_CHARS = 56;
+// Linha 1 (Helvetica-Bold 10,5 pt) cabe em RUNNING_WIDTH, antes da chave dourada; o orçamento tem folga porque a
+// largura é estimada por classe de caractere (maiúscula conta mais que minúscula), não medida na fonte.
+const RUNNING_BUDGET = RUNNING_WIDTH * 0.92;
 const IDENTITY_SEPARATOR = "  ·  ";
 
-// Linha 1 nunca quebra: encurta o nome e mantém o documento visível.
+// Linha 1 nunca quebra: encurta o nome pela largura estimada e mantém o documento visível.
+// Sem nome ou sem documento, não sobra separador solto.
 export function runningIdentity({ name, document }: { name: string; document?: string }): string {
-  const suffix = document ? `${IDENTITY_SEPARATOR}${document}` : "";
-  if (name.length + suffix.length <= RUNNING_MAX_CHARS) return name + suffix;
-  const room = Math.max(RUNNING_MAX_CHARS - suffix.length - 1, 1);
-  return `${name.slice(0, room).trimEnd()}…${suffix}`;
+  const cleanName = name.trim();
+  const cleanDocument = document?.trim() ?? "";
+  if (!cleanName) return cleanDocument;
+  const suffix = cleanDocument ? `${IDENTITY_SEPARATOR}${cleanDocument}` : "";
+  const fits = (text: string): boolean => estimateTextWidth(text, RUNNING_FONT_SIZE, true) <= RUNNING_BUDGET;
+  if (fits(cleanName + suffix)) return cleanName + suffix;
+  let room = cleanName.length - 1;
+  while (room > 1 && !fits(`${cleanName.slice(0, room).trimEnd()}…${suffix}`)) room -= 1;
+  return `${cleanName.slice(0, room).trimEnd()}…${suffix}`;
 }
 
 // Dois textos `fixed` com `render`: um `View` com `render` e filhos perde a 2ª linha em página que quebra.
