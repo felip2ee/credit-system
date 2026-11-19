@@ -43,6 +43,14 @@ function mandatoryCount(rules: TableValue | null): { met: number; total: number 
   return { total: mandatory.length, met: mandatory.filter((r) => cellOf(rules, r, "atendido") === YES).length };
 }
 
+const hasValue = (cell: string): boolean => cell !== "" && cell !== "—";
+
+// Cada percentual sai sempre que tem valor: o obtido sozinho, o esperado sozinho ("esperado X") ou os dois ("X de Y").
+function percentNote(percent: string, expected: string): string {
+  if (hasValue(percent)) return hasValue(expected) ? `${formatPercentCell(percent)} de ${formatPercentCell(expected)}` : formatPercentCell(percent);
+  return hasValue(expected) ? `esperado ${formatPercentCell(expected)}` : "";
+}
+
 function GroupHead({ table, row, met, total }: { table: TableValue; row: number; met: number; total: number }) {
   const status = cellOf(table, row, "atendido");
   const known = status === YES || status === "Não";
@@ -54,7 +62,7 @@ function GroupHead({ table, row, met, total }: { table: TableValue; row: number;
   const expected = cellOf(table, row, "percentualEsperado");
   const note = [
     total > 0 ? `${met}/${total} regras obrigatórias` : "",
-    percent && percent !== "—" ? `${formatPercentCell(percent)}${expected && expected !== "—" ? ` de ${formatPercentCell(expected)}` : ""}` : "",
+    percentNote(percent, expected),
     ...extras,
   ]
     .filter(Boolean)

@@ -37,20 +37,34 @@ export function cellOf(table: TableValue, row: number, key: string): string {
   return index < 0 ? "" : (table.rows[row].cells[index] ?? "");
 }
 
-const PERCENT_NUMBER = /^-?\d+(?:[.,]\d+)?$/;
+const PERCENT_NUMBER = /^(-?)(\d+(?:\.\d+)*)(?:,(\d+))?$/;
+const THOUSANDS = /^\d{1,3}(?:\.\d{3})+$/;
 
-// Percentual sempre com duas casas ("12,34%"). A API manda "100 %", "10,22", "97.13%": o que não é número fica como veio.
+// Percentual com no mínimo duas casas ("12,34%"), sem tirar nenhuma casa que a origem tenha. A API manda "100 %",
+// "10,22" e "97.13%". Em pt-BR o ponto separa milhar e a vírgula separa decimal. Sem vírgula, "1.234" (grupo de
+// milhar válido) é ambíguo entre 1,234 e 1.234: o que não se lê com certeza sai como veio.
 export function formatPercentCell(cell: string): string {
-  const raw = cell.replace(/%/g, "").replace(/\s/g, "");
-  if (!PERCENT_NUMBER.test(raw)) return cell;
-  const value = Number(raw.replace(",", "."));
-  return `${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  const match = PERCENT_NUMBER.exec(cell.replace(/%/g, "").replace(/\s/g, ""));
+  if (!match) return cell;
+  const [, sign, whole, comma] = match;
+  const dotted = whole.includes(".");
+  let integer = whole;
+  let fraction = comma ?? "";
+  if (dotted && comma !== undefined) {
+    if (!THOUSANDS.test(whole)) return cell;
+    integer = whole.replace(/\./g, "");
+  } else if (dotted) {
+    const parts = whole.split(".");
+    if (parts.length > 2 || THOUSANDS.test(whole)) return cell;
+    [integer, fraction] = parts as [string, string];
+  }
+  return `${sign}${integer},${fraction.padEnd(2, "0")}%`;
 }
 
-// Pontuação com sinal explícito: "6" vira "+6"; zero e negativos ficam como vieram.
+// Pontuação com sinal explícito: "6" vira "+6"; zero, negativos e valor que já tem sinal ficam como vieram.
 export function signedCell(cell: string): string {
   const value = Number(cell.replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(value) && value > 0 ? `+${cell}` : cell;
+  return /^\d/.test(cell) && Number.isFinite(value) && value > 0 ? `+${cell}` : cell;
 }
 
 export interface ColumnSpec {
@@ -86,7 +100,9 @@ export function addressLine(table: TableValue, row: number): string {
     const cell = cellOf(table, row, key);
     return cell === "—" ? "" : cell;
   };
-  const city = [get("cidade") || get("municipio"), get("uf")].filter(Boolean).join("/");
+  const cidade = get("cidade");
+  const municipio = get("municipio");
+  const city = [cidade, municipio === cidade ? "" : municipio, get("uf")].filter(Boolean).join("/");
   const street = [get("endereco"), get("numero")].filter(Boolean).join(", ");
   const cep = get("cep");
   const extras = table.columns

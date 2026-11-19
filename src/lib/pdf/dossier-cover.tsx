@@ -1,29 +1,20 @@
-import { StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Text, View } from "@react-pdf/renderer";
 
-import { PDF_FONT_FAMILY, PDF_FONT_FAMILY_BOLD } from "./fonts";
-import { confidentialLine, SectionTitle } from "./sections";
+import { confidentialLine, IDENTITY_WIDTH, identityStyles, SectionTitle } from "./sections";
 import { PdfTable } from "./table";
-import { PDF_COLORS, PDF_TYPE } from "./theme";
 import type { FullPdfHeader } from "./consultation-full-document";
 
-// A chave dourada ocupa o canto direito: o bloco de identidade fica à esquerda dela.
-const IDENTITY_WIDTH = 400;
-const COMPANY_ROLE = "Empresa";
+const BUSINESS_ROLES = ["Empresa", "Sócio"];
 
 export interface CoverMember {
   role: string;
   header: FullPdfHeader;
 }
 
-const st = StyleSheet.create({
-  eyebrow: { fontFamily: PDF_FONT_FAMILY_BOLD, fontSize: 9, color: PDF_COLORS.goldText, letterSpacing: 1.2 },
-  name: { fontFamily: PDF_FONT_FAMILY_BOLD, fontSize: PDF_TYPE.name, color: PDF_COLORS.ink, marginTop: 6 },
-  line: { fontFamily: PDF_FONT_FAMILY, fontSize: PDF_TYPE.body, color: PDF_COLORS.muted, marginTop: 4, lineHeight: 1.3 },
-});
-
-// O tipo do dossiê não chega ao renderizador: quem tem empresa entre os membros é empresarial.
+// O tipo do dossiê não chega ao renderizador. A consulta da empresa pode faltar (a rota descarta a que não
+// completou) e restar só os sócios: papel "Empresa" ou "Sócio" é empresarial; só "Titular" é pessoa física.
 export function dossierKindLabel(members: CoverMember[]): string {
-  return members.some((member) => member.role === COMPANY_ROLE) ? "Empresarial" : "Pessoa Física";
+  return members.some((member) => BUSINESS_ROLES.includes(member.role)) ? "Empresarial" : "Pessoa Física";
 }
 
 export function DossierCover({
@@ -40,10 +31,10 @@ export function DossierCover({
   return (
     <>
       <View style={{ width: IDENTITY_WIDTH }}>
-        <Text style={st.eyebrow}>{`DOSSIÊ · ${dossierKindLabel(members).toUpperCase()}`}</Text>
-        <Text style={st.name}>{title}</Text>
-        <Text style={st.line}>{`${subtitle} · Emitido em ${issuedAt.toLocaleDateString("pt-BR")}`}</Text>
-        {members[0] ? <Text style={st.line}>{confidentialLine(members[0].header)}</Text> : null}
+        <Text style={identityStyles.eyebrow}>{`DOSSIÊ · ${dossierKindLabel(members).toUpperCase()}`}</Text>
+        <Text style={identityStyles.name}>{title}</Text>
+        <Text style={identityStyles.line}>{`${subtitle} · Emitido em ${issuedAt.toLocaleDateString("pt-BR")}`}</Text>
+        {members[0] ? <Text style={identityStyles.line}>{confidentialLine(members[0].header)}</Text> : null}
       </View>
       <SectionTitle title="Consultas do dossiê" />
       {/* A consulta não traz situação própria: a coluna fica vazia e a tabela a descarta. */}

@@ -6,6 +6,7 @@ import type { FullSection } from "@/types/consultation-view";
 import { addressLine, formatPercentCell, projectTable, signedCell, type TableValue } from "./cells";
 import { renderCuratedSection, summaryFigures } from "./index";
 import { formatMetricPercents } from "./metrics";
+import { activeBandLabel } from "./score";
 import { confidentialLine, eyebrowText } from "./identity";
 
 const table = (columns: string[], rows: string[][]): TableValue => ({
@@ -22,8 +23,13 @@ describe("formatPercentCell", () => {
     ["46,1", "46,10%"],
     ["97.13%", "97,13%"],
     ["-3", "-3,00%"],
+    ["12,345", "12,345%"],
+    ["0,004 %", "0,004%"],
+    ["12.5", "12,50%"],
+    ["1.234,5", "1234,50%"],
   ])("formats %s as %s", (input, expected) => expect(formatPercentCell(input)).toBe(expected));
-  it("keeps what is not a number", () => expect(formatPercentCell("—")).toBe("—"));
+  // "1.234" pode ser 1,234 ou mil duzentos e trinta e quatro: sem certeza, o texto da origem sai como veio.
+  it.each(["1.234", "12.345", "1.234.567", "1.2,3", "—", "abc"])("keeps %s as it came", (input) => expect(formatPercentCell(input)).toBe(input));
 });
 
 describe("formatMetricPercents", () => {
@@ -46,6 +52,7 @@ describe("signedCell", () => {
     expect(signedCell("0")).toBe("0");
     expect(signedCell("-21")).toBe("-21");
     expect(signedCell("—")).toBe("—");
+    expect(signedCell("+6")).toBe("+6");
   });
 });
 
@@ -67,11 +74,35 @@ describe("addressLine", () => {
   });
 });
 
+describe("addressLine city", () => {
+  const cities = (cidade: string, municipio: string): string => addressLine(table(["cidade", "municipio", "uf"], [[cidade, municipio, "MG"]]), 0);
+  it("prints both names when they differ and one when they match", () => {
+    expect(cities("A", "B")).toBe("A/B/MG");
+    expect(cities("A", "A")).toBe("A/MG");
+    expect(cities("A", "—")).toBe("A/MG");
+  });
+});
+
+describe("activeBandLabel", () => {
+  it.each([[400, "Alto"], [600, "Médio"], [800, "Baixo"], [399, "Muito alto"], [1000, "Muito baixo"], [0, "Muito alto"]])(
+    "puts %i in exactly one band without a risk label: %s",
+    (score, label) => expect(activeBandLabel(score, null)).toBe(label),
+  );
+  it("prefers the risk label of the API, ignoring case and accents", () => {
+    expect(activeBandLabel(677, "Médio")).toBe("Médio");
+    expect(activeBandLabel(880, "baixo")).toBe("Baixo");
+    expect(activeBandLabel(600, "ALTO")).toBe("Alto");
+    expect(activeBandLabel(600, "desconhecido")).toBe("Médio");
+  });
+});
+
 describe("header text", () => {
   it("hides a UUID user and shows a name", () => {
     const base = { consultante: "Rainha Cred" };
     expect(confidentialLine({ ...base, usuario: "3f2b8c1e-9d4a-4b7e-8a61-0c5d2e9f7a11" })).toBe("Confidencial para Rainha Cred");
     expect(confidentialLine({ ...base, usuario: "Ana" })).toBe("Confidencial para Rainha Cred · Usuário Ana");
+    expect(confidentialLine({ ...base, usuario: "48213" })).toBe("Confidencial para Rainha Cred");
+    expect(confidentialLine({ ...base, usuario: "ana@x.com" })).toBe("Confidencial para Rainha Cred");
   });
   it("builds the eyebrow from the document kind, role and product", () => {
     expect(eyebrowText("consulta", "Smart PF")).toBe("RELATÓRIO DE CONSULTA · Smart PF");

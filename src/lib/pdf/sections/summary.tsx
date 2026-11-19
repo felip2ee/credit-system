@@ -27,7 +27,7 @@ const st = StyleSheet.create({
   caption: { fontFamily: PDF_FONT_FAMILY, fontSize: PDF_TYPE.table, marginTop: CAPTION_GAP },
 });
 
-const orEmpty = (text: string | null): string => (isBlankText(text) ? EMPTY : (text as string));
+const orEmpty = (text: string | null): string => (isBlankText(text) ? EMPTY : text);
 
 // Cinco indicadores da primeira página. Sem dado, o indicador mostra "—".
 export function summaryFigures(full: FullConsultationView): SummaryFigure[] {

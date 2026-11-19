@@ -8,7 +8,7 @@ import { renderSmart } from "./smart";
 import { renderScore } from "./score";
 import { renderScr } from "./scr";
 
-export { confidentialLine, eyebrowText, Identity } from "./identity";
+export { confidentialLine, eyebrowText, Identity, IDENTITY_WIDTH, identityStyles } from "./identity";
 export { GenericBlocks, GenericSection, SectionTitle } from "./shared";
 export { ScoreTrack } from "./score";
 export { Summary, summaryFigures } from "./summary";

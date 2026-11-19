@@ -28,7 +28,6 @@ export interface DossierPdfData {
   report: OpinionForPdf | null;
 }
 
-// Papel do membro: "Empresa", "Titular" ou "Sócio". Vai em roleLabel; o produto segue sem o papel.
 function DossierDocument({
   data,
   frame,

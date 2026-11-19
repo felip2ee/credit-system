@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import pjFixture from "@/lib/deps/__fixtures__/pj-current.json";
 import pfFixture from "@/lib/deps/__fixtures__/smart-pf-002.json";
 import { toConsultationContent } from "@/lib/consultations/full-view";
+import { dossierKindLabel } from "./dossier-cover";
 import { renderDossierPdf, type DossierEntry, type DossierPdfData } from "./dossier-document";
 import { pdfText } from "./pdf-text.testing";
 
@@ -20,7 +21,7 @@ function entry(role: string, name: string, cpf: string, fixture: unknown, produt
 const company = entry("Empresa", "Comercial Exemplo de Alimentos e Bebidas Ltda", "12.345.678/0001-90", pjFixture, "Smart PJ");
 const partnerA = entry("Sócio", "Antonio Carlos Pereira de Albuquerque Neto", "***.111.222-**", pfFixture, "Smart PF");
 const partnerB = entry("Sócio", "Beatriz Helena Fontes Cavalcanti de Souza", "***.333.444-**", pfFixture, "Smart PF");
-const opinion = { aptitude: "apto", classificacao: null, resumo: "Resumo-consolidado-xyz", pontosFortes: [], pontosAtencao: [], planoAcao: [], modelo: "m", relatorioMarkdown: null };
+const opinion = { aptitude: "apt", classificacao: null, resumo: "Resumo-consolidado-xyz", pontosFortes: [], pontosAtencao: [], planoAcao: [], modelo: "m", relatorioMarkdown: null };
 
 const squash = (text: string): string => text.replace(/\s/g, "");
 const count = (text: string, part: string): number => text.split(part).length - 1;
@@ -47,9 +48,23 @@ describe("renderDossierPdf", () => {
     expect(count(text, "Documento gerado automaticamente")).toBe(1);
   }, 30_000);
 
+  it("labels the dossier by member roles", () => {
+    const member = (role: string) => ({ role, header: company.header });
+    expect(dossierKindLabel([member("Empresa"), member("Sócio")])).toBe("Empresarial");
+    expect(dossierKindLabel([member("Sócio"), member("Sócio")])).toBe("Empresarial");
+    expect(dossierKindLabel([member("Titular")])).toBe("Pessoa Física");
+  });
+
+  it("prints EMPRESARIAL when only partners completed", async () => {
+    const text = await render({ entries: [partnerA, partnerB] });
+    expect(text).toContain("EMPRESARIAL");
+    expect(text).not.toContain("PESSOA FÍSICA");
+  }, 60_000);
+
   it("prints the opinion summary after the member pages", async () => {
     const text = await render({ entries: [{ ...partnerA, role: "Titular" }], report: opinion });
     expect(text).toContain("Resumo-consolidado-xyz");
+    expect(text).toContain("APTO");
     expect(text).toContain("Parecer consolidado");
     expect(text).toContain("Titular · ");
     expect(count(text, "Documento gerado automaticamente")).toBe(1);

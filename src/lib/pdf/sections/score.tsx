@@ -6,7 +6,7 @@ import type { FullSection } from "@/types/consultation-view";
 import { PDF_FONT_FAMILY, PDF_FONT_FAMILY_BOLD } from "../fonts";
 import { PdfFields } from "../table";
 import { PDF_COLORS, PDF_TYPE } from "../theme";
-import type { CuratedContext } from "./cells";
+import { fieldText, type CuratedContext } from "./cells";
 import { GenericParts, SectionTitle } from "./shared";
 
 // Faixas de risco: largura em % da trilha e intervalo de pontos.
@@ -34,7 +34,19 @@ function markerPercent(score: number): number {
   return 100;
 }
 
-export function ScoreTrack({ score }: { score: number }) {
+const plain = (text: string): string => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
+// Faixa ativa: a que o rótulo de risco da API nomeia; sem rótulo conhecido, faixa numérica semiaberta [de, até),
+// com o limite final de 1000 dentro da última faixa. Assim só uma faixa fica ativa, também sobre 400, 600 e 800.
+export function activeBandLabel(score: number, risk?: string | null): string | null {
+  const named = risk ? BANDS.find((band) => plain(band.label) === plain(risk)) : undefined;
+  if (named) return named.label;
+  const last = BANDS[BANDS.length - 1];
+  return BANDS.find((band) => score >= band.from && (score < band.to || (band === last && score <= band.to)))?.label ?? null;
+}
+
+export function ScoreTrack({ score, risk }: { score: number; risk?: string | null }) {
+  const activeLabel = activeBandLabel(score, risk);
   return (
     <View wrap={false}>
       <View style={{ height: 14, justifyContent: "center" }}>
@@ -62,7 +74,7 @@ export function ScoreTrack({ score }: { score: number }) {
       </View>
       <View style={{ flexDirection: "row", marginTop: 6 }}>
         {BANDS.map((band) => {
-          const active = score >= band.from && score <= band.to;
+          const active = band.label === activeLabel;
           return (
             <Text
               key={band.label}
@@ -92,7 +104,7 @@ export function renderScore(section: FullSection, context: CuratedContext): Reac
   return (
     <>
       <SectionTitle title={section.title} reserve={110} />
-      <ScoreTrack score={context.scoreValue} />
+      <ScoreTrack score={context.scoreValue} risk={fieldText(main, "risco")} />
       {description?.value.kind === "text" ? <Text style={st.text}>{description.value.text}</Text> : null}
       <PdfFields fields={rest.map((field) => ({ label: field.label, value: field.value.kind === "text" ? field.value.text : "" }))} />
       <GenericParts parts={others} />

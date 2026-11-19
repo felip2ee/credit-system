@@ -7,6 +7,7 @@ import pfFixture from "@/lib/deps/__fixtures__/smart-pf-002.json";
 import { adapt } from "@/lib/deps/adapter";
 import { DEPS_PRODUCT_PF } from "@/lib/deps/products";
 import { toConsultationContent, type ConsultationContent } from "@/lib/consultations/full-view";
+import { addressLine } from "./sections/cells";
 import type { CanonicalBureauResult } from "@/types/bureau";
 import type { FullConsultationView, FullSection, GenericValue } from "@/types/consultation-view";
 import { ConsultationPdfPage, renderCompleteConsultationPdf } from "./complete-consultation-document";
@@ -22,33 +23,97 @@ function canonical(body: unknown): CanonicalBureauResult {
   return r.value;
 }
 
-// Compara só letras e dígitos: quebra de linha, hifenização e pontuação do layout não contam.
+// Só espaço em branco some na comparação (quebra de linha do layout); sinal, separador e "%" contam.
+const flat = (text: string): string => text.replace(/\s/g, "");
 const squash = (text: string): string => text.replace(/[^A-Za-z0-9\u00C0-\u00FF]/g, "");
-// Percentual sai com duas casas: "25" vira "25,00" e "46,1" vira "46,10".
-const pad2 = (text: string): string => (/^-?\d+$/.test(text) ? `${text},00` : /^-?\d+,\d$/.test(text) ? `${text}0` : text);
 
-// Todo valor e todo rótulo de campo que a visão entrega ao documento.
-function leaves(value: GenericValue, out: string[]): void {
-  if (value.kind === "text" || value.kind === "json") out.push(...value.text.split("\n"));
-  else if (value.kind === "fields") value.fields.forEach((field) => (out.push(field.label), leaves(field.value, out)));
-  else value.rows.forEach((row) => (out.push(...row.cells), row.nested.forEach((n) => leaves(n.value, out))));
+// Formatos documentados que o PDF aplica a um valor da API:
+// - percentual com duas casas ("25" vira "25,00%", "97.13%" vira "97,13%");
+// - pontuação positiva com sinal ("6" vira "+6");
+// - prefixo "— " de detalhe do SCR vira recuo (o texto sai sem ele);
+// - situação "Sim"/"Não" de um grupo de regras sai como "Atendido"/"Não atendido".
+const PERCENT_WORD = /^-?\d+(?:,\d+)?%$/;
+function variants(item: string): string[] {
+  const plain = flat(item);
+  const percent = plain.replace(/%/g, "").replace(/^(-?\d+)\.(\d+)$/, "$1,$2");
+  const padded = /^-?\d+$/.test(percent) ? `${percent},00` : /^-?\d+,\d$/.test(percent) ? `${percent}0` : percent;
+  const group = plain === "Sim" ? "Atendido" : plain === "Não" ? "Nãoatendido" : plain;
+  return Array.from(new Set([plain, `${padded}%`, /^\d/.test(plain) ? `+${plain}` : plain, plain.replace(/^—/, ""), group]));
 }
-function collect(full: FullConsultationView): string[] {
+
+// Todo valor e todo rótulo de campo que a visão entrega ao documento, com o rótulo das linhas aninhadas.
+// Duas composições documentadas: o endereço sai numa linha só (`addressLine`) e a lista de e-mails sai um por linha.
+function leaves(value: GenericValue, out: string[]): void {
+  if (value.kind === "text" || value.kind === "json") {
+    value.text.split("\n").forEach((line) => out.push(...(line.includes("@") ? line.split(", ") : [line])));
+  } else if (value.kind === "fields") value.fields.forEach((field) => (out.push(field.label), leaves(field.value, out)));
+  else
+    value.rows.forEach((row, r) => {
+      if (value.columns.some((column) => column.key === "endereco")) out.push(addressLine(value, r));
+      else out.push(...row.cells);
+      row.nested.forEach((n) => (out.push(n.label), leaves(n.value, out)));
+    });
+}
+function sectionItems(section: FullSection): string[] {
   const out: string[] = [];
-  full.sections.forEach((section) => section.parts.forEach((part) => (part.title && out.push(part.title), leaves(part.value, out))));
+  section.parts.forEach((part) => (part.title && out.push(part.title), leaves(part.value, out)));
+  return out;
+}
+function genericItems(full: FullConsultationView): string[] {
+  const out: string[] = [];
   full.generic.forEach((block) => (out.push(block.title), block.note && out.push(block.note), leaves(block.value, out)));
   return out;
 }
-// Rótulos que o desenho cobre de outra forma: o número do score e a descrição saem na trilha, sem rótulo de campo.
-// "Resultado do parecer" não tem título próprio: cada grupo de regras abre com o nome e o estado dele.
-const EXEMPT = new Set(["Score", "Descrição", "Resultado do parecer"]);
+// Isenções, cada uma coberta de outra forma:
+// - "Score" e "Descrição": o número e a descrição saem na trilha de risco e no resumo, sem rótulo de campo.
+// - "Resultado do parecer": não tem título próprio; cada grupo de regras abre com o nome e o estado dele.
+// - "Regras": rótulo do contêiner de regras de cada grupo; o nome do grupo e as linhas de regra o substituem.
+// - "—": marca de "sem valor"; a tabela descarta a coluna vazia e o resumo mostra o traço dele mesmo.
+const EXEMPT = new Set(["Score", "Descrição", "Resultado do parecer", "Regras", "—"]);
+// Valor de até SHORT chars é conferido por linha inteira (cada célula é uma linha do texto do PDF); o resto, por trecho.
+const SHORT = 3;
 
-function expectNothingLost(content: ConsultationContent, text: string): void {
-  const printed = squash(text);
-  const missing = collect(content.full as FullConsultationView)
-    .filter((item) => !EXEMPT.has(item) && squash(item) !== "")
-    .filter((item) => ![squash(item), squash(pad2(item.replace(/%|\s/g, "")))].some((variant) => printed.includes(variant)));
-  expect(missing).toEqual([]);
+const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1;
+
+// Quantas vezes uma forma percentual ("100,00%") aparece, sem colar em outro número.
+function percentHits(lines: string[], forms: string[]): number {
+  const joined = lines.join("\n");
+  return forms
+    .filter((form) => PERCENT_WORD.test(form))
+    .reduce((sum, form) => sum + joined.split(new RegExp(`(?<![\\d,.])${form.replace(/[.+]/g, "\\$&")}`)).length - 1, 0);
+}
+
+// Cada valor aparece no PDF ao menos tantas vezes quanto aparece na origem, dentro do texto da própria seção.
+function missingIn(items: string[], text: string): string[] {
+  const lines = text.split("\n").map(flat);
+  const printed = flat(text);
+  const wanted = new Map<string, number>();
+  for (const item of items) if (!EXEMPT.has(item) && flat(item) !== "") wanted.set(item, (wanted.get(item) ?? 0) + 1);
+  const missing: string[] = [];
+  wanted.forEach((needed, item) => {
+    const forms = variants(item);
+    // Percentual curto ("100") também sai dentro da nota do grupo ("100,00% de 100,00%"): conta o trecho, não a linha.
+    const found =
+      flat(item).length <= SHORT
+        ? lines.filter((line) => forms.includes(line) && !PERCENT_WORD.test(line)).length + percentHits(lines, forms)
+        : forms.reduce((best, form) => Math.max(best, count(printed, form)), 0);
+    if (found < needed) missing.push(`${item} (esperado ${needed}, achado ${found})`);
+  });
+  return missing;
+}
+
+async function expectNothingLost(content: ConsultationContent): Promise<void> {
+  const full = content.full as FullConsultationView;
+  const lost: string[] = [];
+  for (const section of full.sections) {
+    const text = await render({ ...content, full: { ...full, sections: [section], generic: [] } });
+    lost.push(...missingIn(sectionItems(section), text).map((m) => `${section.id}: ${m}`));
+  }
+  if (full.generic.length > 0) {
+    const text = await render({ ...content, full: { ...full, sections: [], generic: full.generic } });
+    lost.push(...missingIn(genericItems(full), text).map((m) => `generic: ${m}`));
+  }
+  expect(lost).toEqual([]);
 }
 
 async function render(content: ConsultationContent, extra: Record<string, unknown> = {}): Promise<string> {
@@ -86,8 +151,18 @@ describe("nothing is lost", () => {
     ["PF", pfFixture],
     ["PJ", pjFixture],
   ])("prints every label and value the %s view carries", async (_name, fixture) => {
-    const content = toConsultationContent(fixture, null);
-    expectNothingLost(content, await render(content));
+    await expectNothingLost(toConsultationContent(fixture, null));
+  }, 120_000);
+
+  it("prints a lone percentual esperado and a score on a band limit with the API risk label", async () => {
+    const full = structuredClone(toConsultationContent(pfFixture, null).full) as FullConsultationView;
+    const smart = full.sections.find((section) => section.id === "smart");
+    const result = smart?.parts.find((part) => part.title === "Resultado do parecer")?.value;
+    if (result?.kind !== "table") throw new Error("fixture lost its result table");
+    const at = (key: string): number => result.columns.findIndex((column) => column.key === key);
+    result.rows[0].cells[at("percentual")] = "—";
+    result.rows[0].cells[at("percentualEsperado")] = "77,77 %";
+    expect(squash(await render({ full, view: null }))).toContain("7777");
   }, 30_000);
 
   it("prints a section with an unknown key through the generic path", async () => {

@@ -23,6 +23,10 @@ const APTITUDE_META: Record<string, { label: string; color: string }> = {
 };
 
 const LINE_HEIGHT = 1.45;
+// Até este tamanho (≈ 8 linhas) um bloco não quebra entre páginas; acima disso ele quebra, para nunca passar da página.
+const SHORT_BLOCK_CHARS = 700;
+// Espaço que um título exige abaixo de si quando o bloco seguinte é longo ou é tabela.
+const HEADING_AHEAD = 70;
 
 const m = StyleSheet.create({
   // Título de seção: filete dourado curto acima, texto verde.
@@ -63,27 +67,27 @@ function mdInline(text: string, keyBase: string): ReactNode[] {
     );
 }
 
-// Item de lista: marcador fixo + corpo que quebra dentro da própria coluna.
-function ListItem({ marker, children }: { marker: string; children: ReactNode }) {
+// Item de lista: marcador fixo + corpo que quebra dentro da própria coluna. Item longo (`chars`) pode quebrar entre páginas.
+function ListItem({ marker, chars, children }: { marker: string; chars: number; children: ReactNode }) {
   return (
-    <View style={m.item} wrap={false}>
+    <View style={m.item} wrap={chars > SHORT_BLOCK_CHARS}>
       <Text style={[m.text, m.marker]}>{marker}</Text>
       <Text style={[m.text, m.itemBody]}>{children}</Text>
     </View>
   );
 }
 
-// Seção do parecer: o título fica junto do primeiro item (o react-pdf ignora minPresenceAhead).
+// Seção do parecer: o título é irmão dos itens e só fica na página se couber o começo do primeiro item
+// (agrupar título e item num bloco que não quebra estoura a página quando o item é longo).
 function Section({ title, items }: { title: string; items: ReactNode[] }) {
   if (items.length === 0) return null;
   return (
     <View>
-      <View wrap={false}>
+      <View wrap={false} minPresenceAhead={HEADING_AHEAD}>
         <View style={m.sectionRule} />
         <Text style={m.sectionTitle}>{title}</Text>
-        {items[0]}
       </View>
-      {items.slice(1)}
+      {items}
     </View>
   );
 }
@@ -99,6 +103,8 @@ const splitRow = (r: string): string[] =>
 interface MdBlock {
   node: ReactNode;
   kind: "heading" | "table" | "text";
+  // Tamanho do texto, para estimar se o bloco cabe junto do título sem ficar mais alto que a página.
+  chars: number;
 }
 
 function parseMarkdown(md: string): MdBlock[] {
@@ -122,16 +128,19 @@ function parseMarkdown(md: string): MdBlock[] {
     ) {
       const cols = splitRow(lines[i]);
       i += 2;
-      const rows: { cells: string[] }[] = [];
+      const parsed: string[][] = [];
       while (i < lines.length && lines[i].trim().startsWith("|")) {
-        const cells = splitRow(lines[i]);
-        while (cells.length < cols.length) cells.push("");
-        rows.push({ cells: cells.slice(0, cols.length) });
+        parsed.push(splitRow(lines[i]));
         i++;
       }
+      // A tabela tem tantas colunas quanto a linha mais larga: nenhuma célula some (rótulos extras ficam vazios).
+      const width = Math.max(cols.length, ...parsed.map((cells) => cells.length));
+      const labels = [...cols, ...Array<string>(width - cols.length).fill("")];
+      const rows = parsed.map((cells) => ({ cells: [...cells, ...Array<string>(width - cells.length).fill("")] }));
       blocks.push({
-        node: <PdfTable key={`t-${k++}`} columns={cols.map((label) => ({ label }))} rows={rows} />,
+        node: <PdfTable key={`t-${k++}`} columns={labels.map((label) => ({ label }))} rows={rows} />,
         kind: "table",
+        chars: 0,
       });
       continue;
     }
@@ -152,7 +161,7 @@ function parseMarkdown(md: string): MdBlock[] {
             {text}
           </Text>
         );
-      blocks.push({ node, kind: "heading" });
+      blocks.push({ node, kind: "heading", chars: text.length });
       i++;
       continue;
     }
@@ -164,7 +173,7 @@ function parseMarkdown(md: string): MdBlock[] {
 
     const b = /^[-*]\s+(.*)$/.exec(line);
     if (b) {
-      blocks.push({ node: <ListItem key={`b-${k}`} marker="•">{mdInline(b[1], `b${k++}`)}</ListItem>, kind: "text" });
+      blocks.push({ node: <ListItem key={`b-${k}`} marker="•" chars={b[1].length}>{mdInline(b[1], `b${k++}`)}</ListItem>, kind: "text", chars: b[1].length });
       i++;
       continue;
     }
@@ -176,6 +185,7 @@ function parseMarkdown(md: string): MdBlock[] {
         </Text>
       ),
       kind: "text",
+      chars: line.length,
     });
     i++;
   }
@@ -188,8 +198,14 @@ export function MarkdownPdf({ md }: { md: string }) {
   for (let n = 0; n < blocks.length; n++) {
     const block = blocks[n];
     const next = blocks[n + 1];
-    // Título nunca fica sozinho no fim da página: vai junto do bloco seguinte (exceto tabela, que pode ser longa).
-    if (block.kind === "heading" && next && next.kind !== "table") {
+    if (block.kind !== "heading") {
+      out.push(block.node);
+      continue;
+    }
+    // Título curto + bloco curto: um grupo que não quebra. Bloco longo ou tabela: o grupo passaria da página
+    // (o react-pdf não o quebra), então o título é irmão do bloco e só fica na página se couberem ao menos
+    // HEADING_AHEAD pt do que vem depois (minPresenceAhead vale em View, não em Text).
+    if (next && next.kind === "text" && next.chars <= SHORT_BLOCK_CHARS) {
       out.push(
         <View key={`g-${n}`} wrap={false}>
           {block.node}
@@ -198,7 +214,11 @@ export function MarkdownPdf({ md }: { md: string }) {
       );
       n++;
     } else {
-      out.push(block.node);
+      out.push(
+        <View key={`g-${n}`} wrap={false} minPresenceAhead={HEADING_AHEAD}>
+          {block.node}
+        </View>
+      );
     }
   }
   return <>{out}</>;
@@ -228,7 +248,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
   return (
     <View>
       <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-        <Text style={[m.badge, { backgroundColor: meta?.color ?? PDF_COLORS.muted }]}>{meta?.label ?? "—"}</Text>
+        <Text style={[m.badge, { backgroundColor: meta?.color ?? PDF_COLORS.muted }]}>{meta?.label ?? opinion.aptitude ?? "—"}</Text>
         {opinion.classificacao ? (
           <Text style={[m.text, { marginLeft: 10 }]}>
             <Text style={m.muted}>Perfil </Text>
@@ -253,7 +273,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
       <Section
         title="Pontos fortes"
         items={opinion.pontosFortes.map((p, i) => (
-          <ListItem key={i} marker="•">
+          <ListItem key={i} marker="•" chars={p.title.length + p.description.length}>
             <Text style={m.bold}>{p.title}</Text>
             {dash(p.description)}
           </ListItem>
@@ -262,7 +282,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
       <Section
         title="Pontos de atenção"
         items={opinion.pontosAtencao.map((p, i) => (
-          <ListItem key={i} marker="•">
+          <ListItem key={i} marker="•" chars={p.title.length + p.description.length}>
             <Text style={m.bold}>{p.title}</Text>
             {p.severity ? ` (${p.severity})` : ""}
             {dash(p.description)}
@@ -272,7 +292,7 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
       <Section
         title="Plano de ação"
         items={opinion.planoAcao.map((a, i) => (
-          <ListItem key={i} marker={`${i + 1}.`}>
+          <ListItem key={i} marker={`${i + 1}.`} chars={a.step.length + a.description.length}>
             <Text style={m.bold}>{a.step}</Text>
             {a.priority ? ` [${a.priority}]` : ""}
             {dash(a.description)}
@@ -280,11 +300,8 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
         ))}
       />
 
-      {opinion.relatorioMarkdown ? (
-        <View style={{ marginTop: 4 }}>
-          <MarkdownPdf md={opinion.relatorioMarkdown} />
-        </View>
-      ) : null}
+      {/* Sem View em volta: o título precisa ter irmãos anteriores para o minPresenceAhead valer. */}
+      {opinion.relatorioMarkdown ? <MarkdownPdf md={opinion.relatorioMarkdown} /> : null}
 
       {opinion.modelo ? (
         <Text style={[m.text, m.muted, { fontSize: PDF_TYPE.table, marginTop: 10 }]}>
