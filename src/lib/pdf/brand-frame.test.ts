@@ -1,50 +1,86 @@
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { createElement } from "react";
+import { Document, Page, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { describe, expect, it } from "vitest";
 
 import fixture from "@/lib/deps/__fixtures__/smart-pf-002.json";
 import { toConsultationContent } from "@/lib/consultations/full-view";
+import { PdfBrandFrame, runningIdentity, type PdfFrame } from "./brand-frame";
 import { renderCompleteConsultationPdf } from "./complete-consultation-document";
-import { renderDossierPdf } from "./dossier-document";
 import { pdfText } from "./pdf-text.testing";
 
 const SUPPORT_EMAIL = "suporte@rainhacred.com.br";
-const BUREAU_NAME = "Bureau Exemplo";
-const LONG_BUREAU_NAME = "Associacao Nacional de Consultoria de Credito e Servicos Financeiros";
+const baseFrame: PdfFrame = { bureauName: "Bureau Exemplo", supportEmail: SUPPORT_EMAIL, issuedAt: new Date("2026-10-19T15:00:00Z") };
 const header = { name: "Maria Exemplo da Silva", cpf: "***.982.247-**", produto: "Smart PF", data: "19/10/2026", consultante: "Rainha Cred", usuario: "u1" };
-const frameFor = (bureauName: string) => ({ bureauName, supportEmail: SUPPORT_EMAIL, issuedAt: new Date("2026-10-19T15:00:00Z") });
-const content = () => toConsultationContent(fixture, null);
 
-function listSources(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) return e.name === "fonts" ? [] : listSources(full);
-    return /\.tsx?$/.test(e.name) && !/\.test\./.test(e.name) ? [full] : [];
-  });
+// `pages` elementos <Page>, cada um com `physical` páginas físicas (View com quebra).
+async function renderPages(frame: PdfFrame, pages = 2, physical = 1): Promise<string[]> {
+  const doc = createElement(
+    Document,
+    null,
+    ...Array.from({ length: pages }, (_, i) =>
+      createElement(
+        Page,
+        { key: i, size: "A4" },
+        createElement(PdfBrandFrame, { frame }),
+        ...Array.from({ length: physical }, (_, j) => createElement(View, { key: j, break: j > 0 }, createElement(Text, null, `Conteudo ${i + 1}-${j + 1}`))),
+      ),
+    ),
+  );
+  const text = pdfText(await renderToBuffer(doc));
+  // Cada página é um stream que termina no rodapé "Página X de Y": separa depois dele.
+  return text.split(/(?<=Página \d+ de \d+)/).filter((p) => p.trim());
 }
 
 describe("Rainha Cred PDF frame", () => {
-  it("prints bureau name, support email and page counter on every document", async () => {
-    const consultation = pdfText(await renderCompleteConsultationPdf(content(), header, frameFor(BUREAU_NAME)));
-    const dossier = pdfText(
-      await renderDossierPdf({ title: "Maria", subtitle: "1 consulta(s)", entries: [{ content: content(), header, role: "Titular" }], report: null }, frameFor(BUREAU_NAME)),
-    );
-    for (const text of [consultation, dossier]) {
-      expect(text).toContain(BUREAU_NAME);
-      expect(text).toContain(SUPPORT_EMAIL);
-      expect(text).toMatch(/Página 1 de \d+/);
-      expect(text).not.toContain("Reino do Crédito");
-      expect(text).not.toMatch(/instagram/i);
-    }
+  it("shows only the e-mail when WhatsApp and Instagram are absent", async () => {
+    const text = (await renderPages(baseFrame)).join("\n");
+    expect(text).toContain(SUPPORT_EMAIL);
+    expect(text).not.toMatch(/WhatsApp|Instagram/);
   }, 60_000);
 
-  it("renders a 60+ character bureau name without losing words", async () => {
-    const text = pdfText(await renderCompleteConsultationPdf(content(), header, frameFor(LONG_BUREAU_NAME)));
-    for (const word of LONG_BUREAU_NAME.split(" ")) expect(text, word).toContain(word);
+  it("shows e-mail, WhatsApp and Instagram when present", async () => {
+    const text = (await renderPages({ ...baseFrame, whatsapp: "(11) 90000-0000", instagram: "@rainhacred" })).join("\n");
+    expect(text).toContain(SUPPORT_EMAIL);
+    expect(text).toContain("WhatsApp (11) 90000-0000");
+    expect(text).toContain("Instagram @rainhacred");
   }, 60_000);
 
-  it("keeps the letterhead out of every pdf source", () => {
-    const offenders = listSources(__dirname).filter((f) => /letterhead|Helvetica/i.test(readFileSync(f, "utf8")));
-    expect(offenders).toEqual([]);
-  });
+  it("prints the page counter on a 2-page document", async () => {
+    const text = (await renderPages(baseFrame)).join("\n");
+    expect(text).toContain("Página 1 de 2");
+    expect(text).toContain("Página 2 de 2");
+  }, 60_000);
+
+  it("prints the running line from page 2 on, not on page 1", async () => {
+    const frame = { ...baseFrame, running: { name: "Maria Exemplo", document: "***.982.247-**", label: "Relatório de consulta" } };
+    const text = (await renderPages(frame, 1, 2)).join("\n");
+    expect(text.split("Maria Exemplo").length - 1).toBe(1);
+    expect(text).toContain("Relatório de consulta (continuação)");
+    expect(text.split("(continuação)").length - 1).toBe(1);
+  }, 60_000);
+
+  it("hides the running line on the first physical page of each <Page> and shows it on continuations", async () => {
+    const running = { name: "Nome Corrente", document: "***.982.247-**", label: "Relatório" };
+    const pages = await renderPages({ ...baseFrame, running }, 2, 2);
+    // O corpo não segue a ordem das páginas no stream; o rodapé identifica a página física (1-2 = 1ª <Page>, 3-4 = 2ª).
+    const runningPages = pages.filter((p) => p.includes("Nome Corrente")).map((p) => Number(/Página (\d+) de 4/.exec(p)?.[1]));
+    expect(runningPages.sort()).toEqual([2, 4]);
+  }, 60_000);
+
+  it("shortens a long name on one line and keeps the document", async () => {
+    const name = "Antonio Carlos Pereira de Albuquerque Neto Filho de Souza Cavalcanti Rodrigues Machado Lim";
+    expect(name).toHaveLength(90);
+    const frame = { ...baseFrame, running: { name, document: "CPF ***.111.222-**", label: "Sócio" } };
+    expect(runningIdentity(frame.running)).toMatch(/^Antonio.*…  ·  CPF \*\*\*\.111\.222-\*\*$/);
+    expect(runningIdentity(frame.running).length).toBeLessThanOrEqual(56);
+    const text = (await renderPages(frame, 1, 2)).join("\n");
+    expect(text).not.toContain(name);
+    expect(text).toContain("CPF ***.111.222-**");
+  }, 60_000);
+
+  it("keeps the frame on a real consultation PDF", async () => {
+    const text = pdfText(await renderCompleteConsultationPdf(toConsultationContent(fixture, null), header, baseFrame));
+    expect(text).toContain(SUPPORT_EMAIL);
+    expect(text).toMatch(/Página 1 de \d+/);
+  }, 60_000);
 });

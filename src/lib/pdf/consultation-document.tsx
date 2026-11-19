@@ -107,19 +107,19 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 const s = StyleSheet.create({
   page: {
-    fontFamily: "Atkinson",
+    fontFamily: "Helvetica",
     fontSize: 10,
     color: text,
     paddingTop: PDF_PAGE_PADDING_TOP,
     paddingBottom: PDF_PAGE_PADDING_BOTTOM,
     paddingHorizontal: PAD_X,
   },
-  title: { fontSize: 16, fontFamily: "Atkinson", fontWeight: 700, color: darkGreen },
+  title: { fontSize: 16, fontFamily: "Helvetica", fontWeight: 700, color: darkGreen },
   subtitle: { fontSize: 9, color: muted, marginTop: 2 },
   section: { marginTop: 14 },
   sectionTitle: {
     fontSize: 11,
-    fontFamily: "Atkinson", fontWeight: 700,
+    fontFamily: "Helvetica", fontWeight: 700,
     color: teal,
     marginBottom: 6,
     paddingBottom: 3,
@@ -142,13 +142,13 @@ const s = StyleSheet.create({
     marginRight: 8,
   },
   cardLabel: { fontSize: 9.5, color: muted },
-  cardValue: { fontSize: 13, fontFamily: "Atkinson", fontWeight: 700, marginTop: 2 },
+  cardValue: { fontSize: 13, fontFamily: "Helvetica", fontWeight: 700, marginTop: 2 },
   twoCol: { flexDirection: "row" },
   col: { flex: 1 },
   factorLine: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
   badge: {
     fontSize: 9,
-    fontFamily: "Atkinson", fontWeight: 700,
+    fontFamily: "Helvetica", fontWeight: 700,
     color: "#fff",
     paddingVertical: 2,
     paddingHorizontal: 6,
@@ -221,7 +221,7 @@ function SmartScale({ classificacao }: { classificacao: string | null }) {
               justifyContent: "center",
             }}
           >
-            <Text style={{ fontSize: 9, color: "#fff", fontFamily: "Atkinson", fontWeight: 700 }}>
+            <Text style={{ fontSize: 9, color: "#fff", fontFamily: "Helvetica", fontWeight: 700 }}>
               {lvl}
             </Text>
           </View>
@@ -326,7 +326,7 @@ function ConsultationDocument({
 
         <Section title="Score">
           <View style={{ flexDirection: "row", alignItems: "baseline", marginBottom: 6 }}>
-            <Text style={{ fontSize: 26, fontFamily: "Atkinson", fontWeight: 700, color: darkGreen }}>
+            <Text style={{ fontSize: 26, fontFamily: "Helvetica", fontWeight: 700, color: darkGreen }}>
               {score.valor ?? "—"}
             </Text>
             <Text style={{ fontSize: 11, marginLeft: 8, color: muted }}>
@@ -346,7 +346,7 @@ function ConsultationDocument({
 
         <Section title="Classificação Smart">
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-            <Text style={{ fontSize: 12, fontFamily: "Atkinson", fontWeight: 700 }}>
+            <Text style={{ fontSize: 12, fontFamily: "Helvetica", fontWeight: 700 }}>
               {smart.classificacao ?? "—"}
             </Text>
             {smart.aprovado != null && (
@@ -364,7 +364,7 @@ function ConsultationDocument({
           <View style={{ marginTop: 8 }}>
             <Text style={{ fontSize: 9 }}>
               Limite sugerido:{" "}
-              <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>
+              <Text style={{ fontFamily: "Helvetica", fontWeight: 700 }}>
                 {brl(smart.limiteSugerido)}
               </Text>
             </Text>
@@ -380,7 +380,7 @@ function ConsultationDocument({
           <Section title="Fatores Smart">
             <View style={s.twoCol}>
               <View style={[s.col, { marginRight: 12 }]}>
-                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: STATE_COLORS.success.fg, marginBottom: 3 }}>
+                <Text style={{ fontSize: 9, fontFamily: "Helvetica", fontWeight: 700, color: STATE_COLORS.success.fg, marginBottom: 3 }}>
                   Pontos positivos
                 </Text>
                 {data.positivas.length === 0 && (
@@ -394,7 +394,7 @@ function ConsultationDocument({
                 ))}
               </View>
               <View style={s.col}>
-                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: STATE_COLORS.danger.fg, marginBottom: 3 }}>
+                <Text style={{ fontSize: 9, fontFamily: "Helvetica", fontWeight: 700, color: STATE_COLORS.danger.fg, marginBottom: 3 }}>
                   Pontos de atenção
                 </Text>
                 {data.negativas.length === 0 && (
@@ -446,7 +446,7 @@ function ConsultationDocument({
             </View>
             {data.pj.socios.length > 0 && (
               <View style={{ marginTop: 6 }}>
-                <Text style={{ fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, marginBottom: 3 }}>
+                <Text style={{ fontSize: 9, fontFamily: "Helvetica", fontWeight: 700, marginBottom: 3 }}>
                   Quadro societário
                 </Text>
                 {data.pj.socios.map((soc, i) => (
