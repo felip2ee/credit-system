@@ -76,8 +76,11 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 			headers: { "Content-Type": "text/plain; charset=utf-8" },
 		});
 
-	// PJ_FULL leva o parecer consolidado; PF e PJ levam o parecer da própria consulta.
-	const parecer = delivery.dossierOpinion ?? members.find((m) => m.opinion)?.opinion ?? null;
+	// PJ_FULL leva o parecer consolidado; sem ele, o da empresa. PF e PJ levam o da própria consulta.
+	// Nunca o de um sócio: ele não descreve o quadro societário.
+	const main = ordered[0];
+	const mainOpinion = kind !== "PJ_FULL" || main?.type === "PJ" ? main?.opinion : null;
+	const parecer = delivery.dossierOpinion ?? mainOpinion ?? null;
 	const frame = { bureauName: (await getOwnBureauName(session)) ?? BRAND_NAME, supportEmail: config.supportEmail, issuedAt: new Date() };
 	const pdf = await renderDossierPdf(
 		{

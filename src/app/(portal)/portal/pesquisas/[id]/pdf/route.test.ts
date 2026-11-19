@@ -184,4 +184,51 @@ describe("client pdf route", () => {
 			relatorioMarkdown: "# Parecer",
 		});
 	});
+
+	describe("opinion fallback without a consolidated report", () => {
+		const parecer = (resumo: string) => ({
+			apto: "apto",
+			classificacao_perfil: "Bom",
+			resumo_executivo: resumo,
+			pontos_fortes: [],
+			pontos_atencao: [],
+			plano_acao: [],
+			limite_sugerido: null,
+			limite_sugerido_notas: "",
+			relatorio_markdown: "",
+		});
+		const withOpinions = (kind: string, company: string | null, partner: string | null) =>
+			delivery({
+				kind,
+				members: [
+					{ consultationId: "c2", type: "PF", name: "Sócio Um", product: null, status: "completed", canonical: { name: "Sócio Um", document: { type: "cpf", value: "39053344705" } }, payload: null, opinion: partner && parecer(partner) },
+					{ consultationId: "c1", type: "PJ", name: "Empresa X", product: null, status: "completed", canonical: { name: "Empresa X", document: { type: "cnpj", value: "11222333000181" } }, payload: null, opinion: company && parecer(company) },
+				],
+			});
+
+		it("does not present a partner opinion as the company group opinion", async () => {
+			state.getMyDelivery.mockResolvedValue(withOpinions("PJ_FULL", null, "Resumo do sócio"));
+
+			await call();
+
+			expect(state.render.mock.calls[0][0].report).toBeNull();
+		});
+
+		it("does not use a partner opinion when a PJ_FULL delivery has no company member", async () => {
+			const base = withOpinions("PJ_FULL", null, "Resumo do sócio");
+			state.getMyDelivery.mockResolvedValue({ ...base, members: base.members.filter((m: { type: string }) => m.type === "PF") });
+
+			await call();
+
+			expect(state.render.mock.calls[0][0].report).toBeNull();
+		});
+
+		it("uses the company opinion when the PJ_FULL report is missing", async () => {
+			state.getMyDelivery.mockResolvedValue(withOpinions("PJ_FULL", "Resumo da empresa", "Resumo do sócio"));
+
+			await call();
+
+			expect(state.render.mock.calls[0][0].report).toMatchObject({ resumo: "Resumo da empresa" });
+		});
+	});
 });

@@ -7,10 +7,15 @@ import { config } from "@/lib/config";
 import { getOwnBureauName } from "@/lib/bureaus/queries";
 import { BRAND_NAME } from "@/lib/brand/brand";
 import { renderCompleteConsultationPdf } from "@/lib/pdf/complete-consultation-document";
-import type { FullPdfHeader, OpinionForPdf } from "@/lib/pdf/consultation-full-document";
+import { opinionFromAiReport } from "@/lib/pdf/opinion-from-report";
+import type { FullPdfHeader } from "@/lib/pdf/consultation-full-document";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
 import { formatCNPJ, formatCPF } from "@/lib/utils";
+import { isUuid } from "@/lib/validators/id";
 import type { QueryStatus } from "@/types/app";
+
+// O nome do arquivo leva só o início do id: o documento do titular não vai para o disco do usuário.
+const FILENAME_ID_LENGTH = 8;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +42,7 @@ export async function GET(
     return new Response("Sessão expirada.", { status: 401 });
   }
   if (!hasPermission(session, "consultations:read")) return new Response("Não autorizado.", { status: 403 });
+  if (!isUuid(params.id)) return new Response("Consulta não encontrada.", { status: 404 });
   const stored = await getConsultation(session, params.id);
   if (!stored) return new Response("Consulta não encontrada.", { status: 404 });
   if (stored.status !== "completed") return new Response("Consulta sem resultado disponível.", { status: 409 });
@@ -57,23 +63,7 @@ export async function GET(
 
   const reportRow = await getConsultationReport(session, query.id);
 
-  let opinion: OpinionForPdf | null = null;
-  if (reportRow && (reportRow as { status?: string }).status === "completed") {
-    const r = reportRow as Record<string, unknown>;
-    const full = r.full_report as { classificacao_perfil?: string } | null;
-    opinion = {
-      aptitude: (r.aptitude_status as string | null) ?? null,
-      classificacao: full?.classificacao_perfil ?? null,
-      resumo: (r.executive_summary as string | null) ?? null,
-      pontosFortes: (r.positive_points as OpinionForPdf["pontosFortes"] | null) ?? [],
-      pontosAtencao: (r.risk_points as OpinionForPdf["pontosAtencao"] | null) ?? [],
-      planoAcao: (r.action_plan as OpinionForPdf["planoAcao"] | null) ?? [],
-      limiteSugerido: (r.suggested_limit as number | null) ?? null,
-      limiteNotas: (r.suggested_limit_notes as string | null) ?? null,
-      modelo: (r.model_used as string | null) ?? null,
-      relatorioMarkdown: (r.report_markdown as string | null) ?? null,
-    };
-  }
+  const opinion = opinionFromAiReport(reportRow);
 
   const header: FullPdfHeader = {
     name: query.document_name ?? content.view?.subject.name ?? "—",
@@ -97,7 +87,7 @@ export async function GET(
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="consulta-${query.document}.pdf"`,
+      "Content-Disposition": `inline; filename="consulta-${query.id.slice(0, FILENAME_ID_LENGTH)}.pdf"`,
       "Cache-Control": "no-store, must-revalidate",
     },
   });
