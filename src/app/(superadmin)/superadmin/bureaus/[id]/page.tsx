@@ -6,10 +6,13 @@ import { BureauEditForm } from "@/components/superadmin/bureau-edit-form";
 import { AdminCredentialsForm } from "@/components/superadmin/admin-credentials-form";
 import { InviteAdminForm } from "@/components/superadmin/invite-admin-form";
 import { SupportStartForm } from "@/components/superadmin/support-start-form";
-import { BureauCostsPanel } from "@/components/superadmin/bureau-costs-panel";
+import { BureauCommissionPanel } from "@/components/superadmin/bureau-commission-panel";
+import { BureauProductBlocksPanel } from "@/components/superadmin/bureau-product-blocks-panel";
+import { getBureauDefaultPct } from "@/lib/affiliates/rates";
+import { getEffectiveCommission } from "@/lib/catalog/queries";
+import { listBureauCommissionRates, listBureauProductBlocks } from "@/lib/commission/queries";
 import { getRequiredSession } from "@/lib/auth/session";
 import { getBureau } from "@/lib/bureaus/queries";
-import { listBureauCosts } from "@/lib/catalog/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { listRefundShortfalls } from "@/lib/wallet/pix-charges";
@@ -27,7 +30,15 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
   const session = await getRequiredSession();
   const bureau = await getBureau(session, params.id);
   if (!bureau) notFound();
-  const costs = hasPermission(session, "catalog:read") ? await listBureauCosts(session, bureau.id) : null;
+  const canManage = hasPermission(session, "bureaus:manage") && !session.supportSessionId;
+  const commission = hasPermission(session, "catalog:read")
+    ? {
+        effective: await getEffectiveCommission(session, bureau.id),
+        history: await listBureauCommissionRates(session, bureau.id),
+        affiliatePct: await getBureauDefaultPct(session, bureau.id),
+        blocks: await listBureauProductBlocks(session, bureau.id),
+      }
+    : null;
 
   const wallet = hasPermission(session, "wallet:read")
     ? await withUserTransaction(session, async (client) => ({
@@ -46,14 +57,26 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
       <InviteAdminForm bureauId={bureau.id} />
       <AdminCredentialsForm bureauId={bureau.id} />
       <SupportStartForm bureauId={bureau.id} />
-      {costs && (
-        <section className="space-y-3">
-          <h2 className="text-lg font-semibold">Custos</h2>
-          <p className="text-sm text-muted-foreground">
-            Custo que o Bureau paga por produto. Sem override, vale o custo padrão.
-          </p>
-          <BureauCostsPanel bureauId={bureau.id} rows={costs} />
-        </section>
+      {commission && (
+        <>
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold">Comissão</h2>
+            <p className="text-sm text-muted-foreground">
+              O Bureau recebe uma % do preço bruto de cada venda. Sem override, vale a % global.
+            </p>
+            <BureauCommissionPanel
+              bureauId={bureau.id}
+              effective={commission.effective}
+              history={commission.history}
+              affiliatePct={commission.affiliatePct}
+              canWrite={canManage && hasPermission(session, "affiliates:manage")}
+            />
+          </section>
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold">Produtos bloqueados</h2>
+            <BureauProductBlocksPanel bureauId={bureau.id} rows={commission.blocks} canWrite={canManage} />
+          </section>
+        </>
       )}
       {wallet?.balance && (
         <section className="space-y-3">

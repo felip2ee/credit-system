@@ -28,7 +28,7 @@ export default async function ProductsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Produtos" description="Produtos base, versões e custo padrão">
+      <PageHeader title="Produtos" description="Produtos, versões, custo interno e preço de venda">
         {canWrite && (
           <Button asChild>
             <Link href="/superadmin/products/new">Novo produto</Link>
@@ -43,8 +43,9 @@ export default async function ProductsPage() {
             <TableHead>Nome</TableHead>
             <TableHead>Estado</TableHead>
             <TableHead>Versão vigente</TableHead>
-            <TableHead className="text-right">Custo padrão</TableHead>
-            <TableHead className="text-right">Custo por sócio</TableHead>
+            <TableHead className="text-right">Custo interno</TableHead>
+            <TableHead className="text-right">Preço de venda</TableHead>
+            <TableHead className="text-right">Preço por sócio</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -62,7 +63,10 @@ export default async function ProductsPage() {
               <TableCell>v{p.version}</TableCell>
               <TableCell className="text-right">{formatBRL(p.baseCost)}</TableCell>
               <TableCell className="text-right">
-                {p.code === "dossie_empresarial" ? formatBRL(p.baseCostPerPartner) : "—"}
+                {p.salePrice === null ? <Badge variant="muted">Não à venda</Badge> : formatBRL(p.salePrice)}
+              </TableCell>
+              <TableCell className="text-right">
+                {p.code === "dossie_empresarial" ? formatBRL(p.salePricePerPartner) : "—"}
               </TableCell>
             </TableRow>
           ))}
