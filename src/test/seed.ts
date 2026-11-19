@@ -194,6 +194,8 @@ export async function seedProduct(
 		baseCost?: string;
 		baseCostPerPartner?: string;
 		depsProduct?: string | null;
+		salePrice?: string | null;
+		salePricePerPartner?: string;
 	} = {},
 ): Promise<SeededProduct> {
 	const code = input.code ?? `prod_${randomBytes(6).toString("hex")}`;
@@ -205,13 +207,15 @@ export async function seedProduct(
 			[code, `Produto ${code}`],
 		);
 		const version = await client.query<{ id: string }>(
-			`insert into product_versions (product_id, version, deps_product, base_cost, base_cost_per_partner)
-       values ($1, 1, $2, $3, $4) returning id`,
+			`insert into product_versions (product_id, version, deps_product, base_cost, base_cost_per_partner, sale_price, sale_price_per_partner)
+       values ($1, 1, $2, $3, $4, $5, $6) returning id`,
 			[
 				product.rows[0].id,
 				input.depsProduct ?? null,
 				input.baseCost ?? "0.00",
 				input.baseCostPerPartner ?? "0.00",
+				input.salePrice ?? null,
+				input.salePricePerPartner ?? "0.00",
 			],
 		);
 		await client.query("commit");
@@ -226,12 +230,26 @@ export async function seedProduct(
 
 export async function seedProductVersion(
 	owner: Pool,
-	input: { productId: string; version: number; baseCost: string; baseCostPerPartner?: string },
+	input: {
+		productId: string;
+		version: number;
+		baseCost: string;
+		baseCostPerPartner?: string;
+		salePrice?: string | null;
+		salePricePerPartner?: string;
+	},
 ): Promise<string> {
 	const { rows } = await owner.query<{ id: string }>(
-		`insert into product_versions (product_id, version, base_cost, base_cost_per_partner)
-     values ($1, $2, $3, $4) returning id`,
-		[input.productId, input.version, input.baseCost, input.baseCostPerPartner ?? "0.00"],
+		`insert into product_versions (product_id, version, base_cost, base_cost_per_partner, sale_price, sale_price_per_partner)
+     values ($1, $2, $3, $4, $5, $6) returning id`,
+		[
+			input.productId,
+			input.version,
+			input.baseCost,
+			input.baseCostPerPartner ?? "0.00",
+			input.salePrice ?? null,
+			input.salePricePerPartner ?? "0.00",
+		],
 	);
 	return rows[0].id;
 }
@@ -247,6 +265,65 @@ export async function seedBureauCost(
 	);
 }
 
+// Modelo da 048: o preço é do produto (versão do superadmin) e o Bureau ganha uma % sobre o preço bruto. Põe o produto
+// à venda a `salePrice` (+ `salePricePerPartner`) com uma versão nova só se o preço vigente for outro, grava a % do
+// Bureau (override) que deixa o custo (parte da plataforma) em `cost` e aplica o bloqueio. O preço é global: testes de
+// arquivos diferentes que usam o mesmo produto com preços diferentes não podem rodar ao mesmo tempo (ver vitest.config).
+export async function setPlatformSale(
+	owner: Pool,
+	input: {
+		bureauId: string;
+		productId: string;
+		salePrice: string;
+		salePricePerPartner?: string;
+		cost?: string;
+		setBy: string;
+		active?: boolean;
+	},
+): Promise<void> {
+	const perPartner = input.salePricePerPartner ?? "0.00";
+	for (let attempt = 0; ; attempt += 1) {
+		try {
+			await owner.query(
+				`insert into product_versions
+           (product_id, version, deps_product, base_cost, base_cost_per_partner, sale_price, sale_price_per_partner)
+         select l.product_id, l.version + 1, l.deps_product, l.base_cost, l.base_cost_per_partner, $2::numeric, $3::numeric
+           from (select * from product_versions where product_id = $1 order by version desc limit 1) l
+          where l.sale_price is distinct from $2::numeric or l.sale_price_per_partner is distinct from $3::numeric`,
+				[input.productId, input.salePrice, perPartner],
+			);
+			break;
+		} catch (error) {
+			if ((error as { code?: string }).code !== "23505" || attempt >= 5) throw error;
+		}
+	}
+	const cost =
+		input.cost ??
+		(
+			await owner.query<{ cost: string }>(
+				"select cost from bureau_product_costs where bureau_id = $1 and product_id = $2 order by id desc limit 1",
+				[input.bureauId, input.productId],
+			)
+		).rows[0]?.cost ??
+		input.salePrice;
+	await owner.query(
+		`insert into bureau_commission_rates (bureau_id, pct, set_by)
+     select $1::uuid, least(round(($2::numeric - $3::numeric) * 100 / $2::numeric, 2), 99.99), $4::uuid
+      where least(round(($2::numeric - $3::numeric) * 100 / $2::numeric, 2), 99.99)
+            is distinct from (select r.pct from bureau_commission_rates r where r.bureau_id = $1 order by r.id desc limit 1)`,
+		[input.bureauId, input.salePrice, cost, input.setBy],
+	);
+	const blocked = input.active === false;
+	await owner.query(
+		`insert into bureau_product_blocks (bureau_id, product_id, blocked, set_by)
+     select $1::uuid, $2::uuid, $3::boolean, $4::uuid
+      where $3::boolean is distinct from coalesce((select b.blocked from bureau_product_blocks b
+                          where b.bureau_id = $1 and b.product_id = $2 order by b.id desc limit 1), false)`,
+		[input.bureauId, input.productId, blocked, input.setBy],
+	);
+}
+
+// Compatível com o catálogo antigo: o custo vem do último seedBureauCost do par (nenhum = custo igual ao preço).
 export async function seedCatalogItem(
 	owner: Pool,
 	input: {
@@ -258,18 +335,14 @@ export async function seedCatalogItem(
 		active?: boolean;
 	},
 ): Promise<void> {
-	await owner.query(
-		`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, sale_price_per_partner, updated_by)
-     values ($1, $2, $3, $4, $5, $6)`,
-		[
-			input.bureauId,
-			input.productId,
-			input.active ?? true,
-			input.salePrice,
-			input.salePricePerPartner ?? "0.00",
-			input.updatedBy,
-		],
-	);
+	await setPlatformSale(owner, {
+		bureauId: input.bureauId,
+		productId: input.productId,
+		salePrice: input.salePrice,
+		salePricePerPartner: input.salePricePerPartner,
+		setBy: input.updatedBy,
+		active: input.active,
+	});
 }
 
 // Saldo inicial por topup real (wallet_post_entry), para a conciliação continuar válida.
@@ -418,9 +491,9 @@ export async function seedOrderDossierForSession(
 	if (rows[0].id) await seedOrderDossier(owner, { ...input, bureauId: rows[0].id });
 }
 
-// reserve_order confere preço e custo no catálogo do Bureau da sessão (a que vai chamar reserve_order): põe o produto
-// do seed `productCode` à venda por `price` (+ `pricePerPartner`), com custo efetivo `cost` (+ `costPerPartner`), e
-// devolve a cotação que o aponta. Valores que reserve_order recusa antes do catálogo (preço <= 0, custo negativo,
+// reserve_order confere preço e custo contra o produto e a % do Bureau da sessão (a que vai chamar reserve_order): põe o
+// produto do seed `productCode` à venda por `price` (+ `pricePerPartner`) e fixa a % do Bureau para que o custo (parte da
+// plataforma) seja `cost`, e devolve a cotação que o aponta. `costPerPartner` só vale para a validação dos valores. Valores que reserve_order recusa antes do catálogo (preço <= 0, custo negativo,
 // preço abaixo do custo, mais de duas casas) não mexem no catálogo: a cotação volta vazia.
 export async function seedOrderCatalog(
 	owner: Pool,
@@ -446,23 +519,16 @@ export async function seedOrderCatalog(
 	if (!rows[0].bureau_id) return { lines: [] };
 	const product = await owner.query<{ id: string }>("select id from products where code = $1", [input.productCode]);
 	const productId = product.rows[0].id;
-	// O catálogo semeia o produto inativo; o trigger do item exige produto ativo.
+	// O catálogo semeia o produto inativo: a venda exige produto ativo.
 	await owner.query("update products set active = true where id = $1", [productId]);
-	await seedBureauCost(owner, {
+	await setPlatformSale(owner, {
 		bureauId: rows[0].bureau_id,
 		productId,
+		salePrice: input.price,
+		salePricePerPartner: pricePerPartner,
 		cost: input.cost,
-		costPerPartner,
 		setBy: rows[0].user_id,
 	});
-	// O custo entra antes do preço: a trigger do item confere o preço contra o custo vigente.
-	await owner.query(
-		`insert into bureau_catalog_items (bureau_id, product_id, active, sale_price, sale_price_per_partner, updated_by)
-     values ($1, $2, true, $3, $4, $5)
-     on conflict (bureau_id, product_id)
-     do update set active = true, sale_price = $3, sale_price_per_partner = $4, updated_by = $5`,
-		[rows[0].bureau_id, productId, input.price, pricePerPartner, rows[0].user_id],
-	);
 	return { lines: [{ code: input.productCode }] };
 }
 

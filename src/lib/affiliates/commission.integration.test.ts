@@ -1,4 +1,6 @@
-// Comissão de afiliado (migração 027) contra um Postgres real: captura, carência, estorno e bloqueio LGPD.
+// Comissão de afiliado (migrações 027 e 048) contra um Postgres real: captura, carência, estorno e bloqueio LGPD.
+// Modelo da 048: o Bureau recebe uma % do preço bruto (o seed fixa 20% com preço 400,00 e custo 320,00) e o afiliado, uma
+// % única do Bureau (bureau_affiliate_settings) também sobre o preço bruto, paga pela plataforma.
 import { randomBytes, randomUUID } from "node:crypto";
 
 import { Pool, type PoolClient } from "pg";
@@ -103,7 +105,7 @@ async function scenario(
 	}
 	await setDefaultPct(t, o.pct ?? "10");
 	await seedClientWalletTopup(owner, {
-		clientProfileId: buyer.userId, amount: o.funds ?? "1000.00", createdBy: buyer.userId,
+		clientProfileId: buyer.userId, amount: o.funds ?? "400.00", createdBy: buyer.userId,
 	});
 	return { t, affiliateId: affiliate.userId, buyerId: buyer.userId };
 }
@@ -116,7 +118,7 @@ async function setDefaultPct(t: SeededTenant, pct: string) {
 	);
 }
 
-async function placeAndCapture(s: Scenario, price = "1000.00", cost = "600.00") {
+async function placeAndCapture(s: Scenario, price = "400.00", cost = "320.00") {
 	const order: Order = { orderRef: randomUUID(), mode: "online", clientId: s.buyerId, price, cost };
 	expect(await committed(clientCtx(s.buyerId, s.t), (c) => reserve(c, order))).toMatchObject({ ok: true });
 	expect(await committed(adminCtx(s.t), (c) => capture(c, order.orderRef))).toMatchObject({ ok: true });
@@ -164,7 +166,7 @@ async function refund30(s: Scenario) {
 }
 
 describe("comissão na captura", () => {
-	it("grava 40,00 pendente, accrual 360,00 e saldo pendente do afiliado (10% de 400,00)", async () => {
+	it("grava 40,00 pendente (10% de 400,00), accrual 80,00 do Bureau (20%) e saldo pendente do afiliado", async () => {
 		const s = await scenario("Com 10");
 		const order = await placeAndCapture(s);
 
@@ -174,7 +176,7 @@ describe("comissão na captura", () => {
 		const days = (c.release_at.getTime() - Date.now()) / 86_400_000;
 		expect(days).toBeGreaterThan(29.9);
 		expect(days).toBeLessThan(30.1);
-		expect(await accruals(order.orderRef)).toEqual(["360.00"]);
+		expect(await accruals(order.orderRef)).toEqual(["80.00"]);
 		expect(await wallet(s.affiliateId)).toEqual({ pending: "40.00", available: "0.00" });
 		const audit = await owner.query(
 			"select metadata from audit_logs where action = 'affiliate.commission' and record_id = $1",
@@ -184,47 +186,48 @@ describe("comissão na captura", () => {
 		expect(JSON.stringify(audit.rows[0].metadata)).not.toMatch(/\d{11}/);
 	});
 
-	it("a % 100 vira comissão de 400,00 e não deixa accrual", async () => {
+	it("a % 100 do afiliado fica limitada ao que sobra depois do Bureau: 320,00, e a plataforma fica com 0,00", async () => {
 		const s = await scenario("Com 100", { pct: "100" });
 		const order = await placeAndCapture(s);
 
-		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ amount: "400.00", status: "pending" });
-		expect(await accruals(order.orderRef)).toEqual([]);
-		expect(await wallet(s.affiliateId)).toEqual({ pending: "400.00", available: "0.00" });
+		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ pct: "100.00", margin: "400.00", amount: "320.00", status: "pending" });
+		expect(await accruals(order.orderRef)).toEqual(["80.00"]);
+		expect(await wallet(s.affiliateId)).toEqual({ pending: "320.00", available: "0.00" });
 	});
 
-	it("margem 0 não gera comissão", async () => {
-		const s = await scenario("Margem zero");
-		const order = await placeAndCapture(s, "600.00", "600.00");
+	it("Bureau com 0%: sem accrual, e a comissão do afiliado sai inteira da plataforma", async () => {
+		const s = await scenario("Bureau zero");
+		const order = await placeAndCapture(s, "400.00", "400.00");
 
-		expect(await commissionsOf(order.orderRef)).toEqual([]);
-		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "0.00" });
+		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ margin: "400.00", amount: "40.00" });
+		expect(await accruals(order.orderRef)).toEqual([]);
+		expect(await wallet(s.affiliateId)).toEqual({ pending: "40.00", available: "0.00" });
 	});
 
 	it("pedido de balcão não gera comissão", async () => {
 		const s = await scenario("Balcão");
 		await seedWalletTopup(owner, { bureauId: s.t.bureau.id, amount: "1000.00", createdBy: s.t.bureauAdmin.userId });
-		const order: Order = { orderRef: randomUUID(), mode: "counter", clientId: null, price: "1000.00", cost: "600.00" };
+		const order: Order = { orderRef: randomUUID(), mode: "counter", clientId: null, price: "400.00", cost: "320.00" };
 		expect(await committed(operatorCtx(s.t), (c) => reserve(c, order))).toMatchObject({ ok: true });
 		expect(await committed(adminCtx(s.t), (c) => capture(c, order.orderRef))).toMatchObject({ ok: true });
 
 		expect(await commissionsOf(order.orderRef)).toEqual([]);
 	});
 
-	it("comprador sem vínculo não gera comissão e o accrual fica com a margem inteira", async () => {
+	it("comprador sem vínculo não gera comissão; o accrual do Bureau é o mesmo", async () => {
 		const s = await scenario("Sem vínculo", { linked: false });
 		const order = await placeAndCapture(s);
 
 		expect(await commissionsOf(order.orderRef)).toEqual([]);
-		expect(await accruals(order.orderRef)).toEqual(["400.00"]);
+		expect(await accruals(order.orderRef)).toEqual(["80.00"]);
 	});
 
-	it("indicado sem telefone verificado não gera comissão e o accrual fica com a margem inteira", async () => {
+	it("indicado sem telefone verificado não gera comissão; o accrual do Bureau é o mesmo", async () => {
 		const s = await scenario("Sem telefone", { verified: false });
 		const order = await placeAndCapture(s);
 
 		expect(await commissionsOf(order.orderRef)).toEqual([]);
-		expect(await accruals(order.orderRef)).toEqual(["400.00"]);
+		expect(await accruals(order.orderRef)).toEqual(["80.00"]);
 		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "0.00" });
 	});
 
@@ -234,7 +237,7 @@ describe("comissão na captura", () => {
 		const order = await placeAndCapture(s);
 
 		expect(await commissionsOf(order.orderRef)).toEqual([]);
-		expect(await accruals(order.orderRef)).toEqual(["400.00"]);
+		expect(await accruals(order.orderRef)).toEqual(["80.00"]);
 	});
 
 	it("afiliado inativo não recebe comissão", async () => {
@@ -243,12 +246,12 @@ describe("comissão na captura", () => {
 		const order = await placeAndCapture(s);
 
 		expect(await commissionsOf(order.orderRef)).toEqual([]);
-		expect(await accruals(order.orderRef)).toEqual(["400.00"]);
+		expect(await accruals(order.orderRef)).toEqual(["80.00"]);
 		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "0.00" });
 	});
 
 	it("o livro do afiliado não guarda o id do indicado nem a referência da cobrança (captura, liberação e estorno)", async () => {
-		const s = await scenario("Livro neutro", { funds: "2000.00" });
+		const s = await scenario("Livro neutro", { funds: "800.00" });
 		const released = await placeAndCapture(s);
 		const reversed = await placeAndCapture(s);
 		const commissionId = (await commissionsOf(released.orderRef))[0].id;
@@ -282,7 +285,7 @@ describe("comissão na captura", () => {
 		expect(await committed(adminCtx(s.t), (c) => capture(c, order.orderRef))).toMatchObject({ ok: true, status: "captured" });
 
 		expect(await commissionsOf(order.orderRef)).toHaveLength(1);
-		expect(await accruals(order.orderRef)).toEqual(["360.00"]);
+		expect(await accruals(order.orderRef)).toEqual(["80.00"]);
 		expect(await wallet(s.affiliateId)).toEqual({ pending: "40.00", available: "0.00" });
 	});
 
@@ -297,15 +300,15 @@ describe("comissão na captura", () => {
 		expect(await wallet(s.affiliateId)).toEqual({ pending: "120.00", available: "0.00" });
 	});
 
-	it("a % própria do afiliado vale mais que a % padrão do Bureau", async () => {
+	it("uma linha antiga de affiliate_rates é ignorada: vale só a % de afiliados do Bureau", async () => {
 		const s = await scenario("Taxa própria");
 		await owner.query("insert into affiliate_rates (bureau_id, affiliate_profile_id, pct) values ($1, $2, 25)", [
 			s.t.bureau.id, s.affiliateId,
 		]);
 		const order = await placeAndCapture(s);
 
-		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ pct: "25.00", amount: "100.00" });
-		expect(await accruals(order.orderRef)).toEqual(["300.00"]);
+		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ pct: "10.00", amount: "40.00" });
+		expect(await accruals(order.orderRef)).toEqual(["80.00"]);
 	});
 
 	it("app_runtime não escreve em affiliate_commissions direto", async () => {
@@ -374,7 +377,7 @@ describe("estorno de PIX do indicado", () => {
 	it("reverte a comissão pendente primeiro: falta de 30,00 sai da comissão e o Bureau não paga nada", async () => {
 		const s = await scenario("Estorno pendente");
 		const order = await placeAndCapture(s);
-		// Carteira zerada pelo pedido: o estorno de 30,00 falta inteiro. O accrual de 360,00 do Bureau cobriria, mas a
+		// Carteira zerada pelo pedido: o estorno de 30,00 falta inteiro. O accrual de 80,00 do Bureau cobriria, mas a
 		// comissão pendente vem antes.
 		const charge = await chargeAfterOrder(s, "30.00");
 
@@ -408,8 +411,8 @@ describe("estorno de PIX do indicado", () => {
 
 		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ reversed_amount: "40.00", status: "reversed" });
 		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "0.00" });
-		// 1000 - 360 (clawback) - 40 (comissão) = 600 continua como falta.
-		expect(await shortfall(charge.id)).toBe("600.00");
+		// 1000 - 40 (comissão) - 80 (clawback do Bureau) = 880 continua como falta.
+		expect(await shortfall(charge.id)).toBe("880.00");
 	});
 
 	it("não toca a comissão já liberada e mantém a falta", async () => {
@@ -423,7 +426,8 @@ describe("estorno de PIX do indicado", () => {
 
 		expect((await commissionsOf(order.orderRef))[0]).toMatchObject({ reversed_amount: "0.00", status: "released" });
 		expect(await wallet(s.affiliateId)).toEqual({ pending: "0.00", available: "40.00" });
-		expect(await shortfall(charge.id)).toBe("30.00");
+		// 390 - 80 (clawback do Bureau) = 310 continua como falta; a comissão liberada não é tocada.
+		expect(await shortfall(charge.id)).toBe("310.00");
 	});
 
 	it("repetir o evento de estorno não reverte duas vezes", async () => {

@@ -304,9 +304,7 @@ describe("reserve_order / capture_order / release_order (online)", () => {
 					part: "base",
 					quantity: 1,
 					unitPriceCents: 5000,
-					unitCostCents: 3000,
 					priceCents: 5000,
-					costCents: 3000,
 				},
 			],
 		});
@@ -1601,8 +1599,9 @@ describe("018: o pedido é um Dossiê do Bureau", () => {
 describe("018: balcão com custo zero", () => {
 	it("records the settlement and makes capture and release no-ops on the Bureau wallet", async () => {
 		const t = await setup("0", "100.00");
-		const toCapture = counter("50.00", "0.00");
-		const toRelease = counter("50.00", "0.00");
+		// 0,01 com 99,99%: a comissão do Bureau arredonda para 0,01 e a parte da plataforma é 0,00.
+		const toCapture = counter("0.01", "0.00");
+		const toRelease = counter("0.01", "0.00");
 
 		for (const order of [toCapture, toRelease]) {
 			expect(
@@ -1620,7 +1619,7 @@ describe("018: balcão com custo zero", () => {
 		expect(await settlement(toCapture.orderRef)).toMatchObject({
 			status: "reserved",
 			cost: "0.00",
-			price: "50.00",
+			price: "0.01",
 			mode: "counter",
 		});
 
@@ -1898,7 +1897,7 @@ describe("018: estorno de PIX cobre a reserva", () => {
 			amount: "1000.00",
 			status: "paid",
 		});
-		const order = counter("1500.00", "1000.00");
+		const order = counter("1250.00", "1000.00");
 		await committed(operatorCtx(t), (c) => reserve(c, order));
 		expect(await bureauBalance(t.bureau.id)).toEqual({
 			available: "0.00",
@@ -1939,7 +1938,7 @@ describe("018: estorno de PIX cobre a reserva", () => {
 			amount: "600.00",
 			status: "paid",
 		});
-		const order = counter("1500.00", "1000.00");
+		const order = counter("1250.00", "1000.00");
 		await committed(operatorCtx(t), (c) => reserve(c, order));
 
 		expect(await refund(charge.asaasPaymentId)).toBe("refunded");

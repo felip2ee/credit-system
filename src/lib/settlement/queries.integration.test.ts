@@ -57,7 +57,7 @@ const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
 	const { lines } = await seedOrderCatalog(owner, c, {
 		productCode: "dossie_pf",
 		price: fromCents(input.quote.totalPriceCents),
-		cost: fromCents(input.quote.totalCostCents),
+		cost: fromCents(input.quote.platformShareCents),
 	});
 	const quoted = lines.length ? [{ ...input.quote.lines[0], code: lines[0].code }] : input.quote.lines;
 	return reserveOrderRaw(c, { ...input, quote: { ...input.quote, lines: quoted } });
@@ -77,12 +77,11 @@ function quoteOf(priceCents: number, costCents: number): OrderQuote {
 				part: "base" as const,
 				quantity: 1,
 				unitPriceCents: priceCents,
-				unitCostCents: costCents,
-				costCents,
 				priceCents,
 			},
 		],
-		totalCostCents: costCents,
+		platformShareCents: costCents,
+		bureauCommissionCents: priceCents - costCents,
 		totalPriceCents: priceCents,
 	};
 }
@@ -174,7 +173,7 @@ describe("online settlement", () => {
 			cost: "12.30",
 			status: "reserved",
 			// A cotação gravada é a que o banco montou do catálogo: o código vem do produto, não do chamador.
-			quote: { lines: [expect.objectContaining({ costCents: 1230, priceCents: 4590 })] },
+			quote: { lines: [expect.objectContaining({ priceCents: 4590 })] },
 		});
 	});
 
@@ -191,7 +190,7 @@ describe("online settlement", () => {
 		const asAdmin = await withUserTransaction({ ...tenant.bureauAdmin }, (c) => getSettlement(c, orderRef));
 		expect(asAdmin).toMatchObject({
 			cost: "12.30",
-			quote: { lines: [expect.objectContaining({ costCents: 1230, priceCents: 4590 })] },
+			quote: { lines: [expect.objectContaining({ priceCents: 4590 })] },
 		});
 		const asOperator = await withUserTransaction(operator, (c) => getSettlement(c, orderRef));
 		expect(asOperator).toMatchObject({ cost: "12.30" });
@@ -350,10 +349,11 @@ describe("counter settlement", () => {
 		expect(await withUserTransaction(client, (c) => reserveOrder(c, counterInput(randomUUID())))).toEqual({ ok: false, reason: "not_allowed" });
 	});
 
+	// 0,01 com 99,99%: a comissão do Bureau arredonda para 0,01 e a parte da plataforma é 0,00.
 	it("accepts a counter order with zero cost and leaves the Bureau wallet alone", async () => {
 		const { operator } = await setup("Settle C5", { bureau: "100.00" });
 		const orderRef = randomUUID();
-		expect(await withUserTransaction(operator, (c) => reserveOrder(c, counterInput(orderRef, 5000, 0)))).toEqual({ ok: true, status: "reserved" });
+		expect(await withUserTransaction(operator, (c) => reserveOrder(c, counterInput(orderRef, 1, 0)))).toEqual({ ok: true, status: "reserved" });
 		expect(await withUserTransaction(operator, (c) => captureOrder(c, orderRef))).toEqual({ ok: true, status: "captured" });
 		expect(await bureauBalance(operator)).toEqual({ available: "100.00", reserved: "0.00" });
 	});

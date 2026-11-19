@@ -2490,8 +2490,13 @@ describe("affiliates (026)", () => {
 			expect(await count(ctxOf(actor), "affiliate_wallets")).toBe(0);
 			expect(await count(ctxOf(actor), "affiliate_ledger_entries")).toBe(0);
 		}
-		for (const actor of [foreign.bureauAdmin, foreign.operator, foreign.client, sa]) {
+		for (const actor of [foreign.bureauAdmin, foreign.operator, foreign.client]) {
 			for (const table of TABLES) expect(await count(ctxOf(actor), table, "bureau_id = $1", [T.bureau.id])).toBe(0);
+		}
+		// O superadmin (sem suporte) lê só a % de afiliados do Bureau (048): é ele quem a define.
+		for (const table of TABLES) {
+			const expected = table === "bureau_affiliate_settings" ? 1 : 0;
+			expect(await count(ctxOf(sa), table, "bureau_id = $1", [T.bureau.id])).toBe(expected);
 		}
 	});
 
@@ -2517,25 +2522,28 @@ describe("affiliates (026)", () => {
 		expect(rows).toEqual([{ available: "0.00" }]);
 	});
 
-	it("only the bureau_admin of the bureau writes the percentages", async () => {
+	it("only the superadmin (without support) writes the affiliate percentage; affiliate_rates is read-only", async () => {
 		const write = (actor: Actor, bureauId: string) =>
 			withDbContext(app, actor, async (client) => {
-				await client.query("update bureau_affiliate_settings set default_pct = 7 where bureau_id = $1", [bureauId]);
-				const updated = await client.query("update affiliate_rates set pct = 12 where bureau_id = $1", [bureauId]);
-				const settings = await client.query("select default_pct from bureau_affiliate_settings where bureau_id = $1", [bureauId]);
-				return { rates: updated.rowCount, settings: settings.rows[0]?.default_pct };
+				const settings = await client.query(
+					"update bureau_affiliate_settings set default_pct = 7, updated_by = app_user_id() where bureau_id = $1 returning default_pct",
+					[bureauId],
+				);
+				const rates = await client.query("update affiliate_rates set pct = 12 where bureau_id = $1", [bureauId]);
+				return { rates: rates.rowCount, settings: settings.rows[0]?.default_pct };
 			});
-		expect(await write(ctxOf(T.bureauAdmin), T.bureau.id)).toEqual({ rates: 1, settings: "7.00" });
-		expect(await write(ctxOf(T.operator), T.bureau.id)).toEqual({ rates: 0, settings: "5.00" });
+		expect(await write(ctxOf(T.bureauAdmin), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
+		expect(await write(ctxOf(T.operator), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
 		expect(await write(ctxOf(foreign.bureauAdmin), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
+		expect(await write(ctxOf(sa), T.bureau.id)).toEqual({ rates: 0, settings: "7.00" });
 		await expect(
-			withDbContext(app, ctxOf(foreign.bureauAdmin), (client) =>
+			withDbContext(app, ctxOf(T.bureauAdmin), (client) =>
 				client.query("insert into affiliate_rates (bureau_id, affiliate_profile_id, pct) values ($1, $2, 1)", [T.bureau.id, stranger.userId]),
 			),
 		).rejects.toMatchObject({ code: "42501" });
 		await expect(
-			withDbContext(app, ctxOf(T.bureauAdmin), (client) =>
-				client.query("update affiliate_rates set pct = 101 where bureau_id = $1", [T.bureau.id]),
+			withDbContext(app, ctxOf(sa), (client) =>
+				client.query("update bureau_affiliate_settings set default_pct = 101, updated_by = app_user_id() where bureau_id = $1", [T.bureau.id]),
 			),
 		).rejects.toMatchObject({ code: "23514" });
 	});
