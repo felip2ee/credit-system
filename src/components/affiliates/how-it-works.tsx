@@ -9,7 +9,7 @@ export function HowItWorks({ fee }: HowItWorksProps) {
   const steps = [
     "Compartilhe seu link de afiliado.",
     "A pessoa se cadastra e confirma o celular.",
-    "Quando ela faz uma pesquisa, você ganha uma parte do lucro do Bureau.",
+    "Quando ela faz uma pesquisa, você ganha uma comissão. Ela sai da parte da plataforma, sobre o preço bruto do pedido.",
     "A comissão fica em carência por alguns dias. Depois, fica disponível.",
     `Converta em créditos ou saque por PIX, ${feeText}.`,
   ];

@@ -97,7 +97,7 @@ export default async function CounterPaymentsPage({
             <p className="text-2xl font-semibold">{money(view.price)}</p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Custo</p>
+            <p className="text-sm text-muted-foreground">Repasse à plataforma</p>
             <p className="text-2xl font-semibold">{money(view.cost)}</p>
           </div>
           <div>

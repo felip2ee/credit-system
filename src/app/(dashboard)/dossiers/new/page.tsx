@@ -10,13 +10,13 @@ export default async function NewDossierPage() {
   const session = await getRequiredSession().catch(() => redirect("/login"));
   if (!hasPermission(session, "consultations:write")) redirect("/dossiers");
 
-  // Só itens à venda; o preço vem do catálogo, nunca do operador.
-  const onSale = (await listCatalog(session)).filter((e) => e.onSale && e.item);
+  // O catálogo já só traz o que está à venda; o preço vem da plataforma, nunca do operador.
+  const onSale = await listCatalog(session);
   const toOption = (e: (typeof onSale)[number]): CatalogOption => ({
     code: e.code,
     name: e.name,
-    price: e.item?.salePrice ?? "0.00",
-    pricePerPartner: e.item?.salePricePerPartner ?? "0.00",
+    price: e.salePrice,
+    pricePerPartner: e.salePricePerPartner,
   });
 
   return (

@@ -19,7 +19,7 @@ export const DASHBOARD_NAV_ITEMS: readonly NavItem[] = [
   { href: "/scr", label: "Autorizações SCR" },
   { href: "/settings/catalog", label: "Catálogo" },
   { href: "/settings/wallet", label: "Carteira" },
-  { href: "/afiliados", label: "Afiliados", permission: "affiliates:manage" },
+  { href: "/afiliados", label: "Afiliados", permission: "affiliates:read" },
   { href: "/settings", label: "Configurações" },
 ];
 

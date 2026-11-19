@@ -13,8 +13,8 @@ import { formatMoney } from "@/lib/wallet/money";
 import type { SaleMode, SalesPage, SaleRow } from "@/lib/wallet/sales";
 
 const INTRO: Record<SaleMode, string> = {
-  online: "Pedidos que seus clientes pagaram com o saldo do app. Você vê o que o cliente pagou, o custo e a sua parte.",
-  counter: "Pedidos que você cobrou no balcão. Você vê o que o cliente pagou, o custo e a sua parte.",
+  online: "Pedidos que seus clientes pagaram com o saldo do app. Você vê o que o cliente pagou, o repasse à plataforma e a sua parte.",
+  counter: "Pedidos que você cobrou no balcão. Você vê o que o cliente pagou, o repasse à plataforma e a sua parte.",
 };
 
 function Money({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
@@ -43,7 +43,7 @@ function SaleRowBody({ row: r }: { row: SaleRow }) {
       </div>
       <dl className="grid grid-cols-3 gap-3">
         <Money label="Cliente pagou" value={r.paid} />
-        <Money label="Custo" value={r.cost} />
+        <Money label="Repasse à plataforma" value={r.cost} />
         <Money label="Sua parte" value={r.bureauShare} strong />
       </dl>
     </>
@@ -77,7 +77,7 @@ export function SalesTab({
         <h2 className="text-base text-muted-foreground">Total do período</h2>
         <dl className="mt-2 grid grid-cols-3 gap-3">
           <Money label="Cliente pagou" value={totals.paid} />
-          <Money label="Custo" value={totals.cost} />
+          <Money label="Repasse à plataforma" value={totals.cost} />
           <Money label="Sua parte" value={totals.bureauShare} strong />
         </dl>
         <p className="mt-2 text-sm text-muted-foreground">Pedidos cancelados ou devolvidos não entram na soma.</p>
