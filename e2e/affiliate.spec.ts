@@ -2,8 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { CLIENT_STATE, dbAs, dbQuery, E2E, E2E_AFFILIATE_PCT, openOrder, resetRateLimit, runTick, SUPERADMIN_STATE, validCpf } from "./fixtures";
 
-// Margin of the e2e product: price - cost = (20 + 5) - (5 + 2) = 18. Commission = 50% of it.
-const COMMISSION = ((20 + 5 - (5 + 2)) * E2E_AFFILIATE_PCT) / 100;
+// Gross price of the e2e order (1 partner): 20 + 5 = 25. Commission = 40% of it = 10, paid from the platform share
+// (25 - 30% Bureau = 17.50), so the cap does not apply.
+const COMMISSION = ((20 + 5) * E2E_AFFILIATE_PCT) / 100;
 const CONVERTED = 4;
 const WITHDRAWN = COMMISSION - CONVERTED;
 
@@ -88,7 +89,7 @@ test("referred client buys, commission waits the hold, then converts to credits 
   // A sees the commission in the hold.
   await page.goto("/portal/afiliacao");
   await expect(page.getByText("Em carência").first()).toBeVisible();
-  await expect(page.getByText(/R\$\s*9,00/).first()).toBeVisible();
+  await expect(page.getByText(/R\$\s*10,00/).first()).toBeVisible();
   expect(await walletOf(affiliate.userId)).toBe(0);
 
   // The hold ends: the run moves release_at to the past and calls the tick.

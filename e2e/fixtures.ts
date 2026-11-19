@@ -31,8 +31,9 @@ export const STAFF_SECRET_FILE = `${AUTH_DIR}/staff-secret.txt`;
 export const CLIENT_STATE = `${AUTH_DIR}/client.json`;
 export const SUPERADMIN_STATE = `${AUTH_DIR}/superadmin.json`;
 export const SUPERADMIN_SECRET_FILE = `${AUTH_DIR}/superadmin-secret.txt`;
-// Default affiliate commission (% of the Bureau margin) that global-setup sets for the e2e Bureau.
-export const E2E_AFFILIATE_PCT = 50;
+// Affiliate commission, % of the GROSS price, that global-setup sets for the e2e Bureau. The Bureau override is 30%
+// (see global-setup), so the platform share (70%) covers the affiliate.
+export const E2E_AFFILIATE_PCT = 40;
 
 export const DATABASE_OWNER_URL =
   process.env.TEST_DATABASE_OWNER_URL ?? "postgres://postgres:test@127.0.0.1:54329/credit_system";
