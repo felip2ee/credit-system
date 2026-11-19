@@ -1,15 +1,24 @@
-import { View, Text } from "@react-pdf/renderer";
+import { StyleSheet, Text, View } from "@react-pdf/renderer";
 
 import type { GenericField, GenericValue } from "@/types/consultation-view";
 
-import { Field, pdfStyles as s } from "./consultation-full-document";
+import { PDF_FONT_FAMILY, PDF_FONT_FAMILY_BOLD } from "./fonts";
+import { PdfFields, PdfTable } from "./table";
+import { PDF_COLORS, PDF_PAGE, PDF_TYPE } from "./theme";
+
+const NESTED_INDENT = 10;
+
+const st = StyleSheet.create({
+  label: { fontFamily: PDF_FONT_FAMILY_BOLD, fontSize: PDF_TYPE.table, color: PDF_COLORS.ink, marginTop: 4, marginBottom: 2 },
+  line: { fontFamily: PDF_FONT_FAMILY, fontSize: PDF_TYPE.body, color: PDF_COLORS.ink, marginBottom: 2, lineHeight: 1.3 },
+});
 
 function isInline(field: GenericField): boolean {
   return field.value.kind === "text";
 }
 
 // Mantém a ordem da tela: campos de texto vizinhos formam uma grade; um campo aninhado fecha a grade.
-function PdfFields({ fields }: { fields: GenericField[] }) {
+function GenericFields({ fields, indent }: { fields: GenericField[]; indent: number }) {
   const groups: (GenericField[] | GenericField)[] = [];
   for (const field of fields) {
     const last = groups[groups.length - 1];
@@ -21,15 +30,14 @@ function PdfFields({ fields }: { fields: GenericField[] }) {
     <>
       {groups.map((group) =>
         Array.isArray(group) ? (
-          <View key={group[0].key} style={s.grid}>
-            {group.map((f) => (
-              <Field key={f.key} label={f.label} value={f.value.kind === "text" ? f.value.text : ""} />
-            ))}
-          </View>
+          <PdfFields
+            key={group[0].key}
+            fields={group.map((f) => ({ label: f.label, value: f.value.kind === "text" ? f.value.text : "" }))}
+          />
         ) : (
           <View key={group.key}>
-            <Text style={s.ssh}>{group.label}</Text>
-            <PdfGenericValue value={group.value} />
+            <Text style={st.label}>{group.label}</Text>
+            <GenericValueAt value={group.value} indent={indent} />
           </View>
         ),
       )}
@@ -37,68 +45,48 @@ function PdfFields({ fields }: { fields: GenericField[] }) {
   );
 }
 
-const MAX_WEIGHT = 40;
-
-// Largura de cada coluna proporcional ao maior texto (rótulo ou célula), normalizada para somar 1.
-export function columnWidths(columns: { label: string }[], rows: string[][]): number[] {
-  const weights = columns.map((column, i) =>
-    Math.min(MAX_WEIGHT, Math.max(column.label.length, 3, ...rows.map((row) => (row[i] ?? "").length))),
-  );
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  return weights.map((weight) => weight / total);
-}
-
 type TableValue = Extract<GenericValue, { kind: "table" }>;
 
-// Larguras em % do contêiner (a tabela aninhada cabe no recuo); registros aninhados saem como sub-bloco sob a linha.
-function PdfTable({ value }: { value: TableValue }) {
-  const widths = columnWidths(value.columns, value.rows.map((row) => row.cells));
-  return (
-    <View style={{ marginTop: 2 }} minPresenceAhead={24}>
-      {value.columns.length > 0 && (
-        <View style={[s.tr, { backgroundColor: "#fff" }]} fixed>
-          {value.columns.map((c, i) => (
-            <Text key={c.key} style={[s.th, { width: `${widths[i] * 100}%` }]}>{c.label}</Text>
-          ))}
-        </View>
-      )}
-      {value.rows.map((row, ri) => (
-        <View key={ri}>
-          {value.columns.length > 0 && (
-            <View style={s.tr} wrap={false}>
-              {row.cells.map((cell, ci) => (
-                <Text key={ci} style={[s.td, { width: `${widths[ci] * 100}%` }]}>{cell}</Text>
-              ))}
-            </View>
-          )}
+// Registros aninhados saem como sub-bloco recuado sob a linha; o recuo cresce a cada nível e a tabela encolhe com ele.
+function GenericTable({ value, indent }: { value: TableValue; indent: number }) {
+  const nestedIndent = indent + NESTED_INDENT;
+  const rows = value.rows.map((row) => ({
+    cells: row.cells,
+    extra:
+      row.nested.length > 0 ? (
+        <View style={{ marginLeft: NESTED_INDENT, marginBottom: 3 }}>
           {row.nested.map((n, ni) => (
-            <View key={ni} style={{ marginLeft: 10, marginBottom: 3 }}>
-              <Text style={s.ssh}>{n.label}</Text>
-              <PdfGenericValue value={n.value} />
+            <View key={ni}>
+              <Text style={st.label}>{n.label}</Text>
+              <GenericValueAt value={n.value} indent={nestedIndent} />
             </View>
           ))}
         </View>
-      ))}
-    </View>
-  );
+      ) : undefined,
+  }));
+  return <PdfTable columns={value.columns.map((c) => ({ label: c.label }))} rows={rows} indent={indent} />;
 }
 
-// Renderiza qualquer valor genérico da deps; partes recolhidas na tela saem por inteiro no PDF.
-export function PdfGenericValue({ value }: { value: GenericValue }) {
+function GenericValueAt({ value, indent }: { value: GenericValue; indent: number }) {
   switch (value.kind) {
     case "text":
-      return <Text style={s.li}>{value.text || "—"}</Text>;
+      return <Text style={st.line}>{value.text || "—"}</Text>;
     case "fields":
-      return <PdfFields fields={value.fields} />;
+      return <GenericFields fields={value.fields} indent={indent} />;
     case "table":
-      return <PdfTable value={value} />;
+      return <GenericTable value={value} indent={indent} />;
     case "json":
       return (
-        <View>
+        <View style={{ marginLeft: indent, maxWidth: PDF_PAGE.contentWidth - indent }}>
           {value.text.split("\n").map((line, i) => (
-            <Text key={i} style={s.li}>{line}</Text>
+            <Text key={i} style={st.line}>{line}</Text>
           ))}
         </View>
       );
   }
+}
+
+// Renderiza qualquer valor genérico da deps; partes recolhidas na tela saem por inteiro no PDF.
+export function PdfGenericValue({ value }: { value: GenericValue }) {
+  return <GenericValueAt value={value} indent={0} />;
 }
