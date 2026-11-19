@@ -1,25 +1,32 @@
-// Orçamento de um pedido: custo do Bureau e preço de venda, com as versões vigentes.
-// Total = valor base + valor por sócio × número de sócios. O M3 cobra o custo com este resultado.
+// Orçamento de um pedido de balcão: preço da plataforma, comissão do Bureau e parte da plataforma (o que a
+// reserva debita da carteira do Bureau). Total = valor base + valor por sócio × número de sócios.
 import type { DbIdentity } from "@/lib/db/transaction";
 
 import { buildQuote, type QuoteLine } from "./build-quote";
 import { toCents } from "./money";
-import { listCatalog } from "./queries";
+import { getEffectiveCommission, listCatalog, pctToHundredths } from "./queries";
 
-export { buildQuote, type QuoteLine } from "./build-quote";
+export { buildQuote, commissionCents, type QuoteLine } from "./build-quote";
 
 export type Quote =
-	| { ok: true; lines: QuoteLine[]; totalCostCents: number; totalPriceCents: number }
-	| { ok: false; reason: "product_not_for_sale" };
+	| {
+			ok: true;
+			lines: QuoteLine[];
+			totalPriceCents: number;
+			bureauCommissionCents: number;
+			platformShareCents: number;
+	  }
+	| { ok: false; reason: "product_not_for_sale" | "commission_not_configured" };
 
 export async function quoteOrder(
 	identity: DbIdentity,
 	productCode: "dossie_pf" | "dossie_empresarial",
 	options: { partnerCount: number },
 ): Promise<Quote> {
-	const catalog = await listCatalog(identity);
-	const product = catalog.find((e) => e.code === productCode && e.onSale);
-	if (!product?.item) return { ok: false, reason: "product_not_for_sale" };
+	const product = (await listCatalog(identity)).find((e) => e.code === productCode);
+	if (!product) return { ok: false, reason: "product_not_for_sale" };
+	const commission = await getEffectiveCommission(identity, identity.bureauId);
+	if (commission.pct === null) return { ok: false, reason: "commission_not_configured" };
 
 	return {
 		ok: true,
@@ -27,12 +34,11 @@ export async function quoteOrder(
 			{
 				productVersionId: product.productVersionId,
 				code: product.code,
-				salePriceCents: toCents(product.item.salePrice),
-				salePricePerPartnerCents: toCents(product.item.salePricePerPartner),
-				costCents: toCents(product.effectiveCost),
-				costPerPartnerCents: toCents(product.effectiveCostPerPartner),
+				salePriceCents: toCents(product.salePrice),
+				salePricePerPartnerCents: toCents(product.salePricePerPartner),
 			},
 			options.partnerCount,
+			pctToHundredths(commission.pct),
 		),
 	};
 }

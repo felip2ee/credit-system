@@ -20,8 +20,6 @@ export function orderTotalCents(product: ProductPrices, partnerCount: number): n
 			code: product.code,
 			salePriceCents: toCents(product.price),
 			salePricePerPartnerCents: toCents(product.pricePerPartner),
-			costCents: 0,
-			costPerPartnerCents: 0,
 		},
 		partnerCount,
 	).totalPriceCents;

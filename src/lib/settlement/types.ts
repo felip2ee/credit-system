@@ -17,7 +17,8 @@ export type SettlementFailure =
 	| "already_exists"
 	| "quote_mismatch"
 	| "price_mismatch"
-	| "cost_mismatch";
+	| "cost_mismatch"
+	| "commission_not_configured";
 
 // clawedBack: capture_order não capturou. Um estorno de PIX retomou a reserva e o pedido foi fechado como "released"
 // com o que sobrou devolvido. É um sucesso: o fechamento está gravado e o chamador deve confirmar a transação.
@@ -33,7 +34,8 @@ export type ReserveOrderInput = {
 	quote: OrderQuote;
 };
 
-// Custo de atacado do Bureau e cotação por linha (custo por produto): só a equipe do Bureau e o superadmin leem.
+// Parte da plataforma (preço menos comissão do Bureau; em pedido antigo, o custo de atacado) e cotação por linha: só a
+// equipe do Bureau e o superadmin leem.
 export type SettlementCost = { cost: string; quote: { lines: OrderQuote["lines"] } };
 
 // O cliente lê preço e status. Para ele, cost e quote vêm null.

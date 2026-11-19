@@ -3,7 +3,9 @@
 // (004_rls.sql: settings_select / settings_superadmin_write) and run as platform events,
 // without bureau or support session. No PoolClient escapes this module.
 
-import { platformIdentity, withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import type { PoolClient } from "pg";
+
+import { platformIdentity, platformWriteIdentity, withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { writeAuditEvent } from "@/lib/audit/write";
 
 // jsonb comes back already parsed by node-pg.
@@ -42,6 +44,12 @@ export interface UpsertSettingInput {
 export interface UpsertSettingsOptions {
   // Receives the values stored before the write (read in the same transaction); the result joins the audit metadata.
   auditChange?: (previous: Map<string, unknown>) => Record<string, unknown>;
+  // Runs first, in the same transaction (before any read or write): for locks.
+  beforeWrite?: (client: PoolClient) => Promise<void>;
+  // Keeps the support session in the DB context, so RLS can refuse support writes (platformIdentity drops it).
+  keepSupportSession?: boolean;
+  // Runs after the writes, in the same transaction; throwing rolls the whole write (and its audit) back.
+  afterWrite?: (client: PoolClient) => Promise<void>;
 }
 
 export async function upsertSettings(
@@ -50,7 +58,9 @@ export async function upsertSettings(
   auditAction: string,
   options: UpsertSettingsOptions = {},
 ): Promise<void> {
-  await withUserTransaction(platformIdentity(identity), async (client) => {
+  const dbIdentity = options.keepSupportSession ? platformWriteIdentity(identity) : platformIdentity(identity);
+  await withUserTransaction(dbIdentity, async (client) => {
+    await options.beforeWrite?.(client);
     let change: Record<string, unknown> = {};
     if (options.auditChange) {
       // Lock the rows so "from" is the value this write replaces.
@@ -72,6 +82,7 @@ export async function upsertSettings(
         [e.key, JSON.stringify(e.value), e.description ?? null, identity.userId],
       );
     }
+    await options.afterWrite?.(client);
     await writeAuditEvent(client, {
       actorId: identity.userId,
       action: auditAction,

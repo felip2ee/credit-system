@@ -16,6 +16,12 @@ export function platformIdentity(identity: DbIdentity): DbIdentity {
   return { userId: identity.userId, role: identity.role, bureauId: null };
 }
 
+// Escrita da plataforma que o RLS barra em sessão de suporte (comissão, bloqueio, % de afiliados): sem Bureau, mas
+// mantém a sessão de suporte para as políticas `app_support_session_id() is null` valerem.
+export function platformWriteIdentity(identity: DbIdentity): DbIdentity {
+  return { ...platformIdentity(identity), supportSessionId: identity.supportSessionId ?? null };
+}
+
 export async function withUserTransaction<T>(
   identity: DbIdentity,
   work: (client: PoolClient) => Promise<T>,

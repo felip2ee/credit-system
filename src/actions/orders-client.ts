@@ -54,8 +54,8 @@ async function requireClient(): Promise<RequiredSession | null> {
 	}
 }
 
-// D26: o cliente não lê a tabela do catálogo. Preço de venda vem do catálogo público do Bureau; o custo é do banco
-// (reserve_order recalcula preço e custo pelo pedido e confere o total).
+// D26: o cliente não lê a tabela do catálogo. Preço de venda vem do catálogo público do Bureau; a comissão e a parte
+// da plataforma são do banco (reserve_order recalcula tudo pelo pedido e só confere o preço total do cliente).
 async function quoteFromPublicCatalog(
 	session: RequiredSession,
 	productCode: string,
@@ -76,8 +76,6 @@ async function quoteFromPublicCatalog(
 				code: product.code,
 				salePriceCents: toCents(product.salePrice),
 				salePricePerPartnerCents: toCents(product.salePricePerPartner),
-				costCents: 0,
-				costPerPartnerCents: 0,
 			},
 			partnerCount,
 		),

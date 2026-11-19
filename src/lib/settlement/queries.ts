@@ -72,7 +72,7 @@ export async function reserveOrder(client: PoolClient, input: ReserveOrderInput)
 			input.mode,
 			input.clientProfileId,
 			fromCents(quote.totalPriceCents),
-			fromCents(quote.totalCostCents),
+			fromCents(quote.platformShareCents),
 			JSON.stringify({ lines: quote.lines }),
 		],
 	);

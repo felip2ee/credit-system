@@ -73,7 +73,7 @@ const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
 	const { lines } = await seedOrderCatalog(owner, c, {
 		productCode: "dossie_pf",
 		price: fromCents(input.quote.totalPriceCents),
-		cost: fromCents(input.quote.totalCostCents),
+		cost: fromCents(input.quote.platformShareCents),
 	});
 	const quoted = lines.length ? [{ ...input.quote.lines[0], code: lines[0].code }] : input.quote.lines;
 	return reserveOrderRaw(c, { ...input, quote: { ...input.quote, lines: quoted } });
@@ -87,11 +87,10 @@ const quoteOf = (priceCents: number, costCents: number): OrderQuote => ({
 				part: "base" as const,
 				quantity: 1,
 				unitPriceCents: priceCents,
-				unitCostCents: costCents,
-				costCents,
 				priceCents,
 			}],
-	totalCostCents: costCents,
+	platformShareCents: costCents,
+	bureauCommissionCents: priceCents - costCents,
 	totalPriceCents: priceCents,
 });
 

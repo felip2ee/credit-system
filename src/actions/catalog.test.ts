@@ -11,8 +11,8 @@ const state = vi.hoisted(() => ({
 	createProduct: vi.fn(),
 	updateProduct: vi.fn(),
 	createProductVersion: vi.fn(),
-	setBureauProductCost: vi.fn(),
-	upsertCatalogItem: vi.fn(),
+	setBureauCommissionOverride: vi.fn(),
+	setProductBlock: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -36,16 +36,18 @@ vi.mock("@/lib/catalog/queries", () => ({
 	createProduct: state.createProduct,
 	updateProduct: state.updateProduct,
 	createProductVersion: state.createProductVersion,
-	setBureauProductCost: state.setBureauProductCost,
-	upsertCatalogItem: state.upsertCatalogItem,
+}));
+vi.mock("@/lib/commission/queries", () => ({
+	setBureauCommissionOverride: state.setBureauCommissionOverride,
+	setProductBlock: state.setProductBlock,
 }));
 
 import {
 	createProduct,
 	createProductVersion,
-	setBureauProductCost,
+	setBureauCommissionOverrideAction,
+	setProductBlockAction,
 	updateProduct,
-	upsertCatalogItem,
 } from "./catalog";
 import { SessionAccessError } from "@/lib/auth/session";
 
@@ -57,8 +59,8 @@ const newProduct = {
 	baseCost: "5.00",
 };
 const newVersion = { productId: PRODUCT_ID, depsProduct: "", baseCost: "6.50" };
-const cost = { bureauId: BUREAU_ID, productId: PRODUCT_ID, cost: "7.25" };
-const item = { productId: PRODUCT_ID, active: true, salePrice: "10.00" };
+const override = { bureauId: BUREAU_ID, pct: 20 };
+const block = { bureauId: BUREAU_ID, productId: PRODUCT_ID, blocked: true };
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -68,138 +70,99 @@ beforeEach(() => {
 	state.createProduct.mockResolvedValue({ ok: true, id: PRODUCT_ID, versionId: "v1" });
 	state.updateProduct.mockResolvedValue({ ok: true });
 	state.createProductVersion.mockResolvedValue({ ok: true, versionId: "v2", version: 2 });
-	state.setBureauProductCost.mockResolvedValue({ ok: true });
-	state.upsertCatalogItem.mockResolvedValue({ ok: true });
+	state.setBureauCommissionOverride.mockResolvedValue({ ok: true });
+	state.setProductBlock.mockResolvedValue({ ok: true });
 });
 
 describe("permission by role", () => {
-	it("denies everyone but the superadmin on base product, version and cost actions", async () => {
+	it("denies everyone but the superadmin on every platform action (bureau_admin lost catalog:write)", async () => {
 		for (const role of ["bureau_admin", "operator", "client"]) {
 			state.role = role;
 			expect((await createProduct(newProduct)).error).toBe(NOT_ALLOWED);
 			expect((await updateProduct({ id: PRODUCT_ID, name: "X", active: true })).error).toBe(NOT_ALLOWED);
 			expect((await createProductVersion(newVersion)).error).toBe(NOT_ALLOWED);
-			expect((await setBureauProductCost(cost)).error).toBe(NOT_ALLOWED);
+			expect((await setBureauCommissionOverrideAction(override)).error).toBe(NOT_ALLOWED);
+			expect((await setProductBlockAction(block)).error).toBe(NOT_ALLOWED);
 		}
 		expect(state.createProduct).not.toHaveBeenCalled();
 		expect(state.updateProduct).not.toHaveBeenCalled();
 		expect(state.createProductVersion).not.toHaveBeenCalled();
-		expect(state.setBureauProductCost).not.toHaveBeenCalled();
-	});
-
-	it("denies everyone but the bureau_admin on the catalog item action", async () => {
-		for (const role of ["superadmin", "operator", "client"]) {
-			state.role = role;
-			expect((await upsertCatalogItem(item)).error).toBe(NOT_ALLOWED);
-		}
-		expect(state.upsertCatalogItem).not.toHaveBeenCalled();
+		expect(state.setBureauCommissionOverride).not.toHaveBeenCalled();
+		expect(state.setProductBlock).not.toHaveBeenCalled();
 	});
 
 	it("lets the superadmin run the platform actions", async () => {
 		expect(await createProduct(newProduct)).toEqual({ error: null, id: PRODUCT_ID });
 		expect(await createProductVersion(newVersion)).toEqual({ error: null, id: "v2" });
-		expect(await setBureauProductCost(cost)).toEqual({ error: null, id: PRODUCT_ID });
-		expect(state.setBureauProductCost).toHaveBeenCalledWith(
+		expect(await setBureauCommissionOverrideAction(override)).toEqual({ error: null, id: BUREAU_ID });
+		expect(await setProductBlockAction(block)).toEqual({ error: null, id: PRODUCT_ID });
+		expect(state.setBureauCommissionOverride).toHaveBeenCalledWith(
 			expect.objectContaining({ role: "superadmin" }),
 			BUREAU_ID,
-			PRODUCT_ID,
-			"7.25",
-			"0.00",
+			20,
 		);
+		expect(state.setProductBlock).toHaveBeenCalledWith(expect.anything(), BUREAU_ID, PRODUCT_ID, true);
 	});
 });
 
 describe("validation", () => {
 	it("rejects invalid money and ids before the query", async () => {
-		for (const bad of ["-1.00", "1.234", "abc", "100000000.00", " 10.00", "1,50"]) {
-			expect((await setBureauProductCost({ ...cost, cost: bad })).error).toBeTruthy();
-		}
-		expect((await setBureauProductCost({ ...cost, bureauId: "abc" })).error).toBeTruthy();
 		expect((await createProductVersion({ ...newVersion, baseCost: "-0.01" })).error).toBeTruthy();
 		expect((await createProductVersion({ ...newVersion, baseCostPerPartner: "1.234" })).error).toBeTruthy();
-		expect((await setBureauProductCost({ ...cost, costPerPartner: "-1.00" })).error).toBeTruthy();
-		expect(state.setBureauProductCost).not.toHaveBeenCalled();
+		expect((await createProductVersion({ ...newVersion, salePrice: "0.00" })).error).toBeTruthy();
+		expect((await createProductVersion({ ...newVersion, salePrice: "1,50" })).error).toBeTruthy();
+		expect((await createProductVersion({ ...newVersion, salePricePerPartner: "-1.00" })).error).toBeTruthy();
 		expect(state.createProductVersion).not.toHaveBeenCalled();
 	});
 
-	it("accepts cost 0 and passes the per-partner values", async () => {
+	it("accepts cost 0, an empty sale price (not for sale) and passes the prices", async () => {
 		expect(await createProductVersion({ ...newVersion, baseCost: "0.00", baseCostPerPartner: "2.50" })).toEqual({
 			error: null,
 			id: "v2",
 		});
-		expect(await setBureauProductCost({ ...cost, cost: "0", costPerPartner: "3.00" })).toEqual({
-			error: null,
-			id: PRODUCT_ID,
-		});
-		expect(state.createProductVersion).toHaveBeenCalledWith(
+		expect(state.createProductVersion).toHaveBeenLastCalledWith(
 			expect.anything(),
-			expect.objectContaining({ baseCost: "0.00", baseCostPerPartner: "2.50" }),
+			expect.objectContaining({ baseCost: "0.00", baseCostPerPartner: "2.50", salePrice: null, salePricePerPartner: "0.00" }),
 		);
-		expect(state.setBureauProductCost).toHaveBeenCalledWith(expect.anything(), BUREAU_ID, PRODUCT_ID, "0", "3.00");
-	});
-});
-
-describe("upsertCatalogItem", () => {
-	beforeEach(() => {
-		state.role = "bureau_admin";
-	});
-
-	it("takes the bureau from the session and ignores a bureauId in the form", async () => {
-		const result = await upsertCatalogItem({ ...item, bureauId: "00000000-0000-4000-8000-0000000000b2" });
-
-		expect(result).toEqual({ error: null, id: PRODUCT_ID });
-		expect(state.upsertCatalogItem).toHaveBeenCalledWith(
-			expect.objectContaining({ bureauId: BUREAU_ID }),
-			PRODUCT_ID,
-			{ active: true, salePrice: "10.00", salePricePerPartner: "0.00" },
+		await createProductVersion({ ...newVersion, salePrice: "400.00", salePricePerPartner: "30.00" });
+		expect(state.createProductVersion).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ salePrice: "400.00", salePricePerPartner: "30.00" }),
 		);
 	});
 
-	it("passes the per-partner price and rejects an invalid one before the query", async () => {
-		await upsertCatalogItem({ ...item, salePricePerPartner: "30.00" });
-		expect(state.upsertCatalogItem).toHaveBeenCalledWith(expect.anything(), PRODUCT_ID, {
-			active: true,
-			salePrice: "10.00",
-			salePricePerPartner: "30.00",
-		});
-
-		state.upsertCatalogItem.mockClear();
-		expect((await upsertCatalogItem({ ...item, salePricePerPartner: "-1.00" })).error).toBeTruthy();
-		expect((await upsertCatalogItem({ ...item, salePrice: "0.00" })).error).toBeTruthy();
-		expect(state.upsertCatalogItem).not.toHaveBeenCalled();
+	it("rejects a commission outside 0 to 99.99 or with more than 2 decimals, accepts null to go back to global", async () => {
+		for (const pct of [-1, 100, 99.995, 12.345, "20", undefined]) {
+			expect((await setBureauCommissionOverrideAction({ ...override, pct })).error).toBeTruthy();
+		}
+		expect((await setBureauCommissionOverrideAction({ ...override, bureauId: "abc" })).error).toBeTruthy();
+		expect(state.setBureauCommissionOverride).not.toHaveBeenCalled();
+		for (const pct of [0, 12.5, 99.99, null]) {
+			expect(await setBureauCommissionOverrideAction({ ...override, pct })).toEqual({ error: null, id: BUREAU_ID });
+		}
+		expect(state.setBureauCommissionOverride).toHaveBeenLastCalledWith(expect.anything(), BUREAU_ID, null);
 	});
 
-	it.each([
-		["price_below_cost", "O preço de venda não pode ser menor que o custo."],
-		["partner_price_below_cost", "O valor por sócio não pode ser menor que o custo por sócio."],
-		["per_partner_not_allowed", "O Dossiê Pessoa Física não cobra valor por sócio."],
-		["product_inactive", "Este produto está desativado."],
-	])("maps %s to a pt-BR message", async (reason, message) => {
-		state.upsertCatalogItem.mockResolvedValue({ ok: false, reason });
-
-		expect((await upsertCatalogItem(item)).error).toBe(message);
-	});
-
-	it("returns a safe message when the query throws", async () => {
-		state.upsertCatalogItem.mockRejectedValue(new Error("pg: secret detail"));
-
-		expect((await upsertCatalogItem(item)).error).toBe("Falha ao salvar o item do catálogo.");
+	it("rejects a non boolean block flag and bad ids", async () => {
+		expect((await setProductBlockAction({ ...block, blocked: "yes" })).error).toBeTruthy();
+		expect((await setProductBlockAction({ ...block, productId: "x" })).error).toBeTruthy();
+		expect(state.setProductBlock).not.toHaveBeenCalled();
 	});
 });
 
 describe("support session", () => {
-	it("denies the superadmin in a support session on product, version and cost actions", async () => {
+	it("denies the superadmin in a support session on every platform action", async () => {
 		state.supportSessionId = "00000000-0000-4000-8000-0000000000e1";
-		const denied = "Encerre a sessão de suporte para alterar produtos e custos.";
+		const denied = "Encerre a sessão de suporte para alterar produtos, preços e comissões.";
 
 		expect((await createProduct(newProduct)).error).toBe(denied);
 		expect((await updateProduct({ id: PRODUCT_ID, name: "X", active: true })).error).toBe(denied);
 		expect((await createProductVersion(newVersion)).error).toBe(denied);
-		expect((await setBureauProductCost(cost)).error).toBe(denied);
+		expect((await setBureauCommissionOverrideAction(override)).error).toBe(denied);
+		expect((await setProductBlockAction(block)).error).toBe(denied);
 		expect(state.createProduct).not.toHaveBeenCalled();
-		expect(state.updateProduct).not.toHaveBeenCalled();
-		expect(state.createProductVersion).not.toHaveBeenCalled();
-		expect(state.setBureauProductCost).not.toHaveBeenCalled();
+		expect(state.setBureauCommissionOverride).not.toHaveBeenCalled();
+		expect(state.setProductBlock).not.toHaveBeenCalled();
 	});
 });
 
@@ -210,7 +173,7 @@ describe("session errors", () => {
 		const log = vi.spyOn(console, "error").mockImplementation(() => {});
 		state.sessionError = new SessionAccessError("session_required");
 
-		expect((await setBureauProductCost(cost)).error).toBe(NOT_ALLOWED);
+		expect((await setProductBlockAction(block)).error).toBe(NOT_ALLOWED);
 		expect(log).not.toHaveBeenCalled();
 		log.mockRestore();
 	});
@@ -219,7 +182,7 @@ describe("session errors", () => {
 		const log = vi.spyOn(console, "error").mockImplementation(() => {});
 		state.sessionError = Object.assign(new Error("db down: password=secret"), { code: "ECONNREFUSED" });
 
-		expect((await setBureauProductCost(cost)).error).toBe(generic);
+		expect((await setProductBlockAction(block)).error).toBe(generic);
 		expect(log).toHaveBeenCalledWith(expect.stringContaining("requireSession"), {
 			name: "Error",
 			code: "ECONNREFUSED",
@@ -230,10 +193,10 @@ describe("session errors", () => {
 
 	it("logs the action name when a query throws", async () => {
 		const log = vi.spyOn(console, "error").mockImplementation(() => {});
-		state.setBureauProductCost.mockRejectedValue(new Error("boom"));
+		state.setBureauCommissionOverride.mockRejectedValue(new Error("boom"));
 
-		expect((await setBureauProductCost(cost)).error).toBe("Falha ao definir o custo.");
-		expect(log).toHaveBeenCalledWith(expect.stringContaining("setBureauProductCost"), {
+		expect((await setBureauCommissionOverrideAction(override)).error).toBe("Falha ao definir a comissão do Bureau.");
+		expect(log).toHaveBeenCalledWith(expect.stringContaining("setBureauCommissionOverride"), {
 			name: "Error",
 			code: undefined,
 		});
@@ -248,15 +211,37 @@ describe("query results", () => {
 		expect((await createProduct(newProduct)).error).toBe("Este código já está em uso.");
 	});
 
-	it("maps not_found to a pt-BR message on update, version and cost", async () => {
+	it("maps not_found to a pt-BR message on update, version, override and block", async () => {
 		const notFound = "Produto ou Bureau não encontrado.";
 		state.updateProduct.mockResolvedValue({ ok: false, reason: "not_found" });
 		state.createProductVersion.mockResolvedValue({ ok: false, reason: "not_found" });
-		state.setBureauProductCost.mockResolvedValue({ ok: false, reason: "not_found" });
+		state.setBureauCommissionOverride.mockResolvedValue({ ok: false, reason: "not_found" });
+		state.setProductBlock.mockResolvedValue({ ok: false, reason: "not_found" });
 
 		expect((await updateProduct({ id: PRODUCT_ID, name: "X", active: true })).error).toBe(notFound);
 		expect((await createProductVersion(newVersion)).error).toBe(notFound);
-		expect((await setBureauProductCost(cost)).error).toBe(notFound);
+		expect((await setBureauCommissionOverrideAction(override)).error).toBe(notFound);
+		expect((await setProductBlockAction(block)).error).toBe(notFound);
+	});
+
+	it("maps split_over_100 on the override", async () => {
+		state.setBureauCommissionOverride.mockResolvedValue({ ok: false, reason: "split_over_100" });
+
+		expect((await setBureauCommissionOverrideAction(override)).error).toBe(
+			"A comissão do Bureau somada à dos afiliados passa de 100%.",
+		);
+	});
+
+	it.each([
+		["price_below_cost", "O preço de venda não pode ser menor que o custo."],
+		["partner_price_below_cost", "O valor por sócio não pode ser menor que o custo por sócio."],
+		["per_partner_not_allowed", "O Dossiê Pessoa Física não cobra valor por sócio."],
+	])("maps the price conflict %s on product and version", async (reason, message) => {
+		state.createProduct.mockResolvedValue({ ok: false, reason });
+		state.createProductVersion.mockResolvedValue({ ok: false, reason });
+
+		expect((await createProduct(newProduct)).error).toBe(message);
+		expect((await createProductVersion(newVersion)).error).toBe(message);
 	});
 });
 

@@ -73,3 +73,11 @@ export async function readPayableRetentionDays(identity: DbIdentity): Promise<nu
 		? days
 		: DEFAULT_PAYABLE_RETENTION_DAYS;
 }
+
+export const BUREAU_COMMISSION_KEY = "bureau_commission_pct";
+
+// % global do Bureau (048). Ausente ou inválida = nulo: sem ela nenhuma reserva é aceita (commission_not_configured).
+export async function readBureauCommissionPct(identity: DbIdentity): Promise<number | null> {
+	const pct = await readSetting(identity, BUREAU_COMMISSION_KEY);
+	return typeof pct === "number" && Number.isFinite(pct) && pct >= 0 && pct <= 99.99 ? pct : null;
+}

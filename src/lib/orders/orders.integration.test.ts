@@ -517,35 +517,30 @@ describe("open_order", () => {
 		expect(buyer).toMatchObject({ ok: false, reason: "invalid_input" });
 	});
 
-	it("product not for sale", async () => {
-		const bare = await newTenant("ord bare", {});
-		const bareBuyer = await newBuyer(bare);
-		const result = await committed(bareBuyer.identity, (c) => openOrder(c, { self: true }));
-		expect(result).toMatchObject({ ok: false, reason: "product_not_for_sale" });
-		// Preço abaixo do custo efetivo também tira o produto da venda.
-		const cheap = await seedTenant(owner, "ord cheap");
-		bureauIds.push(cheap.bureau.id);
-		await sell(cheap, { dossie_pf: "5.00" }, "1.00");
+	it("product not for sale: blocked for the Bureau or without a price", async () => {
+		const open = async (t: SeededTenant) => committed((await newBuyer(t)).identity, (c) => openOrder(c, { self: true }));
+		const setBlock = (t: SeededTenant, blocked: boolean) =>
+			owner.query(
+				"insert into bureau_product_blocks (bureau_id, product_id, blocked, set_by) select $1, id, $2, $3 from products where code = 'dossie_pf'",
+				[t.bureau.id, blocked, t.bureauAdmin.userId],
+			);
+		// Bloqueado para este Bureau: o outro Bureau continua vendendo; liberar volta a vender.
+		const blocked = await newTenant("ord blocked");
+		await setBlock(blocked, true);
+		expect(await open(blocked)).toMatchObject({ ok: false, reason: "product_not_for_sale" });
+		expect(await open(T)).toMatchObject({ ok: true });
+		await setBlock(blocked, false);
+		expect(await open(blocked)).toMatchObject({ ok: true });
+		// Última versão sem preço: não há queda para a versão anterior.
 		await owner.query(
-			"insert into bureau_product_costs (bureau_id, product_id, cost, set_by) select $1, id, 9.00, $2 from products where code = 'dossie_pf'",
-			[cheap.bureau.id, cheap.bureauAdmin.userId],
+			`insert into product_versions (product_id, version, deps_product, base_cost, base_cost_per_partner)
+       select product_id, version + 1, deps_product, base_cost, base_cost_per_partner from product_versions
+        where product_id = (select id from products where code = 'dossie_pf') order by version desc limit 1`,
 		);
-		const cheapBuyer = await newBuyer(cheap);
-		const underCost = await committed(cheapBuyer.identity, (c) => openOrder(c, { self: true }));
-		expect(underCost).toMatchObject({ ok: false, reason: "product_not_for_sale" });
-		// Preço por sócio abaixo do custo por sócio idem.
-		const partnerCheap = await seedTenant(owner, "ord partner cheap");
-		bureauIds.push(partnerCheap.bureau.id);
-		await sell(partnerCheap, { dossie_empresarial: "50.00" }, "1.00");
-		await owner.query(
-			"insert into bureau_product_costs (bureau_id, product_id, cost, cost_per_partner, set_by) select $1, id, 1.00, 11.00, $2 from products where code = 'dossie_empresarial'",
-			[partnerCheap.bureau.id, partnerCheap.bureauAdmin.userId],
-		);
-		const partnerBuyer = await newBuyer(partnerCheap);
-		const underPartnerCost = await committed(partnerBuyer.identity, (c) =>
-			openOrder(c, { product: "dossie_empresarial", type: "PJ", document: cnpj(), email: mail() }),
-		);
-		expect(underPartnerCost).toMatchObject({ ok: false, reason: "product_not_for_sale" });
+		expect(await open(T)).toMatchObject({ ok: false, reason: "product_not_for_sale" });
+		// Volta o preço para os outros testes.
+		await sell(T, ALL_PRICES);
+		expect(await open(T)).toMatchObject({ ok: true });
 	});
 
 	it("every order starts with the opinion pending", async () => {

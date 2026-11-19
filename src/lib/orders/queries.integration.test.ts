@@ -930,7 +930,7 @@ describe("total por número de sócios (Dossiê Empresarial)", () => {
 		percentage: null,
 		role: null,
 	});
-	// Venda 100,00 + 30,00 por sócio; custo 60,00 + 20,00 por sócio.
+	// Venda 100,00 + 30,00 por sócio; o Bureau fica com 40% do preço bruto (a parte da plataforma é 60%).
 	async function pricedTenant(label: string): Promise<SeededTenant> {
 		const t = await seedTenant(owner, label);
 		await owner.query("update products set active = true where code = 'dossie_empresarial'");
@@ -944,10 +944,10 @@ describe("total por número de sócios (Dossiê Empresarial)", () => {
 	const companyWith = (partners: ReturnType<typeof partner>[], over: Partial<OpenOrderInput> = {}) =>
 		companyInput({ partners, ...over });
 
-	it("counter order reserves 60, 80 and 120 of cost for 0, 1 and 3 partners", async () => {
+	it("counter order reserves 60%, of the gross price, for 0, 1 and 3 partners", async () => {
 		const t = await pricedTenant("ord total counter");
 		let reserved = 0;
-		for (const [partners, cost] of [[0, 60], [1, 80], [3, 120]] as const) {
+		for (const [partners, cost] of [[0, 60], [1, 78], [3, 114]] as const) {
 			await placeCounter(t, companyWith(Array.from({ length: partners }, () => partner())));
 			reserved += cost;
 			expect(await bureauWallet(t)).toEqual({ available: (1000 - reserved).toFixed(2), reserved: reserved.toFixed(2) });
@@ -963,7 +963,7 @@ describe("total por número de sócios (Dossiê Empresarial)", () => {
 		expect(stale).toEqual({ ok: false, reason: "price_mismatch" });
 		const exact = await placeOrder(staff(t), input, await quote(staff(t), "dossie_empresarial", 1));
 		expect(exact.ok).toBe(true);
-		expect(await bureauWallet(t)).toEqual({ available: "920.00", reserved: "80.00" });
+		expect(await bureauWallet(t)).toEqual({ available: "922.00", reserved: "78.00" });
 	});
 
 	it("a partner with the company CNPJ or any 14 digits is invalid_input", async () => {
@@ -982,14 +982,14 @@ describe("total por número de sócios (Dossiê Empresarial)", () => {
 		const id = await placeOnline(t, companyWith([partner(), partner()]));
 		expect(await clientWallet(t)).toEqual({ available: "840.00", reserved: "160.00" });
 		const [settlement] = await rows("select price, cost from order_settlements where order_ref = $1", [id]);
-		expect(settlement).toEqual({ price: "160.00", cost: "100.00" });
-		const [stored] = await rows<{ quote: { lines: { part: string; quantity: number; priceCents: number; costCents: number }[] } }>(
+		expect(settlement).toEqual({ price: "160.00", cost: "96.00" });
+		const [stored] = await rows<{ quote: { lines: { part: string; quantity: number; priceCents: number }[] } }>(
 			"select quote from order_settlements where order_ref = $1",
 			[id],
 		);
 		expect(stored.quote.lines).toEqual([
-			expect.objectContaining({ part: "base", quantity: 1, priceCents: 10000, costCents: 6000 }),
-			expect.objectContaining({ part: "partner", quantity: 2, priceCents: 6000, costCents: 4000 }),
+			expect.objectContaining({ part: "base", quantity: 1, priceCents: 10000 }),
+			expect.objectContaining({ part: "partner", quantity: 2, priceCents: 6000 }),
 		]);
 	});
 
@@ -1001,7 +1001,7 @@ describe("total por número de sócios (Dossiê Empresarial)", () => {
 		expect(online).toEqual({ ok: false, reason: "price_mismatch" });
 		const counterPrice = await placeOrder(staff(t), inputs, { ...q, totalPriceCents: q.totalPriceCents + 100 });
 		expect(counterPrice).toEqual({ ok: false, reason: "price_mismatch" });
-		const counterCost = await placeOrder(staff(t), inputs, { ...q, totalCostCents: q.totalCostCents - 100 });
+		const counterCost = await placeOrder(staff(t), inputs, { ...q, platformShareCents: q.platformShareCents - 100 });
 		expect(counterCost).toEqual({ ok: false, reason: "cost_mismatch" });
 		expect(await clientWallet(t)).toEqual({ available: "1000.00", reserved: "0.00" });
 		expect(await bureauWallet(t)).toEqual({ available: "1000.00", reserved: "0.00" });

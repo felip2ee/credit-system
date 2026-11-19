@@ -22,6 +22,15 @@ export const nonNegativeMoneySchema = z.string().refine((value) => {
 
 const perPartnerMoney = nonNegativeMoneySchema.default("0.00");
 
+// Preço de venda da versão: vazio = versão sem preço ("não à venda", falha fechada).
+const optionalSalePrice = z
+  .string()
+  .nullish()
+  .transform((value) => value?.trim() || null)
+  .refine((value) => value === null || moneySchema.safeParse(value).success, {
+    message: "Informe um valor entre 0,01 e 99.999.999,99, com até 2 casas decimais.",
+  });
+
 const productName = z
 	.string()
 	.trim()
@@ -43,6 +52,8 @@ export const productCreateSchema = z.object({
 	depsProduct,
 	baseCost: nonNegativeMoneySchema,
 	baseCostPerPartner: perPartnerMoney,
+	salePrice: optionalSalePrice,
+	salePricePerPartner: perPartnerMoney,
 });
 
 export const productUpdateSchema = z.object({
@@ -56,24 +67,34 @@ export const productVersionSchema = z.object({
 	depsProduct,
 	baseCost: nonNegativeMoneySchema,
 	baseCostPerPartner: perPartnerMoney,
+	salePrice: optionalSalePrice,
+	salePricePerPartner: perPartnerMoney,
 });
 
-export const bureauCostSchema = z.object({
+// % do Bureau: de 0 a 99,99 com até 2 casas (teto < 100: o balcão exige parte da plataforma > 0).
+export const MAX_COMMISSION_PCT = 99.99;
+const CENTS_EPSILON = 1e-9;
+
+export const commissionPctSchema = z
+	.number({ invalid_type_error: "Informe a porcentagem." })
+	.min(0, "A porcentagem vai de 0 a 99,99.")
+	.max(MAX_COMMISSION_PCT, "A porcentagem vai de 0 a 99,99.")
+	.refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < CENTS_EPSILON, "Use até 2 casas decimais.");
+
+export const bureauCommissionSchema = z.object({ pct: commissionPctSchema });
+
+// pct nulo = volta à % global.
+export const bureauCommissionOverrideSchema = z.object({
+	bureauId: uuid,
+	pct: commissionPctSchema.nullable(),
+});
+
+export const productBlockSchema = z.object({
 	bureauId: uuid,
 	productId: uuid,
-	cost: nonNegativeMoneySchema,
-	costPerPartner: perPartnerMoney,
-});
-
-export const catalogItemSchema = z.object({
-	productId: uuid,
-	active: z.boolean(),
-	salePrice: moneySchema,
-	salePricePerPartner: perPartnerMoney,
+	blocked: z.boolean(),
 });
 
 export type ProductCreate = z.infer<typeof productCreateSchema>;
 export type ProductUpdate = z.infer<typeof productUpdateSchema>;
 export type ProductVersionInput = z.infer<typeof productVersionSchema>;
-export type BureauCostInput = z.infer<typeof bureauCostSchema>;
-export type CatalogItemInput = z.infer<typeof catalogItemSchema>;

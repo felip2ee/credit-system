@@ -19,13 +19,15 @@ export const CLIENT_ORDER_MESSAGES: Record<string, string> = {
 	third_party_not_allowed:
 		"No portal, o Dossiê Pessoa Física é só para você. Envie seu link para a outra pessoa consultar na conta dela.",
 	price_mismatch: "O preço mudou. Revise e confirme de novo.",
+	commission_not_configured: "Vendas indisponíveis no momento. Fale com o Bureau.",
 	too_many_orders: "Você atingiu o limite de pedidos de hoje. Tente amanhã.",
 	declaration_outdated: "A declaração mudou. Leia e confirme de novo.",
 };
 
 export const STAFF_ORDER_MESSAGES: Record<string, string> = {
 	...SHARED_MESSAGES,
-	insufficient_balance: "Saldo do Bureau insuficiente para reservar o custo. Recarregue a carteira.",
+	insufficient_balance: "Saldo do Bureau insuficiente para reservar o repasse à plataforma. Recarregue a carteira.",
+	commission_not_configured: "A comissão do Bureau não está definida. Fale com a plataforma.",
 };
 
 // Correção do contato do pedido de autorização (equipe).
