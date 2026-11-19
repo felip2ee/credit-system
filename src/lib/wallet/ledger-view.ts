@@ -52,7 +52,18 @@ export const PREPAID_STATEMENT_TEXT: Record<Kind, StatementText> = {
 	},
 };
 
-export const PAYABLE_STATEMENT_TEXT: Record<"accrual" | "reversal" | "payout", StatementText> = {
+// Reserva, captura e liberação gravadas com motivo 'cupom' cobrem o desconto de um cupom, não um pedido de balcão.
+export const COUPON_PREPAID_TEXT: Partial<Record<Kind, StatementText>> = {
+	reserve: { title: "Reserva de cobertura de cupom", detail: "Valor separado do saldo pré-pago para cobrir o desconto de um cupom.", signed: "out" },
+	capture: {
+		title: "Captura de cobertura de cupom",
+		detail: "A cobertura do cupom já estava separada. O saldo disponível não mudou.",
+		signed: "neutral",
+	},
+	release: { title: "Liberação de cobertura de cupom", detail: "O pedido foi cancelado e a cobertura do cupom voltou para o saldo.", signed: "in" },
+};
+
+export const PAYABLE_STATEMENT_TEXT: Record<"accrual" | "reversal" | "payout" | "coupon_cost" | "coupon_refund", StatementText> = {
 	accrual: {
 		title: "Sua parte entrou em A receber",
 		detail: "Venda online concluída. A Rainha Cred repassa essa parte a você.",
@@ -60,6 +71,16 @@ export const PAYABLE_STATEMENT_TEXT: Record<"accrual" | "reversal" | "payout", S
 	},
 	reversal: { title: "Parte estornada em A receber", detail: "Um pedido online foi estornado e sua parte foi retirada.", signed: "out" },
 	payout: { title: "Repasse recebido", detail: "A Rainha Cred pagou este valor. Ele saiu de A receber.", signed: "out" },
+	coupon_cost: {
+		title: "Cobertura de cupom",
+		detail: "O desconto de um cupom foi coberto com o valor de A receber.",
+		signed: "out",
+	},
+	coupon_refund: {
+		title: "Devolução de cobertura de cupom",
+		detail: "O pedido com cupom foi cancelado e a cobertura voltou para A receber.",
+		signed: "in",
+	},
 };
 
 // Lançamento do saldo do cliente sem o par no Bureau: não deveria existir, mas nada que movimentou fica de fora.

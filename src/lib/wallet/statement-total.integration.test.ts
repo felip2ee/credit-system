@@ -71,6 +71,26 @@ describe("listWalletStatement", () => {
 		expect(lines).toHaveLength(7);
 	});
 
+	it("cobertura de cupom em A receber (coupon_cost e coupon_refund) aparece no extrato sem erro", async () => {
+		const t = await seedTenant(owner, "StmtCoupon");
+		const orderRef = randomUUID();
+		await owner.query(
+			`insert into order_settlements (order_ref, bureau_id, mode, price, cost, status, closed_at)
+			 values ($1, $2, 'counter', 1, 0, 'captured', now())`,
+			[orderRef, t.bureau.id],
+		);
+		await owner.query(
+			`insert into bureau_payable_entries (bureau_id, kind, amount, order_ref)
+			 values ($1, 'coupon_cost', -3.00, $2), ($1, 'coupon_refund', 3.00, $2)`,
+			[t.bureau.id, orderRef],
+		);
+		const { lines } = await read(t.bureauAdmin, t.bureau.id, { source: "payable" });
+		expect(lines.map((l) => [l.title, l.amount, l.tone]).sort()).toEqual([
+			["Cobertura de cupom", "-3.00", "out"],
+			["Devolução de cobertura de cupom", "3.00", "in"],
+		]);
+	});
+
 	it("um ajuste de conta vira uma linha só, de crédito e de débito", async () => {
 		const t = await seedTenant(owner, "Stmt");
 		await seedWalletTopup(owner, { bureauId: t.bureau.id, amount: "100.00", createdBy: t.bureauAdmin.userId });

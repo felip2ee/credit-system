@@ -65,6 +65,39 @@ describe("toStatementLine", () => {
 		expect(toStatementLine(row("payable", "payout", "-50.00"))).toMatchObject({ title: "Repasse recebido", amount: "-50.00", tone: "out" });
 	});
 
+	it("A receber: cobertura de cupom e devolução não quebram o extrato", () => {
+		expect(toStatementLine(row("payable", "coupon_cost", "-3.00"))).toMatchObject({
+			title: "Cobertura de cupom",
+			amount: "-3.00",
+			tone: "out",
+		});
+		expect(toStatementLine(row("payable", "coupon_refund", "3.00"))).toMatchObject({
+			title: "Devolução de cobertura de cupom",
+			amount: "3.00",
+			tone: "in",
+		});
+	});
+
+	it("saldo pré-pago com motivo 'cupom' mostra cobertura de cupom; outro motivo mantém o texto de balcão", () => {
+		expect(toStatementLine(row("prepaid", "reserve", "5.00", "cupom"))).toMatchObject({
+			title: "Reserva de cobertura de cupom",
+			amount: "-5.00",
+			tone: "out",
+		});
+		expect(toStatementLine(row("prepaid", "capture", "5.00", "cupom"))).toMatchObject({
+			title: "Captura de cobertura de cupom",
+			tone: "neutral",
+		});
+		expect(toStatementLine(row("prepaid", "release", "5.00", "cupom"))).toMatchObject({
+			title: "Liberação de cobertura de cupom",
+			amount: "5.00",
+			tone: "in",
+		});
+		expect(toStatementLine(row("prepaid", "reserve", "5.00", "outro"))).toMatchObject({ title: "Custo saiu do saldo pré-pago" });
+		// Motivo 'cupom' não vale para os outros tipos.
+		expect(toStatementLine(row("prepaid", "topup", "5.00", "cupom"))).toMatchObject({ title: "Recarga no saldo pré-pago" });
+	});
+
 	it("lançamento de cliente sem par no Bureau ainda aparece", () => {
 		expect(toStatementLine(row("client", "adjustment_credit", "10.00", "motivo qualquer"))).toMatchObject({
 			source: "client",
