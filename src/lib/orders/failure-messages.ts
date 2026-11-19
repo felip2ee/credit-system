@@ -13,6 +13,9 @@ const SHARED_MESSAGES: Record<string, string> = {
 	not_found: "Pedido não encontrado.",
 };
 
+// Uma só mensagem para todo motivo de cupom que revelaria algo (existência, vigência, limite, produto, fundos do Bureau).
+export const COUPON_INVALID = "Cupom inválido ou indisponível";
+
 export const CLIENT_ORDER_MESSAGES: Record<string, string> = {
 	...SHARED_MESSAGES,
 	insufficient_balance: "Saldo insuficiente. Compre créditos para continuar.",
@@ -21,6 +24,12 @@ export const CLIENT_ORDER_MESSAGES: Record<string, string> = {
 	price_mismatch: "O preço mudou. Revise e confirme de novo.",
 	too_many_orders: "Você atingiu o limite de pedidos de hoje. Tente amanhã.",
 	declaration_outdated: "A declaração mudou. Leia e confirme de novo.",
+	coupon_invalid: COUPON_INVALID,
+	coupon_expired: COUPON_INVALID,
+	coupon_exhausted: COUPON_INVALID,
+	coupon_client_limit: COUPON_INVALID,
+	coupon_product_not_allowed: COUPON_INVALID,
+	coupon_funds_insufficient: COUPON_INVALID,
 };
 
 export const STAFF_ORDER_MESSAGES: Record<string, string> = {

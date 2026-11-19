@@ -17,7 +17,13 @@ export type SettlementFailure =
 	| "already_exists"
 	| "quote_mismatch"
 	| "price_mismatch"
-	| "cost_mismatch";
+	| "cost_mismatch"
+	| "coupon_invalid"
+	| "coupon_expired"
+	| "coupon_exhausted"
+	| "coupon_client_limit"
+	| "coupon_product_not_allowed"
+	| "coupon_funds_insufficient";
 
 // clawedBack: capture_order não capturou. Um estorno de PIX retomou a reserva e o pedido foi fechado como "released"
 // com o que sobrou devolvido. É um sucesso: o fechamento está gravado e o chamador deve confirmar a transação.
@@ -31,6 +37,8 @@ export type ReserveOrderInput = {
 	// Online: o id do próprio cliente. Balcão: null.
 	clientProfileId: string | null;
 	quote: OrderQuote;
+	// Só pedido online. O banco recalcula o desconto e confere o preço pago (price_mismatch).
+	coupon?: { code: string; discountCents: number };
 };
 
 // Custo de atacado do Bureau e cotação por linha (custo por produto): só a equipe do Bureau e o superadmin leem.

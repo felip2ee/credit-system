@@ -4,6 +4,9 @@
 import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
+import { computeCouponDiscount, eligibleTotalCents } from "@/lib/coupons/discount";
+import { previewCoupon } from "@/lib/coupons/queries";
+import { isCouponCodeFailure, recordCouponMiss } from "@/lib/coupons/record-miss";
 import { refreshDossierStatus } from "@/lib/dossiers/queries";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { recordHolderEvent } from "@/lib/holders/queries";
@@ -69,13 +72,34 @@ export async function openOrder(client: PoolClient, input: OpenOrderInput): Prom
 }
 
 export type PlaceOrderFailure = OpenOrderFailure | SettlementFailure | "declaration_outdated";
-export type PlaceOrderOptions = { declaration?: { version: number; ip: string | null; userAgent: string | null } };
+export type PlaceOrderOptions = {
+	declaration?: { version: number; ip: string | null; userAgent: string | null };
+	// Só pedido online. O desconto é calculado aqui, na mesma transação da reserva; o banco confere o preço pago.
+	couponCode?: string;
+};
 
 // Carrega o motivo da reserva recusada para fora da transação: lançar desfaz Titular, Dossiê, pedido e autorizações.
 class PlaceOrderAbort extends Error {
 	constructor(readonly reason: PlaceOrderFailure) {
 		super("placeOrder aborted");
 	}
+}
+
+// Cupom inválido por qualquer motivo (inclusive pedido de balcão, que não usa cupom) é o mesmo motivo: não revela qual.
+async function resolveCoupon(
+	client: PoolClient,
+	code: string,
+	quote: OrderQuote,
+): Promise<{ code: string; discountCents: number }> {
+	const productCodes = Array.from(new Set(quote.lines.map((l) => l.code)));
+	const preview = await previewCoupon(client, code, productCodes);
+	if (!preview) throw new PlaceOrderAbort("coupon_invalid");
+	const { discountCents } = computeCouponDiscount({
+		kind: preview.kind,
+		value: preview.value,
+		eligibleTotalCents: eligibleTotalCents(quote.lines, preview.eligibleProductCodes),
+	});
+	return { code, discountCents };
 }
 
 // Uma transação: abre, grava a declaração (portal), reserva e (balcão) atualiza o estado. Saldo insuficiente ou
@@ -95,11 +119,13 @@ export async function placeOrder(
 				const declared = await recordOrderDeclaration(client, { dossierId: opened.dossierId, ...options.declaration });
 				if (!declared.ok) throw new PlaceOrderAbort(declared.reason === "outdated" ? "declaration_outdated" : "not_found");
 			}
+			const coupon = options.couponCode ? await resolveCoupon(client, options.couponCode, quote) : undefined;
 			const reserved = await reserveOrder(client, {
 				orderRef: opened.dossierId,
 				mode,
 				clientProfileId: mode === "online" ? identity.userId : null,
 				quote,
+				coupon,
 			});
 			if (!reserved.ok) throw new PlaceOrderAbort(reserved.reason);
 			if (mode === "online") return { ok: true as const, dossierId: opened.dossierId, state: opened.state };
@@ -107,7 +133,11 @@ export async function placeOrder(
 			return { ok: true as const, dossierId: opened.dossierId, state };
 		});
 	} catch (error) {
-		if (error instanceof PlaceOrderAbort) return { ok: false, reason: error.reason };
+		if (error instanceof PlaceOrderAbort) {
+			// O rollback desfez o erro gravado pela prévia: conta de novo, fora da transação do pedido.
+			if (isCouponCodeFailure(error.reason)) await recordCouponMiss(identity);
+			return { ok: false, reason: error.reason };
+		}
 		throw error;
 	}
 }
