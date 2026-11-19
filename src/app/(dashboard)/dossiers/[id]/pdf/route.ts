@@ -1,5 +1,7 @@
 import { getRequiredSession } from "@/lib/auth/session";
 import { getDossierPdfDetail } from "@/lib/dossiers/queries";
+import { getConsultationReport } from "@/lib/consultations/queries";
+import { opinionFromAiReport } from "@/lib/pdf/opinion-from-report";
 import { hasPermission } from "@/lib/db/permissions";
 import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { toConsultationContent } from "@/lib/consultations/full-view";
@@ -15,6 +17,9 @@ import type { OpinionForPdf } from "@/lib/pdf/markdown-pdf";
 import { DEPS_PRODUCT_PF, DEPS_PRODUCT_PJ } from "@/lib/deps/products";
 import { formatCNPJ, formatCPF } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
+
+// O nome do arquivo leva só o início do id: o documento do titular não vai para o disco do usuário.
+const FILENAME_ID_LENGTH = 8;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,12 +83,21 @@ export async function GET(
       aptitude: report.aptitude_status,
       classificacao: report.full_report?.classificacao_perfil ?? null,
       resumo: report.full_report?.resumo_executivo ?? null,
-      pontosFortes: [],
-      pontosAtencao: [],
-      planoAcao: [],
+      pontosFortes: report.full_report?.pontos_fortes ?? [],
+      pontosAtencao: report.full_report?.pontos_atencao ?? [],
+      planoAcao: report.full_report?.plano_acao ?? [],
+      limiteSugerido: report.full_report?.limite_sugerido ?? null,
+      limiteNotas: report.full_report?.limite_sugerido_notas ?? null,
       modelo: report.model_used,
       relatorioMarkdown: report.report_markdown,
     };
+  }
+
+  // Sem parecer consolidado, vale o da consulta principal em ai_reports: o titular (PF), a empresa (PJ, PJ_FULL).
+  // Num PJ_FULL sem a empresa concluída, o primeiro membro é um sócio e o parecer dele não descreve o grupo.
+  const main = ordered[0];
+  if (!opinion && (dossier.kind !== "PJ_FULL" || main.type === "PJ")) {
+    opinion = opinionFromAiReport(await getConsultationReport(session, main.id));
   }
 
   const frame = { bureauName: (await getOwnBureauName(session)) ?? BRAND_NAME, supportEmail: config.supportEmail, issuedAt: new Date() };
@@ -97,7 +111,7 @@ export async function GET(
     frame
   );
 
-  const filename = `pesquisa-${dossier.holder_document}.pdf`;
+  const filename = `pesquisa-${dossier.id.slice(0, FILENAME_ID_LENGTH)}.pdf`;
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
