@@ -10,15 +10,17 @@ Runbook da carência, da fila de saques e do pagamento. Regras do produto: [PROD
 
 1. O cliente A copia o link em `/portal/afiliacao`.
 2. O cliente B se cadastra pelo link. O vínculo nasce nesse momento e não muda.
-3. B compra online. Quando o pedido é capturado, a comissão é uma % da margem do Bureau (preço menos custo).
+3. B compra online. Quando o pedido é capturado, a comissão é a % de afiliados do Bureau sobre o preço bruto. Ela sai da parte da plataforma.
 4. A comissão só nasce se B tem o celular verificado.
 5. A comissão entra em "Em carência". Depois do prazo, ela passa a "Comissão disponível".
 
 O estorno da recarga PIX do indicado reverte primeiro a comissão ainda em carência. Só o que sobra é cobrado do Bureau. Comissão já liberada não é revertida.
 
-## 2. % do Bureau
+## 2. % de afiliados do Bureau
 
-O Bureau define a % padrão e a % por afiliado em `/afiliados`. A % vale na captura e fica gravada na comissão. Mudar a % não altera comissões já criadas.
+O superadmin define **uma** % para todos os afiliados de cada Bureau, em `/superadmin/bureaus/<id>`. O Bureau vê a % em `/afiliados`, só em leitura. Não há % por afiliado. A % vale na captura e fica gravada na comissão. Mudar a % não altera comissões já criadas.
+
+A soma da % do Bureau e da % de afiliados não pode passar de 100%. A tela recusa a soma maior.
 
 ## 3. Carência
 

@@ -2,6 +2,8 @@
 
 Data: 2026-10-24. Estado: aprovado pelo dono em 2026-10-24. Depende de: `2026-10-24-dossies-pf-empresarial-design.md`.
 
+> **Substituído em parte por `2026-11-19-comissao-bureaus-design.md`.** A base da comissão deixou de ser a margem (preço menos custo) e passou a ser o preço bruto. A % de afiliados é uma por Bureau, definida pelo superadmin. A comissão sai da parte da plataforma. Este documento segue como histórico do resto do programa.
+
 ### Estado da dependência (2026-10-24)
 
 - O PR #74 (Dossiê PF e Dossiê Empresarial) entrou em `feature/m7-producao` às 16:48:35 UTC (merge `d7d3a17`).
