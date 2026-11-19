@@ -1,4 +1,4 @@
-// Apoio dos testes de PDF: extrai o texto de um PDF com fontes TrueType embutidas.
+// Apoio dos testes de PDF: extrai o texto de um PDF com fontes TrueType embutidas ou com a Helvetica padrão.
 import { inflateSync } from "node:zlib";
 
 function inflateOrNull(raw: string): string | null {
@@ -41,7 +41,12 @@ export function pdfText(pdf: Buffer): string {
         continue;
       }
       const hexes = t[3] ? [t[3]] : Array.from(t[2].matchAll(/<([0-9a-f]*)>/gi)).map((h) => h[1]);
-      lines.push(hexes.map((h) => (h.match(/.{4}/g) ?? []).map((c) => map?.get(c.toLowerCase()) ?? "").join("")).join(""));
+      // Fonte padrão (Helvetica) não tem ToUnicode: cada byte é um caractere Latin-1.
+      const decode = (h: string): string =>
+        map
+          ? (h.match(/.{4}/g) ?? []).map((c) => map?.get(c.toLowerCase()) ?? "").join("")
+          : Buffer.from(h, "hex").toString("latin1");
+      lines.push(hexes.map(decode).join(""));
     }
   }
   return lines.join("\n");

@@ -1,20 +1,15 @@
 import type { ReactNode } from "react";
 import { View, Text, StyleSheet } from "@react-pdf/renderer";
 
-import { BRAND_COLORS, STATE_COLORS } from "@/lib/brand/tokens";
+import { STATE_COLORS } from "@/lib/brand/tokens";
+
+import { PDF_FONT_FAMILY, PDF_FONT_FAMILY_BOLD } from "./fonts";
+import { PdfTable } from "./table";
+import { PDF_COLORS, PDF_TYPE } from "./theme";
 
 // Renderizador de parecer de IA compartilhado pelos dois PDFs (PF rico e PJ
 // simples). Inclui o conversor markdown→react-pdf (títulos, listas, **negrito**,
-// tabelas) e o bloco de decisão (selo APTO + perfil + limite).
-
-const teal = BRAND_COLORS.primary;
-const gold = STATE_COLORS.waiting.fg;
-const slate = BRAND_COLORS.mutedForeground;
-const muted = BRAND_COLORS.mutedForeground;
-const border = BRAND_COLORS.controlBorder;
-const A4_W = 595.28;
-const PAD_X = 42;
-const CONTENT_W = A4_W - PAD_X * 2;
+// tabelas) e o bloco de decisão (selo APTO + perfil + limite + parecer).
 
 const brl = (n: number | null | undefined) =>
   n == null
@@ -27,57 +22,34 @@ const APTITUDE_META: Record<string, { label: string; color: string }> = {
   inapt: { label: "INAPTO", color: STATE_COLORS.danger.border },
 };
 
+const LINE_HEIGHT = 1.45;
+// Até este tamanho (≈ 8 linhas) um bloco não quebra entre páginas; acima disso ele quebra, para nunca passar da página.
+const SHORT_BLOCK_CHARS = 700;
+// Espaço que um título exige abaixo de si quando o bloco seguinte é longo ou é tabela.
+const HEADING_AHEAD = 70;
+
 const m = StyleSheet.create({
-  h: {
-    fontSize: 10.5,
-    fontFamily: "Atkinson", fontWeight: 700,
-    color: teal,
-    marginTop: 8,
-    marginBottom: 5,
-    paddingBottom: 3,
-    borderBottomWidth: 1,
-    borderBottomColor: border,
-  },
-  sh: { fontSize: 9.5, fontFamily: "Atkinson", fontWeight: 700, color: gold, marginTop: 6, marginBottom: 3 },
-  ssh: { fontSize: 9.5, fontFamily: "Atkinson", fontWeight: 700, color: slate, marginTop: 4, marginBottom: 2 },
-  li: { fontSize: 10, marginBottom: 2, lineHeight: 1.3 },
-  p: { fontSize: 10, marginBottom: 3, lineHeight: 1.3 },
-  tr: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: border, paddingVertical: 3 },
-  th: { fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: muted },
-  td: { fontSize: 9.5, lineHeight: 1.25 },
+  // Título de seção: filete dourado curto acima, texto verde.
+  sectionRule: { width: 26, height: 1.5, backgroundColor: PDF_COLORS.goldRule, marginTop: 14, marginBottom: 5 },
+  sectionTitle: { fontFamily: PDF_FONT_FAMILY_BOLD, fontSize: PDF_TYPE.section, color: PDF_COLORS.green, marginBottom: 5 },
+  sub: { fontFamily: PDF_FONT_FAMILY_BOLD, fontSize: PDF_TYPE.body, color: PDF_COLORS.goldText, marginTop: 8, marginBottom: 3 },
+  subMuted: { fontFamily: PDF_FONT_FAMILY_BOLD, fontSize: PDF_TYPE.body, color: PDF_COLORS.muted, marginTop: 6, marginBottom: 2 },
+  text: { fontFamily: PDF_FONT_FAMILY, fontSize: PDF_TYPE.body, color: PDF_COLORS.ink, lineHeight: LINE_HEIGHT },
+  p: { marginBottom: 5 },
+  bold: { fontFamily: PDF_FONT_FAMILY_BOLD },
+  muted: { color: PDF_COLORS.muted },
+  item: { flexDirection: "row", marginBottom: 3, paddingLeft: 4 },
+  marker: { width: 14 },
+  itemBody: { flex: 1 },
   badge: {
-    fontSize: 9,
-    fontFamily: "Atkinson", fontWeight: 700,
+    fontFamily: PDF_FONT_FAMILY_BOLD,
+    fontSize: PDF_TYPE.table,
     color: "#fff",
     paddingVertical: 3.5,
     paddingHorizontal: 8,
-    borderRadius: 3,
+    borderRadius: 2,
   },
 });
-
-function MdTable({ cols, rows }: { cols: string[]; rows: string[][] }) {
-  const w = CONTENT_W / cols.length;
-  return (
-    <View style={{ marginTop: 3 }} minPresenceAhead={24}>
-      <View style={[m.tr, { backgroundColor: "#fff" }]} fixed>
-        {cols.map((c, i) => (
-          <Text key={i} style={[m.th, { width: w }]}>
-            {c}
-          </Text>
-        ))}
-      </View>
-      {rows.map((r, ri) => (
-        <View key={ri} style={m.tr} wrap={false}>
-          {r.map((cell, ci) => (
-            <Text key={ci} style={[m.td, { width: w }]}>
-              {cell}
-            </Text>
-          ))}
-        </View>
-      ))}
-    </View>
-  );
-}
 
 function mdInline(text: string, keyBase: string): ReactNode[] {
   return text
@@ -86,7 +58,7 @@ function mdInline(text: string, keyBase: string): ReactNode[] {
     .filter((p) => p !== "")
     .map((p, i) =>
       p.startsWith("**") && p.endsWith("**") ? (
-        <Text key={`${keyBase}-${i}`} style={{ fontFamily: "Atkinson", fontWeight: 700 }}>
+        <Text key={`${keyBase}-${i}`} style={m.bold}>
           {p.slice(2, -2)}
         </Text>
       ) : (
@@ -95,17 +67,49 @@ function mdInline(text: string, keyBase: string): ReactNode[] {
     );
 }
 
-export function MarkdownPdf({ md }: { md: string }) {
-  const lines = md.replace(/\r\n/g, "\n").split("\n");
-  const splitRow = (r: string) =>
-    r
-      .trim()
-      .replace(/^\|/, "")
-      .replace(/\|$/, "")
-      .split("|")
-      .map((c) => c.trim().replace(/\*\*/g, ""));
+// Item de lista: marcador fixo + corpo que quebra dentro da própria coluna. Item longo (`chars`) pode quebrar entre páginas.
+function ListItem({ marker, chars, children }: { marker: string; chars: number; children: ReactNode }) {
+  return (
+    <View style={m.item} wrap={chars > SHORT_BLOCK_CHARS}>
+      <Text style={[m.text, m.marker]}>{marker}</Text>
+      <Text style={[m.text, m.itemBody]}>{children}</Text>
+    </View>
+  );
+}
 
-  const out: ReactNode[] = [];
+// Seção do parecer: o título é irmão dos itens e só fica na página se couber o começo do primeiro item
+// (agrupar título e item num bloco que não quebra estoura a página quando o item é longo).
+function Section({ title, items }: { title: string; items: ReactNode[] }) {
+  if (items.length === 0) return null;
+  return (
+    <View>
+      <View wrap={false} minPresenceAhead={HEADING_AHEAD}>
+        <View style={m.sectionRule} />
+        <Text style={m.sectionTitle}>{title}</Text>
+      </View>
+      {items}
+    </View>
+  );
+}
+
+const splitRow = (r: string): string[] =>
+  r
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((c) => c.trim().replace(/\*\*/g, ""));
+
+interface MdBlock {
+  node: ReactNode;
+  kind: "heading" | "table" | "text";
+  // Tamanho do texto, para estimar se o bloco cabe junto do título sem ficar mais alto que a página.
+  chars: number;
+}
+
+function parseMarkdown(md: string): MdBlock[] {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const blocks: MdBlock[] = [];
   let i = 0;
   let k = 0;
   while (i < lines.length) {
@@ -124,27 +128,40 @@ export function MarkdownPdf({ md }: { md: string }) {
     ) {
       const cols = splitRow(lines[i]);
       i += 2;
-      const body: string[][] = [];
+      const parsed: string[][] = [];
       while (i < lines.length && lines[i].trim().startsWith("|")) {
-        const cells = splitRow(lines[i]);
-        while (cells.length < cols.length) cells.push("");
-        body.push(cells.slice(0, cols.length));
+        parsed.push(splitRow(lines[i]));
         i++;
       }
-      out.push(<MdTable key={`t-${k++}`} cols={cols} rows={body} />);
+      // A tabela tem tantas colunas quanto a linha mais larga: nenhuma célula some (rótulos extras ficam vazios).
+      const width = Math.max(cols.length, ...parsed.map((cells) => cells.length));
+      const labels = [...cols, ...Array<string>(width - cols.length).fill("")];
+      const rows = parsed.map((cells) => ({ cells: [...cells, ...Array<string>(width - cells.length).fill("")] }));
+      blocks.push({
+        node: <PdfTable key={`t-${k++}`} columns={labels.map((label) => ({ label }))} rows={rows} />,
+        kind: "table",
+        chars: 0,
+      });
       continue;
     }
 
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
     if (h) {
-      // Cores por nível: # = seção (teal) · ## = subtítulo (dourado) · ###+ = ardósia.
-      const lvl = h[1].length;
-      const style = lvl <= 1 ? m.h : lvl === 2 ? m.sh : m.ssh;
-      out.push(
-        <Text key={`h-${k++}`} style={style} wrap={false}>
-          {h[2].replace(/\*\*/g, "")}
-        </Text>
-      );
+      // # = seção (verde, filete dourado) · ## = subtítulo (dourado) · ###+ = discreto.
+      const level = h[1].length;
+      const text = h[2].replace(/\*\*/g, "");
+      const node =
+        level === 1 ? (
+          <View key={`h-${k++}`}>
+            <View style={m.sectionRule} />
+            <Text style={m.sectionTitle}>{text}</Text>
+          </View>
+        ) : (
+          <Text key={`h-${k++}`} style={level === 2 ? m.sub : m.subMuted}>
+            {text}
+          </Text>
+        );
+      blocks.push({ node, kind: "heading", chars: text.length });
       i++;
       continue;
     }
@@ -156,23 +173,54 @@ export function MarkdownPdf({ md }: { md: string }) {
 
     const b = /^[-*]\s+(.*)$/.exec(line);
     if (b) {
-      out.push(
-        <Text key={`b-${k}`} style={[m.li, { marginLeft: 8 }]}>
-          • {mdInline(b[1], `b${k++}`)}
-        </Text>
-      );
+      blocks.push({ node: <ListItem key={`b-${k}`} marker="•" chars={b[1].length}>{mdInline(b[1], `b${k++}`)}</ListItem>, kind: "text", chars: b[1].length });
       i++;
       continue;
     }
 
-    out.push(
-      <Text key={`p-${k}`} style={m.p}>
-        {mdInline(line, `p${k++}`)}
-      </Text>
-    );
+    blocks.push({
+      node: (
+        <Text key={`p-${k}`} style={[m.text, m.p]}>
+          {mdInline(line, `p${k++}`)}
+        </Text>
+      ),
+      kind: "text",
+      chars: line.length,
+    });
     i++;
   }
+  return blocks;
+}
 
+export function MarkdownPdf({ md }: { md: string }) {
+  const blocks = parseMarkdown(md);
+  const out: ReactNode[] = [];
+  for (let n = 0; n < blocks.length; n++) {
+    const block = blocks[n];
+    const next = blocks[n + 1];
+    if (block.kind !== "heading") {
+      out.push(block.node);
+      continue;
+    }
+    // Título curto + bloco curto: um grupo que não quebra. Bloco longo ou tabela: o grupo passaria da página
+    // (o react-pdf não o quebra), então o título é irmão do bloco e só fica na página se couberem ao menos
+    // HEADING_AHEAD pt do que vem depois (minPresenceAhead vale em View, não em Text).
+    if (next && next.kind === "text" && next.chars <= SHORT_BLOCK_CHARS) {
+      out.push(
+        <View key={`g-${n}`} wrap={false}>
+          {block.node}
+          {next.node}
+        </View>
+      );
+      n++;
+    } else {
+      out.push(
+        <View key={`g-${n}`} wrap={false} minPresenceAhead={HEADING_AHEAD}>
+          {block.node}
+        </View>
+      );
+    }
+  }
   return <>{out}</>;
 }
 
@@ -187,85 +235,76 @@ export interface OpinionForPdf {
   limiteSugerido?: number | null;
   limiteNotas?: string | null;
   modelo?: string | null;
-  // Parecer técnico completo (markdown das 23 seções). Quando presente, é
-  // renderizado na íntegra no lugar do resumo estruturado.
+  // Parecer técnico completo (markdown das 23 seções). Impresso depois dos campos estruturados.
   relatorioMarkdown?: string | null;
 }
 
-// Bloco completo do parecer: selo de decisão + relatório completo (ou resumo
-// estruturado como fallback) + rodapé do modelo. Wrappável (pagina sozinho).
+const dash = (description: string): string => (description ? ` — ${description}` : "");
+
+// Bloco completo do parecer, na ordem: selo e perfil, limite e notas, resumo, pontos fortes,
+// pontos de atenção, plano de ação, relatório. Imprime só o que existe. Wrappável.
 export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
+  const meta = APTITUDE_META[opinion.aptitude ?? ""];
   return (
     <View>
       <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-        <Text
-          style={[
-            m.badge,
-            { backgroundColor: APTITUDE_META[opinion.aptitude ?? ""]?.color ?? muted },
-          ]}
-        >
-          {APTITUDE_META[opinion.aptitude ?? ""]?.label ?? "—"}
-        </Text>
+        <Text style={[m.badge, { backgroundColor: meta?.color ?? PDF_COLORS.muted }]}>{meta?.label ?? opinion.aptitude ?? "—"}</Text>
         {opinion.classificacao ? (
-          <Text style={{ fontSize: 9, marginLeft: 8 }}>Perfil: {opinion.classificacao}</Text>
-        ) : null}
-        {opinion.limiteSugerido != null ? (
-          <Text style={{ fontSize: 9, marginLeft: 8 }}>
-            Limite sugerido <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{brl(opinion.limiteSugerido)}</Text>
+          <Text style={[m.text, { marginLeft: 10 }]}>
+            <Text style={m.muted}>Perfil </Text>
+            <Text style={m.bold}>{opinion.classificacao}</Text>
           </Text>
         ) : null}
       </View>
 
-      {opinion.relatorioMarkdown ? (
-        <View style={{ marginTop: 6 }}>
-          <MarkdownPdf md={opinion.relatorioMarkdown} />
-        </View>
-      ) : (
-        <>
-          {opinion.resumo ? <Text style={[m.li, { marginTop: 6 }]}>{opinion.resumo}</Text> : null}
-          {opinion.pontosFortes.length > 0 && (
-            <>
-              <Text style={[m.sh, { color: STATE_COLORS.success.fg }]}>Pontos fortes</Text>
-              {opinion.pontosFortes.map((p, i) => (
-                <Text key={i} style={m.li}>
-                  <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{p.title}</Text>
-                  {p.description ? ` — ${p.description}` : ""}
-                </Text>
-              ))}
-            </>
-          )}
-          {opinion.pontosAtencao.length > 0 && (
-            <>
-              <Text style={[m.sh, { color: STATE_COLORS.danger.fg }]}>Pontos de atenção</Text>
-              {opinion.pontosAtencao.map((p, i) => (
-                <Text key={i} style={m.li}>
-                  <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{p.title}</Text>
-                  {p.severity ? ` (${p.severity})` : ""}
-                  {p.description ? ` — ${p.description}` : ""}
-                </Text>
-              ))}
-            </>
-          )}
-          {opinion.planoAcao.length > 0 && (
-            <>
-              <Text style={m.sh}>Plano de ação</Text>
-              {opinion.planoAcao.map((a, i) => (
-                <Text key={i} style={m.li}>
-                  {i + 1}. <Text style={{ fontFamily: "Atkinson", fontWeight: 700 }}>{a.step}</Text>
-                  {a.priority ? ` [${a.priority}]` : ""}
-                  {a.description ? ` — ${a.description}` : ""}
-                </Text>
-              ))}
-            </>
-          )}
-          {opinion.limiteNotas ? (
-            <Text style={[m.li, { marginTop: 4, color: muted }]}>{opinion.limiteNotas}</Text>
+      {opinion.limiteSugerido != null || opinion.limiteNotas ? (
+        <View style={{ marginTop: 8 }}>
+          {opinion.limiteSugerido != null ? (
+            <Text style={m.text}>
+              <Text style={m.muted}>Limite sugerido </Text>
+              <Text style={m.bold}>{brl(opinion.limiteSugerido)}</Text>
+            </Text>
           ) : null}
-        </>
-      )}
+          {opinion.limiteNotas ? <Text style={[m.text, m.muted]}>{opinion.limiteNotas}</Text> : null}
+        </View>
+      ) : null}
+
+      <Section title="Resumo" items={opinion.resumo ? [<Text key="r" style={m.text}>{opinion.resumo}</Text>] : []} />
+      <Section
+        title="Pontos fortes"
+        items={opinion.pontosFortes.map((p, i) => (
+          <ListItem key={i} marker="•" chars={p.title.length + p.description.length}>
+            <Text style={m.bold}>{p.title}</Text>
+            {dash(p.description)}
+          </ListItem>
+        ))}
+      />
+      <Section
+        title="Pontos de atenção"
+        items={opinion.pontosAtencao.map((p, i) => (
+          <ListItem key={i} marker="•" chars={p.title.length + p.description.length}>
+            <Text style={m.bold}>{p.title}</Text>
+            {p.severity ? ` (${p.severity})` : ""}
+            {dash(p.description)}
+          </ListItem>
+        ))}
+      />
+      <Section
+        title="Plano de ação"
+        items={opinion.planoAcao.map((a, i) => (
+          <ListItem key={i} marker={`${i + 1}.`} chars={a.step.length + a.description.length}>
+            <Text style={m.bold}>{a.step}</Text>
+            {a.priority ? ` [${a.priority}]` : ""}
+            {dash(a.description)}
+          </ListItem>
+        ))}
+      />
+
+      {/* Sem View em volta: o título precisa ter irmãos anteriores para o minPresenceAhead valer. */}
+      {opinion.relatorioMarkdown ? <MarkdownPdf md={opinion.relatorioMarkdown} /> : null}
 
       {opinion.modelo ? (
-        <Text style={{ fontSize: 9, color: muted, marginTop: 6 }}>
+        <Text style={[m.text, m.muted, { fontSize: PDF_TYPE.table, marginTop: 10 }]}>
           Gerado por IA ({opinion.modelo}). Sujeito a validação humana.
         </Text>
       ) : null}

@@ -1,18 +1,19 @@
 # pdf — @react-pdf/renderer documents for consultations and dossiers
 
-Server-side rendering of A4 PDFs (single consultation, full consultation, dossier) with a code-drawn Rainha Cred header and footer. Handles personal and credit data, so output must stay on the authorized request path.
+Server-side rendering of A4 PDFs (single consultation, full consultation, dossier) on the Rainha Cred letterhead (`public/brand/rainha-cred/timbrado/`), with the logo and footer drawn in code. Handles personal and credit data, so output must stay on the authorized request path.
 
 ## Responsibility
 
-Belongs here: react-pdf document components and `render*Pdf` functions (`consultation-document.tsx`, `consultation-full-document.tsx`, `dossier-document.tsx`), the markdown-to-PDF renderer (`markdown-pdf.tsx`), the brand header/footer (`brand-frame.tsx`) and font registration (`fonts.ts`). Does NOT belong here: data loading or permission checks (route handlers under `src/app/(dashboard)/` and `src/lib/*/queries`), the view model (`@/lib/consultations/view-model`), and web UI (`src/components/`).
+Belongs here: react-pdf document components and `render*Pdf` functions (`consultation-document.tsx`, `consultation-full-document.tsx`, `dossier-document.tsx`), the markdown-to-PDF renderer (`markdown-pdf.tsx`), the letterhead frame (`brand-frame.tsx`), page metrics and colours (`theme.ts`), the table standard (`table.tsx` + pure `table-layout.ts`), the curated consultation sections (`sections/`), the dossier cover (`dossier-cover.tsx`) and font setup (`fonts.ts`). Does NOT belong here: data loading or permission checks (route handlers under `src/app/(dashboard)/` and `src/lib/*/queries`), the view model (`@/lib/consultations/view-model`), and web UI (`src/components/`).
 
 ## Key patterns
 
 - Each document exposes a `render…Pdf(data, frame): Promise<Buffer>` built on `renderToBuffer` (e.g. `renderDossierPdf`, `renderConsultationPdf`).
-- Callers pass a `PdfFrame` (`bureauName`, `supportEmail`, `issuedAt`); `PdfBrandFrame` draws the fixed header (logo, Bureau name, date) and footer (support e-mail, page X of Y) on every page.
-- `FullConsultationPage` and `pdfStyles` are exported from `consultation-full-document.tsx` and reused by `dossier-document.tsx`; each consultation is its own `<Page>`, so every page repeats the frame.
+- Callers pass a `PdfFrame` (`bureauName`, `supportEmail`, `issuedAt`); `PdfBrandFrame` draws, on every page, the letterhead image, the logo, the footer (e-mail, optional WhatsApp and Instagram, "Página X de Y") and, from page 2 of the document on, the running line (`frame.running`).
+- `ConsultationPdfPage` (`complete-consultation-document.tsx`) renders one consultation; `roleLabel`, `documentKind` and `closingNote` serve the dossier. A dossier is a cover (`dossier-cover.tsx`), one `<Page>` per member, then the opinion page; page numbering runs across the whole document.
+- Tables go through `PdfTable` (rows split in blocks that never break, header repeats, empty columns dropped); unknown sections go through the generic renderer so no data is lost.
 - `markdown-pdf.tsx` provides `MarkdownPdf` and `OpinionBlock` (shared by the PF and PJ PDFs) and the `OpinionForPdf` type.
-- Styling uses `StyleSheet.create` with local colour constants; currency uses `Intl.NumberFormat("pt-BR", { currency: "BRL" })`.
+- Styling uses `StyleSheet.create` with the tokens of `theme.ts`; currency uses `Intl.NumberFormat("pt-BR", { currency: "BRL" })`.
 
 ## Applied rules
 
@@ -28,8 +29,9 @@ Rules active in this directory — read them before touching code here:
 ## Local conventions
 
 - Documents are rendered on the server only; they return a `Buffer`, not JSX, to callers.
-- Font is Atkinson Hyperlegible (400/700), TTF in `fonts/`, registered by `registerPdfFonts()` (OFL.txt beside). Body ≥ 10 pt, tables ≥ 9 pt.
-- Page size is A4; `markdown-pdf.tsx` holds the width constants (`A4_W`, `PAD_X`).
+- Font is the react-pdf built-in Helvetica (`PDF_FONT_FAMILY` in `fonts.ts`); no font file is registered. Body ≥ 10 pt, tables ≥ 9 pt. Page metrics and colours live in `theme.ts`.
+- Page size is A4; `PDF_PAGE` in `theme.ts` holds the metrics and the safe area of the letterhead.
+- react-pdf quirks: a page-level `lineHeight` collapses large Text; a `fixed` element with explicit `height` or `alignItems: "center"` that holds a `render` text paints empty on pages that break.
 - Visible text is pt-BR.
 
 ## Rules

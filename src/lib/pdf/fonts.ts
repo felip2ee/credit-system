@@ -1,22 +1,24 @@
-import { join } from "node:path";
 import { Font } from "@react-pdf/renderer";
 
-export const PDF_FONT_FAMILY = "Atkinson";
+// Fontes embutidas do react-pdf: o zero liso da Helvetica não confunde valores.
+export const PDF_FONT_FAMILY = "Helvetica";
+export const PDF_FONT_FAMILY_BOLD = "Helvetica-Bold";
 
-const FONT_DIR = join(process.cwd(), "src", "lib", "pdf", "fonts");
+const MAX_TOKEN_PART = 16;
+
+// Palavra curta fica inteira; token longo sem espaço (URL, número grande) quebra em partes que cabem na célula.
+export function breakLongToken(word: string): string[] {
+  if (word.length <= MAX_TOKEN_PART) return [word];
+  const parts: string[] = [];
+  for (let i = 0; i < word.length; i += MAX_TOKEN_PART) parts.push(word.slice(i, i + MAX_TOKEN_PART));
+  return parts;
+}
+
 let registered = false;
 
-// Atkinson Hyperlegible (OFL, ver OFL.txt): 400 e 700. Idempotente.
+// Idempotente. O padrão inglês de hifenização quebra palavras em português no meio; aqui só token longo quebra.
 export function registerPdfFonts(): void {
   if (registered) return;
-  Font.register({
-    family: PDF_FONT_FAMILY,
-    fonts: [
-      { src: join(FONT_DIR, "AtkinsonHyperlegible-Regular.ttf"), fontWeight: 400 },
-      { src: join(FONT_DIR, "AtkinsonHyperlegible-Bold.ttf"), fontWeight: 700 },
-    ],
-  });
-  // O padrão inglês de hifenização quebra palavras em português (e nomes) no meio.
-  Font.registerHyphenationCallback((word) => [word]);
+  Font.registerHyphenationCallback(breakLongToken);
   registered = true;
 }
