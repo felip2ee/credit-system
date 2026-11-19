@@ -16,9 +16,16 @@ vi.mock("@/lib/settings/queries", () => ({
   deleteSettings: vi.fn(),
 }));
 
-import { readAffiliateSettings, readPayableRetentionDays } from "@/lib/settings/readers";
+vi.mock("@/lib/commission/queries", () => ({
+  assertSplitWithin100: vi.fn(),
+  lockCommissionSplit: vi.fn(),
+  SplitOver100Error: class SplitOver100Error extends Error {},
+}));
 
-import { getAiPrompt, getAiPrompts, getScrTermSettings, saveAffiliateSettings, savePayableRetentionAction } from "./settings";
+import { SplitOver100Error } from "@/lib/commission/queries";
+import { readAffiliateSettings, readBureauCommissionPct, readPayableRetentionDays } from "@/lib/settings/readers";
+
+import { getAiPrompt, getAiPrompts, getScrTermSettings, saveAffiliateSettings, saveBureauCommissionAction, savePayableRetentionAction } from "./settings";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -158,5 +165,73 @@ describe("payable retention", () => {
   it.each([null, 30.5, -1, 3651, "30"])("reader falls back to 30 for %j", async (stored) => {
     state.readSetting.mockResolvedValueOnce(stored as never);
     await expect(readPayableRetentionDays(identity as never)).resolves.toBe(30);
+  });
+});
+
+describe("bureau commission", () => {
+  const identity = { userId: "u1", role: "superadmin", bureauId: null };
+
+  it.each([0, 12.5, 20, 99.99])("saves %s%% and audits settings.bureau_commission", async (pct) => {
+    state.session = identity;
+    await expect(saveBureauCommissionAction({ pct })).resolves.toEqual({ error: null });
+
+    expect(state.upsertSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "superadmin" }),
+      [{ key: "bureau_commission_pct", value: pct }],
+      "settings.bureau_commission",
+      {
+        auditChange: expect.any(Function),
+        beforeWrite: expect.any(Function),
+        keepSupportSession: true,
+        afterWrite: expect.any(Function),
+      },
+    );
+  });
+
+  it.each([
+    [20, 25, { from: 20, to: 25 }],
+    [undefined, 25, { from: null, to: 25 }],
+  ])("audit metadata has old and new pct (previous %j)", async (previous, pct, expected) => {
+    state.session = identity;
+    await saveBureauCommissionAction({ pct });
+
+    const options = (state.upsertSettings.mock.calls[0] as unknown[])[3] as {
+      auditChange: (previous: Map<string, unknown>) => Record<string, unknown>;
+    };
+    const map = new Map<string, unknown>(previous === undefined ? [] : [["bureau_commission_pct", previous]]);
+    expect(options.auditChange(map)).toEqual(expected);
+  });
+
+  it.each([{ pct: -1 }, { pct: 100 }, { pct: 12.345 }, { pct: "20" }, {}, null])("rejects invalid values %j", async (values) => {
+    state.session = identity;
+    expect((await saveBureauCommissionAction(values)).error).toBeTruthy();
+    expect(state.upsertSettings).not.toHaveBeenCalled();
+  });
+
+  it.each(["bureau_admin", "operator", "client"])("refuses %s", async (role) => {
+    state.session = { userId: "u2", role, bureauId: "b1" };
+    expect((await saveBureauCommissionAction({ pct: 20 })).error).toBeTruthy();
+    expect(state.upsertSettings).not.toHaveBeenCalled();
+  });
+
+  it("refuses the superadmin in a support session", async () => {
+    state.session = { ...identity, supportSessionId: "s1" } as typeof identity;
+    expect((await saveBureauCommissionAction({ pct: 20 })).error).toBeTruthy();
+    expect(state.upsertSettings).not.toHaveBeenCalled();
+  });
+
+  it("maps a split above 100 to a pt-BR message", async () => {
+    state.session = identity;
+    state.upsertSettings.mockRejectedValueOnce(new SplitOver100Error());
+    expect((await saveBureauCommissionAction({ pct: 90 })).error).toContain("100%");
+  });
+
+  it("reader returns the stored pct or null", async () => {
+    state.readSetting.mockResolvedValueOnce(12.5 as never);
+    await expect(readBureauCommissionPct(identity as never)).resolves.toBe(12.5);
+    for (const stored of [null, -1, 100, "20"]) {
+      state.readSetting.mockResolvedValueOnce(stored as never);
+      await expect(readBureauCommissionPct(identity as never)).resolves.toBeNull();
+    }
   });
 });

@@ -497,7 +497,7 @@ describe("depois da captura", () => {
 		expect(kinds).not.toContain("coupon_refund");
 	});
 
-	it("affiliate commission is not created when the margin is zero or negative", async () => {
+	it("affiliate commission is on the gross price: a coupon that wipes the Bureau commission does not remove it", async () => {
 		const t = await tenant("cup affiliate", { client: "500.00", wallet: "100.00" });
 		const affiliate = await seedClientProfile(owner, t.bureau.id);
 		await owner.query("insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $2, $3)", [
@@ -516,20 +516,28 @@ describe("depois da captura", () => {
 			"insert into bureau_affiliate_settings (bureau_id, default_pct) values ($1, 10) on conflict (bureau_id) do update set default_pct = 10",
 			[t.bureau.id],
 		);
-		// Paga 60 = custo: margem 0. Paga 50: margem -10.
+		// Preço bruto 100, comissão do Bureau 40%, afiliado 10% do bruto (sai da parte da plataforma, que o cupom não muda).
+		// Paga 60 = parte da plataforma: o Bureau fica com 0. Paga 50: o Bureau cobre 10 (a carteira) e fica com 0.
 		const zero = await seedCoupon(t, { value: "40" });
 		const a = await place(t, { paid: "60.00", code: zero.code });
 		expect(await capture(t, a.orderRef)).toMatchObject({ ok: true });
 		const neg = await seedCoupon(t, { value: "50" });
 		const b = await place(t, { paid: "50.00", code: neg.code });
 		expect(await capture(t, b.orderRef)).toMatchObject({ ok: true });
-		expect(await rows("select 1 from affiliate_commissions where bureau_id = $1", [t.bureau.id])).toHaveLength(0);
+		const commissions = await rows<{ amount: string; margin: string }>(
+			"select amount, margin from affiliate_commissions where bureau_id = $1",
+			[t.bureau.id],
+		);
+		expect(commissions).toHaveLength(2);
+		for (const c of commissions) expect({ amount: c.amount, margin: c.margin }).toEqual({ amount: "10.00", margin: "100.00" });
+		// O Bureau não recebe acréscimo (a comissão dele foi toda para o desconto).
 		expect(await payableKinds(t.bureau.id)).toEqual([]);
 
-		// Sem cupom a comissão continua nascendo (margem 40).
+		// Sem cupom o Bureau recebe os 40 inteiros e o afiliado, os mesmos 10.
 		const plain = await place(t, { paid: "100.00" });
 		await capture(t, plain.orderRef);
-		expect(await rows("select 1 from affiliate_commissions where bureau_id = $1", [t.bureau.id])).toHaveLength(1);
+		expect(await rows("select 1 from affiliate_commissions where bureau_id = $1", [t.bureau.id])).toHaveLength(3);
+		expect(await payableKinds(t.bureau.id)).toEqual([{ kind: "accrual", amount: "40.00" }]);
 	});
 });
 

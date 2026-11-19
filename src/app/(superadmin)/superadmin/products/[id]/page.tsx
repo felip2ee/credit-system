@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { formatBRL } from "@/components/superadmin/money";
 import { ProductEditForm } from "@/components/superadmin/product-form";
 import { ProductVersionForm } from "@/components/superadmin/product-version-form";
+import { Badge } from "@/components/ui/badge";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { Card } from "@/components/ui/card";
 import {
   Table,
@@ -36,6 +38,13 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
   return (
     <div className="space-y-6">
       <PageHeader title={product.name} description={`Código: ${product.code}`} />
+      {product.salePrice === null && (
+        <StatusBanner
+          tone="attention"
+          title="Não à venda"
+          description="A versão vigente não tem preço. Sem preço = não está à venda: crie uma nova versão com o preço de venda."
+        />
+      )}
       {canWrite && <ProductEditForm product={product} />}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Versões</h2>
@@ -45,8 +54,10 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
             <TableRow>
               <TableHead>Versão</TableHead>
               <TableHead>Nome DEPS</TableHead>
-              <TableHead className="text-right">Custo padrão</TableHead>
+              <TableHead className="text-right">Custo interno</TableHead>
               <TableHead className="text-right">Custo por sócio</TableHead>
+              <TableHead className="text-right">Preço de venda</TableHead>
+              <TableHead className="text-right">Preço por sócio</TableHead>
               <TableHead>Criada em</TableHead>
             </TableRow>
           </TableHeader>
@@ -59,6 +70,12 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
                 <TableCell className="text-right">
                   {product.code === "dossie_empresarial" ? formatBRL(v.baseCostPerPartner) : "—"}
                 </TableCell>
+                <TableCell className="text-right">
+                  {v.salePrice === null ? <Badge variant="muted">Sem preço</Badge> : formatBRL(v.salePrice)}
+                </TableCell>
+                <TableCell className="text-right">
+                  {product.code === "dossie_empresarial" ? formatBRL(v.salePricePerPartner) : "—"}
+                </TableCell>
                 <TableCell>{v.createdAt.toLocaleString("pt-BR")}</TableCell>
               </TableRow>
             ))}
@@ -70,7 +87,7 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Nova versão</h2>
           <p className="text-sm text-muted-foreground">
-            A versão anterior não muda. Pedidos futuros usam a nova versão.
+            A versão anterior não muda. Pedidos futuros usam a nova versão e o preço dela.
           </p>
           <ProductVersionForm
             productId={product.id}
@@ -78,6 +95,8 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
             currentDepsProduct={product.depsProduct}
             currentBaseCost={product.baseCost}
             currentBaseCostPerPartner={product.baseCostPerPartner}
+            currentSalePrice={product.salePrice}
+            currentSalePricePerPartner={product.salePricePerPartner}
           />
         </section>
       )}

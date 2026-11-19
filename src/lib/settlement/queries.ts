@@ -74,7 +74,7 @@ export async function reserveOrder(client: PoolClient, input: ReserveOrderInput)
 			input.mode,
 			input.clientProfileId,
 			fromCents(paidCents),
-			fromCents(quote.totalCostCents),
+			fromCents(quote.platformShareCents),
 			JSON.stringify({ lines: quote.lines }),
 			coupon?.code ?? null,
 		],

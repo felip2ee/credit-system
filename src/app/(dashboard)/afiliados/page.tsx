@@ -10,14 +10,14 @@ export const metadata = { title: "Afiliados" };
 
 export default async function AffiliatesPage() {
   const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
-  if (!hasPermission(session, "affiliates:manage") || !session.bureauId) redirect("/");
+  if (!hasPermission(session, "affiliates:read") || !session.bureauId) redirect("/");
 
   const affiliates = await listBureauAffiliates(session);
   const defaultPct = await getBureauDefaultPct(session);
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Afiliados" description="Quem indica clientes ao seu Bureau e a comissão de cada um" />
+      <PageHeader title="Afiliados" description="Quem indica clientes ao seu Bureau e a comissão paga a eles" />
       <BureauAffiliatesTable defaultPct={defaultPct} affiliates={affiliates} />
     </div>
   );

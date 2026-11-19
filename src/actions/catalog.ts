@@ -6,15 +6,17 @@ import { getRequiredSession, SessionAccessError, type RequiredSession } from "@/
 import {
 	createProduct as createProductQuery,
 	createProductVersion as createProductVersionQuery,
-	setBureauProductCost as setBureauProductCostQuery,
 	updateProduct as updateProductQuery,
-	upsertCatalogItem as upsertCatalogItemQuery,
 	type CatalogConflict,
 } from "@/lib/catalog/queries";
+import {
+	setBureauCommissionOverride as setBureauCommissionOverrideQuery,
+	setProductBlock as setProductBlockQuery,
+} from "@/lib/commission/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import {
-	bureauCostSchema,
-	catalogItemSchema,
+	bureauCommissionOverrideSchema,
+	productBlockSchema,
 	productCreateSchema,
 	productUpdateSchema,
 	productVersionSchema,
@@ -28,14 +30,18 @@ export interface CatalogActionResult {
 const NOT_ALLOWED = "Você não tem permissão para gerenciar o catálogo.";
 const NOT_FOUND = "Produto ou Bureau não encontrado.";
 const SESSION_CHECK_FAILED = "Não foi possível verificar sua sessão. Tente novamente.";
-const SUPPORT_ACTIVE = "Encerre a sessão de suporte para alterar produtos e custos.";
+const SUPPORT_ACTIVE = "Encerre a sessão de suporte para alterar produtos, preços e comissões.";
 
 const CONFLICT_MESSAGES: Record<CatalogConflict, string> = {
 	price_below_cost: "O preço de venda não pode ser menor que o custo.",
 	partner_price_below_cost: "O valor por sócio não pode ser menor que o custo por sócio.",
 	per_partner_not_allowed: "O Dossiê Pessoa Física não cobra valor por sócio.",
-	product_inactive: "Este produto está desativado.",
 };
+
+const COMMISSION_FAILURES = {
+	not_found: NOT_FOUND,
+	split_over_100: "A comissão do Bureau somada à dos afiliados passa de 100%.",
+} as const;
 
 type Gate = { session: RequiredSession } | { error: string };
 
@@ -66,20 +72,14 @@ function logFailure(action: string, error: unknown): void {
 	console.error(`[catalog] ${action} falhou`, meta);
 }
 
-// Produto base, versão e custo por Bureau: só o superadmin (o bureau_admin também tem catalog:write).
+// Produto, versão e preço de venda: só o superadmin (o bureau_admin não tem catalog:write desde 055).
 // Fora de sessão de suporte: a auditoria dessas ações é de plataforma e não leva o suporte (decisão 5 do spec).
 const requireProductManager = () =>
 	requireSession((s) => s.role === "superadmin" && hasPermission(s, "catalog:write"), { denyInSupport: true });
 
-const requireCostManager = () =>
-	requireSession(
-		(s) =>
-			s.role === "superadmin" && hasPermission(s, "catalog:write") && hasPermission(s, "bureaus:manage"),
-		{ denyInSupport: true },
-	);
-
-const requireCatalogAdmin = () =>
-	requireSession((s) => s.role === "bureau_admin" && hasPermission(s, "catalog:write"));
+// Comissão e bloqueio de produto por Bureau.
+const requireBureauManager = () =>
+	requireSession((s) => s.role === "superadmin" && hasPermission(s, "bureaus:manage"), { denyInSupport: true });
 
 export async function createProduct(values: unknown): Promise<CatalogActionResult> {
 	const parsed = productCreateSchema.safeParse(values);
@@ -91,7 +91,7 @@ export async function createProduct(values: unknown): Promise<CatalogActionResul
 	let productId: string;
 	try {
 		const result = await createProductQuery(session, parsed.data);
-		if (!result.ok) return { error: "Este código já está em uso." };
+		if (!result.ok) return { error: result.reason === "code_taken" ? "Este código já está em uso." : CONFLICT_MESSAGES[result.reason] };
 		productId = result.id;
 	} catch (error) {
 		logFailure("createProduct", error);
@@ -130,7 +130,7 @@ export async function createProductVersion(values: unknown): Promise<CatalogActi
 	let versionId: string;
 	try {
 		const result = await createProductVersionQuery(session, parsed.data);
-		if (!result.ok) return { error: NOT_FOUND };
+		if (!result.ok) return { error: result.reason === "not_found" ? NOT_FOUND : CONFLICT_MESSAGES[result.reason] };
 		versionId = result.versionId;
 	} catch (error) {
 		logFailure("createProductVersion", error);
@@ -141,43 +141,40 @@ export async function createProductVersion(values: unknown): Promise<CatalogActi
 	return { error: null, id: versionId };
 }
 
-export async function setBureauProductCost(values: unknown): Promise<CatalogActionResult> {
-	const parsed = bureauCostSchema.safeParse(values);
+export async function setBureauCommissionOverrideAction(values: unknown): Promise<CatalogActionResult> {
+	const parsed = bureauCommissionOverrideSchema.safeParse(values);
 	if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
-	const gate = await requireCostManager();
+	const gate = await requireBureauManager();
 	if ("error" in gate) return { error: gate.error };
-	const { session } = gate;
 
 	try {
-		const { bureauId, productId, cost, costPerPartner } = parsed.data;
-		const result = await setBureauProductCostQuery(session, bureauId, productId, cost, costPerPartner);
-		if (!result.ok) return { error: NOT_FOUND };
+		const result = await setBureauCommissionOverrideQuery(gate.session, parsed.data.bureauId, parsed.data.pct);
+		if (!result.ok) return { error: COMMISSION_FAILURES[result.reason] };
 	} catch (error) {
-		logFailure("setBureauProductCost", error);
-		return { error: "Falha ao definir o custo." };
+		logFailure("setBureauCommissionOverride", error);
+		return { error: "Falha ao definir a comissão do Bureau." };
 	}
 	revalidatePath(`/superadmin/bureaus/${parsed.data.bureauId}`);
-	// O custo novo muda o que o admin do Bureau vê e o que a vitrine mostra.
+	// A % nova muda o que o admin do Bureau vê.
 	revalidatePath("/settings/catalog");
-	return { error: null, id: parsed.data.productId };
+	return { error: null, id: parsed.data.bureauId };
 }
 
-// O Bureau vem da sessão do bureau_admin, nunca do formulário.
-export async function upsertCatalogItem(values: unknown): Promise<CatalogActionResult> {
-	const parsed = catalogItemSchema.safeParse(values);
+export async function setProductBlockAction(values: unknown): Promise<CatalogActionResult> {
+	const parsed = productBlockSchema.safeParse(values);
 	if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
-	const gate = await requireCatalogAdmin();
+	const gate = await requireBureauManager();
 	if ("error" in gate) return { error: gate.error };
-	const { session } = gate;
 
 	try {
-		const { productId, active, salePrice, salePricePerPartner } = parsed.data;
-		const result = await upsertCatalogItemQuery(session, productId, { active, salePrice, salePricePerPartner });
-		if (!result.ok) return { error: result.reason === "not_found" ? NOT_FOUND : CONFLICT_MESSAGES[result.reason] };
+		const { bureauId, productId, blocked } = parsed.data;
+		const result = await setProductBlockQuery(gate.session, bureauId, productId, blocked);
+		if (!result.ok) return { error: COMMISSION_FAILURES[result.reason] };
 	} catch (error) {
-		logFailure("upsertCatalogItem", error);
-		return { error: "Falha ao salvar o item do catálogo." };
+		logFailure("setProductBlock", error);
+		return { error: "Falha ao salvar o bloqueio do produto." };
 	}
+	revalidatePath(`/superadmin/bureaus/${parsed.data.bureauId}`);
 	revalidatePath("/settings/catalog");
 	return { error: null, id: parsed.data.productId };
 }

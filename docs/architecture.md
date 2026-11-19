@@ -100,7 +100,7 @@ Webhooks e worker:
 - A 052 limita as tentativas de código de cupom: 10 erros por hora por cliente (`coupon_attempt_misses`). `coupon_preview` grava o erro; `reserve_order` só confere o limite.
 - A 053 fecha a brecha da ação do pedido: o pedido dá rollback com cupom inválido, então `placeOrder` grava o erro por `coupon_record_miss()` numa transação própria já confirmada (`src/lib/coupons/record-miss.ts`).
 - A 054 troca a conta de erros por vagas de tentativa e fecha a corrida do limite: `coupon_attempt_begin()` serializa por cliente (trava consultiva), confere 10 por hora e grava a vaga antes de avaliar o código, numa transação própria já confirmada. Só o sucesso do pedido apaga a vaga (`coupon_attempt_clear`); vaga que sobra conta como erro (fecha fechado). `coupon_preview` pega a mesma trava. `coupon_record_miss` some (`src/lib/coupons/attempt-slot.ts`).
-- O catálogo guarda custo e venda por sócio ao lado do valor base: `product_versions.base_cost_per_partner`, `bureau_product_costs.cost_per_partner` e `bureau_catalog_items.sale_price_per_partner`. Só o Dossiê Empresarial usa o valor por sócio.
+- A 055 define o modelo de comissão. Preço de venda (`product_versions.sale_price` e `sale_price_per_partner`) é do superadmin, por versão; produto sem preço não está à venda. `product_versions.base_cost` e `base_cost_per_partner` são custo interno da plataforma. A % global do Bureau fica em `settings` (`bureau_commission_pct`); o override por Bureau, em `bureau_commission_rates` (append-only). O bloqueio de produto por Bureau fica em `bureau_product_blocks` (append-only). `order_settlements` grava `commission_pct` e `bureau_commission` no snapshot da reserva. Pedido sem `commission_pct` usa o modelo anterior. A % de afiliados é `bureau_affiliate_settings.default_pct`, uma por Bureau. As tabelas `bureau_catalog_items`, `bureau_product_costs` e `affiliate_rates` ficam só para histórico. Só o Dossiê Empresarial usa o valor por sócio.
 - Aplicar: `npm run db:migrate`. O runner grava checksums. Não edite uma migration já aplicada.
 - A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. A partir do primeiro deploy de produção, só migrations novas (forward-only, com checksum).
 - Serviço `migrate` (Swarm, one-shot): aplica as migrations com `DATABASE_OWNER_URL`, a única DSN de owner em produção. `reino_app` só tem `app_runtime` e espera o schema com `migrate.mjs --check`. Veja [operations/deploy.md](operations/deploy.md).
@@ -121,11 +121,11 @@ Regras completas: [spec de cupons](superpowers/specs/2026-11-19-cupons-desconto-
 
 - O desconto é calculado no banco, em `reserve_order`. A tela só mostra a prévia (`coupon_preview`). O preço enviado é conferido pelo banco.
 - Preço pago = preço de tabela − desconto. Preço pago `0` não usa a carteira do cliente. Captura e liberação também pulam o cliente.
-- Falta = `max(custo − preço pago, 0)`. O Bureau cobre a falta, nesta ordem:
+- Falta = `max(custo − preço pago, 0)`. Desde a 055, "custo" é a parte da plataforma (preço bruto menos a comissão do Bureau): a falta é o desconto que passa da comissão do Bureau. Comissão e afiliado valem sobre o preço bruto e o afiliado sai da parte da plataforma (veja o spec de comissão, 3.6). O Bureau cobre a falta, nesta ordem:
   1. Saldo disponível da carteira pré-paga do Bureau (`wallets`). Reserva na reserva do pedido e captura na captura.
   2. O que sobra sai do repasse já liberado, com lançamento `coupon_cost` (negativo). Saldo retido não cobre.
   3. Se ainda falta, o cupom é recusado (`coupon_funds_insufficient`). O pedido não abre.
-- Preço pago maior ou igual ao custo: falta zero. A margem só diminui. Margem zero ou negativa não gera acréscimo nem comissão de afiliado.
+- Preço pago maior ou igual ao custo: falta zero. A margem só diminui. Acréscimo do Bureau = `max(comissão − desconto, 0)`; o afiliado é pago sobre o bruto, mesmo com margem zero.
 - Liberação, cancelamento e expiração devolvem tudo: redenção `released`, carteira do Bureau liberada e `coupon_refund` (positivo) devolve ao repasse o valor que saiu dele.
 - Estorno depois da captura devolve só o que o cliente pagou. `coupon_cost`, a captura da carteira do Bureau e a redenção `consumed` não são desfeitos.
 

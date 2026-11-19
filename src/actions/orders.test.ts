@@ -197,7 +197,7 @@ describe("openCounterOrderAction", () => {
 	});
 
 	it.each([
-		["insufficient_balance", "Saldo do Bureau insuficiente para reservar o custo. Recarregue a carteira."],
+		["insufficient_balance", "Saldo do Bureau insuficiente para reservar o repasse à plataforma. Recarregue a carteira."],
 		["kind_mismatch", "O documento não combina com o produto."],
 		["contact_is_buyer", "Informe o e-mail e o celular do titular, não os seus."],
 		["buyer_not_found", "Cliente comprador não encontrado neste Bureau."],

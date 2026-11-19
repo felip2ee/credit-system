@@ -123,10 +123,11 @@ describe("openClientOrderAction", () => {
 		expect(quote).toEqual({
 			ok: true,
 			lines: [
-				{ productVersionId: "", code: "dossie_pf", part: "base", quantity: 1, unitPriceCents: 5000, unitCostCents: 0, priceCents: 5000, costCents: 0 },
+				{ productVersionId: "", code: "dossie_pf", part: "base", quantity: 1, unitPriceCents: 5000, priceCents: 5000 },
 			],
-			totalCostCents: 0,
 			totalPriceCents: 5000,
+			bureauCommissionCents: 0,
+			platformShareCents: 5000,
 		});
 		expect(revalidatePath).toHaveBeenCalledWith("/portal/pesquisas");
 	});

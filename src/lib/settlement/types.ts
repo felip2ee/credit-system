@@ -18,6 +18,7 @@ export type SettlementFailure =
 	| "quote_mismatch"
 	| "price_mismatch"
 	| "cost_mismatch"
+	| "commission_not_configured"
 	| "coupon_invalid"
 	| "coupon_expired"
 	| "coupon_exhausted"
@@ -41,7 +42,8 @@ export type ReserveOrderInput = {
 	coupon?: { code: string; discountCents: number };
 };
 
-// Custo de atacado do Bureau e cotação por linha (custo por produto): só a equipe do Bureau e o superadmin leem.
+// Parte da plataforma (preço menos comissão do Bureau; em pedido antigo, o custo de atacado) e cotação por linha: só a
+// equipe do Bureau e o superadmin leem.
 export type SettlementCost = { cost: string; quote: { lines: OrderQuote["lines"] } };
 
 // O cliente lê preço e status. Para ele, cost e quote vêm null.

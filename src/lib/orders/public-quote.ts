@@ -1,5 +1,5 @@
-// D26: o cliente não lê a tabela do catálogo. Preço de venda vem do catálogo público do Bureau; o custo é do banco
-// (reserve_order recalcula preço e custo pelo pedido e confere o total). Fora de "use server": não é endpoint.
+// D26: o cliente não lê a tabela do catálogo. Preço de venda vem do catálogo público do Bureau; a comissão e a parte da plataforma são do
+// banco (reserve_order recalcula tudo pelo pedido e só confere o preço total do cliente). Fora de "use server": não é endpoint.
 import type { RequiredSession } from "@/lib/auth/session";
 import { getPublicCatalog } from "@/lib/bureaus/public";
 import { toCents } from "@/lib/catalog/money";
@@ -27,8 +27,6 @@ export async function quoteFromPublicCatalog(
 				code: product.code,
 				salePriceCents: toCents(product.salePrice),
 				salePricePerPartnerCents: toCents(product.salePricePerPartner),
-				costCents: 0,
-				costPerPartnerCents: 0,
 			},
 			partnerCount,
 		),

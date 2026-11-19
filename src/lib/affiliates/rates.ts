@@ -1,7 +1,9 @@
-// % de comissão do Bureau (026): padrão do Bureau e % própria por afiliado. A leitura é da equipe, a escrita só do
-// bureau_admin do próprio Bureau (RLS). Toda escrita grava auditoria na mesma transação. Nenhum PoolClient sai daqui.
+// % de afiliados do Bureau (055): uma só por Bureau (bureau_affiliate_settings.default_pct). A leitura é da equipe do
+// Bureau e do superadmin; a escrita só do superadmin sem suporte (RLS). affiliate_rates é legado só de leitura.
+// Toda escrita grava auditoria na mesma transação. Nenhum PoolClient sai daqui.
 import { writeAuditEvent } from "@/lib/audit/write";
 import { config } from "@/lib/config";
+import { lockCommissionSplit, assertSplitWithin100, SplitOver100Error } from "@/lib/commission/queries";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
 export type BureauAffiliate = {
@@ -9,8 +11,6 @@ export type BureauAffiliate = {
 	name: string;
 	code: string;
 	referrals: number;
-	// null = usa o padrão do Bureau.
-	pct: string | null;
 	totalCommission: string;
 };
 
@@ -19,7 +19,6 @@ type AffiliateDbRow = {
 	name: string;
 	code: string;
 	referrals: number;
-	pct: string | null;
 	total_commission: string;
 };
 
@@ -32,12 +31,10 @@ export async function listBureauAffiliates(identity: DbIdentity): Promise<Bureau
 		const { rows } = await client.query<AffiliateDbRow>(
 			`select c.profile_id, p.full_name as name, c.code,
 			        (select count(*)::int from affiliate_referrals r where r.affiliate_profile_id = c.profile_id) as referrals,
-			        ar.pct,
 			        (select coalesce(sum(m.amount - m.reversed_amount), 0)::numeric(15,2)
 			           from affiliate_commissions m where m.affiliate_profile_id = c.profile_id) as total_commission
 			   from affiliate_codes c
 			   join profiles p on p.id = c.profile_id
-			   left join affiliate_rates ar on ar.affiliate_profile_id = c.profile_id and ar.bureau_id = c.bureau_id
 			  where c.bureau_id = app_bureau_id()
 			  order by p.full_name, c.profile_id`,
 		);
@@ -46,73 +43,62 @@ export async function listBureauAffiliates(identity: DbIdentity): Promise<Bureau
 			name: r.name,
 			code: r.code,
 			referrals: r.referrals,
-			pct: r.pct,
 			totalCommission: r.total_commission,
 		}));
 	});
 }
 
-// Sem linha em bureau_affiliate_settings, o padrão do Bureau é 0 (default da coluna).
-export async function getBureauDefaultPct(identity: DbIdentity): Promise<string> {
+// Sem linha em bureau_affiliate_settings, a % de afiliados é 0 (default da coluna). Sem bureauId, lê o Bureau da sessão.
+export async function getBureauDefaultPct(identity: DbIdentity, bureauId?: string): Promise<string> {
 	return withUserTransaction(identity, async (client) => {
 		const { rows } = await client.query<{ default_pct: string }>(
-			"select default_pct from bureau_affiliate_settings where bureau_id = app_bureau_id()",
+			"select default_pct from bureau_affiliate_settings where bureau_id = coalesce($1::uuid, app_bureau_id())",
+			[bureauId ?? null],
 		);
 		return rows[0]?.default_pct ?? "0.00";
 	});
 }
 
-export async function setBureauDefaultPct(identity: DbIdentity, pct: string): Promise<void> {
-	await withUserTransaction(identity, async (client) => {
-		await client.query(
-			`insert into bureau_affiliate_settings (bureau_id, default_pct, updated_by, updated_at)
-			 values (app_bureau_id(), $1::numeric, $2, now())
-			 on conflict (bureau_id) do update
-			   set default_pct = excluded.default_pct, updated_by = excluded.updated_by, updated_at = now()`,
-			[pct, identity.userId],
-		);
-		await writeAuditEvent(client, {
-			actorId: identity.userId,
-			action: "affiliate.rate",
-			targetTable: "bureau_affiliate_settings",
-			targetId: identity.bureauId,
-			metadata: { scope: "default", pct },
-		});
-	});
-}
+export type SetBureauDefaultPctResult = { ok: true } | { ok: false; reason: "not_found" | "split_over_100" };
 
-// null remove a % própria: o afiliado volta a usar o padrão. Afiliado de outro Bureau não aparece sob RLS: not_found.
-export async function setAffiliatePct(
+// Só o superadmin sem suporte escreve (RLS). Trava bureau_pct + affiliate_pct <= 100 na mesma transação: a % efetiva do
+// Bureau é o override mais recente (nulo = global) ou a global; sem nenhuma, não há o que somar.
+export async function setBureauDefaultPct(
 	identity: DbIdentity,
-	affiliateProfileId: string,
-	pct: string | null,
-): Promise<{ ok: true } | { ok: false; reason: "not_found" }> {
-	return withUserTransaction(identity, async (client) => {
-		const known = await client.query("select 1 from affiliate_codes where profile_id = $1 and bureau_id = app_bureau_id()", [
-			affiliateProfileId,
-		]);
-		if (known.rowCount === 0) return { ok: false, reason: "not_found" } as const;
+	bureauId: string,
+	pct: string,
+): Promise<SetBureauDefaultPctResult> {
+	try {
+		return await withUserTransaction(identity, async (client) => {
+			await lockCommissionSplit(client);
+			const known = await client.query("select 1 from bureaus where id = $1", [bureauId]);
+			if (known.rowCount === 0) return { ok: false, reason: "not_found" } as const;
 
-		if (pct === null) {
-			await client.query("delete from affiliate_rates where affiliate_profile_id = $1 and bureau_id = app_bureau_id()", [
-				affiliateProfileId,
-			]);
-		} else {
-			await client.query(
-				`insert into affiliate_rates (bureau_id, affiliate_profile_id, pct, updated_by, updated_at)
-				 values (app_bureau_id(), $1, $2::numeric, $3, now())
-				 on conflict (bureau_id, affiliate_profile_id) do update
-				   set pct = excluded.pct, updated_by = excluded.updated_by, updated_at = now()`,
-				[affiliateProfileId, pct, identity.userId],
+			const before = await client.query<{ default_pct: string }>(
+				"select default_pct from bureau_affiliate_settings where bureau_id = $1",
+				[bureauId],
 			);
-		}
-		await writeAuditEvent(client, {
-			actorId: identity.userId,
-			action: "affiliate.rate",
-			targetTable: "affiliate_rates",
-			targetId: affiliateProfileId,
-			metadata: { scope: "affiliate", pct },
+			await client.query(
+				`insert into bureau_affiliate_settings (bureau_id, default_pct, updated_by, updated_at)
+				 values ($1, $2::numeric, $3, now())
+				 on conflict (bureau_id) do update
+				   set default_pct = excluded.default_pct, updated_by = excluded.updated_by, updated_at = now()`,
+				[bureauId, pct, identity.userId],
+			);
+			await assertSplitWithin100(client, bureauId);
+
+			await writeAuditEvent(client, {
+				actorId: identity.userId,
+				action: "affiliate.rate",
+				targetTable: "bureau_affiliate_settings",
+				targetId: bureauId,
+				bureauId,
+				metadata: { scope: "default", bureau_id: bureauId, from: before.rows[0]?.default_pct ?? "0.00", to: pct },
+			});
+			return { ok: true } as const;
 		});
-		return { ok: true } as const;
-	});
+	} catch (error) {
+		if (error instanceof SplitOver100Error) return { ok: false, reason: "split_over_100" };
+		throw error;
+	}
 }

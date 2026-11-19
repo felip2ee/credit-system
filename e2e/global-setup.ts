@@ -5,8 +5,7 @@ import { hashPassword } from "better-auth/crypto";
 import { Pool, type PoolClient } from "pg";
 
 import {
-  seedBureauCost,
-  seedCatalogItem,
+  setPlatformSale,
   seedClientWalletTopup,
   seedWalletTopup,
 } from "../src/test/seed";
@@ -102,8 +101,9 @@ export default async function globalSetup() {
     const productId = product.rows[0].id;
     // The catalog seeds the products inactive: the superadmin activates them before a Bureau can sell them.
     await owner.query("update products set active = true where id = $1", [productId]);
-    await seedBureauCost(owner, { bureauId, productId, cost: "5.00", costPerPartner: "2.00", setBy: staffId });
-    await seedCatalogItem(owner, { bureauId, productId, salePrice: E2E.salePrice, salePricePerPartner: E2E.salePricePerPartner, updatedBy: staffId });
+    // Platform model (055): the price belongs to the product; the Bureau gets E2E_BUREAU_PCT of the gross price. The helper
+    // writes the Bureau override as (price - cost) / price, so cost 14.00 on price 20.00 gives 30%.
+    await setPlatformSale(owner, { bureauId, productId, salePrice: E2E.salePrice, salePricePerPartner: E2E.salePricePerPartner, cost: "14.00", setBy: staffId });
     await seedWalletTopup(owner, { bureauId, amount: "500.00", createdBy: staffId });
     await seedClientWalletTopup(owner, { clientProfileId: clientId, amount: "100.00", createdBy: staffId });
   } catch (error) {

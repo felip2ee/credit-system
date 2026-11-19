@@ -17,6 +17,8 @@ describe("ProductVersionForm", () => {
         currentDepsProduct: "Smart PF",
         currentBaseCost: "3.50",
         currentBaseCostPerPartner: "0.00",
+        currentSalePrice: null,
+        currentSalePricePerPartner: "0.00",
       }),
     );
     expect(html).toContain('value="3.50"');
@@ -31,10 +33,28 @@ describe("ProductVersionForm", () => {
         currentDepsProduct: null,
         currentBaseCost: "10.00",
         currentBaseCostPerPartner: "4.00",
+        currentSalePrice: "20.00",
+        currentSalePricePerPartner: "6.00",
       }),
     );
-    expect(html).toContain("Custo padrão por sócio");
+    expect(html).toContain("Custo interno por sócio");
+    expect(html).toContain("Preço de venda por sócio");
     expect(html).toContain('value="4.00"');
+    expect(html).toContain('value="6.00"');
+  });
+  it("warns that a version without price is not for sale", () => {
+    const html = renderToStaticMarkup(
+      createElement(ProductVersionForm, {
+        productId: "p1",
+        productCode: "dossie_pf",
+        currentDepsProduct: null,
+        currentBaseCost: "3.50",
+        currentBaseCostPerPartner: "0.00",
+        currentSalePrice: null,
+        currentSalePricePerPartner: "0.00",
+      }),
+    );
+    expect(html).toContain("não está à venda");
   });
   it("validates money with the shared schema (invalid shows error)", () => {
     expect(moneyError("-1")).not.toBeNull();

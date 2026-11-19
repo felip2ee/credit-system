@@ -56,6 +56,7 @@ import {
   randomCpf,
   seedBureauCost,
   seedCatalogItem,
+  setPlatformSale,
   seedClientWalletTopup,
   seedTenant,
   type SeededTenant,
@@ -317,7 +318,8 @@ describe("client orders through the portal actions", () => {
   it("a price changed after the quote returns the price_mismatch message and reserves nothing", async () => {
     const t = await readyClientTenant();
     mocks.afterCatalogRead.current = async () => {
-      await owner.query("update bureau_catalog_items set sale_price = '60.00' where bureau_id = $1", [t.bureau.id]);
+      const pf = await owner.query<{ id: string }>("select id from products where code = 'dossie_pf'");
+      await setPlatformSale(owner, { bureauId: t.bureau.id, productId: pf.rows[0].id, salePrice: "60.00", cost: "40.00", setBy: t.bureauAdmin.userId });
     };
 
     try {

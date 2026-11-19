@@ -5,9 +5,7 @@ export type QuoteLine = {
 	part: "base" | "partner";
 	quantity: number;
 	unitPriceCents: number;
-	unitCostCents: number;
 	priceCents: number;
-	costCents: number;
 };
 
 export type QuoteTerms = {
@@ -15,31 +13,36 @@ export type QuoteTerms = {
 	code: string;
 	salePriceCents: number;
 	salePricePerPartnerCents: number;
-	costCents: number;
-	costPerPartnerCents: number;
 };
+
+const BASIS_POINTS = 10_000;
+
+// Mesma conta do SQL (round(price * pct / 100, 2), meio para cima), em centavos inteiros. pct em centésimos de %.
+export function commissionCents(priceCents: number, pctHundredths: number): number {
+	return Math.floor((priceCents * pctHundredths + BASIS_POINTS / 2) / BASIS_POINTS);
+}
 
 export function buildQuote(
 	terms: QuoteTerms,
 	partnerCount: number,
-): { lines: QuoteLine[]; totalPriceCents: number; totalCostCents: number } {
-	const line = (part: QuoteLine["part"], quantity: number, unitPriceCents: number, unitCostCents: number) => ({
+	pctHundredths = 0,
+): { lines: QuoteLine[]; totalPriceCents: number; bureauCommissionCents: number; platformShareCents: number } {
+	const line = (part: QuoteLine["part"], quantity: number, unitPriceCents: number): QuoteLine => ({
 		productVersionId: terms.productVersionId,
 		code: terms.code,
 		part,
 		quantity,
 		unitPriceCents,
-		unitCostCents,
 		priceCents: unitPriceCents * quantity,
-		costCents: unitCostCents * quantity,
 	});
-	const lines = [line("base", 1, terms.salePriceCents, terms.costCents)];
-	if (partnerCount > 0) {
-		lines.push(line("partner", partnerCount, terms.salePricePerPartnerCents, terms.costPerPartnerCents));
-	}
+	const lines = [line("base", 1, terms.salePriceCents)];
+	if (partnerCount > 0) lines.push(line("partner", partnerCount, terms.salePricePerPartnerCents));
+	const totalPriceCents = lines.reduce((sum, l) => sum + l.priceCents, 0);
+	const bureauCommissionCents = commissionCents(totalPriceCents, pctHundredths);
 	return {
 		lines,
-		totalPriceCents: lines.reduce((sum, l) => sum + l.priceCents, 0),
-		totalCostCents: lines.reduce((sum, l) => sum + l.costCents, 0),
+		totalPriceCents,
+		bureauCommissionCents,
+		platformShareCents: totalPriceCents - bureauCommissionCents,
 	};
 }

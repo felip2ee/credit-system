@@ -19,8 +19,11 @@ import {
   type AiPromptKind,
 } from "@/lib/ai/prompt";
 import { SCR_SETTING_KEYS } from "@/lib/scr/consent-term";
+import { assertSplitWithin100, lockCommissionSplit, SplitOver100Error } from "@/lib/commission/queries";
+import { bureauCommissionSchema } from "@/lib/validators/catalog";
 import {
   AFFILIATE_SETTING_KEYS,
+  BUREAU_COMMISSION_KEY,
   MAX_PAYABLE_RETENTION_DAYS,
   PAYABLE_RETENTION_KEY,
   asString,
@@ -252,5 +255,41 @@ export async function savePayableRetentionAction(values: unknown): Promise<SaveR
   }
 
   revalidatePath("/superadmin/settings/repasses");
+  return { error: null };
+}
+
+// ── Comissão dos Bureaus (% global sobre o preço bruto) ───────────────────
+
+export async function saveBureauCommissionAction(values: unknown): Promise<SaveResult> {
+  const parsed = bureauCommissionSchema.safeParse(values);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  const identity = await adminIdentity();
+  if (!identity || identity.supportSessionId) return { error: "Apenas o superadmin pode editar a comissão dos Bureaus." };
+
+  try {
+    await upsertSettings(
+      identity,
+      [{ key: BUREAU_COMMISSION_KEY, value: parsed.data.pct }],
+      "settings.bureau_commission",
+      {
+        auditChange: (previous) => {
+          const from = previous.get(BUREAU_COMMISSION_KEY);
+          return { from: typeof from === "number" ? from : null, to: parsed.data.pct };
+        },
+        // A % global vale para todo Bureau sem override: nenhum pode passar de 100 com a % de afiliados.
+        beforeWrite: lockCommissionSplit,
+        keepSupportSession: true,
+        afterWrite: (client) => assertSplitWithin100(client, null),
+      },
+    );
+  } catch (error) {
+    if (error instanceof SplitOver100Error) {
+      return { error: "A comissão passa de 100% somada à % de afiliados de algum Bureau." };
+    }
+    return { error: "Falha ao salvar a comissão dos Bureaus." };
+  }
+
+  revalidatePath("/superadmin/settings/comissao");
+  revalidatePath("/settings/catalog");
   return { error: null };
 }

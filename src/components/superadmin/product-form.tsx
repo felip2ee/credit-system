@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { nonNegativeMoneyError, normalizeMoney } from "@/lib/catalog/money-input";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { Checkbox } from "@/components/ui/checkbox";
+import { buildSalePrices, optionalPriceError, partnerPriceError } from "./price-input";
 
 const PARTNER_CODE = "dossie_empresarial";
 
@@ -24,18 +25,27 @@ export function ProductForm() {
   const [baseCostPerPartner, setBaseCostPerPartner] = useState("");
   const [costError, setCostError] = useState<string | null>(null);
   const [partnerCostError, setPartnerCostError] = useState<string | null>(null);
+  const [salePrice, setSalePrice] = useState("");
+  const [salePricePerPartner, setSalePricePerPartner] = useState("");
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [partnerPriceErr, setPartnerPriceErr] = useState<string | null>(null);
   const hasPartner = code === PARTNER_CODE;
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const invalid = nonNegativeMoneyError(baseCost);
     const partnerInvalid = hasPartner ? nonNegativeMoneyError(baseCostPerPartner) : null;
+    const priceInvalid = optionalPriceError(salePrice);
+    const partnerPriceInvalid = partnerPriceError(salePricePerPartner, hasPartner);
     setCostError(invalid);
     setPartnerCostError(partnerInvalid);
-    if (invalid || partnerInvalid) return;
+    setPriceError(priceInvalid);
+    setPartnerPriceErr(partnerPriceInvalid);
+    if (invalid || partnerInvalid || priceInvalid || partnerPriceInvalid) return;
     setError(null);
     startTransition(async () => {
       const result = await createProduct({
+        ...buildSalePrices(salePrice, salePricePerPartner, hasPartner),
         code,
         name,
         depsProduct,
@@ -69,7 +79,7 @@ export function ProductForm() {
         <p className="text-sm text-muted-foreground">Deixe em branco se o produto não consulta o DEPS.</p>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="product-cost">{hasPartner ? "Custo padrão da empresa (R$)" : "Custo padrão (R$)"}</Label>
+        <Label htmlFor="product-cost">{hasPartner ? "Custo interno da empresa (R$)" : "Custo interno (R$)"}</Label>
         <Input
           id="product-cost"
           inputMode="decimal"
@@ -81,7 +91,7 @@ export function ProductForm() {
       </div>
       {hasPartner && (
         <div className="space-y-2">
-          <Label htmlFor="product-cost-partner">Custo padrão por sócio (R$)</Label>
+          <Label htmlFor="product-cost-partner">Custo interno por sócio (R$)</Label>
           <Input
             id="product-cost-partner"
             inputMode="decimal"
@@ -90,6 +100,33 @@ export function ProductForm() {
             onChange={(e) => setBaseCostPerPartner(e.target.value)}
           />
           {partnerCostError && <p className="text-sm text-destructive">{partnerCostError}</p>}
+        </div>
+      )}
+      <div className="space-y-2">
+        <Label htmlFor="product-price">{hasPartner ? "Preço de venda da empresa (R$)" : "Preço de venda (R$)"}</Label>
+        <Input
+          id="product-price"
+          inputMode="decimal"
+          placeholder="0,00"
+          value={salePrice}
+          onChange={(e) => setSalePrice(e.target.value)}
+        />
+        {priceError && <p className="text-sm text-destructive">{priceError}</p>}
+        {salePrice.trim() === "" && (
+          <p className="text-sm text-muted-foreground">Sem preço = não está à venda. Nenhum Bureau vende o produto.</p>
+        )}
+      </div>
+      {hasPartner && (
+        <div className="space-y-2">
+          <Label htmlFor="product-price-partner">Preço de venda por sócio (R$)</Label>
+          <Input
+            id="product-price-partner"
+            inputMode="decimal"
+            placeholder="0,00"
+            value={salePricePerPartner}
+            onChange={(e) => setSalePricePerPartner(e.target.value)}
+          />
+          {partnerPriceErr && <p className="text-sm text-destructive">{partnerPriceErr}</p>}
         </div>
       )}
       {error && <StatusBanner tone="danger" title={error} />}
