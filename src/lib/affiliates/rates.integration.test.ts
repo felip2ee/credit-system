@@ -1,4 +1,4 @@
-// % de afiliados do Bureau (048) sob RLS contra um Postgres real: só o superadmin escreve; trava de 100%; auditoria.
+// % de afiliados do Bureau (055) sob RLS contra um Postgres real: só o superadmin escreve; trava de 100%; auditoria.
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";

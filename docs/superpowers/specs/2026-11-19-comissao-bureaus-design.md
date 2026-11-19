@@ -20,7 +20,7 @@ Nenhum preço nem % é gravado no deploy. Até o superadmin definir os valores n
 
 ## 2. Modelo de dados
 
-Migration única: `db/migrations/048_platform_pricing_commission.sql`. Nenhuma migration aplicada muda.
+Migration única: `db/migrations/055_platform_pricing_commission.sql`. Nenhuma migration aplicada muda.
 
 ### Preço de venda (só superadmin)
 
@@ -135,6 +135,17 @@ Sem mudança. O estorno de Pix/cartão (`apply_asaas_payment`, 045) reverte a **
 - Mudar o preço (nova versão), a % global, o override, a % de afiliados ou o bloqueio só vale para reservas e capturas futuras.
 - Comissão de afiliado já gravada não muda ao mudar a % (teste existente continua).
 
+### 3.6 Cupom x comissão
+
+Cupons (048-054) entram assim no modelo novo. O desconto sai da comissão do Bureau; a parte da plataforma nunca muda.
+
+- `order_settlements.price` é o preço pago, `discount` é o desconto e `price + discount` é o preço bruto. `commission_pct`, `bureau_commission` e `cost` (parte da plataforma) valem sobre o bruto: `bureau_commission = round((price + discount) × pct / 100, 2)`, `cost = price + discount − bureau_commission`.
+- O cupom já existente fala em "custo" e "falta = max(custo − preço pago, 0)". No modelo novo o custo é a parte da plataforma, então `falta = max(desconto − comissão do Bureau, 0)`. A carteira do Bureau e o repasse liberado cobrem a falta como antes (`coupon_funds_insufficient` se não bastam).
+- Captura online: acréscimo do Bureau = `max(bureau_commission − discount, 0)`. Nunca negativo.
+- Afiliado: base = preço bruto (`price + discount`), `least(round(bruto × aff_pct / 100, 2), bruto − bureau_commission)`, paga da parte da plataforma. O cupom não a reduz, e ela nasce também com preço pago 0. Muda em relação à 049-054 ("margem menor ou igual a zero não gera comissão"): aquela regra existia porque o afiliado saía da margem do Bureau; agora sai da plataforma, que recebe a parte dela inteira (cliente mais falta do Bureau). Pedido antigo (`commission_pct` nulo) segue a regra antiga.
+- Estorno de recarga (050): sem mudança. Libera/cancela (`release_order`): sem mudança.
+- Testes: `src/lib/settlement/coupon-commission.integration.test.ts`.
+
 ## 4. Permissões, RLS e auditoria
 
 | Ação | Quem | Como |
@@ -243,9 +254,9 @@ Unidade e UI: `build-quote` (sem custo), validadores de preço e %, `reference-p
 
 Seis tarefas. Cada uma tem testes próprios. Sem tarefa de revisão: revisão única por issue (`/code-review`).
 
-### T1. Banco: migration 048 (`database-architect`, sonnet)
+### T1. Banco: migration 055 (`database-architect`, sonnet)
 
-- Files: `db/migrations/048_platform_pricing_commission.sql`, `src/test/seed.ts`, `src/lib/settlement/*.integration.test.ts`, `src/lib/affiliates/commission.integration.test.ts`, `src/lib/wallet/sales.integration.test.ts`, `src/lib/counter-payments/queries.integration.test.ts`, `src/lib/payables/queries.integration.test.ts`.
+- Files: `db/migrations/055_platform_pricing_commission.sql`, `src/test/seed.ts`, `src/lib/settlement/*.integration.test.ts`, `src/lib/affiliates/commission.integration.test.ts`, `src/lib/wallet/sales.integration.test.ts`, `src/lib/counter-payments/queries.integration.test.ts`, `src/lib/payables/queries.integration.test.ts`.
 - Depends-on: nenhuma.
 - Contrato: seções 2, 3.1, 3.2, 4 (RLS, políticas, audit; `current_product_price`, `resolve_bureau_commission_pct`, `product_blocked_for_bureau`, `public_bureau_catalog`, `open_order`, `reserve_order`, `capture_order`; tabelas `bureau_commission_rates` e `bureau_product_blocks`). Sem backfill de preço, % ou bloqueio. `seedOrderCatalog` do teste grava versão com preço e a chave global (só nos testes).
 - Testes: seção 7, itens de dinheiro, snapshot, pedido antigo, bloqueio, RLS e estorno.

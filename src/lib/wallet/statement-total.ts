@@ -7,6 +7,7 @@ import type { PoolClient } from "pg";
 import { assertCursor, UUID_PATTERN } from "./cursor";
 import {
 	CLIENT_STATEMENT_TEXT,
+	COUPON_PREPAID_TEXT,
 	PAYABLE_STATEMENT_TEXT,
 	PREPAID_STATEMENT_TEXT,
 	type StatementText,
@@ -61,10 +62,11 @@ function signedAmount(text: StatementText, amount: string): { amount: string; to
 }
 
 export function toStatementLine(row: StatementRow): StatementLine {
-	const text = TEXTS[row.source][row.kind];
+	const isCoupon = row.source === "prepaid" && row.reason === "cupom";
+	const text = (isCoupon && COUPON_PREPAID_TEXT[row.kind as keyof typeof COUPON_PREPAID_TEXT]) || TEXTS[row.source][row.kind];
 	if (!text) throw new Error(`Tipo de lançamento sem texto no extrato: ${row.source}/${row.kind}`);
 	const { amount, tone } = signedAmount(text, row.amount);
-	const reason = row.reason?.trim();
+	const reason = text === TEXTS[row.source][row.kind] ? row.reason?.trim() : null;
 	return {
 		id: row.id,
 		at: row.at,

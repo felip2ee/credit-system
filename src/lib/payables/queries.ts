@@ -7,7 +7,7 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
 export type PayableEntry = {
 	id: string;
-	kind: "accrual" | "reversal" | "payout";
+	kind: "accrual" | "reversal" | "payout" | "coupon_cost" | "coupon_refund";
 	amount: string;
 	orderRef: string | null;
 	createdAt: Date;

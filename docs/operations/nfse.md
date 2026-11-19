@@ -15,6 +15,8 @@
 6. A falha da nota nunca altera carteira, lançamento nem resposta do webhook.
 7. O superadmin vê as notas `failed` em `/superadmin/nfse` e pede nova tentativa.
 
+Pedido pago só com saldo (inclusive preço pago 0 por cupom) não emite nota; a nota é da recarga.
+
 ## Variáveis de ambiente
 
 Todas são lidas sob demanda. Nenhuma é obrigatória para o sistema subir.

@@ -1,4 +1,4 @@
-// % de afiliados do Bureau (048): uma só por Bureau (bureau_affiliate_settings.default_pct). A leitura é da equipe do
+// % de afiliados do Bureau (055): uma só por Bureau (bureau_affiliate_settings.default_pct). A leitura é da equipe do
 // Bureau e do superadmin; a escrita só do superadmin sem suporte (RLS). affiliate_rates é legado só de leitura.
 // Toda escrita grava auditoria na mesma transação. Nenhum PoolClient sai daqui.
 import { writeAuditEvent } from "@/lib/audit/write";

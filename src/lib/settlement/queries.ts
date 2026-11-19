@@ -64,16 +64,19 @@ async function auditTransition(
 }
 
 export async function reserveOrder(client: PoolClient, input: ReserveOrderInput): Promise<SettlementResult> {
-	const { quote } = input;
+	const { quote, coupon } = input;
+	// Com cupom, p_price é o preço pago (tabela menos desconto). fromCents recusa valor negativo.
+	const paidCents = quote.totalPriceCents - (coupon?.discountCents ?? 0);
 	const { rows } = await client.query<ResultRow>(
-		"select ok, reason, status from reserve_order($1, $2, $3, $4, $5, $6::jsonb)",
+		"select ok, reason, status from reserve_order($1, $2, $3, $4, $5, $6::jsonb, $7)",
 		[
 			input.orderRef,
 			input.mode,
 			input.clientProfileId,
-			fromCents(quote.totalPriceCents),
+			fromCents(paidCents),
 			fromCents(quote.platformShareCents),
 			JSON.stringify({ lines: quote.lines }),
+			coupon?.code ?? null,
 		],
 	);
 	const result = toResult(rows[0]);

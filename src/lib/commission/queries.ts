@@ -1,4 +1,4 @@
-// Comissão do Bureau e bloqueio de produto (048). Só o superadmin fora de suporte escreve; a equipe do Bureau lê
+// Comissão do Bureau e bloqueio de produto (055). Só o superadmin fora de suporte escreve; a equipe do Bureau lê
 // a própria % e os próprios bloqueios (RLS de bureau_commission_rates e bureau_product_blocks).
 import type { PoolClient } from "pg";
 

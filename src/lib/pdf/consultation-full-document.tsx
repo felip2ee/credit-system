@@ -1,17 +1,12 @@
 import type { ReactNode } from "react";
-import {
-  Page,
-  View,
-  Text,
-  Svg,
-  Polygon,
-  StyleSheet,
-} from "@react-pdf/renderer";
+import { Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 
 import { BRAND_NAME } from "@/lib/brand/brand";
 import type { ConsultationView } from "@/lib/consultations/view-model";
 
 import { PDF_PAGE_PADDING_BOTTOM, PDF_PAGE_PADDING_TOP, PdfBrandFrame, type PdfFrame } from "./brand-frame";
+import { ScoreTrack, confidentialLine } from "./sections";
+import { PDF_COLORS, PDF_PAGE } from "./theme";
 import { OpinionBlock } from "./markdown-pdf";
 import type { OpinionForPdf } from "./markdown-pdf";
 
@@ -31,9 +26,8 @@ export interface FullPdfHeader {
 
 // ── Constantes / estilo ──────────────────────────────────────────────────
 
-const A4_W = 595.28;
-const PAD_X = 42;
-const CONTENT_W = A4_W - PAD_X * 2;
+const PAD_X = PDF_PAGE.paddingX;
+const CONTENT_W = PDF_PAGE.contentWidth;
 const HEADER_W = 340;
 
 const teal = "#0F6E6E";
@@ -43,99 +37,47 @@ const border = "#e5e7eb";
 const gold = "#9A6A00";
 const slate = "#475569";
 
-const RISK_BANDS = [
-  { label: "Muito alto", color: "#C92A2A", from: 300, to: 553 },
-  { label: "Alto", color: "#E8590C", from: 553, to: 725 },
-  { label: "Médio", color: "#F08C00", from: 725, to: 874 },
-  { label: "Baixo", color: "#94C748", from: 874, to: 937 },
-  { label: "Muito baixo", color: "#2F9E44", from: 937, to: 1000 },
-];
-
-const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const orDash = (v: string | number | null | undefined) =>
   v === null || v === undefined || v === "" ? "—" : String(v);
 
 const s = StyleSheet.create({
   page: {
-    fontFamily: "Atkinson",
+    fontFamily: "Helvetica",
     fontSize: 10,
-    lineHeight: 1.4,
-    color: "#1f2937",
+    color: PDF_COLORS.ink,
     paddingTop: PDF_PAGE_PADDING_TOP,
     paddingBottom: PDF_PAGE_PADDING_BOTTOM,
     paddingHorizontal: PAD_X,
   },
   header: { maxWidth: HEADER_W },
-  title: { fontSize: 14, fontFamily: "Atkinson", fontWeight: 700, color: darkGreen, lineHeight: 1.2 },
+  title: { fontSize: 14, fontFamily: "Helvetica", fontWeight: 700, color: darkGreen, lineHeight: 1.2 },
   sub: { fontSize: 9, color: muted, marginTop: 2, lineHeight: 1.3 },
   section: { marginTop: 10 },
   h: {
     fontSize: 10.5,
-    fontFamily: "Atkinson", fontWeight: 700,
+    fontFamily: "Helvetica", fontWeight: 700,
     color: teal,
     marginBottom: 5,
     paddingBottom: 3,
     borderBottomWidth: 1,
     borderBottomColor: border,
   },
-  sh: { fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: gold, marginTop: 5, marginBottom: 3 },
-  ssh: { fontSize: 9.5, fontFamily: "Atkinson", fontWeight: 700, color: slate, marginTop: 4, marginBottom: 2 },
+  sh: { fontSize: 9, fontFamily: "Helvetica", fontWeight: 700, color: gold, marginTop: 5, marginBottom: 3 },
+  ssh: { fontSize: 9.5, fontFamily: "Helvetica", fontWeight: 700, color: slate, marginTop: 4, marginBottom: 2 },
   grid: { flexDirection: "row", flexWrap: "wrap" },
   gItem: { width: CONTENT_W / 2, marginBottom: 5 },
   label: { fontSize: 9, color: muted },
   val: { fontSize: 10, lineHeight: 1.3 },
   tr: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: border, paddingVertical: 3 },
-  th: { fontSize: 9, fontFamily: "Atkinson", fontWeight: 700, color: muted },
+  th: { fontSize: 9, fontFamily: "Helvetica", fontWeight: 700, color: muted },
   td: { fontSize: 9.5, lineHeight: 1.25 },
   li: { fontSize: 10, marginBottom: 2, lineHeight: 1.3 },
   card: { borderWidth: 1, borderColor: border, borderRadius: 4, padding: 6 },
   cardLabel: { fontSize: 9, color: muted },
-  cardValue: { fontSize: 12, fontFamily: "Atkinson", fontWeight: 700, marginTop: 2 },
+  cardValue: { fontSize: 12, fontFamily: "Helvetica", fontWeight: 700, marginTop: 2 },
 });
 
 // ── Helpers visuais ─────────────────────────────────────────────────────
-
-function Marker({ x, top = -9 }: { x: number; top?: number }) {
-  return (
-    <Svg width={10} height={7} style={{ position: "absolute", top, left: x - 5 }}>
-      <Polygon points="0,0 10,0 5,7" fill={darkGreen} />
-    </Svg>
-  );
-}
-
-export function ScoreBar({ valor }: { valor: number }) {
-  const x = clamp((valor - 300) / 700, 0, 1) * CONTENT_W;
-  return (
-    <View style={{ marginTop: 14 }}>
-      <View style={{ position: "relative", width: CONTENT_W }}>
-        <Marker x={x} />
-        <View style={{ flexDirection: "row", height: 16, borderRadius: 2, overflow: "hidden" }}>
-          {RISK_BANDS.map((b) => (
-            <View
-              key={b.label}
-              style={{ width: ((b.to - b.from) / 700) * CONTENT_W, backgroundColor: b.color }}
-            />
-          ))}
-        </View>
-      </View>
-      <View style={{ flexDirection: "row", marginTop: 3 }}>
-        {RISK_BANDS.map((b, i) => (
-          <Text
-            key={b.label}
-            style={{
-              width: ((b.to - b.from) / 700) * CONTENT_W,
-              fontSize: 9,
-              color: muted,
-              textAlign: "center",
-            }}
-          >
-            {i === 0 ? `${b.label} (+ risco)` : i === RISK_BANDS.length - 1 ? `${b.label} (- risco)` : b.label}
-          </Text>
-        ))}
-      </View>
-    </View>
-  );
-}
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -198,6 +140,7 @@ export interface FullConsultationPageProps {
   header: FullPdfHeader;
   frame: PdfFrame;
   opinion?: OpinionForPdf | null;
+  closingNote?: boolean;
 }
 
 export function FullConsultationPage({
@@ -205,6 +148,7 @@ export function FullConsultationPage({
   header,
   frame,
   opinion,
+  closingNote = true,
 }: FullConsultationPageProps) {
   const { subject, score } = view;
 
@@ -216,7 +160,7 @@ export function FullConsultationPage({
         <View style={s.header}>
           <Text style={s.title}>{header.name}</Text>
           <Text style={s.sub}>{header.docLabel ?? "CPF"} {header.cpf} · {header.data}</Text>
-          <Text style={s.sub}>Confidencial para {header.consultante} · Usuário {header.usuario}</Text>
+          <Text style={s.sub}>{confidentialLine(header)}</Text>
           {header.endereco ? <Text style={s.sub}>{header.endereco}</Text> : null}
         </View>
       </View>
@@ -225,13 +169,13 @@ export function FullConsultationPage({
         <Section title="Score">
           <View wrap={false}>
             <View style={{ flexDirection: "row", alignItems: "flex-end", height: 26 }}>
-              <Text style={{ fontSize: 22, fontFamily: "Atkinson", fontWeight: 700, color: darkGreen, lineHeight: 1 }}>{score.value}</Text>
+              <Text style={{ fontSize: 22, fontFamily: "Helvetica", fontWeight: 700, color: darkGreen, lineHeight: 1 }}>{score.value}</Text>
               <Text style={{ fontSize: 10, marginLeft: 8, marginBottom: 2, color: muted }}>{orDash(score.riskBand)}</Text>
             </View>
             <Text style={{ fontSize: 9.5, color: muted, marginTop: 4 }}>
               Faixa de risco de crédito — quanto maior o score, menor o risco de inadimplência.
             </Text>
-            <ScoreBar valor={score.value} />
+            <ScoreTrack score={score.value} />
             {score.description ? (
               <Text style={{ fontSize: 9, color: muted, marginTop: 6 }}>{score.description}</Text>
             ) : null}
@@ -429,9 +373,11 @@ export function FullConsultationPage({
         </Section>
       )}
 
-      <Text style={{ fontSize: 9, color: muted, marginTop: 20, textAlign: "right" }}>
-        Documento gerado automaticamente · {BRAND_NAME}
-      </Text>
+      {closingNote ? (
+        <Text style={{ fontSize: 9, color: muted, marginTop: 20, textAlign: "right" }}>
+          Documento gerado automaticamente · {BRAND_NAME}
+        </Text>
+      ) : null}
     </Page>
   );
 }

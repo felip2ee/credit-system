@@ -1,4 +1,4 @@
-// Permissões e RLS da comissão dos Bureaus (migração 048): só o superadmin (sem suporte) escreve preço, % do Bureau,
+// Permissões e RLS da comissão dos Bureaus (migração 055): só o superadmin (sem suporte) escreve preço, % do Bureau,
 // bloqueio e % de afiliados; o Bureau, o operador, o cliente e o superadmin em suporte não escrevem nada disto.
 import { randomUUID } from "node:crypto";
 

@@ -72,7 +72,7 @@ function logFailure(action: string, error: unknown): void {
 	console.error(`[catalog] ${action} falhou`, meta);
 }
 
-// Produto, versão e preço de venda: só o superadmin (o bureau_admin não tem catalog:write desde 048).
+// Produto, versão e preço de venda: só o superadmin (o bureau_admin não tem catalog:write desde 055).
 // Fora de sessão de suporte: a auditoria dessas ações é de plataforma e não leva o suporte (decisão 5 do spec).
 const requireProductManager = () =>
 	requireSession((s) => s.role === "superadmin" && hasPermission(s, "catalog:write"), { denyInSupport: true });

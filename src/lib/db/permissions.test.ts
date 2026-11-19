@@ -73,6 +73,8 @@ const matrix: Record<string, { subject: Parameters<typeof permissionsFor>[0]; al
       "payout:read",
       "lgpd:manage",
       "affiliates:read",
+      "coupons:read",
+      "coupons:write",
     ],
   },
   operator: {

@@ -10,7 +10,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    // O preço do produto é global (versão do superadmin, 048): testes de integração de arquivos diferentes que mudam o
+    // O preço do produto é global (versão do superadmin, 055): testes de integração de arquivos diferentes que mudam o
     // preço do mesmo produto se atropelariam. Um arquivo por vez.
     fileParallelism: false,
     include: ["src/**/*.test.ts", "e2e/**/*.test.ts"],

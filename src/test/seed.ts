@@ -265,7 +265,7 @@ export async function seedBureauCost(
 	);
 }
 
-// Modelo da 048: o preço é do produto (versão do superadmin) e o Bureau ganha uma % sobre o preço bruto. Põe o produto
+// Modelo da 055: o preço é do produto (versão do superadmin) e o Bureau ganha uma % sobre o preço bruto. Põe o produto
 // à venda a `salePrice` (+ `salePricePerPartner`) com uma versão nova só se o preço vigente for outro, grava a % do
 // Bureau (override) que deixa o custo (parte da plataforma) em `cost` e aplica o bloqueio. O preço é global: testes de
 // arquivos diferentes que usam o mesmo produto com preços diferentes não podem rodar ao mesmo tempo (ver vitest.config).

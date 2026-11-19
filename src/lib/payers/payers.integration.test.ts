@@ -336,8 +336,11 @@ describe("holder fallback (D8) and missing fields", () => {
 
 	it("a holder with an invalid document or postal code is not treated as known data", async () => {
 		const t = await seedTenant(owner, "payer-badholder");
-		// O CPF do seed tem dígitos verificadores aleatórios; o CEP tem tamanho errado.
-		await owner.query("update holders set zip_code = '123', address_number = null where id = $1", [t.holder.id]);
+		// O CPF do seed é aleatório e é válido em 1% das vezes: fixa um CPF inválido. O CEP tem tamanho errado.
+		await owner.query(
+			"update holders set document = '123.456.789-00', zip_code = '123', address_number = null where id = $1",
+			[t.holder.id],
+		);
 		const v = await view(as(t.client), clientScope(t));
 		expect(v).toMatchObject({ source: "none", documentMasked: null, postalCodeMasked: null, hasAddressNumber: false });
 		expect(missingPayerFields(v, "PIX", false)).toEqual(["document"]);

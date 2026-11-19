@@ -1,4 +1,4 @@
-// Comissão dos Bureaus (migração 048) contra um Postgres real: divisão do preço bruto entre Bureau, afiliado e plataforma,
+// Comissão dos Bureaus (migração 055) contra um Postgres real: divisão do preço bruto entre Bureau, afiliado e plataforma,
 // arredondamento, precedência da %, bloqueio de produto, snapshot do pedido, pedido antigo e balcão.
 // O preço do produto é global (versão do superadmin): este arquivo muda o preço do dossie_pf, então o Vitest não pode
 // rodar arquivos de integração ao mesmo tempo (fileParallelism: false em vitest.config.ts).

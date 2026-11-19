@@ -33,6 +33,8 @@ export const permissions = [
   "affiliates:read",
   "affiliates:manage",
   "withdrawals:manage",
+  "coupons:read",
+  "coupons:write",
 ] as const;
 
 export type Permission = (typeof permissions)[number];
@@ -81,6 +83,8 @@ export const rolePermissions = {
     "lgpd:manage",
     "affiliates:read",
     "credits:adjust",
+    "coupons:read",
+    "coupons:write",
   ],
   operator: operatorPermissions,
   client: ["portal:read", "portal:write", "credits:read", "credits:topup", "affiliates:read"],

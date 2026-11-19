@@ -14,6 +14,8 @@ const KIND_LABEL: Record<PayableEntry["kind"], string> = {
   accrual: "Lucro do pedido",
   reversal: "Pedido estornado",
   payout: "Repasse recebido",
+  coupon_cost: "Cobertura de cupom",
+  coupon_refund: "Devolução de cobertura de cupom",
 };
 
 const shortRef = (ref: string) => ref.slice(0, 8);

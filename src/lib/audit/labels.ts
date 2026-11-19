@@ -91,6 +91,12 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   "settings.scr_update": "Configuração do SCR alterada",
   "settings.affiliates": "Configuração de afiliados alterada",
   "settings.payable_retention": "Prazo de retenção dos repasses alterado",
+  "coupon.create": "Cupom criado",
+  "coupon.update": "Cupom alterado",
+  "coupon.activate": "Cupom reativado",
+  "coupon.deactivate": "Cupom desativado",
+  "coupon.redeem": "Cupom usado em pedido",
+  "coupon.release": "Uso do cupom devolvido",
 };
 
 export interface AuditActionLabel {

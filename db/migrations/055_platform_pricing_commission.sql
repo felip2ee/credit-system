@@ -1,4 +1,4 @@
--- Comissão dos Bureaus (spec 2026-11-19-comissao-bureaus-design.md, seções 2, 3.1, 3.2 e 4). A 001-047 já foram aplicadas e não mudam.
+-- Comissão dos Bureaus (spec 2026-11-19-comissao-bureaus-design.md, seções 2, 3.1, 3.2 e 4). A 001-054 já foram aplicadas e não mudam.
 -- Só o superadmin define o preço de venda do produto, a % do Bureau, a % de afiliados do Bureau e o bloqueio de produto
 -- por Bureau. O Bureau recebe uma % do preço bruto de cada venda; a plataforma fica com o resto (order_settlements.cost
 -- passa a ser a parte da plataforma nos pedidos novos). A comissão do afiliado também é % do preço bruto e sai da parte
@@ -10,8 +10,8 @@
 -- 4) Legado só leitura: bureau_catalog_items, bureau_product_costs e affiliate_rates perdem as políticas de escrita.
 --    bureau_affiliate_settings passa a ser escrita só pelo superadmin (sem suporte).
 -- 5) audit_logs_insert: acrescenta commission.bureau_set, catalog.block_set e affiliate.rate ao ramo do superadmin.
--- 6) public_bureau_catalog, open_order, reserve_order e capture_order redefinidas (cópia da última versão; só mudam a
---    consulta de catálogo, o cálculo de preço/comissão e o ramo novo da captura).
+-- 6) public_bureau_catalog, open_order (044), reserve_order (054, com cupom) e capture_order (051, com cupom) redefinidas
+--    (cópia da última versão; só mudam a consulta de catálogo, o cálculo de preço/comissão e o ramo novo da captura).
 -- Nenhum preço, % ou bloqueio é gravado aqui: sem preço o produto não está à venda; sem % global (e sem override)
 -- reserve_order recusa com commission_not_configured.
 
@@ -207,7 +207,8 @@ revoke all on function product_blocked_for_bureau_internal(uuid, uuid) from publ
 revoke all on function product_blocked_for_bureau(uuid, uuid) from public;
 grant execute on function product_blocked_for_bureau(uuid, uuid) to app_runtime;
 
--- 3) Liquidação: snapshot da % e da comissão do Bureau. cost, nos pedidos novos, é a parte da plataforma.
+-- 3) Liquidação: snapshot da % e da comissão do Bureau. cost, nos pedidos novos, é a parte da plataforma. A base é o
+-- preço bruto (price + discount): com cupom, price é o preço pago e discount o desconto (048).
 alter table order_settlements
   add column commission_pct numeric(5,2),
   add column bureau_commission numeric(15,2);
@@ -216,8 +217,8 @@ alter table order_settlements add constraint order_settlements_commission_check 
   and (
     commission_pct is null
     or (commission_pct between 0 and 99.99
-        and bureau_commission = round(price * commission_pct / 100, 2)
-        and cost = price - bureau_commission)
+        and bureau_commission = round((price + discount) * commission_pct / 100, 2)
+        and cost = price + discount - bureau_commission)
   )
 );
 grant insert (commission_pct, bureau_commission) on order_settlements to auth_profile_lookup;
@@ -248,7 +249,7 @@ create policy bureau_affiliate_settings_superadmin_update on bureau_affiliate_se
     and updated_by = app_user_id());
 
 comment on column affiliate_commissions.margin is
-  'Base da comissão. Comissão nova (048): preço bruto do pedido. Comissão antiga: margem (preço menos custo). Relatórios usam amount e pct.';
+  'Base da comissão. Comissão nova (055): preço bruto do pedido. Comissão antiga: margem (preço menos custo). Relatórios usam amount e pct.';
 
 -- Auditoria só junto da linha que a mesma transação escreveu (como audit_nfse_retry_backed, 017): o evento aponta para
 -- uma mudança real do Bureau alvo, feita por este autor. Fora do superadmin sem suporte devolve sempre falso.
@@ -830,14 +831,20 @@ begin
 end
 $$;
 
--- reserve_order (022): preço e custo vêm do preço de venda do produto e da % do Bureau (048).
+-- reserve_order e capture_order: cópia da ÚLTIMA definição com cupom (reserve_order da 054, capture_order da 051) e só
+-- mudam o preço/custo/comissão (reserve) e o ramo novo de commission_pct (capture). A lógica de cupom (desconto, redenção,
+-- falta coberta pelo Bureau, limite de tentativas, devolução) fica idêntica. Com cupom, order_settlements.price é o preço
+-- PAGO e discount o desconto: price + discount é o preço bruto sobre o qual valem a comissão do Bureau e a do afiliado.
+-- O desconto é pago pelo Bureau (reduz o que ele recebe, até virar "falta" coberta por carteira/repasse); a parte da
+-- plataforma (cost) nunca muda.
 create or replace function reserve_order(
   p_order_ref uuid,
   p_mode text,
   p_client_profile_id uuid,
   p_price numeric,
   p_cost numeric,
-  p_quote jsonb
+  p_quote jsonb,
+  p_coupon_code text default null
 )
 returns table (ok boolean, reason text, status text)
 language plpgsql
@@ -861,6 +868,18 @@ declare
   v_code text;
   v_partners integer;
   v_item record;
+  v_coupon public.coupons;
+  v_coupon_code text;
+  v_uses integer;
+  v_client_uses integer;
+  v_discount numeric := 0;
+  v_paid numeric;
+  v_falta numeric;
+  v_wallet_avail numeric;
+  v_wallet_part numeric := 0;
+  v_payable_part numeric := 0;
+  v_released numeric;
+  v_redemption uuid;
 begin
   if not public.app_context_present() or v_bureau is null or p_order_ref is null
      or p_mode is null or p_mode not in ('online', 'counter') then
@@ -876,12 +895,14 @@ begin
     return query select false, 'not_allowed'::text, null::text;
     return;
   end if;
+  -- Com cupom o preço pago pode ser 0 e menor que o custo; sem cupom valem as regras de antes.
   if p_price is null or p_cost is null or p_price <> round(p_price, 2) or p_cost <> round(p_cost, 2)
-     or p_price <= 0 or p_cost < 0 or p_price > 99999999.99 or p_cost > 99999999.99 then
+     or p_price < 0 or (p_price = 0 and p_coupon_code is null)
+     or p_cost < 0 or p_price > 99999999.99 or p_cost > 99999999.99 then
     return query select false, 'invalid_amount'::text, null::text;
     return;
   end if;
-  if p_price < p_cost then
+  if p_price < p_cost and p_coupon_code is null then
     return query select false, 'price_below_cost'::text, null::text;
     return;
   end if;
@@ -895,10 +916,76 @@ begin
     return;
   end if;
 
+  -- Cupom: só no pedido online. O código vale sem espaços nas pontas e em maiúsculas.
+  if p_coupon_code is not null then
+    v_coupon_code := pg_catalog.upper(pg_catalog.btrim(p_coupon_code));
+    if p_mode <> 'online' then
+      return query select false, 'coupon_invalid'::text, null::text;
+      return;
+    end if;
+    -- Repetição de uma reserva que já deu certo: devolve o estado sem validar de novo (a própria redenção
+    -- contaria no limite).
+    select * into v_existing from public.order_settlements where order_ref = p_order_ref;
+    if found and v_existing.bureau_id = v_bureau and v_existing.coupon_id is not null
+       and v_existing.client_profile_id is not distinct from p_client_profile_id
+       and v_existing.price = p_price
+       and exists (select 1 from public.coupons c
+                    where c.id = v_existing.coupon_id and c.bureau_id = v_bureau and c.code = v_coupon_code) then
+      return query select true, null::text, v_existing.status;
+      return;
+    end if;
+
+    -- Limite de tentativas por hora. Com a vaga do pedido em mãos (coupon_attempt_begin, 054) o limite já foi
+    -- conferido e a própria vaga contaria contra ele; sem a vaga, só confere.
+    if not public.coupon_slot_held(v_user) and public.coupon_attempts_blocked(v_user) then
+      return query select false, 'coupon_invalid'::text, null::text;
+      return;
+    end if;
+
+    select * into v_coupon from public.coupons c where c.bureau_id = v_bureau and c.code = v_coupon_code;
+    if not found then
+      return query select false, 'coupon_invalid'::text, null::text;
+      return;
+    end if;
+    -- Duas reservas do mesmo cupom se enfileiram aqui: a segunda conta os usos depois de a primeira gravar a dela.
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('coupon:' || v_coupon.id::text, 0));
+    select * into v_coupon from public.coupons c where c.id = v_coupon.id;
+    -- A repetição que esperou a trava: a primeira chamada já gravou a redenção. Repete a checagem de antes.
+    select * into v_existing from public.order_settlements where order_ref = p_order_ref;
+    if found and v_existing.bureau_id = v_bureau and v_existing.coupon_id is not null
+       and v_existing.client_profile_id is not distinct from p_client_profile_id
+       and v_existing.price = p_price and v_existing.coupon_id = v_coupon.id then
+      return query select true, null::text, v_existing.status;
+      return;
+    end if;
+    if not v_coupon.active then
+      return query select false, 'coupon_invalid'::text, null::text;
+      return;
+    end if;
+    if pg_catalog.now() < v_coupon.valid_from
+       or (v_coupon.valid_until is not null and pg_catalog.now() >= v_coupon.valid_until) then
+      return query select false, 'coupon_expired'::text, null::text;
+      return;
+    end if;
+    select count(*), count(*) filter (where r.client_profile_id = p_client_profile_id)
+      into v_uses, v_client_uses
+      from public.coupon_redemptions r
+     where r.coupon_id = v_coupon.id and r.status in ('reserved', 'consumed');
+    if v_coupon.max_uses is not null and v_uses >= v_coupon.max_uses then
+      return query select false, 'coupon_exhausted'::text, null::text;
+      return;
+    end if;
+    if v_coupon.max_uses_per_client is not null and v_client_uses >= v_coupon.max_uses_per_client then
+      return query select false, 'coupon_client_limit'::text, null::text;
+      return;
+    end if;
+  end if;
+
   -- Preço e custo saem do pedido, não da cotação: produto do pedido, sócios = membros do Dossiê menos o Titular
   -- principal, preço de venda da última versão do produto (valor base + valor por sócio). A comissão do Bureau é a %
-  -- efetiva (override ou global) sobre o preço bruto; o custo gravado é a parte da plataforma (preço menos comissão).
-  -- A cotação do chamador só é conferida pelo total; as linhas gravadas são as montadas aqui.
+  -- efetiva (override ou global) sobre o preço bruto (de tabela, antes do cupom); o custo gravado é a parte da
+  -- plataforma (preço bruto menos comissão). A cotação do chamador só é conferida pelo total; as linhas gravadas são
+  -- as montadas aqui.
   select o.product_code into v_code from public.dossier_orders o where o.dossier_id = p_order_ref;
   select greatest(count(*) - 1, 0) into v_partners from public.consultations c where c.dossier_id = p_order_ref;
   select p.id, c.product_version_id, c.sale_price, c.sale_price_per_partner
@@ -929,10 +1016,26 @@ begin
         'unitPriceCents', (v_item.sale_price_per_partner * 100)::bigint,
         'priceCents', (v_item.sale_price_per_partner * v_partners * 100)::bigint));
     end if;
+    -- Desconto: a base é o total das linhas que o cupom aceita (o pedido tem um produto só: todas ou nenhuma),
+    -- arredondado uma vez. "coupon_products" só vale com all_products falso.
+    v_paid := v_price;
+    if v_coupon.id is not null then
+      if not (v_coupon.all_products
+              or exists (select 1 from public.coupon_products cp
+                          where cp.coupon_id = v_coupon.id and cp.product_id = v_item.id)) then
+        return query select false, 'coupon_product_not_allowed'::text, null::text;
+        return;
+      end if;
+      v_discount := case v_coupon.kind
+        when 'percent' then round(v_price * v_coupon.value / 100, 2)
+        else least(v_coupon.value, v_price) end;
+      v_paid := v_price - v_discount;
+    end if;
     -- Cliente online manda um custo qualquer (não o conhece): só o preço, que é público, é conferido.
-    if v_price <> p_price then
+    if v_paid <> p_price then
       v_valid := false;
       v_fail := 'price_mismatch';
+      v_discount := 0;
     elsif p_mode = 'counter' and v_cost <> p_cost then
       v_valid := false;
       v_fail := 'cost_mismatch';
@@ -944,11 +1047,11 @@ begin
   begin
     -- 1º: linha da liquidação. A unicidade de order_ref serializa duas reservas do mesmo pedido. Com a cotação
     -- inválida a linha é gravada com os valores do chamador e desfeita logo abaixo (RS001).
-    insert into public.order_settlements
-      (order_ref, bureau_id, mode, client_profile_id, price, cost, quote, commission_pct, bureau_commission)
+    insert into public.order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost, quote,
+                                          coupon_id, discount, commission_pct, bureau_commission)
     values (p_order_ref, v_bureau, p_mode, p_client_profile_id, p_price,
       case when v_valid then v_cost else p_cost end,
-      jsonb_build_object('lines', v_lines),
+      jsonb_build_object('lines', v_lines), v_coupon.id, v_discount,
       case when v_valid then v_pct end, case when v_valid then v_commission end)
     on conflict (order_ref) do nothing
     returning id into v_id;
@@ -959,6 +1062,7 @@ begin
         return query select false, 'not_allowed'::text, null::text;
       elsif v_existing.mode = p_mode
          and v_existing.client_profile_id is not distinct from p_client_profile_id
+         and v_existing.coupon_id is not distinct from v_coupon.id
          and v_existing.price = p_price and (p_mode = 'online' or v_existing.cost = p_cost) then
         return query select true, null::text, v_existing.status;
       else
@@ -971,12 +1075,14 @@ begin
       raise exception 'reserve_order rolled back' using errcode = 'RS001';
     end if;
 
-    -- 2º: carteira do cliente (online) ou 3º: carteira do Bureau (balcão, só com custo > 0).
+    -- 2º: carteira do cliente (online, só se o preço pago é maior que 0) ou 3º: carteira do Bureau (balcão, só com custo > 0).
     select true as ok, null::text as reason into v_post;
     if p_mode = 'online' then
-      select * into v_post from public.client_wallet_post_entry(
-        p_client_profile_id, 'reserve', v_price, 'order:reserve:' || p_order_ref::text,
-        'order:' || p_order_ref::text, null, v_user);
+      if v_paid > 0 then
+        select * into v_post from public.client_wallet_post_entry(
+          p_client_profile_id, 'reserve', v_paid, 'order:reserve:' || p_order_ref::text,
+          'order:' || p_order_ref::text, null, v_user);
+      end if;
     elsif v_cost > 0 then
       select * into v_post from public.wallet_post_entry(
         v_bureau, 'reserve', v_cost, 'order:reserve:' || p_order_ref::text,
@@ -985,6 +1091,54 @@ begin
     if not v_post.ok then
       v_fail := v_post.reason;
       raise exception 'reserve_order rolled back' using errcode = 'RS001';
+    end if;
+
+    -- 4º: o Bureau cobre a falta do cupom (o desconto que passa da comissão dele; a parte da plataforma não muda). Primeiro a carteira pré-paga (reserva), depois o valor a repassar
+    -- liberado (coupon_cost). O lock é o de create_payout: um repasse e esta reserva não gastam o mesmo dinheiro, e o
+    -- saldo liberado nunca fica abaixo de zero.
+    if v_coupon.id is not null then
+      v_falta := greatest(v_cost - v_paid, 0);
+      if v_falta > 0 then
+        perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('payout:' || v_bureau::text, 0));
+        select w.available into v_wallet_avail from public.wallets w where w.bureau_id = v_bureau for update;
+        v_wallet_part := least(v_falta, coalesce(v_wallet_avail, 0));
+        v_payable_part := v_falta - v_wallet_part;
+        if v_payable_part > 0 then
+          -- O mesmo conjunto de payable_buckets: o que nenhum repasse pegou; acréscimo só depois da retenção.
+          select coalesce(sum(e.amount), 0) into v_released
+            from public.bureau_payable_entries e
+           where e.bureau_id = v_bureau
+             and e.kind in ('accrual', 'reversal', 'coupon_cost', 'coupon_refund')
+             and (e.kind <> 'accrual'
+                  or e.created_at <= pg_catalog.now() - pg_catalog.make_interval(days => public.payable_retention_days()))
+             and not exists (select 1 from public.payout_items i where i.entry_id = e.id);
+          if v_released < v_payable_part then
+            v_fail := 'coupon_funds_insufficient';
+            raise exception 'reserve_order rolled back' using errcode = 'RS001';
+          end if;
+        end if;
+        if v_wallet_part > 0 then
+          select * into v_post from public.wallet_post_entry(
+            v_bureau, 'reserve', v_wallet_part, 'coupon:' || p_order_ref::text || ':wallet',
+            'order:' || p_order_ref::text, 'cupom', v_user);
+          if not v_post.ok then
+            v_fail := 'coupon_funds_insufficient';
+            raise exception 'reserve_order rolled back' using errcode = 'RS001';
+          end if;
+        end if;
+        if v_payable_part > 0 then
+          insert into public.bureau_payable_entries (bureau_id, kind, amount, order_ref)
+          values (v_bureau, 'coupon_cost', -v_payable_part, p_order_ref);
+        end if;
+      end if;
+      insert into public.coupon_redemptions
+        (coupon_id, bureau_id, client_profile_id, order_ref, discount, funded_wallet, funded_payable)
+      values (v_coupon.id, v_bureau, p_client_profile_id, p_order_ref, v_discount, v_wallet_part, v_payable_part)
+      returning id into v_redemption;
+      insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+      values (v_bureau, v_user, 'coupon.redeem', 'coupon_redemptions', v_redemption,
+        jsonb_build_object('order_ref', p_order_ref, 'coupon_id', v_coupon.id, 'discount', v_discount::text,
+          'funded_wallet', v_wallet_part::text, 'funded_payable', v_payable_part::text));
     end if;
   exception when sqlstate 'RS001' then
     return query select false, v_fail, null::text;
@@ -995,7 +1149,7 @@ begin
 end
 $$;
 
--- capture_order (027): ramo novo quando commission_pct está gravado (048); o ramo antigo continua igual.
+
 create or replace function capture_order(p_order_ref uuid)
 returns table (ok boolean, reason text, status text)
 language plpgsql
@@ -1007,6 +1161,7 @@ declare
   v_bureau uuid := public.app_bureau_id();
   v_user uuid := public.app_user_id();
   v_s public.order_settlements;
+  v_r public.coupon_redemptions;
   v_post record;
   v_amount numeric;
   v_reserved numeric;
@@ -1017,6 +1172,9 @@ declare
   v_pct numeric;
   v_hold_days integer;
   v_commission_id uuid;
+  v_funded_wallet numeric;
+  v_wallet_reserved numeric;
+  v_coupon_short boolean := false;
 begin
   if not public.app_context_present() or v_bureau is null or p_order_ref is null
      or not (public.app_user_role() = 'client' or public.app_is_staff()) then
@@ -1043,11 +1201,13 @@ begin
   end if;
 
   -- Valor que a captura tira da reserva e o que ainda resta da reserva deste pedido (a carteira travada; ver
-  -- order_reservation_left). Balcão com custo 0 não toca a carteira (v_reserved fica nulo).
+  -- order_reservation_left). Balcão com custo 0 e online com preço pago 0 não tocam a carteira (v_reserved fica nulo).
   v_amount := case when v_s.mode = 'online' then v_s.price else v_s.cost end;
   if v_s.mode = 'online' then
-    select reserved into v_reserved from public.client_wallets
-     where client_profile_id = v_s.client_profile_id for update;
+    if v_s.price > 0 then
+      select reserved into v_reserved from public.client_wallets
+       where client_profile_id = v_s.client_profile_id for update;
+    end if;
   elsif v_s.cost > 0 then
     select reserved into v_reserved from public.wallets where bureau_id = v_s.bureau_id for update;
   end if;
@@ -1055,7 +1215,18 @@ begin
     v_reserved := public.order_reservation_left(v_s.order_ref, v_reserved);
   end if;
 
-  if v_reserved < v_amount then
+  -- Cupom: um estorno de recarga do Bureau pode ter tirado da reserva da carteira dele o que este pedido segurava.
+  -- Trava a carteira do Bureau (depois da do cliente) e trata como estorno retomado, em vez de dar erro.
+  if v_s.mode = 'online' and v_s.coupon_id is not null then
+    select r.funded_wallet into v_funded_wallet from public.coupon_redemptions r
+     where r.order_ref = p_order_ref and r.status = 'reserved';
+    if coalesce(v_funded_wallet, 0) > 0 then
+      select w.reserved into v_wallet_reserved from public.wallets w where w.bureau_id = v_s.bureau_id for update;
+      v_coupon_short := coalesce(v_wallet_reserved, 0) < v_funded_wallet;
+    end if;
+  end if;
+
+  if v_reserved < v_amount or v_coupon_short then
     -- Um estorno de PIX retomou a reserva deste pedido: não há o que capturar. Devolve o que sobrou dela e fecha o pedido.
     if v_reserved > 0 then
       if v_s.mode = 'online' then
@@ -1071,27 +1242,45 @@ begin
         raise exception 'order release failed: %', v_post.reason;
       end if;
     end if;
+    perform public.coupon_release_redemption(v_s.order_ref, v_user);
     update public.order_settlements set status = 'released', closed_at = now() where id = v_s.id;
     return query select false, 'reservation_clawed_back'::text, 'released'::text;
     return;
   end if;
 
   if v_s.mode = 'online' then
-    select * into v_post from public.client_wallet_post_entry(
-      v_s.client_profile_id, 'capture', v_s.price, 'order:capture:' || p_order_ref::text,
-      'order:' || p_order_ref::text, null, v_user);
-    if not v_post.ok then
-      return query select false, v_post.reason, v_s.status;
-      return;
+    if v_s.price > 0 then
+      select * into v_post from public.client_wallet_post_entry(
+        v_s.client_profile_id, 'capture', v_s.price, 'order:capture:' || p_order_ref::text,
+        'order:' || p_order_ref::text, null, v_user);
+      if not v_post.ok then
+        return query select false, v_post.reason, v_s.status;
+        return;
+      end if;
+    end if;
+
+    -- Cupom: a carteira do Bureau captura o que a reserva segurou e a redenção vira consumida. Falha aqui desfaz tudo.
+    if v_s.coupon_id is not null then
+      select * into v_r from public.coupon_redemptions where order_ref = p_order_ref for update;
+      if v_r.funded_wallet > 0 then
+        select * into v_post from public.wallet_post_entry(
+          v_s.bureau_id, 'capture', v_r.funded_wallet, 'coupon:' || p_order_ref::text || ':wallet:capture',
+          'order:' || p_order_ref::text, 'cupom', v_user);
+        if not v_post.ok then
+          raise exception 'coupon wallet capture failed: %', v_post.reason;
+        end if;
+      end if;
+      update public.coupon_redemptions set status = 'consumed', closed_at = now() where id = v_r.id;
     end if;
 
     -- Comissão: só se o indicado tem telefone verificado e o afiliado está ativo e não foi anonimizado. A % vale na
     -- captura e fica gravada na comissão: mudá-la depois não altera o passado. O perfil do afiliado é lido com
     -- "for share": a anonimização (que o trava "for no key update") e esta captura se enfileiram, e a comissão nunca nasce
     -- depois de a conta ser anonimizada.
-    -- Base da comissão do afiliado: pedido novo (commission_pct gravado) = preço bruto; pedido antigo = margem (preço
-    -- menos custo de atacado). O ramo antigo segue o de 027 (affiliate_rates e bureau_affiliate_settings).
-    v_margin := case when v_s.commission_pct is null then v_s.price - v_s.cost else v_s.price end;
+    -- Base da comissão do afiliado: pedido novo (commission_pct gravado) = preço bruto (de tabela, price + discount:
+    -- o cupom não a reduz); pedido antigo = margem (preço pago menos custo de atacado). O ramo antigo segue o da 051
+    -- (affiliate_rates e bureau_affiliate_settings; margem menor ou igual a zero não gera acréscimo nem comissão).
+    v_margin := case when v_s.commission_pct is null then v_s.price - v_s.cost else v_s.price + v_s.discount end;
     v_commission := 0;
     select r.affiliate_profile_id into v_affiliate
       from public.affiliate_referrals r
@@ -1108,13 +1297,15 @@ begin
         v_commission := round(v_pct * v_margin / 100, 2);
       else
         -- Uma % de afiliados por Bureau. Arredonda sozinha; o least garante que a plataforma não fique negativa
-        -- (bureau + afiliado <= preço). A plataforma absorve o centavo.
+        -- (bureau + afiliado <= preço bruto). A plataforma absorve o centavo e paga o afiliado da parte dela.
         v_pct := coalesce((select default_pct from public.bureau_affiliate_settings where bureau_id = v_s.bureau_id), 0);
-        v_commission := least(round(v_pct * v_margin / 100, 2), v_s.price - v_s.bureau_commission);
+        v_commission := least(round(v_pct * v_margin / 100, 2), v_margin - v_s.bureau_commission);
       end if;
     end if;
-    -- Pedido novo: o Bureau recebe a comissão gravada, sem descontar a do afiliado (sai da parte da plataforma).
-    v_accrual := case when v_s.commission_pct is null then v_margin - v_commission else v_s.bureau_commission end;
+    -- Pedido novo: o Bureau recebe a comissão gravada menos o desconto do cupom (o Bureau o paga; nunca abaixo de zero) e
+    -- não paga a comissão do afiliado (sai da parte da plataforma). Pedido antigo: margem menos a comissão do afiliado.
+    v_accrual := case when v_s.commission_pct is null then v_margin - v_commission
+                      else greatest(v_s.bureau_commission - v_s.discount, 0) end;
     if v_accrual > 0 then
       insert into public.bureau_payable_entries (bureau_id, kind, amount, order_ref)
       values (v_s.bureau_id, 'accrual', v_accrual, v_s.order_ref);

@@ -1,4 +1,4 @@
-// Catálogo e preços (048). Produto, versão e preço de venda: só o superadmin. O Bureau lê o catálogo à venda e a
+// Catálogo e preços (055). Produto, versão e preço de venda: só o superadmin. O Bureau lê o catálogo à venda e a
 // sua comissão. A permissão `catalog:*` é checada na action; aqui o RLS e as triggers barram o resto.
 import { writeAuditEvent } from "@/lib/audit/write";
 import {
@@ -15,7 +15,7 @@ export type CatalogConflict =
 	| "partner_price_below_cost"
 	| "per_partner_not_allowed";
 
-// Só o Dossiê Empresarial cobra por sócio (a trigger product_versions_sale_guard, 048, repete a regra).
+// Só o Dossiê Empresarial cobra por sócio (a trigger product_versions_sale_guard, 055, repete a regra).
 const NO_PARTNER_PRICE_CODE = "dossie_pf";
 
 export type ProductSummary = {

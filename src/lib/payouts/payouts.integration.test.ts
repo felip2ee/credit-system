@@ -685,7 +685,7 @@ describe("immutability", () => {
            values ($1, $2, $3)`,
 					[second.payout_id, entryId, bureauId],
 				),
-			).rejects.toThrow(/accrual or reversal entry of the same Bureau/);
+			).rejects.toThrow(/accrual, reversal or coupon entry of the same Bureau/);
 		}
 	});
 

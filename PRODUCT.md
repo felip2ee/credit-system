@@ -52,6 +52,11 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - Repasse automático: o superadmin paga fora do sistema e marca como pago.
 - Template de WhatsApp de marketing: o M4 envia só mensagens transacionais.
 - Subdomínio ou domínio próprio por Bureau (pode vir depois).
+- Cupom no balcão (a equipe abre a pesquisa). Só o portal do cliente usa cupom.
+- Desconto na recarga de saldo.
+- Mais de um cupom por pesquisa.
+- Cupom criado pela plataforma ou pelo afiliado.
+- Cupom que o cliente recebe sem digitar o código.
 
 ## Requisitos
 
@@ -61,12 +66,13 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - **Pagador:** o checkout pergunta quem paga: o dono da conta ou outra pessoa ou empresa. Cada cobrança leva o cliente Asaas de quem paga. Os dados de pagamento do dono ficam cifrados. Runbook: [docs/operations/payments.md](docs/operations/payments.md). Spec: [docs/superpowers/specs/2026-11-06-pagamento-por-pagador-design.md](docs/superpowers/specs/2026-11-06-pagamento-por-pagador-design.md).
 - **Venda online:** o cliente paga a plataforma. Ao consumir um produto, o Bureau recebe a % dele sobre o preço bruto (comissão do Bureau). O restante fica com a plataforma. O repasse é manual.
 - **Venda de balcão:** o cliente paga o Bureau. O Bureau repassa à plataforma o preço menos a comissão do Bureau, debitado do saldo pré-pago (comprado via Asaas). A comissão do Bureau fica com ele.
+- **Cupons:** o Bureau cria cupons percentuais ou de valor fixo. Cada cupom vale para todos os produtos ou para produtos escolhidos. Limites: usos totais, usos por cliente, início e validade. O cliente digita o código no portal antes de abrir uma pesquisa. O desconto sai da comissão do Bureau: a parte da plataforma não muda. Se o desconto passa da comissão, o Bureau cobre a diferença. Spec: [docs/superpowers/specs/2026-11-19-cupons-desconto-design.md](docs/superpowers/specs/2026-11-19-cupons-desconto-design.md).
 - **Reserva, captura e estorno:** o valor é reservado ao pedir. É capturado quando a consulta DEPS retorna sucesso. É liberado se a consulta falha.
 - **Livro-razão:** todo movimento é um lançamento imutável. O saldo nunca é editável.
 - **Catálogo:** só o superadmin define produtos (Dossiê Pessoa Física e Dossiê Empresarial, mapeados aos produtos DEPS), preço de venda, % do Bureau e bloqueio de produto por Bureau. O Bureau não edita nada disso e não tem custo. Produto sem preço, ou bloqueado para o Bureau, não está à venda. A plataforma não vende nada até o superadmin definir esses valores.
 - **Comissão do Bureau:** uma % do preço bruto de cada venda, global. O superadmin pode definir uma % própria para um Bureau (override). Sem % global, nenhuma venda é aceita.
 - **Preço:** total = valor base + valor por sócio × sócios distintos (por CPF, de 0 a 20). O valor por sócio só vale no Dossiê Empresarial.
-- **Repartição de cada venda:** Bureau = preço × % do Bureau. Afiliado = preço × % de afiliados do Bureau. Plataforma = o resto. Os valores são arredondados ao centavo e a plataforma absorve o centavo.
+- **Repartição de cada venda:** Bureau = preço × % do Bureau. Afiliado = preço × % de afiliados do Bureau. Plataforma = o resto. Os valores são arredondados ao centavo e a plataforma absorve o centavo. Com cupom, as contas usam o preço bruto (de tabela). O desconto sai só da parte do Bureau: a plataforma e o afiliado recebem o mesmo de uma venda sem cupom.
 - **Parecer IA:** todo pedido inclui o parecer, gerado pela OpenAI. Não há adicional nem preço próprio. O custo fica no valor base.
 - **Portal:** a conta PF compra o Dossiê Pessoa Física só para si. A conta PJ informa CPF, nome e e-mail do responsável. O Dossiê Empresarial vale para qualquer CNPJ, com sócios. Pedido com membros exige a declaração do comprador. A página do pedido mostra o estado do aceite SCR de cada membro. O cliente cancela antes da execução e o valor volta ao saldo.
 - **Avisos no aparelho (portal):** em Conta › Notificações (`/portal/notificacoes`) o cliente liga os avisos push neste aparelho e vê como instalar o app. Sair remove o aparelho.

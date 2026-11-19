@@ -1,5 +1,5 @@
-// Comissão de afiliado (migrações 027 e 048) contra um Postgres real: captura, carência, estorno e bloqueio LGPD.
-// Modelo da 048: o Bureau recebe uma % do preço bruto (o seed fixa 20% com preço 400,00 e custo 320,00) e o afiliado, uma
+// Comissão de afiliado (migrações 027 e 055) contra um Postgres real: captura, carência, estorno e bloqueio LGPD.
+// Modelo da 055: o Bureau recebe uma % do preço bruto (o seed fixa 20% com preço 400,00 e custo 320,00) e o afiliado, uma
 // % única do Bureau (bureau_affiliate_settings) também sobre o preço bruto, paga pela plataforma.
 import { randomBytes, randomUUID } from "node:crypto";
 

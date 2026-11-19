@@ -206,6 +206,38 @@ describe("openClientOrderAction", () => {
 		expect(revalidatePath).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		"coupon_invalid",
+		"coupon_expired",
+		"coupon_exhausted",
+		"coupon_client_limit",
+		"coupon_product_not_allowed",
+	])("maps %s to the single generic coupon message (never reveals the reason)", async (reason) => {
+		state.placeOrder.mockResolvedValue({ ok: false, reason });
+
+		await expect(openClientOrderAction({ ...ownOrder, couponCode: "VERAO10" })).resolves.toEqual({
+			error: "Cupom inválido ou indisponível",
+		});
+		expect(revalidatePath).not.toHaveBeenCalled();
+	});
+
+	it("maps coupon_funds_insufficient to the generic coupon message (no Bureau finances leak)", async () => {
+		state.placeOrder.mockResolvedValue({ ok: false, reason: "coupon_funds_insufficient" });
+
+		await expect(openClientOrderAction({ ...ownOrder, couponCode: "VERAO10" })).resolves.toEqual({
+			error: "Cupom inválido ou indisponível",
+		});
+	});
+
+	it("passes the coupon code, trimmed and upper-case, to placeOrder; a blank code sends none", async () => {
+		await openClientOrderAction({ ...ownOrder, couponCode: "  verao10 " });
+		expect(state.placeOrder.mock.calls[0][3]).toEqual({ couponCode: "VERAO10" });
+
+		state.placeOrder.mockClear();
+		await openClientOrderAction({ ...ownOrder, couponCode: "   " });
+		expect(state.placeOrder.mock.calls[0][3]).toBeUndefined();
+	});
+
 	it("logs only the step and the reason for an unmapped reason", async () => {
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		state.placeOrder.mockResolvedValue({ ok: false, reason: "price_below_cost" });
