@@ -11,6 +11,7 @@ import {
   Users,
   Wallet,
   Share2,
+  Ticket,
   LogOut,
 } from "lucide-react";
 
@@ -26,6 +27,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   "/holders": Users,
   "/scr": ShieldCheck,
   "/settings/catalog": PackageSearch,
+  "/settings/cupons": Ticket,
   "/settings/wallet": Wallet,
   "/afiliados": Share2,
   "/settings": Settings,
