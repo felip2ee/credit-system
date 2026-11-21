@@ -48,6 +48,22 @@ describe("OpinionBlock", () => {
     for (const t of ["Pontos fortes", "Pontos de atenção", "Plano de ação", "Resumo"]) expect(text, t).not.toContain(t);
   }, 30_000);
 
+  it("renders the mapa mental after the action plan, only when present", async () => {
+    const mapaMental = {
+      centro: "Elevar o limite com segurança",
+      ramos: [
+        { titulo: "Regularizar", tipo: "etapa" as const, nos: [{ texto: "Quitar pendência no Serasa", prazo: "30_dias" as const, dono: "Cliente" }] },
+        { titulo: "Evitar", tipo: "evitar" as const, nos: [{ texto: "Novas dívidas no cartão", prazo: "continuo" as const, dono: "Cliente" }] },
+      ],
+    };
+    const text = await render({ ...structured, mapaMental });
+    for (const t of ["Mapa mental do plano de ação", "Elevar o limite", "Regularizar", "Quitar pendência", "Novas dívidas", "dias · Cliente", "Contínuo"]) {
+      expect(text, t).toContain(t);
+    }
+    expect(text.indexOf("Pedir extratos")).toBeLessThan(text.indexOf("Mapa mental do plano de ação"));
+    expect(await render(structured)).not.toContain("Mapa mental");
+  }, 30_000);
+
   it("renders structured fields without a report section", async () => {
     const text = await render(structured);
     expect(text).toContain("Pagador pontual");

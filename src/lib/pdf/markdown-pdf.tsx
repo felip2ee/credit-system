@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import { View, Text, StyleSheet } from "@react-pdf/renderer";
 
+import type { MapaMental } from "@/types/ai";
 import { STATE_COLORS } from "@/lib/brand/tokens";
 
 import { PDF_FONT_FAMILY, PDF_FONT_FAMILY_BOLD } from "./fonts";
+import { MapaMentalPdf } from "./mapa-mental-pdf";
 import { PdfTable } from "./table";
 import { PDF_COLORS, PDF_TYPE } from "./theme";
 
@@ -232,6 +234,7 @@ export interface OpinionForPdf {
   pontosFortes: { title: string; description: string }[];
   pontosAtencao: { title: string; description: string; severity?: string | null }[];
   planoAcao: { step: string; description: string; priority?: string | null }[];
+  mapaMental?: MapaMental;
   limiteSugerido?: number | null;
   limiteNotas?: string | null;
   modelo?: string | null;
@@ -299,6 +302,9 @@ export function OpinionBlock({ opinion }: { opinion: OpinionForPdf }) {
           </ListItem>
         ))}
       />
+      {opinion.mapaMental ? (
+        <Section title="Mapa mental do plano de ação" items={[<MapaMentalPdf key="mapa" mapa={opinion.mapaMental} />]} />
+      ) : null}
 
       {/* Sem View em volta: o título precisa ter irmãos anteriores para o minPresenceAhead valer. */}
       {opinion.relatorioMarkdown ? <MarkdownPdf md={opinion.relatorioMarkdown} /> : null}
