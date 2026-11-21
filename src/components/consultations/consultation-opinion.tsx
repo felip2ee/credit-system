@@ -10,6 +10,7 @@ import { generateOpinion } from "@/actions/ai";
 import { Badge } from "@/components/ui/badge";
 import { AptitudeBadge } from "@/components/dossiers/dossier-badges";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { MapaMentalView } from "@/components/parecer/mapa-mental";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -203,6 +204,8 @@ export function ConsultationOpinion({ queryId, report }: Props) {
             </div>
           </div>
         )}
+
+        <MapaMentalView mapa={parecer.mapa_mental} />
 
         {/* Relatório completo */}
         {report!.report_markdown && (
