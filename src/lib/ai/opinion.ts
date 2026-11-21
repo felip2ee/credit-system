@@ -43,7 +43,7 @@ export interface GenerateParecerResult {
 async function runParecer(
   systemPrompt: string,
   userPayload: string,
-  maxTokens = 8000
+  maxTokens = 16000
 ): Promise<GenerateParecerResult> {
   const client = getClient();
   const model = OPENAI_MODEL;
@@ -107,7 +107,7 @@ export async function generateParecer(
 
 // Parecer técnico consolidado do grupo (empresa + sócios do quadro societário).
 // Teto de saída maior: o relatório soma a análise PJ completa da empresa com uma
-// análise PF completa por sócio — com 3+ sócios, 8000 tokens truncam o JSON.
+// análise PF completa por sócio — com 3+ sócios, o relatório pode truncar o JSON.
 export async function generateCompanyParecer(
   input: CompanyParecerInput,
   systemPrompt: string = COMPANY_SYSTEM_PROMPT
