@@ -185,6 +185,22 @@ describe("client pdf route", () => {
 		});
 	});
 
+	it("forwards a valid mapa_mental and drops an invalid one", async () => {
+		const mapa = { centro: "Plano", ramos: [{ titulo: "Etapa", tipo: "etapa", nos: [{ texto: "Pedir extratos", prazo: "30_dias", dono: "Cliente" }] }] };
+		const opinion = (mapa_mental: unknown) => ({
+			apto: "apto", classificacao_perfil: "Bom", resumo_executivo: "R", pontos_fortes: [], pontos_atencao: [], plano_acao: [],
+			limite_sugerido: null, limite_sugerido_notas: "", relatorio_markdown: "", mapa_mental,
+		});
+		state.getMyDelivery.mockResolvedValue(delivery({ dossierOpinion: opinion(mapa) }));
+		await call();
+		expect(state.render.mock.calls[0][0].report.mapaMental).toEqual(mapa);
+
+		state.render.mockClear();
+		state.getMyDelivery.mockResolvedValue(delivery({ dossierOpinion: opinion({ centro: "" }) }));
+		await call();
+		expect(state.render.mock.calls[0][0].report.mapaMental).toBeUndefined();
+	});
+
 	describe("opinion fallback without a consolidated report", () => {
 		const parecer = (resumo: string) => ({
 			apto: "apto",

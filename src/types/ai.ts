@@ -36,6 +36,32 @@ const AcaoSchema = z.object({
   priority: z.enum(["imediata", "curto", "médio", "longo"]).default("curto"),
 });
 
+// Mapa mental do plano de ação: centro → ramos → nós (profundidade fixa, sem recursão).
+export const MapaMentalSchema = z.object({
+  centro: z.string().min(1).max(120),
+  ramos: z
+    .array(
+      z.object({
+        titulo: z.string().min(1).max(40),
+        tipo: z.enum(["etapa", "evitar"]),
+        nos: z
+          .array(
+            z.object({
+              texto: z.string().min(1).max(140),
+              prazo: z.enum(["30_dias", "60_dias", "90_dias", "180_dias", "continuo"]),
+              dono: z.string().min(1).max(60),
+            }),
+          )
+          .min(1)
+          .max(6),
+      }),
+    )
+    .min(1)
+    .max(8),
+});
+
+export type MapaMental = z.infer<typeof MapaMentalSchema>;
+
 const ProdutoSugeridoSchema = z.object({
   product_name: z.string(),
   justification: z.string(),
@@ -77,6 +103,8 @@ export const ParecerSchema = z.object({
   pontos_fortes: z.array(PontoSchema).default([]),
   pontos_atencao: z.array(RiscoSchema).default([]),
   plano_acao: z.array(AcaoSchema).default([]),
+  // Mapa é derivado do plano: se vier fora dos limites, descarta só ele e não o parecer inteiro.
+  mapa_mental: MapaMentalSchema.optional().catch(undefined),
   produtos_sugeridos: z.array(ProdutoSugeridoSchema).default([]),
   top_oportunidades_imediatas: z.array(OportunidadeSchema).default([]),
   limite_sugerido: z.number().nullable().default(null),

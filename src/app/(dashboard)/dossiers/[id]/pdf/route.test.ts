@@ -126,6 +126,23 @@ describe("staff dossier pdf route opinion", () => {
 		});
 	});
 
+	it("forwards a valid mapa_mental of the consolidated report and drops an invalid one", async () => {
+		const mapa = { centro: "Plano", ramos: [{ titulo: "Etapa", tipo: "etapa", nos: [{ texto: "Pedir extratos", prazo: "30_dias", dono: "Cliente" }] }] };
+		const consolidated = (mapa_mental: unknown) =>
+			detail("PJ_FULL", [member("c2", "PF"), member("c1", "PJ")], {
+				status: "completed", aptitude_status: "apt", generation_error: null, report_markdown: "# C",
+				full_report: { classificacao_perfil: "Bom", mapa_mental }, model_used: "m", generated_at: null,
+			});
+		state.detail = consolidated(mapa);
+		await call();
+		expect(state.render.mock.calls[0][0].report.mapaMental).toEqual(mapa);
+
+		state.render.mockClear();
+		state.detail = consolidated({ centro: 1 });
+		await call();
+		expect(state.render.mock.calls[0][0].report.mapaMental).toBeUndefined();
+	});
+
 	it("falls back to the company opinion when the PJ_FULL report is not completed", async () => {
 		state.detail = detail("PJ_FULL", [member("c2", "PF"), member("c1", "PJ")], { status: "failed" });
 		state.getConsultationReport.mockResolvedValue(aiRow);

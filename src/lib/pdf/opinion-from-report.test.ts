@@ -32,6 +32,13 @@ describe("opinionFromAiReport", () => {
     });
   });
 
+  it("maps a valid mapa_mental and ignores an invalid one", () => {
+    const mapa = { centro: "Plano", ramos: [{ titulo: "Etapa", tipo: "etapa", nos: [{ texto: "T", prazo: "90_dias", dono: "D" }] }] };
+    expect(opinionFromAiReport(row({ full_report: { mapa_mental: mapa } }))?.mapaMental).toEqual(mapa);
+    expect(opinionFromAiReport(row({ full_report: { mapa_mental: { centro: "x", ramos: [] } } }))?.mapaMental).toBeUndefined();
+    expect(opinionFromAiReport(row())?.mapaMental).toBeUndefined();
+  });
+
   it("returns null for a missing or not completed report", () => {
     expect(opinionFromAiReport(null)).toBeNull();
     expect(opinionFromAiReport(row({ status: "failed" }))).toBeNull();

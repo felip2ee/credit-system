@@ -8,6 +8,7 @@ import { generateDossierReport } from "@/actions/dossiers";
 import { Badge } from "@/components/ui/badge";
 import { AptitudeBadge } from "@/components/dossiers/dossier-badges";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { MapaMentalView } from "@/components/parecer/mapa-mental";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MarkdownReport } from "@/components/shared/markdown-report";
@@ -179,6 +180,8 @@ export function DossierReportPanel({ dossierId, canGenerate, report }: Props) {
             </div>
           </div>
         )}
+
+        <MapaMentalView mapa={parecer.mapa_mental} />
 
         {report!.report_markdown && (
           <details className="rounded-md border" open>

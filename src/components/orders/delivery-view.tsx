@@ -2,6 +2,7 @@ import { Download } from "lucide-react";
 
 import { ConsultationResult, ConsultationUnavailable } from "@/components/consultations/consultation-result";
 import { MarkdownReport } from "@/components/shared/markdown-report";
+import { MapaMentalView } from "@/components/parecer/mapa-mental";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +32,7 @@ function OpinionReadOnly({ title, parecer }: { title: string; parecer: Parecer }
 			</CardHeader>
 			<CardContent className="space-y-4">
 				<p className="text-base text-muted-foreground">{parecer.resumo_executivo}</p>
+				<MapaMentalView mapa={parecer.mapa_mental} />
 				<details className="rounded-input border border-input">
 					<summary className="cursor-pointer select-none px-4 py-2 text-base font-medium">Ver parecer técnico completo</summary>
 					<div className="border-t border-border px-4 py-3 text-base text-muted-foreground">

@@ -1,7 +1,7 @@
 import { getRequiredSession } from "@/lib/auth/session";
 import { getDossierPdfDetail } from "@/lib/dossiers/queries";
 import { getConsultationReport } from "@/lib/consultations/queries";
-import { opinionFromAiReport } from "@/lib/pdf/opinion-from-report";
+import { opinionFromAiReport, parseMapaMental } from "@/lib/pdf/opinion-from-report";
 import { hasPermission } from "@/lib/db/permissions";
 import { loadCanonicalResult, loadLatestPayload } from "@/lib/consultations/canonical-store";
 import { toConsultationContent } from "@/lib/consultations/full-view";
@@ -86,6 +86,7 @@ export async function GET(
       pontosFortes: report.full_report?.pontos_fortes ?? [],
       pontosAtencao: report.full_report?.pontos_atencao ?? [],
       planoAcao: report.full_report?.plano_acao ?? [],
+      mapaMental: parseMapaMental(report.full_report?.mapa_mental),
       limiteSugerido: report.full_report?.limite_sugerido ?? null,
       limiteNotas: report.full_report?.limite_sugerido_notas ?? null,
       modelo: report.model_used,

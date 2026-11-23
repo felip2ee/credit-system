@@ -11,6 +11,7 @@ import { getMyDelivery } from "@/lib/orders/client-queries";
 import { renderDossierPdf, type DossierEntry } from "@/lib/pdf/dossier-document";
 import type { FullPdfHeader } from "@/lib/pdf/consultation-full-document";
 import type { OpinionForPdf } from "@/lib/pdf/markdown-pdf";
+import { parseMapaMental } from "@/lib/pdf/opinion-from-report";
 import { isUuid } from "@/lib/validators/id";
 import { toAptitudeStatus, type Parecer } from "@/types/ai";
 
@@ -27,6 +28,7 @@ function toOpinion(parecer: Parecer): OpinionForPdf {
 		pontosFortes: parecer.pontos_fortes,
 		pontosAtencao: parecer.pontos_atencao,
 		planoAcao: parecer.plano_acao,
+		mapaMental: parseMapaMental(parecer.mapa_mental),
 		limiteSugerido: parecer.limite_sugerido,
 		limiteNotas: parecer.limite_sugerido_notas,
 		relatorioMarkdown: parecer.relatorio_markdown,
