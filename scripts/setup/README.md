@@ -118,3 +118,12 @@ Depois de uma atualização com o PR de pagamentos por pagador:
 - Para ver o plano sem mudar nada: acrescente `--dry-run` no fim do comando, depois de `"$d/install.sh"`.
 - Imagem do commit ainda não publicada: o instalador para antes de mudar o servidor. Espere o workflow e rode de novo.
 - Logs: `docker service logs reino_reino_app` (app), `docker service logs reino_migrate` (migração).
+
+## Asaas: o `.env.production` é a única fonte
+
+`ASAAS_DRIVER`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` e `ASAAS_API_BASE_URL` vêm só do `.env.production`. O instalador faz o deploy com esse arquivo. Valor definido só no Portainer ou com `docker service update` é **sobrescrito** no próximo deploy; variável vazia no arquivo desliga o Asaas.
+
+- A primeira instalação pergunta o driver (vazio = Asaas desligado). Com `asaas`, pede a chave e o token (sem mostrá-los).
+- O `--update` nunca muda um valor preenchido. Aceita `export ASAAS_X=...` e mantém a linha como está. Linha ilegível (aspas abertas) para o instalador: `linha ilegível em .env.production: <número>`.
+- Trava antes do deploy: se o serviço no ar tem uma `ASAAS_*` preenchida e o arquivo a deixaria vazia, o instalador avisa (só os nomes). Com `--yes` ele para; no modo interativo pede confirmação (padrão: não). Se o `docker service inspect` falhar, ele pula a conferência e avisa.
+- Conferir à mão: `diff .env.production .env.production.bak-<carimbo>` e `docker service inspect reino_reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}'` (mostra segredos: não cole a saída em chat ou ticket).

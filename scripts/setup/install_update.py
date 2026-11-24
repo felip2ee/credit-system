@@ -48,7 +48,7 @@ def missing_required(text: str) -> list[str]:
 def plan_env(text: str) -> EnvPlan:
     """Só lê. Variável já preenchida e válida nunca entra no plano."""
     current, plan = det.parse_env(text), EnvPlan()
-    raw = set(re.findall(r"^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=", text, re.MULTILINE))
+    raw = set(re.findall(r"^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=", text, re.MULTILINE))
     for key in NEW_VARS:
         if key not in current:
             # linha presente que o parse não leu (aspas abertas...) NÃO é "ausente": nunca sobrescrever sem perguntar

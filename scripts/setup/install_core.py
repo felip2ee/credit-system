@@ -23,8 +23,7 @@ LOCK_FILE = Path("/var/lock/credit-system-install.lock")
 GH_ENV = ("CS_GH_TOKEN", "CS_GHCR_TOKEN", "CS_GH_USER")  # nunca vão para processos filhos
 
 
-class Stop(Exception):
-    """Interrompe a instalação com uma mensagem clara (código de saída 1)."""
+Stop = det.Stop  # definida em install_detect (parse_env a lança); re-exportada aqui
 
 
 def default_runner(args: list[str], input: str | None = None, env: dict[str, str] | None = None,

@@ -39,7 +39,10 @@ ENV_KEYS = [
     "WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_SUBJECT",
     "CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS", "PIX_FEE_CENTS",
     "BRAND_THEME",
+    "ASAAS_DRIVER", "ASAAS_API_BASE_URL", "ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN",
 ]
+# Segredos que vivem no .env.production (a stack os lê do ambiente do deploy): nunca vão para o arquivo de credenciais.
+ENV_SECRET_KEYS = ("ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN")
 
 # Chaves que o instalador não pergunta e preenche com um padrão (vazio = o app de produção recusa o Pix).
 # BRAND_THEME: opcional (atual | classico); o operador troca à mão no .env.production (docs/operations/deploy.md).
@@ -243,7 +246,7 @@ def render_credentials(env_values: dict[str, str], secret_values: dict[str, str]
     ]
     out += [f"{name}={secret_values[name]}" for name in SECRET_NAMES]
     out += ["", "[.env.production]"]
-    out += [f"{key}={_env_value(env_values, key)}" for key in ENV_KEYS]
+    out += [f"{key}={_env_value(env_values, key)}" for key in ENV_KEYS if key not in ENV_SECRET_KEYS]
     return "\n".join(out) + "\n"
 
 

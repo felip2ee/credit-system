@@ -106,8 +106,30 @@ class Installer(Rollback):
             self.say(line)
         for line in asaas.status_lines(old_text, added_asaas):
             self.say(line)
+        self.guard_asaas(pre, env)
         self.confirm_update(pending)
         return digests
+
+    def guard_asaas(self, pre: det.Preflight, env: dict[str, str]) -> None:
+        """Avisa (só nomes, nunca valores) se o deploy deixaria vazia uma ASAAS_* que está preenchida no serviço no ar."""
+        if not pre.stack_exists:
+            return
+        running = asaas.running_values(self.run, det.service_names(STACK, self.run)["reino_app"])
+        if running is None:
+            self.say("Nota: não consegui ler o ambiente do app no ar; pulei a conferência das variáveis ASAAS_*.")
+            return
+        self.secret_values |= {v for k, v in running.items() if k in asaas.SECRET_VARS and v}
+        lost = asaas.blanked(env, running)
+        if not lost:
+            return
+        names = ", ".join(lost)
+        self.say(f"\n!!! ATENÇÃO: o serviço no ar tem {names} preenchida(s), mas o {ENV_FILE} está vazio nelas. "
+                 "Este deploy vai ESVAZIAR o valor (Asaas desliga / driver fake). O .env.production é a única fonte: "
+                 "preencha lá (deploy.md, seção Asaas).")
+        if self.yes:
+            raise Stop(f"--yes não segue: o deploy esvaziaria {names}. Preencha no {ENV_FILE} e rode de novo.")
+        if not self.dry_run and not self.confirm("Continuar mesmo assim e esvaziar?", False):
+            raise Stop("Cancelado pelo operador.")
 
     def read_previous(self, pre: det.Preflight, old_text: str) -> str | None:
         """Digest do app no ar (sem ele não há rollback). Falhou: usa o do .env.production; sem isso, para sem mudar nada."""

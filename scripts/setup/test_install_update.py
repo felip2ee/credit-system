@@ -19,7 +19,8 @@ from install_testkit import NEW, OLD, TOKEN, Fake, env_values, installer, server
 DNS_OK = mock.patch.object(det.socket, "gethostbyname_ex", return_value=("h", [], ["203.0.113.9"]))
 HEAD = "f" * 40
 DEPLOYED = "1" * 40
-NEW_KEYS = ("PIX_FEE_CENTS", "CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS")
+NEW_KEYS = ("PIX_FEE_CENTS", "CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS", "ASAAS_DRIVER", "ASAAS_API_BASE_URL",
+            "ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN")
 FULL = dict(SMTP_HOST="smtp.exemplo.com", SUPERADMIN_EMAIL="a@exemplo.com", RESTIC_S3_ENDPOINT="s3.exemplo.com",
             RESTIC_S3_BUCKET="bucket-reino", SMTP_USER="u", CARD_FEE_TABLE="")
 
@@ -86,9 +87,9 @@ class PlanEnvTests(unittest.TestCase):
         self.assertFalse(upd.VALIDATORS["PIX_FEE_CENTS"]("١٢٣"))
         self.assertFalse(upd.VALIDATORS["CARD_MIN_INSTALLMENT_CENTS"]("٥٠٠"))
 
-    def test_present_line_that_fails_to_parse_is_invalid_not_missing(self):
-        plan = upd.plan_env("PIX_FEE_CENTS='199\nCARD_FEE_TABLE=\n#CARD_MIN_INSTALLMENT_CENTS=5\n")
-        self.assertEqual((plan.added, plan.invalid), (["CARD_MIN_INSTALLMENT_CENTS"], ["PIX_FEE_CENTS"]))
+    def test_present_line_that_fails_to_parse_stops_with_line_number(self):
+        with self.assertRaisesRegex(ins.Stop, "PIX_FEE_CENTS: linha ilegível em .env.production: 1"):
+            upd.plan_env("PIX_FEE_CENTS='199\nCARD_FEE_TABLE=\n")
 
     def test_set_env_value_keeps_crlf(self):
         text = det.set_env_value("A=1\r\nB=2\r\n", "B", "3")
