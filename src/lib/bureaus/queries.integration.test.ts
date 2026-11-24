@@ -436,6 +436,7 @@ describe("listBureauMetrics", () => {
 		expect(row).toBeDefined();
 		expect(Object.keys(row!).sort()).toEqual(
 			[
+				"affiliateCount",
 				"bureauId",
 				"consultationCount",
 				"consultations30d",

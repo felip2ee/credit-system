@@ -28,6 +28,7 @@ export type BureauMetrics = {
 	dossierCount: number;
 	consultationCount: number;
 	consultations30d: number;
+	affiliateCount: number;
 };
 
 export type CreateBureauResult =
@@ -207,6 +208,7 @@ type MetricsRow = {
 	dossier_count: string;
 	consultation_count: string;
 	consultations_30d: string;
+	affiliate_count: string;
 };
 
 // Só contagens por Bureau (platform_bureau_metrics): nenhum dado pessoal sai do banco.
@@ -227,6 +229,7 @@ export async function listBureauMetrics(
 			dossierCount: Number(r.dossier_count),
 			consultationCount: Number(r.consultation_count),
 			consultations30d: Number(r.consultations_30d),
+			affiliateCount: Number(r.affiliate_count),
 		}));
 	});
 }

@@ -12,7 +12,7 @@ import { getBureauDefaultPct } from "@/lib/affiliates/rates";
 import { getEffectiveCommission } from "@/lib/catalog/queries";
 import { listBureauCommissionRates, listBureauProductBlocks } from "@/lib/commission/queries";
 import { getRequiredSession } from "@/lib/auth/session";
-import { getBureau } from "@/lib/bureaus/queries";
+import { getBureau, listBureauMetrics } from "@/lib/bureaus/queries";
 import { CopyLinkButton } from "@/components/superadmin/copy-link-button";
 import { config } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
@@ -52,6 +52,7 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
   // Sem ajuste em sessão de suporte (a action também recusa).
   const canAdjust = hasPermission(session, "wallet:adjust") && !session.supportSessionId;
 
+  const affiliateCount = (await listBureauMetrics(session)).find((m) => m.bureauId === bureau.id)?.affiliateCount;
   const publicUrl = `${config.betterAuthUrl.replace(/\/$/, "")}/b/${bureau.slug}`;
 
   return (
@@ -63,6 +64,7 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
             {publicUrl}
           </a>
           <CopyLinkButton url={publicUrl} />
+          {affiliateCount !== undefined && <span className="text-muted-foreground">Afiliados: {affiliateCount}</span>}
         </div>
       </PageHeader>
       <BureauEditForm bureau={bureau} />
