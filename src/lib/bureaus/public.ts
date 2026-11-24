@@ -35,3 +35,17 @@ export async function getPublicCatalog(slug: string): Promise<PublicCatalogItem[
     salePricePerPartner: r.sale_price_per_partner,
   }));
 }
+
+export type ResolvedBureauSlug =
+  | { kind: "bureau"; bureau: { name: string; slug: string } }
+  | { kind: "redirect"; slug: string }
+  | { kind: "missing" };
+
+// Slug atual do bureau, ou o slug atual de quem já teve este slug (redirect 308 nas páginas).
+export async function resolveBureauSlug(slug: string): Promise<ResolvedBureauSlug> {
+  const bureau = await getPublicBureau(slug);
+  if (bureau) return { kind: "bureau", bureau };
+  if (!SLUG_PATTERN.test(slug)) return { kind: "missing" };
+  const { rows } = await pool.query<{ slug: string }>("select slug from public_bureau_slug_redirect($1)", [slug]);
+  return rows[0] ? { kind: "redirect", slug: rows[0].slug } : { kind: "missing" };
+}

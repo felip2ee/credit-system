@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Fraunces, Inter } from "next/font/google";
 
 import { LandingFinalCta, LandingFooter } from "@/components/portal/landing/landing-closing";
@@ -6,7 +6,7 @@ import { LandingDossiers, LandingWhy } from "@/components/portal/landing/landing
 import { LandingHeader, LandingHero } from "@/components/portal/landing/landing-hero";
 import { LandingDifferential, LandingFaq, LandingSteps } from "@/components/portal/landing/landing-trust";
 import { Toaster } from "@/components/ui/toaster";
-import { getPublicBureau, getPublicCatalog } from "@/lib/bureaus/public";
+import { getPublicCatalog, resolveBureauSlug } from "@/lib/bureaus/public";
 
 // Reads the DB without cookies/headers: without this Next may cache a 404 for a new slug or a stale bureau name.
 export const dynamic = "force-dynamic";
@@ -25,8 +25,10 @@ export default async function PublicBureauPage({
 }: {
   params: { slug: string };
 }) {
-  const bureau = await getPublicBureau(params.slug);
-  if (!bureau) notFound();
+  const resolved = await resolveBureauSlug(params.slug);
+  if (resolved.kind === "redirect") permanentRedirect(`/b/${resolved.slug}`);
+  if (resolved.kind === "missing") notFound();
+  const { bureau } = resolved;
   const catalog = await getPublicCatalog(params.slug);
   const pf = catalog.find((item) => item.code === "dossie_pf");
   const company = catalog.find((item) => item.code === "dossie_empresarial");

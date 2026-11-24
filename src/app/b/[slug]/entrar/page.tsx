@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { PublicShell } from "@/components/portal/public-shell";
 import { Button } from "@/components/ui/button";
-import { getPublicBureau } from "@/lib/bureaus/public";
+import { resolveBureauSlug } from "@/lib/bureaus/public";
 
 // Reads the DB without cookies/headers: without this Next may cache a 404 for a new slug or a stale bureau name.
 export const dynamic = "force-dynamic";
@@ -16,9 +16,20 @@ export const metadata = {
 };
 
 // Entrada do Bureau: login e "Criar conta", sem catálogo (o catálogo fica na página /b/<slug>).
-export default async function PublicBureauEntryPage({ params }: { params: { slug: string } }) {
-  const bureau = await getPublicBureau(params.slug);
-  if (!bureau) notFound();
+export default async function PublicBureauEntryPage({
+  params,
+  searchParams,
+}: {
+  params: { slug: string };
+  searchParams: { next?: string | string[] };
+}) {
+  const resolved = await resolveBureauSlug(params.slug);
+  if (resolved.kind === "redirect") {
+    const next = typeof searchParams.next === "string" ? `?next=${encodeURIComponent(searchParams.next)}` : "";
+    permanentRedirect(`/b/${resolved.slug}/entrar${next}`);
+  }
+  if (resolved.kind === "missing") notFound();
+  const { bureau } = resolved;
 
   return (
     <PublicShell bureauName={bureau.name}>

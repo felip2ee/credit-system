@@ -37,7 +37,7 @@ vi.mock("@/lib/auth/session", () => ({
 }));
 
 import { saveAiPrompts } from "@/actions/settings";
-import { getPublicBureau } from "@/lib/bureaus/public";
+import { getPublicBureau, resolveBureauSlug } from "@/lib/bureaus/public";
 import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedSuperadmin, seedSupportSession, seedTenant, type SeedSuperadmin } from "@/test/seed";
@@ -255,6 +255,106 @@ describe("updateBureau / setBureauStatus", () => {
 			ok: true,
 		});
 		await expect(getPublicBureau(input.slug)).resolves.toBeNull();
+	});
+});
+
+describe("updateBureau: slug", () => {
+	async function makeBureau() {
+		const input = newInput();
+		const created = await createBureau(superadmin, input);
+		if (!created.ok) throw new Error("setup");
+		return { id: created.id, slug: input.slug, name: input.name };
+	}
+	const suffix = () => randomBytes(4).toString("hex");
+
+	it("changes the slug, keeps the old one in history, redirects and audits", async () => {
+		const b = await makeBureau();
+		const next = `novo-${suffix()}`;
+		await expect(updateBureau(superadmin, { id: b.id, name: b.name, slug: next })).resolves.toEqual({ ok: true });
+
+		const history = await owner.query("select old_slug, bureau_id from bureau_slug_history where bureau_id = $1", [b.id]);
+		expect(history.rows).toEqual([{ old_slug: b.slug, bureau_id: b.id }]);
+		await expect(resolveBureauSlug(next)).resolves.toEqual({ kind: "bureau", bureau: { name: b.name, slug: next } });
+		await expect(resolveBureauSlug(b.slug)).resolves.toEqual({ kind: "redirect", slug: next });
+		const audit = await owner.query(
+			"select metadata from audit_logs where action = 'bureau.update' and record_id = $1",
+			[b.id],
+		);
+		expect(audit.rows[0].metadata).toMatchObject({ slugFrom: b.slug, slugTo: next });
+	});
+
+	it("keeps history untouched when the slug does not change", async () => {
+		const b = await makeBureau();
+		await updateBureau(superadmin, { id: b.id, name: "Outro", slug: b.slug });
+		const history = await owner.query("select 1 from bureau_slug_history where bureau_id = $1", [b.id]);
+		expect(history.rowCount).toBe(0);
+	});
+
+	it("rejects the old slug of another bureau and changes nothing", async () => {
+		const a = await makeBureau();
+		const other = await makeBureau();
+		await updateBureau(superadmin, { id: a.id, name: a.name, slug: `a2-${suffix()}` });
+
+		await expect(updateBureau(superadmin, { id: other.id, name: other.name, slug: a.slug })).resolves.toEqual({
+			ok: false,
+			reason: "slug_taken",
+		});
+		const { rows } = await owner.query("select slug from bureaus where id = $1", [other.id]);
+		expect(rows[0].slug).toBe(other.slug);
+	});
+
+	it("rejects the live slug of another bureau and a reserved slug", async () => {
+		const a = await makeBureau();
+		const other = await makeBureau();
+		await expect(updateBureau(superadmin, { id: other.id, name: other.name, slug: a.slug })).resolves.toEqual({
+			ok: false,
+			reason: "slug_taken",
+		});
+		await expect(updateBureau(superadmin, { id: other.id, name: other.name, slug: "admin" })).resolves.toEqual({
+			ok: false,
+			reason: "slug_reserved",
+		});
+	});
+
+	it("deletes the history row when the bureau returns to its own old slug", async () => {
+		const b = await makeBureau();
+		const tmp = `tmp-${suffix()}`;
+		await updateBureau(superadmin, { id: b.id, name: b.name, slug: tmp });
+		await updateBureau(superadmin, { id: b.id, name: b.name, slug: b.slug });
+
+		const history = await owner.query("select old_slug from bureau_slug_history where bureau_id = $1", [b.id]);
+		expect(history.rows).toEqual([{ old_slug: tmp }]);
+		await expect(resolveBureauSlug(b.slug)).resolves.toMatchObject({ kind: "bureau" });
+		await expect(resolveBureauSlug(tmp)).resolves.toEqual({ kind: "redirect", slug: b.slug });
+	});
+
+	it("chain a to b to c redirects every old slug straight to c", async () => {
+		const x = await makeBureau();
+		const slugB = `b-${suffix()}`;
+		const slugC = `c-${suffix()}`;
+		await updateBureau(superadmin, { id: x.id, name: x.name, slug: slugB });
+		await updateBureau(superadmin, { id: x.id, name: x.name, slug: slugC });
+
+		await expect(resolveBureauSlug(x.slug)).resolves.toEqual({ kind: "redirect", slug: slugC });
+		await expect(resolveBureauSlug(slugB)).resolves.toEqual({ kind: "redirect", slug: slugC });
+		await expect(resolveBureauSlug(slugC)).resolves.toMatchObject({ kind: "bureau" });
+	});
+
+	it("resolveBureauSlug returns missing for unknown and invalid slugs", async () => {
+		await expect(resolveBureauSlug(`nada-${suffix()}`)).resolves.toEqual({ kind: "missing" });
+		await expect(resolveBureauSlug("A!")).resolves.toEqual({ kind: "missing" });
+	});
+
+	it("handles a slug that another bureau created after it became an old slug", async () => {
+		const a = await makeBureau();
+		await updateBureau(superadmin, { id: a.id, name: a.name, slug: `a2-${suffix()}` });
+		// createBureau não confere o histórico: b passa a ter o slug que era antigo de a.
+		const b = await owner
+			.query<{ id: string }>("insert into bureaus (name, slug) values ($1, $2) returning id", [`B ${suffix()}`, a.slug])
+			.then((r) => r.rows[0].id);
+		await expect(updateBureau(superadmin, { id: b, name: "B", slug: `b2-${suffix()}` })).resolves.toEqual({ ok: true });
+		const { rows } = await owner.query("select bureau_id from bureau_slug_history where old_slug = $1", [a.slug]);
+		expect(rows).toEqual([{ bureau_id: b }]);
 	});
 });
 

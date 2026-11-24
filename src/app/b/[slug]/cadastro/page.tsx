@@ -1,9 +1,9 @@
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 
 import { PublicShell } from "@/components/portal/public-shell";
 import { RegisterForm } from "@/components/register/register-form";
 import { getCurrentLegalDocuments } from "@/lib/account/queries";
-import { getPublicBureau } from "@/lib/bureaus/public";
+import { resolveBureauSlug } from "@/lib/bureaus/public";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +19,13 @@ export default async function RegisterPage({
   params: { slug: string };
   searchParams: { ref?: string | string[] };
 }) {
-  const bureau = await getPublicBureau(params.slug);
-  if (!bureau) notFound();
+  const resolved = await resolveBureauSlug(params.slug);
+  if (resolved.kind === "redirect") {
+    const ref = typeof searchParams.ref === "string" ? `?ref=${encodeURIComponent(searchParams.ref)}` : "";
+    permanentRedirect(`/b/${resolved.slug}/cadastro${ref}`);
+  }
+  if (resolved.kind === "missing") notFound();
+  const { bureau } = resolved;
   const legal = await getCurrentLegalDocuments();
 
   return (
