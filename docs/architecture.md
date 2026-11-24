@@ -30,6 +30,8 @@ src/
   app/
     (auth)/ (login, MFA)   (dashboard)/ (equipe do Bureau)   (portal)/ (cliente)
     (superadmin)/          autorizacao-scr/[token]/ (SCR público)   b/[slug]/ (vitrine)
+    admin/                 app do Bureau em /admin (PWA, mesmo domínio). Veja a seção "App /admin".
+    pagar/[token]/         link de pagamento público (Pix sem sessão). Veja "Links de pagamento".
     api/                   auth, health (live/ready), webhooks (asaas, whatsapp),
                            internal/notifications/dispatch, payouts/[id]/receipt
   actions/               Server Actions ("use server").
@@ -50,7 +52,7 @@ e2e/                     Specs Playwright (login com MFA, compra no portal e bal
 docker/ docker-compose.dev.yml docker-stack.yml
 ```
 
-Outros domínios em `src/lib/`: asaas, bureaus, catalog, consultations, counter-payments, dashboard, dossiers, holders, lgpd, nfse, payables, payouts, scr, settings, settlement, support, wallet.
+Outros domínios em `src/lib/`: asaas, bureaus, catalog, consultations, counter-payments, dashboard, dossiers, holders, lgpd, nfse, payables, payouts, payment-links, scr, settings, settlement, support, wallet. Métricas do app do Bureau: `bureau-admin`.
 
 Responsabilidade por módulo: veja os `CLAUDE.md` em `src/components/`, `src/lib/{ai,auth,db,deps,documents,pdf}` e `src/actions/`.
 
@@ -83,7 +85,7 @@ Webhooks e worker:
 
 ## Dados e migrations
 
-- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `054`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
+- Migrations: `db/migrations/NNN_nome_snake_case.sql`, de `001` a `059`. Os números 006 e 007 não existem (hipótese: removidos antes do primeiro deploy).
 - A 021 cria as contas de cliente: `legal_documents`, `legal_acceptances`, `verification_challenges`, `client_register_attempts`, e as funções `register_client` e de verificação (`request_*` e `confirm_*` de e-mail e de telefone).
 - A 023 cria a retenção LGPD: anonimização do titular e da conta do cliente, varredura técnica e do Bureau. Veja [operations/lgpd.md](operations/lgpd.md).
 - A 022 cria os pedidos de pesquisa (`dossier_orders`, com estado protegido por trigger), a função `open_order` (única porta de criação de Dossiê), o perfil de sistema por Bureau (`profiles.is_system`) e a RLS de entrega do cliente. Veja [operations/orders.md](operations/orders.md).
@@ -101,6 +103,10 @@ Webhooks e worker:
 - A 053 fecha a brecha da ação do pedido: o pedido dá rollback com cupom inválido, então `placeOrder` grava o erro por `coupon_record_miss()` numa transação própria já confirmada (`src/lib/coupons/record-miss.ts`).
 - A 054 troca a conta de erros por vagas de tentativa e fecha a corrida do limite: `coupon_attempt_begin()` serializa por cliente (trava consultiva), confere 10 por hora e grava a vaga antes de avaliar o código, numa transação própria já confirmada. Só o sucesso do pedido apaga a vaga (`coupon_attempt_clear`); vaga que sobra conta como erro (fecha fechado). `coupon_preview` pega a mesma trava. `coupon_record_miss` some (`src/lib/coupons/attempt-slot.ts`).
 - A 055 define o modelo de comissão. Preço de venda (`product_versions.sale_price` e `sale_price_per_partner`) é do superadmin, por versão; produto sem preço não está à venda. `product_versions.base_cost` e `base_cost_per_partner` são custo interno da plataforma. A % global do Bureau fica em `settings` (`bureau_commission_pct`); o override por Bureau, em `bureau_commission_rates` (append-only). O bloqueio de produto por Bureau fica em `bureau_product_blocks` (append-only). `order_settlements` grava `commission_pct` e `bureau_commission` no snapshot da reserva. Pedido sem `commission_pct` usa o modelo anterior. A % de afiliados é `bureau_affiliate_settings.default_pct`, uma por Bureau. As tabelas `bureau_catalog_items`, `bureau_product_costs` e `affiliate_rates` ficam só para histórico. Só o Dossiê Empresarial usa o valor por sócio.
+- A 056 cria o app do Bureau: `bureau_page_views` (visitas por dia, sem IP), `bureau_slug_history` (slugs antigos, para o 308) e `payment_links` (só o hash do token). Dá ao `app_runtime` o `UPDATE` de `bureaus.slug`. Escrita de visitas só por `record_bureau_page_view`.
+- A 057 faz `record_bureau_page_view` contar o dia de Brasília, a mesma base dos períodos das métricas.
+- A 058 liga o Pix ao link: `pix_charges.payment_link_id` (uma cobrança pendente por link), `counter_payments.pix_charge_id` (único, torna a baixa idempotente) e as funções `payment_link_charge_reserve`, `_bind`, `_cancel`, `_payer` e `apply_payment_link_charge`. Novos resultados de webhook: `link_paid`, `link_duplicate`, `link_ignored`, `link_order_not_payable`.
+- A 059 faz `platform_bureau_metrics()` devolver `affiliate_count` (total de afiliados por Bureau). Ela lê `affiliate_codes` por dentro, porque a RLS bloqueia o superadmin fora de suporte.
 - Aplicar: `npm run db:migrate`. O runner grava checksums. Não edite uma migration já aplicada.
 - A política do spec: até o primeiro deploy de produção, as migrations são uma base editável e o banco de dev é recriado com `npm run db:reset`. A partir do primeiro deploy de produção, só migrations novas (forward-only, com checksum).
 - Serviço `migrate` (Swarm, one-shot): aplica as migrations com `DATABASE_OWNER_URL`, a única DSN de owner em produção. `reino_app` só tem `app_runtime` e espera o schema com `migrate.mjs --check`. Veja [operations/deploy.md](operations/deploy.md).
@@ -129,6 +135,34 @@ Regras completas: [spec de cupons](superpowers/specs/2026-11-19-cupons-desconto-
 - Liberação, cancelamento e expiração devolvem tudo: redenção `released`, carteira do Bureau liberada e `coupon_refund` (positivo) devolve ao repasse o valor que saiu dele.
 - Estorno depois da captura devolve só o que o cliente pagou. `coupon_cost`, a captura da carteira do Bureau e a redenção `consumed` não são desfeitos.
 
+## App /admin
+
+- Rotas em `src/app/admin/`, com layout próprio. Mesmo domínio, mesmo login e mesmo cookie de sessão. Não há subdomínio.
+- Guarda em `src/app/admin/layout.tsx`, com `getRequiredSession`. Cliente vai para `/portal`. Superadmin só entra em modo suporte; sem ele, vai para `/superadmin`.
+- Menu de 4 itens: Início (links do Bureau, métricas, ranking de afiliados), Nova consulta, Cobranças e Links.
+- PWA: `src/app/admin/manifest.ts` gera `/admin/manifest.webmanifest`, com `start_url` e `scope` em `/admin`.
+- A vitrine `/b/<slug>` e o app `/admin` usam o mesmo domínio. Não há domínio por Bureau.
+
+## Links de pagamento
+
+Fluxo para o cliente: [operations/payment-links.md](operations/payment-links.md).
+
+- Um link aponta para uma consulta (`payment_links.order_id`). Só um link `active` por consulta (índice único parcial).
+- O token tem 32 bytes aleatórios. O banco guarda só o hash SHA-256 (`token_hash`). A URL leva o token em claro: `/pagar/<token>`. Validade: 7 dias (`expires_at`). Depois do prazo, o status fica `active` até alguém marcá-lo `expired`. A validade vale pelo relógio.
+- `/pagar/` é rota pública no `middleware`. A página mostra só o nome do Bureau, o produto e o valor. CPF/CNPJ sai mascarado.
+- Ao abrir a página, cria-se uma cobrança Pix de 30 min (`pix_charges`, pela reserva com `payment_link_charge_reserve`). Uma cobrança pendente por link é reusada até expirar. A cobrança é do Bureau: `client_profile_id` nulo, sem taxa repassada. Ela nunca credita carteira. O vínculo é `pix_charges.payment_link_id`.
+- Baixa: o webhook Asaas desvia para `apply_payment_link_charge`, numa transação. O link vira `paid`. Entra um `counter_payments` com `pix_charge_id` (método Pix), e `refresh_order_state` avança a consulta. Um link pago não gera nova cobrança.
+- Evento repetido não baixa de novo (`link_duplicate`). Pedido que não aceita mais pagamento (pago no balcão ou cancelado) vira `link_order_not_payable`, sem pagamento de balcão.
+- Dinheiro: entra na conta Asaas da plataforma. Não há repasse automático ao Bureau.
+
+## Visitas e slug
+
+- `bureau_page_views` guarda uma contagem por Bureau e por dia. Sem IP, sem cookie e sem dado pessoal. O contador é gravado por `record_bureau_page_view` (ou a versão por slug), chamado por `src/lib/bureau-admin/metrics.ts`.
+- Bots contam. Não há filtro (limite conhecido).
+- Só a equipe do próprio Bureau lê a contagem (`bureau_page_views_staff_select`).
+- Troca de slug: `updateBureau` grava o slug antigo em `bureau_slug_history` na mesma transação. Um slug que já foi de outro Bureau fica reservado para o redirect.
+- `/b/<slug>` com slug que não existe em `bureaus` consulta o histórico e responde 308 (`permanentRedirect`) para `/b/<slug atual>`. Cadeia de trocas aponta direto para o slug atual, porque cada linha guarda o `bureau_id`.
+
 ## Decisões
 
 | Decisão | Motivo | Revisar quando |
@@ -145,6 +179,9 @@ Regras completas: [spec de cupons](superpowers/specs/2026-11-19-cupons-desconto-
 | Busca cliente Asaas por CPF/CNPJ antes de criar. Só atualiza cliente que o sistema criou para aquele dono. | Evita clientes duplicados. Impede que alguém altere os dados do cliente Asaas de outra pessoa com o CPF dela. | — |
 | Taxas do Asaas repassadas ao pagador: cartão (`CARD_FEE_TABLE`) e Pix (`PIX_FEE_CENTS`). Em `pix_charges`: `amount` = recarga (saldo, estorno), `fee_amount` = taxa, `total_charged` = recarga + taxa (valor cobrado, conferido no webhook e usado pela NFS-e; nulo no Pix sem taxa). Migration 045. | Decisão do dono: repassar todas as taxas. A recarga é a base do crédito e do estorno; a taxa não entra no saldo. | O Asaas mudar a taxa da conta ou o dono decidir absorver a taxa. |
 | Stack e instalador entregam ao `reino_app` as variáveis do Asaas, da NFS-e, do cartão (`CARD_FEE_TABLE`, `PIX_FEE_CENTS`) e a chave PII. | Sem elas, `readAsaasConfig` falha em produção e a recarga não funciona. | — |
+| Link de pagamento com token guardado como hash SHA-256 | Quem lê o banco não consegue abrir um link. O token em claro só existe na URL. | — |
+| Pix do link reusa a cobrança `pix_charges`, sem tabela nova | Webhook, estorno e NFS-e já leem `pix_charges`. A cobrança de link é um caso com `payment_link_id`. | Link ganhar regra própria de cobrança (parcelas, outro meio). |
+| Visitas agregadas por dia, sem IP e sem cookie | Métrica do Bureau sem dado pessoal e sem consentimento de cookie. | Precisar de visitante único ou de filtro de bots. |
 | Sem Supabase | Migrou para Postgres self-hosted com Better Auth. | — |
 
 ## Manutenção
