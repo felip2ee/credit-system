@@ -125,6 +125,18 @@ describe("createBureau", () => {
 		).resolves.toEqual({ ok: false, reason: "slug_taken" });
 	});
 
+	it("returns slug_taken for a slug that is the old slug of another bureau", async () => {
+		const first = newInput();
+		const created = await createBureau(superadmin, first);
+		if (!created.ok) throw new Error("setup");
+		await updateBureau(superadmin, { id: created.id, name: first.name, slug: `novo-${randomBytes(4).toString("hex")}` });
+
+		const input = newInput({ slug: first.slug });
+		await expect(createBureau(superadmin, input)).resolves.toEqual({ ok: false, reason: "slug_taken" });
+		const count = await owner.query("select 1 from bureaus where slug = $1", [first.slug]);
+		expect(count.rowCount).toBe(0);
+	});
+
 	it("returns email_in_use and creates no bureau when the e-mail belongs to another bureau", async () => {
 		const tenant = await seedTenant(owner, "mail");
 		const { rows } = await owner.query<{ email: string }>(

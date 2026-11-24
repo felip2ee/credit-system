@@ -45,6 +45,9 @@ export async function createBureau(
 ): Promise<CreateBureauResult> {
 	try {
 		return await withUserTransaction(platformIdentity(identity), async (client) => {
+			// Um slug que já foi de outro bureau segue reservado para o redirect 308.
+			const reserved = await client.query("select 1 from bureau_slug_history where old_slug = $1", [input.slug]);
+			if (reserved.rowCount) return { ok: false as const, reason: "slug_taken" as const };
 			const { rows } = await client.query<{ id: string }>(
 				"insert into bureaus (name, slug) values ($1, $2) returning id",
 				[input.name.trim(), input.slug],
