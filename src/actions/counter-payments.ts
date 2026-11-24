@@ -23,6 +23,8 @@ const FAILURE_MESSAGES: Record<CounterFailure, string> = {
 	already_voided: "Este pagamento já foi anulado.",
 	invalid_state: GENERIC_FAILURE,
 	online_order: "Este pedido é pago online pelo cliente; não aceita pagamento de balcão.",
+	order_not_payable: "Este pedido não aguarda pagamento (já foi pago, por exemplo por link, ou foi cancelado).",
+	amount_exceeds_due: "O valor é maior que o saldo a pagar deste pedido.",
 };
 
 // Só nome e código do erro: sem valores nem dados pessoais.

@@ -23,6 +23,8 @@ const FAILURE_MESSAGES = {
 	not_found: "Consulta não encontrada.",
 	not_payable: "Esta consulta não aceita link de pagamento.",
 	already_paid: "Esta consulta já foi paga.",
+	amount_out_of_range:
+		"O valor que falta pagar está fora do limite do Pix (R$ 10,00 a R$ 5.000,00): não dá para gerar o Pix. Registre o restante no balcão.",
 } as const;
 
 // Só nome e código do erro: nunca token, hash nem documento.

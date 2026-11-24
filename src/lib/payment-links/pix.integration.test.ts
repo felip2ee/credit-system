@@ -54,6 +54,8 @@ import { getWebhookPool } from "@/lib/db/webhook-pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedOrderDossier, seedTenant, type SeededTenant } from "@/test/seed";
 
+import { registerCounterPayment } from "@/lib/counter-payments/queries";
+
 import { getOrCreateLinkPixCharge } from "./pix";
 import { createPaymentLink, resolvePaymentLink } from "./queries";
 
@@ -249,9 +251,18 @@ describe("cobrança Pix do link", () => {
 	});
 
 	it("refuses a price outside the Pix charge limits", async () => {
-		const o = await linkedOrder(a, 5);
-		expect(await getOrCreateLinkPixCharge(o.linkId)).toEqual({ ok: false, reason: "amount_out_of_range" });
-		expect(await chargeCount(o.linkId)).toBe(0);
+		// createPaymentLink já recusa esse valor (L-D): o link de um pedido barato é inserido direto, como se fosse antigo.
+		const orderId = randomUUID();
+		await seedOrderDossier(owner, { orderRef: orderId, bureauId: a.bureau.id, clientProfileId: null, members: 1 });
+		await owner.query("insert into order_settlements (order_ref, bureau_id, mode, price, cost) values ($1, $2, 'counter', 5, 4)", [orderId, a.bureau.id]);
+		await owner.query("update dossier_orders set state = 'awaiting_payment' where dossier_id = $1", [orderId]);
+		const link = await owner.query<{ id: string }>(
+			`insert into payment_links (bureau_id, order_id, token_hash, expires_at, created_by)
+			 values ($1, $2, $3, now() + interval '1 day', $4) returning id`,
+			[a.bureau.id, orderId, randomUUID().replace(/-/g, "").repeat(2), a.bureauAdmin.userId],
+		);
+		expect(await getOrCreateLinkPixCharge(link.rows[0].id)).toEqual({ ok: false, reason: "amount_out_of_range" });
+		expect(await chargeCount(link.rows[0].id)).toBe(0);
 	});
 
 	it("keeps another bureau out: its staff cannot read the charge or the counter payment", async () => {
@@ -465,25 +476,89 @@ describe("pagamento parcial no balcão (H1)", () => {
 		expect(await chargeCount(covered.linkId)).toBe(0);
 	});
 
-	it("a counter payment added after the charge makes the Pix amount_mismatch: nothing advances; the next open charges the new remainder", async () => {
+	it("a counter payment added after the charge: the Pix is still booked (money never left unbooked), the order advances, overpaid is flagged", async () => {
 		const o = await linkedOrder(a);
 		await getOrCreateLinkPixCharge(o.linkId);
 		const [row] = await charges(o.linkId);
 		await addCounterPayment(a, o.orderId, 50);
 		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		await webhook(payEvent(row, 300));
+		expect(error).toHaveBeenCalledWith("[asaas-webhook] pix de link maior que o saldo da consulta", {
+			asaasPaymentId: row.asaas_payment_id,
+		});
 		error.mockRestore();
 
-		expect(await counterPayments(o.orderId)).toHaveLength(1);
+		expect((await counterPayments(o.orderId)).map((p) => p.amount).sort()).toEqual(["300.00", "50.00"]);
+		expect(await orderState(o.orderId)).toBe("awaiting_authorization");
+		expect(await linkStatus(o.linkId)).toBe("paid");
+		expect((await charges(o.linkId))[0].status).toBe("paid");
+		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1", [row.asaas_payment_id])).rows;
+		expect(results.map((r) => r.result)).toEqual(["link_overpaid"]);
+		// Sem segundo Pix: o link está pago e o pedido não aguarda pagamento.
+		expect(await getOrCreateLinkPixCharge(o.linkId)).toEqual({ ok: false, reason: "unavailable" });
+	});
+
+	it("a redelivery of the overpaid Pix (same event and a new event id) books ONE counter payment", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		await addCounterPayment(a, o.orderId, 50);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const eventId = randomUUID();
+		await webhook(payEvent(row, 300, eventId));
+		await webhook(payEvent(row, 300, eventId));
+		await webhook(payEvent(row, 300, randomUUID(), "PAYMENT_CONFIRMED"));
+		error.mockRestore();
+		const pix = (await counterPayments(o.orderId)).filter((p) => p.pix_charge_id !== null);
+		expect(pix).toHaveLength(1);
+		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1 order by received_at", [row.asaas_payment_id])).rows.map((r) => r.result);
+		expect(results[0]).toBe("link_overpaid");
+		expect(results.slice(1).every((r) => r === "link_duplicate" || r === "duplicate")).toBe(true);
+	});
+
+	it("a counter payment voided after the reserve: the Pix of the reserved amount is booked, the order keeps waiting and the link stays active", async () => {
+		const o = await linkedOrder(a);
+		await addCounterPayment(a, o.orderId, 100);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		expect(row.amount).toBe("200.00");
+		await owner.query("update counter_payments set voided_at = now(), voided_by = $2, void_reason = 'teste' where dossier_id = $1", [o.orderId, a.bureauAdmin.userId]);
+		await webhook(payEvent(row, 200));
+
+		expect((await counterPayments(o.orderId)).filter((p) => p.voided_at === null).map((p) => p.amount)).toEqual(["200.00"]);
 		expect(await orderState(o.orderId)).toBe("awaiting_payment");
 		expect(await linkStatus(o.linkId)).toBe("active");
-		expect((await charges(o.linkId))[0].status).toBe("pending");
 		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1", [row.asaas_payment_id])).rows;
-		expect(results.map((r) => r.result)).toEqual(["amount_mismatch"]);
-
+		expect(results.map((r) => r.result)).toEqual(["link_paid"]);
 		const next = await getOrCreateLinkPixCharge(o.linkId);
-		expect(next.ok && next.amount).toBe("250.00");
-		expect(getFakeCancelledPayments()).toEqual([row.asaas_payment_id]);
+		expect(next.ok && next.amount).toBe("100.00");
+	});
+
+	it("a Pix of the exact remainder after a partial cash payment still pays the link and the order", async () => {
+		const o = await linkedOrder(a);
+		await addCounterPayment(a, o.orderId, 100);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		await webhook(payEvent(row, 200));
+		expect(await orderState(o.orderId)).toBe("awaiting_authorization");
+		expect(await linkStatus(o.linkId)).toBe("paid");
+	});
+
+	it("webhook and cash register at the same time never double-book: the sum is the price and one side is refused or flagged", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const [, cash] = await Promise.all([
+			webhook(payEvent(row, 300)),
+			registerCounterPayment(a.bureauAdmin, { dossierId: o.orderId, method: "cash", amount: "300.00", note: null, receivedAt: new Date() }),
+		]);
+		error.mockRestore();
+		const live = (await counterPayments(o.orderId)).filter((p) => p.voided_at === null);
+		expect(live.reduce((sum, p) => sum + Number(p.amount), 0)).toBe(300);
+		expect(live).toHaveLength(1);
+		if (!cash.ok) expect(cash.reason).toBe("order_not_payable");
+		expect(await orderState(o.orderId)).toBe("awaiting_authorization");
 	});
 
 	it("order already fully paid at the counter: the Pix that arrives is flagged link_order_not_payable, not mismatch", async () => {
@@ -570,6 +645,23 @@ describe("estorno de Pix de link (M2)", () => {
 		expect(await counterPayments(o.orderId)).toHaveLength(0);
 		expect(await orderState(o.orderId)).toBe("awaiting_payment");
 		expect(await linkStatus(o.linkId)).toBe("active");
+		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1 order by received_at", [row.asaas_payment_id])).rows.map((r) => r.result);
+		expect(results).toEqual(["link_refund_ignored", "link_duplicate"]);
+	});
+
+	it.each(["expired", "cancelled"])("refund before RECEIVED on a %s charge (already rotated): the late RECEIVED does not book the order (L-B)", async (status) => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		await owner.query("update pix_charges set status = $2 where id = $1", [row.id, status]);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		await webhook(payEvent(row, 300, randomUUID(), "PAYMENT_REFUNDED"));
+		expect((await charges(o.linkId))[0].status).toBe("refunded");
+		await webhook(payEvent(row, 300));
+		error.mockRestore();
+
+		expect(await counterPayments(o.orderId)).toHaveLength(0);
+		expect(await orderState(o.orderId)).toBe("awaiting_payment");
 		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1 order by received_at", [row.asaas_payment_id])).rows.map((r) => r.result);
 		expect(results).toEqual(["link_refund_ignored", "link_duplicate"]);
 	});

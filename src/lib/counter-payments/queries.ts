@@ -25,9 +25,13 @@ export type CounterFailure =
 	| "reason_required"
 	| "already_voided"
 	| "invalid_state"
-	| "online_order";
+	| "online_order"
+	| "order_not_payable"
+	| "amount_exceeds_due";
 
-export type RegisterResult = { ok: true; id: string } | { ok: false; reason: "not_found" | "online_order" };
+export type RegisterResult =
+	| { ok: true; id: string }
+	| { ok: false; reason: "not_found" | "online_order" | "order_not_payable" | "amount_exceeds_due" };
 export type VoidResult = { ok: true } | { ok: false; reason: CounterFailure };
 
 export type CounterPayment = {
@@ -61,7 +65,14 @@ const FOREIGN_KEY_VIOLATION = "23503";
 
 export async function registerCounterPayment(identity: DbIdentity, input: RegisterInput): Promise<RegisterResult> {
 	try {
-		const id = await withUserTransaction(identity, async (client) => {
+		const outcome = await withUserTransaction<{ id: string } | { reason: "not_found" | "online_order" | "order_not_payable" | "amount_exceeds_due" }>(identity, async (client) => {
+			// Trava o pedido antes de qualquer leitura ou insert: o webhook do Pix do link trava o mesmo pedido (cobrança,
+			// depois pedido). Sem isto, dinheiro e Pix entrariam juntos e o pedido seria pago duas vezes.
+			const order = await client.query<{ state: string }>(
+				"select state from dossier_orders where dossier_id = $1 for update",
+				[input.dossierId],
+			);
+			if (order.rows.length === 0) return { reason: "not_found" };
 			// Pedido online é pago pela carteira do cliente: pagamento de balcão em cima dele duplicaria a cobrança.
 			// Vale também antes da liquidação existir.
 			const online = await client.query(
@@ -69,7 +80,16 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 				 union all select 1 from order_settlements where order_ref = $1 and mode = 'online'`,
 				[input.dossierId],
 			);
-			if (online.rows.length > 0) return null;
+			if (online.rows.length > 0) return { reason: "online_order" };
+			if (order.rows[0].state !== "awaiting_payment") return { reason: "order_not_payable" };
+			// Mais que o saldo devedor é troco ou erro de digitação. Sem liquidação (sem preço) não há teto.
+			const due = await client.query<{ exceeds: boolean }>(
+				`select $2::numeric > s.price - coalesce((select sum(p.amount) from counter_payments p
+				        where p.dossier_id = $1 and p.voided_at is null), 0) as exceeds
+				   from order_settlements s where s.order_ref = $1`,
+				[input.dossierId, input.amount],
+			);
+			if (due.rows[0]?.exceeds) return { reason: "amount_exceeds_due" };
 			const { rows } = await client.query<{ id: string }>(
 				`insert into counter_payments (bureau_id, dossier_id, method, amount, received_at, registered_by, note)
 				 values (app_bureau_id(), $1, $2, $3, $4, app_user_id(), $5)
@@ -85,9 +105,9 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 			});
 			// Pagamento completo move o pedido para a autorização ou para a fila (D18).
 			await refreshOrderState(client, input.dossierId);
-			return rows[0].id;
+			return { id: rows[0].id };
 		});
-		return id === null ? { ok: false, reason: "online_order" } : { ok: true, id };
+		return "id" in outcome ? { ok: true, id: outcome.id } : { ok: false, reason: outcome.reason };
 	} catch (error) {
 		// A FK (bureau_id, dossier_id) recusa Dossiê inexistente ou de outro Bureau; a transação já voltou.
 		if (error instanceof Error && "code" in error && error.code === FOREIGN_KEY_VIOLATION) {
@@ -99,6 +119,14 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 
 export async function voidCounterPayment(identity: DbIdentity, input: VoidInput): Promise<VoidResult> {
 	return withUserTransaction(identity, async (client) => {
+		// Trava o pedido antes da linha do pagamento (a mesma ordem do registro e do webhook do Pix do link). Pagamento
+		// que o chamador não enxerga (outro Bureau, cliente) não trava nada: a função devolve not_found / not_allowed.
+		const owner = await client.query<{ dossier_id: string }>("select dossier_id from counter_payments where id = $1", [
+			input.id,
+		]);
+		if (owner.rows[0]) {
+			await client.query("select 1 from dossier_orders where dossier_id = $1 for update", [owner.rows[0].dossier_id]);
+		}
 		const { rows } = await client.query<{ ok: boolean; reason: CounterFailure | null }>(
 			"select ok, reason from void_counter_payment($1, $2)",
 			[input.id, input.reason],

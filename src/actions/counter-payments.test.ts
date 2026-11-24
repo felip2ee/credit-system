@@ -142,6 +142,14 @@ describe("registerCounterPaymentAction validation", () => {
 		expect(revalidatePath).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		["order_not_payable", "Este pedido não aguarda pagamento (já foi pago, por exemplo por link, ou foi cancelado)."],
+		["amount_exceeds_due", "O valor é maior que o saldo a pagar deste pedido."],
+	])("maps %s to a pt-BR message", async (reason, message) => {
+		state.registerCounterPayment.mockResolvedValue({ ok: false, reason });
+		expect((await registerCounterPaymentAction(form)).error).toBe(message);
+	});
+
 	it("maps an unknown or missing failure reason to a generic error, never undefined", async () => {
 		for (const reason of ["invalid_state", "surprise", undefined]) {
 			state.registerCounterPayment.mockResolvedValue({ ok: false, reason });

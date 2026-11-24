@@ -44,13 +44,13 @@ afterAll(async () => {
 });
 
 // Pedido de balcão aguardando pagamento, com liquidação (preço 300, custo 120).
-async function counterOrder(t: SeededTenant, { settle = true, state = "awaiting_payment" } = {}): Promise<string> {
+async function counterOrder(t: SeededTenant, { settle = true, state = "awaiting_payment", price = 300 } = {}): Promise<string> {
 	const id = randomUUID();
 	await seedOrderDossier(owner, { orderRef: id, bureauId: t.bureau.id, clientProfileId: null });
 	if (settle) {
 		await owner.query(
-			"insert into order_settlements (order_ref, bureau_id, mode, price, cost) values ($1, $2, 'counter', 300, 120)",
-			[id, t.bureau.id],
+			"insert into order_settlements (order_ref, bureau_id, mode, price, cost) values ($1, $2, 'counter', $3, 120)",
+			[id, t.bureau.id, price],
 		);
 	}
 	await owner.query("update dossier_orders set state = $2 where dossier_id = $1", [id, state]);
@@ -125,7 +125,55 @@ describe("createPaymentLink", () => {
 		const link = await createPaymentLink(a.bureauAdmin, orderA);
 		if (!link.ok) throw new Error("expected ok");
 		await owner.query("select payment_link_mark_paid($1)", [orderA]);
+		await owner.query("update dossier_orders set state = 'awaiting_authorization' where dossier_id = $1", [orderA]);
 		expect(await createPaymentLink(a.bureauAdmin, orderA)).toEqual({ ok: false, reason: "already_paid" });
+	});
+
+	// Pagamento de balcão lançado direto (sem passar o pedido de estado).
+	const addCash = (t: SeededTenant, orderId: string, amount: number, voided = false) =>
+		owner.query(
+			`insert into counter_payments (bureau_id, dossier_id, method, amount, registered_by, voided_at, voided_by, void_reason)
+			 values ($1, $2, 'cash', $3, $4, $5, $6, $7)`,
+			[t.bureau.id, orderId, amount, t.bureauAdmin.userId, voided ? new Date() : null, voided ? t.bureauAdmin.userId : null, voided ? "teste" : null],
+		);
+
+	it("refuses when the remaining amount is outside the Pix limits (10.00 to 5000.00), so the operator learns no Pix can be made (L-D)", async () => {
+		const small = await counterOrder(a);
+		await addCash(a, small, 295);
+		expect(await createPaymentLink(a.bureauAdmin, small)).toEqual({ ok: false, reason: "amount_out_of_range" });
+
+		const edge = await counterOrder(a);
+		await addCash(a, edge, 290);
+		expect((await createPaymentLink(a.bureauAdmin, edge)).ok).toBe(true);
+
+		const big = await counterOrder(a, { price: 5000.01 });
+		expect(await createPaymentLink(a.bureauAdmin, big)).toEqual({ ok: false, reason: "amount_out_of_range" });
+		expect((await createPaymentLink(a.bureauAdmin, await counterOrder(a, { price: 5000 }))).ok).toBe(true);
+		expect(await activeCount(small)).toBe(0);
+	});
+
+	it("refuses a link for an order already covered by payments, and ignores voided payments (L-D)", async () => {
+		const covered = await counterOrder(a);
+		await addCash(a, covered, 300);
+		expect(await createPaymentLink(a.bureauAdmin, covered)).toEqual({ ok: false, reason: "not_payable" });
+
+		const voided = await counterOrder(a);
+		await addCash(a, voided, 300, true);
+		expect((await createPaymentLink(a.bureauAdmin, voided)).ok).toBe(true);
+	});
+
+	it("decides already_paid from the order, not from a stale paid link: a voided counter payment reopens the order for a new link (L-G)", async () => {
+		const orderId = await counterOrder(a);
+		const first = await createPaymentLink(a.bureauAdmin, orderId);
+		if (!first.ok) throw new Error("expected ok");
+		await owner.query("select payment_link_mark_paid($1)", [orderId]);
+		await owner.query("update dossier_orders set state = 'awaiting_authorization' where dossier_id = $1", [orderId]);
+		expect(await createPaymentLink(a.bureauAdmin, orderId)).toEqual({ ok: false, reason: "already_paid" });
+		// A baixa é anulada: o pedido volta a aguardar pagamento e o link continua 'paid'.
+		await owner.query("update dossier_orders set state = 'awaiting_payment' where dossier_id = $1", [orderId]);
+		const second = await createPaymentLink(a.bureauAdmin, orderId);
+		expect(second.ok).toBe(true);
+		expect(await activeCount(orderId)).toBe(1);
 	});
 });
 

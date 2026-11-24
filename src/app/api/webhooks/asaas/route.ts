@@ -168,6 +168,9 @@ export async function POST(request: Request): Promise<Response> {
 	} else if (result === "link_refund_ignored") {
 		// Estorno ou chargeback de Pix de link: nada reverte sozinho (o pedido pode já ter avançado). Só ids no log.
 		console.error("[asaas-webhook] estorno de pix de link sem tratamento", { event: parsed.data.event, asaasPaymentId: paymentId });
+	} else if (result === "link_overpaid") {
+		// Pix lançado, mas a soma passou o preço: a operação devolve a diferença no Asaas. Só id no log.
+		console.error("[asaas-webhook] pix de link maior que o saldo da consulta", { asaasPaymentId: paymentId });
 	} else if (result === "amount_mismatch") {
 		// Pago a menos que o esperado: nada foi creditado. A operação confere no Asaas.
 		console.error("[asaas-webhook] valor divergente", { asaasPaymentId: paymentId });

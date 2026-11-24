@@ -9,6 +9,10 @@ import { generateToken, hashToken, PAYMENT_LINK_TOKEN_PATTERN } from "./token";
 
 export const PAYMENT_LINK_VALIDITY_DAYS = 7;
 
+// Limites de pix_charges.amount (a reserva do Pix aplica os mesmos): fora deles nenhum Pix é gerado.
+const PIX_MIN_AMOUNT = 10;
+const PIX_MAX_AMOUNT = 5000;
+
 const PRODUCT_NAMES: Record<string, string> = {
 	dossie_pf: "Dossiê Pessoa Física",
 	dossie_empresarial: "Dossiê Empresarial",
@@ -16,7 +20,7 @@ const PRODUCT_NAMES: Record<string, string> = {
 
 export type CreatePaymentLinkResult =
 	| { ok: true; id: string; token: string; expiresAt: Date }
-	| { ok: false; reason: "not_found" | "not_payable" | "already_paid" };
+	| { ok: false; reason: "not_found" | "not_payable" | "already_paid" | "amount_out_of_range" };
 
 // Um link ativo por pedido. O token em claro só existe na criação: um segundo "Gerar link" não tem como devolver o
 // primeiro. Por isso a segunda chamada cancela o link ativo (vencido ou não) e emite outro, na mesma transação. O link
@@ -28,17 +32,30 @@ export async function createPaymentLink(identity: DbIdentity, orderId: string): 
 		// Serializa os cliques do mesmo pedido: sem isso o segundo insert esbarraria no índice parcial (23505).
 		await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`payment-link:${orderId}`]);
 
-		const order = await client.query<{ mode: string; state: string }>(
-			"select mode, state from dossier_orders where dossier_id = $1 and bureau_id = app_bureau_id()",
+		// O que falta pagar (preço menos pagamentos de balcão não anulados) decide, não o estado de um link antigo.
+		const order = await client.query<{ mode: string; state: string; remaining: string | null }>(
+			`select o.mode, o.state,
+			        s.price - coalesce((select sum(p.amount) from counter_payments p
+			                             where p.dossier_id = o.dossier_id and p.voided_at is null), 0) as remaining
+			   from dossier_orders o left join order_settlements s on s.order_ref = o.dossier_id
+			  where o.dossier_id = $1 and o.bureau_id = app_bureau_id()`,
 			[orderId],
 		);
-		if (!order.rows[0]) return { ok: false, reason: "not_found" };
+		const row = order.rows[0];
+		if (!row) return { ok: false, reason: "not_found" };
 		// Pedido online é pago pela carteira do cliente; só o de balcão aguardando pagamento ganha link.
-		if (order.rows[0].mode !== "counter" || order.rows[0].state !== "awaiting_payment") {
-			return { ok: false, reason: "not_payable" };
+		if (row.mode !== "counter") return { ok: false, reason: "not_payable" };
+		if (row.state !== "awaiting_payment") {
+			// Pedido que saiu de awaiting_payment com um link pago: foi pago por ele.
+			const paid = await client.query("select 1 from payment_links where order_id = $1 and status = 'paid'", [orderId]);
+			return { ok: false, reason: paid.rows.length > 0 ? "already_paid" : "not_payable" };
 		}
-		const paid = await client.query("select 1 from payment_links where order_id = $1 and status = 'paid'", [orderId]);
-		if (paid.rows.length > 0) return { ok: false, reason: "already_paid" };
+		// Sem liquidação (sem preço) não há valor a conferir; a página pública trata. Com preço: o Pix do link cobra o que falta.
+		if (row.remaining !== null) {
+			const remaining = Number(row.remaining);
+			if (remaining <= 0) return { ok: false, reason: "not_payable" };
+			if (remaining < PIX_MIN_AMOUNT || remaining > PIX_MAX_AMOUNT) return { ok: false, reason: "amount_out_of_range" };
+		}
 
 		const cancelled = await client.query<{ id: string }>(
 			"update payment_links set status = 'cancelled' where order_id = $1 and status = 'active' returning id",
