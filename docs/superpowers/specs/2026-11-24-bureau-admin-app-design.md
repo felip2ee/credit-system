@@ -48,7 +48,7 @@ O admin do bureau precisa de uma jornada simples, com cara de app separado. Ele 
 ### 4. Superadmin: links
 - Em `bureaus/[id]` mostrar link público como link clicável com botão copiar e total de afiliados.
 - Editar slug no `BureauEditForm`/`updateBureau` com `SLUG_PATTERN` e lista de slugs reservados. Evento de auditoria.
-- Redirect: tabela `bureau_slug_history` (`old_slug` único, `bureau_id`, `changed_at`). `updateBureau` grava o slug antigo na mesma transação da troca. Em `/b/[slug]` (e `entrar`, `cadastro`): se o slug não existe em `bureaus`, buscar em `bureau_slug_history` e responder redirect permanente (308) para o slug atual, mantendo o subcaminho.
+- Redirect: tabela `bureau_slug_history` (`old_slug` único, `bureau_id`, `changed_at`). `updateBureau` grava o slug antigo na mesma transação da troca. Em `/b/[slug]` (e `entrar`, `cadastro`): se o slug não existe em `bureaus`, buscar em `bureau_slug_history` e responder redirect temporário (307) para o slug atual, mantendo o subcaminho.
 - Colisão: um slug novo não pode ser igual a um `old_slug` de outro bureau. Se o bureau volta ao próprio slug antigo, apagar essa linha do histórico. Cadeia de trocas (a→b→c): todos os antigos apontam para `bureau_id`, então redirecionam direto para o slug atual.
 - Teste obrigatório: troca de slug, redirect, colisão e retorno ao slug antigo.
 - Lista de bureaus no superadmin com coluna do link.

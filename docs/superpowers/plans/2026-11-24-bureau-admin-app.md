@@ -43,7 +43,7 @@
 **Contrato:**
 - `updateBureau` aceita `slug` (`SLUG_PATTERN`, reservados), grava o antigo em `bureau_slug_history` na mesma transação e escreve auditoria. Rejeita slug que é `old_slug` de outro bureau. Se voltar ao próprio antigo, apaga a linha do histórico.
 - `resolveBureauSlug(slug): Promise<{ kind: "bureau"; bureau } | { kind: "redirect"; slug: string } | { kind: "missing" }>`.
-- As 3 páginas usam `resolveBureauSlug` e fazem `permanentRedirect` (308) para o slug atual, mantendo o subcaminho.
+- As 3 páginas usam `resolveBureauSlug` e fazem `redirect` (307, temporário: o 308 seria guardado pelo navegador e faria laço se o slug voltasse) para o slug atual, mantendo o subcaminho.
 **Testes:** troca, redirect, colisão, retorno ao slug antigo, cadeia a→b→c.
 
 ### T3: Visitas + métricas (backend-specialist, sonnet)
