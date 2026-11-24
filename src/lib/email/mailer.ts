@@ -1,5 +1,5 @@
 import "server-only";
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 
 import { BRAND_NAME } from "@/lib/brand/brand";
 
@@ -45,13 +45,13 @@ export function senderDomain(): string | null {
   return domain || cfg.host;
 }
 
-export async function sendMail(input: SendMailInput): Promise<{ messageId: string }> {
-  const cfg = readConfig();
-  if (!cfg) {
-    throw new Error(
-      "Envio de e-mail não configurado (defina SMTP_HOST, SMTP_USER e SMTP_PASS em .env.local)."
-    );
-  }
+let cachedTransport: { key: string; transporter: Transporter } | null = null;
+
+// Um transporter por processo (sem TCP/TLS/auth novos a cada envio). A chave cobre a config: mudou, recria.
+// Sem `pool: true`: um socket ocioso morto não deve derrubar o envio; o nodemailer reconecta sozinho a cada envio.
+function getTransporter(cfg: NonNullable<ReturnType<typeof readConfig>>): Transporter {
+  const key = JSON.stringify([cfg.host, cfg.port, cfg.secure, cfg.user, cfg.pass]);
+  if (cachedTransport?.key === key) return cachedTransport.transporter;
   const transporter = nodemailer.createTransport({
     host: cfg.host,
     port: cfg.port,
@@ -61,7 +61,18 @@ export async function sendMail(input: SendMailInput): Promise<{ messageId: strin
     greetingTimeout: SMTP_TIMEOUT_MS,
     socketTimeout: SMTP_TIMEOUT_MS,
   });
-  const info = await transporter.sendMail({
+  cachedTransport = { key, transporter };
+  return transporter;
+}
+
+export async function sendMail(input: SendMailInput): Promise<{ messageId: string }> {
+  const cfg = readConfig();
+  if (!cfg) {
+    throw new Error(
+      "Envio de e-mail não configurado (defina SMTP_HOST, SMTP_USER e SMTP_PASS em .env.local)."
+    );
+  }
+  const info = await getTransporter(cfg).sendMail({
     from: cfg.from,
     to: input.to,
     subject: input.subject,

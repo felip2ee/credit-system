@@ -60,7 +60,7 @@ A página do pedido lista cada membro com o estado: pendente, autorizado, recusa
 
 ## 3. Cron
 
-- O serviço `notifications_cron` chama `ORDERS_TICK_URL` a cada 60 s, depois do despacho de notificações, quando a variável existe.
+- O serviço `notifications_cron` chama `ORDERS_TICK_URL` a cada 10 s (`NOTIFICATIONS_CRON_INTERVAL_MS`), depois do despacho de notificações, quando a variável existe. Um segundo despacho roda logo após o tick. O SMTP e o lease de 2 minutos em falha não mudam.
 - A chamada usa o mesmo segredo do despacho: `Authorization: Bearer $NOTIFICATIONS_DISPATCH_SECRET`.
 
 ## 4. Rodar o tick à mão

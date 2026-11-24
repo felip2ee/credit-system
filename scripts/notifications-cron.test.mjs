@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createOpsAlerter, runOnce, smtpTransportOptions } from "./notifications-cron.mjs";
+import { buildTargets, createOpsAlerter, runOnce, smtpTransportOptions } from "./notifications-cron.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./notifications-cron.mjs", import.meta.url));
 const SECRET = "test-dispatch-secret-0123456789";
@@ -101,7 +101,7 @@ test("accepts http:// to a service name or loopback in production", async () => 
   assert.match(cron.output(), /status=200/);
 });
 
-test("calls ORDERS_TICK_URL right after the dispatch with the same Bearer", async () => {
+test("calls ORDERS_TICK_URL right after the dispatch, then dispatches again, with the same Bearer", async () => {
   const seen = [];
   const { server, url } = await startServer((req, res) => {
     seen.push({ path: req.url, method: req.method, auth: req.headers.authorization });
@@ -122,9 +122,11 @@ test("calls ORDERS_TICK_URL right after the dispatch with the same Bearer", asyn
     [
       ["/dispatch", "POST", `Bearer ${SECRET}`],
       ["/tick", "POST", `Bearer ${SECRET}`],
+      ["/dispatch", "POST", `Bearer ${SECRET}`],
     ],
   );
   assert.match(cron.output(), /orders-tick status=200/);
+  assert.match(cron.output(), /post-tick status=200/);
   assert.ok(!cron.output().includes(SECRET));
 });
 
@@ -378,4 +380,33 @@ test("alert body never includes the response body", async () => {
   assert.equal(h.sent.length, 1);
   assert.doesNotMatch(h.sent[0].text, /cpf|ana@example|note/);
   assert.match(h.sent[0].text, /^chave: dispatch_failed\nstatus HTTP: 200\nsent: 0\nfailed: 1\nhorário: \d{4}-\d{2}-\d{2}T/);
+});
+
+// --- Ordem dispatch -> tick -> dispatch e isolamento de falha do dispatch pós-tick ---
+
+test("buildTargets runs dispatch, tick, dispatch with a tick URL and only dispatch without", () => {
+  const order = buildTargets("http://app/dispatch", "http://app/tick").map((t) => t.url);
+  assert.deepEqual(order, ["http://app/dispatch", "http://app/tick", "http://app/dispatch"]);
+  assert.deepEqual(buildTargets("http://app/dispatch", null).map((t) => t.url), ["http://app/dispatch"]);
+});
+
+test("a failed post-tick dispatch is isolated: the iteration ends, logs without secret, and does not count toward dispatch_down", async () => {
+  const calls = [];
+  const logs = [];
+  let dispatchCalls = 0;
+  const fetch = async (target) => {
+    calls.push(target);
+    if (target.endsWith("/dispatch") && ++dispatchCalls % 2 === 0) throw Object.assign(new Error(`boom ${SECRET}`), { name: "TypeError" });
+    return { status: 200, text: async () => "{}" };
+  };
+  const sent = [];
+  const alerter = createOpsAlerter({ env: ALERT_ENV, sendMail: async (m) => void sent.push(m), log: (l) => logs.push(l) });
+  const state = {};
+  const targets = buildTargets("http://app/dispatch", "http://app/tick");
+  for (let i = 0; i < 6; i++) await runOnce({ targets, secret: SECRET, fetch, alerter, state, log: (l) => logs.push(l) });
+  assert.deepEqual(calls.slice(0, 3), ["http://app/dispatch", "http://app/tick", "http://app/dispatch"]);
+  assert.equal(calls.length, 18);
+  assert.equal(sent.length, 0);
+  assert.ok(logs.some((l) => l.includes("post-tick request failed")));
+  assert.ok(!logs.join("\n").includes(SECRET));
 });

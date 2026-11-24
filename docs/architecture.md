@@ -78,7 +78,7 @@ Webhooks e worker:
 
 - `POST /api/webhooks/asaas` e `/api/webhooks/whatsapp` recebem eventos externos. Eles usam a role `app_webhook` (`DATABASE_WEBHOOK_URL`).
 - Uma notificação entra na fila (tabela no Postgres) na mesma transação da regra de negócio.
-- O serviço `notifications_cron` (`scripts/notifications-cron.mjs`) chama `POST /api/internal/notifications/dispatch` a cada 60 s, com `NOTIFICATIONS_DISPATCH_SECRET`.
+- O serviço `notifications_cron` (`scripts/notifications-cron.mjs`) chama `POST /api/internal/notifications/dispatch` a cada 10 s (`NOTIFICATIONS_CRON_INTERVAL_MS`), com `NOTIFICATIONS_DISPATCH_SECRET`. O ciclo roda dispatch, tick e dispatch de novo, para que o aviso criado no tick saia na hora.
 - O despacho tenta de novo com espera crescente. Veja [operations/notifications.md](operations/notifications.md).
 - `POST /api/internal/orders/tick` executa os pedidos de pesquisa com a identidade de sistema do Bureau (perfil `is_system`), sem sessão. Veja [operations/orders.md](operations/orders.md). O mesmo tick roda a varredura de retenção LGPD (`src/lib/lgpd`).
 - O cron também envia alertas por e-mail: indisponibilidade, falha de envio, erro no tick e backup atrasado. Veja [operations/monitoring.md](operations/monitoring.md).
@@ -170,7 +170,7 @@ Fluxo para o cliente: [operations/payment-links.md](operations/payment-links.md)
 | SQL puro com `pg`, sem ORM | Controle do RLS e do contexto de transação. Fonte: `CLAUDE.md`. | Um ORM provar que preserva o contexto RLS. |
 | SQL parametrizado em `queries.ts` | Evita injeção de SQL. Uma função por operação. | — |
 | Sem logger estruturado; `console` direto | Estado atual do código. Não há módulo de log. | Decidido: sem logger; alertas pelo cron (M7). |
-| Outbox no Postgres + cron, sem fila externa | Decisão D1 do spec do M4: sem infraestrutura nova. | Volume de envio exceder o worker de 60 s. |
+| Outbox no Postgres + cron, sem fila externa | Decisão D1 do spec do M4: sem infraestrutura nova. | Volume de envio exceder o worker de 10 s. |
 | Livro-razão imutável | Spec de produto: saldo nunca é editável. | — |
 | Migrations editáveis até o primeiro deploy | Dados de produção foram perdidos; não há compatibilidade a preservar. | Primeiro deploy de produção. |
 | Tela, PDF e IA leem o payload bruto (`bureau_payloads`), não o canônico | Mostrar 100% do retorno da deps sem deploy por módulo novo (spec 2026-10-19). | Payload ultrapassar o limite de tamanho da tela ou do PDF. |

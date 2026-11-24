@@ -12,7 +12,7 @@ O healthcheck usa `/live`. Queda do banco não deve reiniciar o app. O monitor e
 
 ## 1. Alertas por e-mail
 
-O serviço `notifications_cron` roda `scripts/notifications-cron.mjs` a cada 60 s. Ele chama o despacho de notificações e o tick de pedidos. Também confere o marcador de backup.
+O serviço `notifications_cron` roda `scripts/notifications-cron.mjs` a cada 10 s. Cada volta chama o despacho de notificações, o tick de pedidos e o despacho de novo (para enviar já o que o tick enfileirou). Também confere o marcador de backup.
 
 | Chave | Assunto | Dispara quando | Primeiro passo |
 |---|---|---|---|

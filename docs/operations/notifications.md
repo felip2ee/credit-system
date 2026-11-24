@@ -1,6 +1,8 @@
 # Notificações (e-mail, WhatsApp e push)
 
-O M4 envia e-mail, WhatsApp e push por uma fila no Postgres (outbox). O serviço `notifications_cron` chama a rota de despacho a cada 60 s.
+O M4 envia e-mail, WhatsApp e push por uma fila no Postgres (outbox). O serviço `notifications_cron` chama a rota de despacho a cada 10 s (`NOTIFICATIONS_CRON_INTERVAL_MS`, mínimo 5 s, padrão 60 s). Cada volta faz despacho, tick de pedidos e despacho de novo: o que o tick enfileira (como o aviso "resultado pronto") sai na mesma volta.
+
+Limites conhecidos: a latência do SMTP e o lease de 2 minutos com backoff em caso de falha não mudam. Um envio que falha espera esse prazo antes de tentar de novo.
 
 ## 1. Criar o app e o número na Meta
 
@@ -65,7 +67,7 @@ curl -X POST \
   "$NOTIFICATIONS_DISPATCH_URL"
 ```
 
-Para repetir a cada 60 s, rode o cron: `node scripts/notifications-cron.mjs` (com `NOTIFICATIONS_DISPATCH_URL` e `NOTIFICATIONS_DISPATCH_SECRET` no ambiente).
+Para repetir a cada `NOTIFICATIONS_CRON_INTERVAL_MS` (padrão 60 s), rode o cron: `node scripts/notifications-cron.mjs` (com `NOTIFICATIONS_DISPATCH_URL` e `NOTIFICATIONS_DISPATCH_SECRET` no ambiente).
 
 O `.env.example` traz os valores de dev (`WHATSAPP_DRIVER=fake`).
 

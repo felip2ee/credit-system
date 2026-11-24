@@ -106,7 +106,7 @@ services:
       driver: json-file
       options: { max-size: 10m, max-file: "3" }
 
-  # Calls the dispatch route of reino_app every 60 s (outbox worker). Own entrypoint:
+  # Calls dispatch, tick and dispatch of reino_app every 10 s (outbox worker). Own entrypoint:
   # it must NOT wait for the schema like the app entrypoint does.
   notifications_cron:
     image: *app_image
@@ -120,6 +120,7 @@ services:
       TZ: America/Sao_Paulo
       NOTIFICATIONS_DISPATCH_URL: http://reino_app:3000/api/internal/notifications/dispatch
       ORDERS_TICK_URL: http://reino_app:3000/api/internal/orders/tick
+      NOTIFICATIONS_CRON_INTERVAL_MS: "10000"
       NOTIFICATIONS_DISPATCH_SECRET_FILE: /run/secrets/notifications_dispatch_secret
       OPS_ALERT_TO: ${OPS_ALERT_TO:-}
       SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}

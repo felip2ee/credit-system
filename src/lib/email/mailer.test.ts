@@ -18,10 +18,14 @@ const smtpEnv = {
 	SMTP_FROM: "Rainha Cred <no-reply@rainha.example.test>",
 };
 
+let configSeq = 0;
+
 beforeEach(() => {
 	nodemailerMock.sendMail.mockReset().mockResolvedValue({ messageId: "<generated@x>" });
 	nodemailerMock.createTransport.mockClear();
 	for (const [key, value] of Object.entries(smtpEnv)) vi.stubEnv(key, value);
+	// Senha nova por teste: o transporter em cache é por config e não vaza entre casos.
+	vi.stubEnv("SMTP_PASS", `secret-${++configSeq}`);
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -32,6 +36,15 @@ describe("sendMail", () => {
 		expect(nodemailerMock.createTransport).toHaveBeenCalledWith(
 			expect.objectContaining({ connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 10_000 }),
 		);
+	});
+
+	it("reuses one transporter across sends and rebuilds it when the SMTP config changes", async () => {
+		await sendMail({ to: "a@b.co", subject: "s", html: "h" });
+		await sendMail({ to: "c@d.co", subject: "s", html: "h" });
+		expect(nodemailerMock.createTransport).toHaveBeenCalledTimes(1);
+		vi.stubEnv("SMTP_HOST", "smtp2.example.test");
+		await sendMail({ to: "a@b.co", subject: "s", html: "h" });
+		expect(nodemailerMock.createTransport).toHaveBeenCalledTimes(2);
 	});
 
 	it("passes the optional messageId and returns the provider messageId", async () => {

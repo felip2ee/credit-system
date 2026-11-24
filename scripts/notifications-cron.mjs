@@ -1,6 +1,7 @@
-// Calls the notifications dispatch route every 60 s. Runs as its own Swarm service.
+// Calls the notifications dispatch route every NOTIFICATIONS_CRON_INTERVAL_MS (default 60 s, minimum 5 s). Runs as its own Swarm service.
 // Config: NOTIFICATIONS_DISPATCH_URL + NOTIFICATIONS_DISPATCH_SECRET (or *_FILE).
-// Optional: ORDERS_TICK_URL (same secret) makes the loop call the orders tick right after each dispatch.
+// Optional: ORDERS_TICK_URL (same secret) makes the loop run dispatch, tick, dispatch: the second dispatch sends at once
+// what the tick enqueued (e.g. research_released), instead of waiting for the next interval.
 // Optional alerts by e-mail: OPS_ALERT_TO + SMTP_HOST/PORT/SECURE/USER/FROM + SMTP_PASS_FILE, BACKUP_STATE_FILE.
 import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -115,6 +116,16 @@ async function checkBackup({ backupStateFile, stat: statFile, alerter, state, no
 }
 
 // Uma iteração: dispatch, tick opcional e checagem do marcador de backup. `state` guarda os contadores entre iterações.
+// Alvos de uma iteração. Com tick: dispatch, tick e dispatch de novo, para enviar já o que o tick enfileirou.
+export function buildTargets(dispatchUrl, tickUrl) {
+  const targets = [{ name: "dispatch", url: dispatchUrl, label: "" }];
+  if (tickUrl) {
+    targets.push({ name: "tick", url: tickUrl, label: "orders-tick " });
+    targets.push({ name: "dispatch", url: dispatchUrl, label: "post-tick ", followUp: true });
+  }
+  return targets;
+}
+
 export async function runOnce({
   targets,
   secret,
@@ -127,16 +138,19 @@ export async function runOnce({
   stat: statFile = stat,
 }) {
   state.failures ??= new Map();
-  for (const { name, url: target, label } of targets) {
+  for (const { name, url: target, label, followUp } of targets) {
     const { status, json } = await callOnce({ target, label, secret, fetch, log: logger });
     const downKey = `${name}_down`;
-    // Só falha de rede ou resposta não-200 sem JSON conta como "fora do ar"; 500 com JSON é erro de execução (alerta próprio).
-    const isDown = status === null || (status !== 200 && json === null);
-    const consecutive = !isDown ? 0 : (state.failures.get(downKey) ?? 0) + 1;
-    state.failures.set(downKey, consecutive);
-    if (consecutive >= CONSECUTIVE_FAILURES_TO_ALERT) {
-      const fields = { "status HTTP": status ?? "falha de rede", "falhas consecutivas": consecutive };
-      await alerter.alert(downKey, SUBJECTS[downKey], alertBody(downKey, fields, now()));
+    // O dispatch pós-tick não conta falha: o dispatch do início da próxima iteração já a conta, sem dobrar o limite de alerta.
+    if (!followUp) {
+      // Só falha de rede ou resposta não-200 sem JSON conta como "fora do ar"; 500 com JSON é erro de execução (alerta próprio).
+      const isDown = status === null || (status !== 200 && json === null);
+      const consecutive = !isDown ? 0 : (state.failures.get(downKey) ?? 0) + 1;
+      state.failures.set(downKey, consecutive);
+      if (consecutive >= CONSECUTIVE_FAILURES_TO_ALERT) {
+        const fields = { "status HTTP": status ?? "falha de rede", "falhas consecutivas": consecutive };
+        await alerter.alert(downKey, SUBJECTS[downKey], alertBody(downKey, fields, now()));
+      }
     }
     if (name === "dispatch" && (json?.failed > 0 || json?.errors > 0)) {
       await alerter.alert("dispatch_failed", SUBJECTS.dispatch_failed, alertBody("dispatch_failed", { "status HTTP": status, ...pickCounts(json, DISPATCH_COUNTS) }, now()));
@@ -235,8 +249,7 @@ async function main() {
     process.exit(0);
   });
 
-  const targets = [{ name: "dispatch", url, label: "" }];
-  if (tickUrl) targets.push({ name: "tick", url: tickUrl, label: "orders-tick " });
+  const targets = buildTargets(url, tickUrl);
   const alerter = createOpsAlerter({ env: process.env, sendMail: await buildSendMail() });
   const state = {};
 
