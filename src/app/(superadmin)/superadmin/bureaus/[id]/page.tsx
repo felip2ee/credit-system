@@ -13,6 +13,8 @@ import { getEffectiveCommission } from "@/lib/catalog/queries";
 import { listBureauCommissionRates, listBureauProductBlocks } from "@/lib/commission/queries";
 import { getRequiredSession } from "@/lib/auth/session";
 import { getBureau } from "@/lib/bureaus/queries";
+import { CopyLinkButton } from "@/components/superadmin/copy-link-button";
+import { config } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { listRefundShortfalls } from "@/lib/wallet/pix-charges";
@@ -50,9 +52,19 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
   // Sem ajuste em sessão de suporte (a action também recusa).
   const canAdjust = hasPermission(session, "wallet:adjust") && !session.supportSessionId;
 
+  const publicUrl = `${config.betterAuthUrl.replace(/\/$/, "")}/b/${bureau.slug}`;
+
   return (
     <div className="space-y-6">
-      <PageHeader title={bureau.name} description={`Endereço público: /b/${bureau.slug}`} />
+      <PageHeader title={bureau.name}>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Endereço público:</span>
+          <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="break-all font-medium underline">
+            {publicUrl}
+          </a>
+          <CopyLinkButton url={publicUrl} />
+        </div>
+      </PageHeader>
       <BureauEditForm bureau={bureau} />
       <InviteAdminForm bureauId={bureau.id} />
       <AdminCredentialsForm bureauId={bureau.id} />
