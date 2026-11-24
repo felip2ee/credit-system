@@ -23,6 +23,7 @@ describe("middleware public paths", () => {
     "/privacidade",
     "/cadastro/confirmar-email",
     "/b/reino/cadastro",
+    "/pagar/abc123",
   ])("lets %s through without cookie", (path) => {
     const res = run(path);
     expect(res.headers.get("location")).toBeNull();
