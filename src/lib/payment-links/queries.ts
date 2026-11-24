@@ -111,3 +111,56 @@ export async function resolvePaymentLink(token: string): Promise<ResolvedPayment
 		link: { id: row.link_id, orderId: row.order_id, bureauId: row.bureau_id },
 	};
 }
+
+export type PaymentLinkListItem = {
+	id: string;
+	orderId: string;
+	status: "active" | "paid" | "expired" | "cancelled";
+	expiresAt: Date;
+	createdAt: Date;
+	productName: string;
+	holderName: string;
+	maskedDocument: string;
+	// Reais com 2 casas; nulo se o pedido não tem liquidação.
+	amount: string | null;
+};
+
+const LIST_LIMIT = 50;
+
+// Cobranças do Bureau do chamador (RLS), mais novas primeiro. Nunca devolve token nem hash: a URL em claro não existe mais.
+export async function listPaymentLinks(identity: DbIdentity): Promise<PaymentLinkListItem[]> {
+	return withUserTransaction(identity, async (client) => {
+		const { rows } = await client.query<{
+			id: string;
+			order_id: string;
+			status: PaymentLinkListItem["status"];
+			expires_at: Date;
+			created_at: Date;
+			product_code: string;
+			subject_name: string;
+			subject_document_masked: string;
+			amount: string | null;
+		}>(
+			`select l.id, l.order_id, l.status, l.expires_at, l.created_at, o.product_code, o.subject_name,
+			        o.subject_document_masked, s.price::text as amount
+			   from payment_links l
+			   join dossier_orders o on o.dossier_id = l.order_id
+			   left join order_settlements s on s.order_ref = l.order_id
+			  where l.bureau_id = app_bureau_id()
+			  order by l.created_at desc
+			  limit $1`,
+			[LIST_LIMIT],
+		);
+		return rows.map((r) => ({
+			id: r.id,
+			orderId: r.order_id,
+			status: r.status,
+			expiresAt: r.expires_at,
+			createdAt: r.created_at,
+			productName: PRODUCT_NAMES[r.product_code] ?? "Consulta",
+			holderName: r.subject_name,
+			maskedDocument: r.subject_document_masked,
+			amount: r.amount,
+		}));
+	});
+}

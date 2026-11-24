@@ -31,7 +31,7 @@ import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_WEBHOOK_URL } from "@/test/db-env";
 import { seedOrderDossier, seedTenant, type SeededTenant } from "@/test/seed";
 
-import { createPaymentLink, resolvePaymentLink } from "./queries";
+import { createPaymentLink, listPaymentLinks, resolvePaymentLink } from "./queries";
 import { generateToken } from "./token";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
@@ -175,3 +175,25 @@ describe("resolvePaymentLink", () => {
 
 // Mesma regra do módulo, recalculada fora dele: o teste não confia no que testa.
 const generateTokenHash = (token: string): string => createHash("sha256").update(token).digest("hex");
+
+describe("listPaymentLinks", () => {
+	it("lists only the caller's bureau, newest first, without token or hash", async () => {
+		const mine = await counterOrder(a);
+		const other = await counterOrder(b);
+		const first = await createPaymentLink(a.bureauAdmin, mine);
+		const second = await createPaymentLink(a.bureauAdmin, mine);
+		await createPaymentLink(b.bureauAdmin, other);
+		if (!first.ok || !second.ok) throw new Error("expected ok");
+
+		const list = await listPaymentLinks(a.bureauAdmin);
+		expect(list.every((l) => l.orderId !== other)).toBe(true);
+		const ids = list.map((l) => l.id);
+		expect(ids.indexOf(second.id)).toBeLessThan(ids.indexOf(first.id));
+		expect(list.find((l) => l.id === first.id)).toMatchObject({ status: "cancelled", orderId: mine, amount: "300.00" });
+		expect(list.find((l) => l.id === second.id)?.status).toBe("active");
+		const json = JSON.stringify(list);
+		expect(json).not.toContain(first.token);
+		expect(json).not.toContain(second.token);
+		expect(json).not.toContain("token_hash");
+	});
+});
