@@ -101,6 +101,7 @@ class Core:
     input_fn: Callable[[str], str] = input
     getpass_fn: Callable[[str], str] = getpass.getpass
     http: ver.HttpGet = ver.http_status
+    fetch: ver.Fetch = ver.http_fetch
     tls: ver.CertCheck = ver.tls_check
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic

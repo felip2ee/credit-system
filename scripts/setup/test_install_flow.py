@@ -246,6 +246,16 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(installer(make_root(tmp), run, http=lambda u, t: 502)[0].execute(), 1)
             self.assertEqual(len(run.ran("docker", "stack", "deploy")), 1)
 
+    def test_smoke_failure_warns_without_rollback_or_failing_the_install(self):
+        with tempfile.TemporaryDirectory() as tmp, DNS_OK:
+            run = server()
+            inst, out = installer(make_root(tmp), run, fetch=lambda m, u, t: (404, "text/html"))
+            self.assertEqual(inst.execute(), 0)
+            self.assertEqual(len(run.ran("docker", "stack", "deploy")), 1)
+            text = "\n".join(out)
+            self.assertIn("AVISO (conferir à mão, sem rollback) PWA admin (manifest)", text)
+            self.assertIn("PRONTO", text)
+
     def test_deploy_command_failure_keeps_services_and_restores_env_file(self):
         with tempfile.TemporaryDirectory() as tmp, DNS_OK:
             root = make_root(tmp)

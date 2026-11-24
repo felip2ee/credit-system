@@ -42,7 +42,7 @@ O que acontece:
 2. Pede o token das imagens (`read:packages`).
 3. Detecta o que já existe: Docker, Swarm, Traefik, rede, certificado e a stack `reino`. Instala só o que falta e pergunta antes de cada passo que muda o servidor.
 4. Pergunta domínio, SMTP, e-mail do superadmin, DEPS, OpenAI e S3, e duas opções: `Ativar WhatsApp (Meta Cloud API)? [s/N]` e `Ativar notificações push no portal? [S/n]`. Os e-mails de alerta usam o do superadmin como padrão (Enter aceita). Se o `openssl` faltar, o instalador pede as duas chaves VAPID.
-5. Imprime uma linha `✔ <etapa>` a cada passo (ou `✘ <etapa>: <motivo>`). Publica a stack e verifica: migração concluída, app no ar, `/api/health/live` e `/api/health/ready` com 200, certificado válido, `/login` com 200.
+5. Imprime uma linha `✔ <etapa>` a cada passo (ou `✘ <etapa>: <motivo>`). Publica a stack e verifica: migração concluída, app no ar, `/api/health/live` e `/api/health/ready` com 200, certificado válido, `/login` com 200. Depois roda 3 smoke checks que só avisam (manifest do PWA admin, `/pagar/<token inválido>`, webhook do Asaas sem token = 401/403; o último só com o Asaas ligado).
 6. Mostra `PRONTO` com a URL. Se o DNS ainda não aponta para o servidor, mostra "app OK localmente; DNS ainda não aponta para este servidor".
 
 Se já existe outro programa nas portas 80 ou 443 (nginx, apache), o instalador para e explica. Ele não disputa a porta.

@@ -216,8 +216,10 @@ class Installer(Rollback):
                names: dict[str, str]) -> int:
         t = self.timeouts
         checks = ver.run_checks(domain, digest, self.run, self.http, self.tls, self.say, self.sleep, self.clock,
-                                names, t.get("migrate", 300), t.get("app", 420), t.get("http", 180))
-        if checks and all(c.ok for c in checks) and len(checks) == ver.TOTAL_CHECKS:
+                                names, t.get("migrate", 300), t.get("app", 420), t.get("http", 180),
+                                self.fetch, det.parse_env(read_env_text(env_path)).get("ASAAS_DRIVER") == "asaas")
+        core = [c for c in checks if not c.smoke]  # smoke que falha só avisa: o deploy segue aprovado
+        if core and all(c.ok for c in core) and len(core) == ver.CORE_CHECKS:
             self.record_deployed(env_path)
             self.summary(domain, checks)
             return 0
@@ -244,7 +246,7 @@ class Installer(Rollback):
             self.say(f"\napp OK localmente; DNS ainda não aponta para este servidor. "
                      f"https://{domain} só abre quando o DNS apontar.")
         for c in checks:
-            self.say(f"  OK {c.name}: {c.detail}")
+            self.say(f"  {'OK' if c.ok else 'AVISO (conferir à mão, sem rollback)'} {c.name}: {c.detail}")
         self.say("Próximos passos (backup manual, drill, monitor): docs/operations/deploy.md, seção 4.")
         if self.update:
             self.say("Ainda manual: revisar CARD_FEE_TABLE; guardar a chave PII; trocar a chave do Asaas; teste real de "

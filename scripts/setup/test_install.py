@@ -166,9 +166,10 @@ class TraefikTests(unittest.TestCase):
 
 
 class VerifyTests(unittest.TestCase):
-    def checks(self, run, http=lambda u, t: 200, tls=lambda h: (True, ""), names=NAMES):
+    def checks(self, run, http=lambda u, t: 200, tls=lambda h: (True, ""), names=NAMES, fetch=None, asaas_on=True):
+        fetch = fetch or (lambda m, u, t: (401, "") if m == "POST" else (200, "application/manifest+json"))
         return ver.run_checks("app.x.com", NEW, run, http, tls, lambda m: None, lambda s: None, fake_clock(),
-                              names, 5, 5, 5)
+                              names, 5, 5, 5, fetch, asaas_on)
 
     def test_wait_until_retries_then_succeeds(self):
         attempts = []
@@ -191,7 +192,7 @@ class VerifyTests(unittest.TestCase):
 
     def test_only_migrate_and_app_are_critical(self):
         checks = self.checks(server())
-        self.assertEqual([c.critical for c in checks], [True, True, False, False, False, False])
+        self.assertEqual([c.critical for c in checks], [True, True, False, False, False, False, False, False, False])
 
     def test_stops_at_first_failure_and_reports_it(self):
         urls = []
@@ -203,6 +204,64 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(checks[-1].name, "health ready")
         self.assertFalse(checks[-1].critical)
         self.assertFalse(any(u.endswith("/login") for u in urls))
+
+    def test_smoke_checks_are_marked_and_never_critical(self):
+        checks = self.checks(server())
+        self.assertEqual([c.smoke for c in checks], [False] * ver.CORE_CHECKS + [True] * 3)
+        self.assertFalse(any(c.critical for c in checks if c.smoke))
+
+    def test_smoke_probes_hit_the_expected_urls_without_real_tokens(self):
+        calls, urls = [], []
+        self.checks(server(), lambda u, t: urls.append(u) or 200,
+                    fetch=lambda m, u, t: calls.append((m, u)) or ((401, "") if m == "POST" else (200, "application/json")))
+        self.assertEqual(calls, [("GET", "https://app.x.com/admin/manifest.webmanifest"),
+                                 ("POST", "https://app.x.com/api/webhooks/asaas")])
+        self.assertIn("https://app.x.com/pagar/" + "A" * 43, urls)
+
+    def test_smoke_failures_warn_and_all_smoke_checks_still_run(self):
+        checks = self.checks(server(), http=lambda u, t: 307 if "/pagar/" in u else 200,
+                             fetch=lambda m, u, t: (404, "text/html"))
+        smoke = [c for c in checks if c.smoke]
+        self.assertEqual([c.ok for c in smoke], [False, False, False])
+        self.assertFalse(any(c.critical for c in smoke))
+        self.assertEqual(len(checks), ver.TOTAL_CHECKS)
+
+    def test_manifest_needs_json_content_type(self):
+        probe = lambda ct: ver.manifest_probe("u", lambda m, u, t: (200, ct))()[0]
+        self.assertTrue(probe("application/manifest+json; charset=utf-8"))
+        self.assertTrue(probe("application/json"))
+        self.assertFalse(probe("text/html"))
+        self.assertFalse(ver.manifest_probe("u", lambda m, u, t: (307, "application/json"))()[0])
+
+    def test_webhook_accepts_only_401_or_403(self):
+        ok = lambda st: ver.webhook_probe("u", lambda m, u, t: (st, ""))()[0]
+        self.assertTrue(ok(401) and ok(403))
+        self.assertFalse(any(ok(st) for st in (0, 200, 404, 500)))
+
+    def test_webhook_probe_skipped_when_asaas_is_off(self):
+        calls = []
+        checks = self.checks(server(), fetch=lambda m, u, t: calls.append(m) or (200, "application/json"), asaas_on=False)
+        self.assertEqual(len(checks), ver.TOTAL_CHECKS - 1)
+        self.assertNotIn("POST", calls)
+
+    def test_smoke_does_not_run_when_a_core_check_fails(self):
+        calls = []
+        checks = self.checks(server(), lambda u, t: 503 if u.endswith("ready") else 200,
+                             fetch=lambda m, u, t: calls.append(m) or (200, "json"))
+        self.assertFalse(any(c.smoke for c in checks))
+        self.assertEqual(calls, [])
+
+    def test_http_fetch_post_sends_empty_json_without_auth(self):
+        ctx = mock.Mock()
+        ctx.wrap_socket.return_value.makefile.return_value = io.BytesIO(b"HTTP/1.1 401 X\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n")
+        with mock.patch.object(ver.socket, "create_connection", return_value=mock.Mock()), \
+                mock.patch.object(ver.ssl, "create_default_context", return_value=ctx):
+            self.assertEqual(ver.http_fetch("POST", "https://app.x.com/api/webhooks/asaas", 1), (401, "text/plain"))
+        sent = b"".join(c.args[0] for c in ctx.wrap_socket.return_value.sendall.call_args_list)
+        self.assertTrue(sent.startswith(b"POST /api/webhooks/asaas"))
+        self.assertTrue(sent.endswith(b"{}"))
+        for header in (b"authorization", b"cookie", b"asaas-access-token"):
+            self.assertNotIn(header, sent.lower())
 
     def test_migrate_failed_is_not_complete(self):
         checks = self.checks(server(migrate="Failed 1 second ago"))

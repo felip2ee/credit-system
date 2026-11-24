@@ -14,10 +14,14 @@ import setup_production as sp
 
 Runner = sp.Runner
 HttpGet = Callable[[str, float], int]
+Fetch = Callable[[str, str, float], "tuple[int, str]"]  # (método, url, timeout) -> (status, content-type)
 CertCheck = Callable[[str], "tuple[bool, str]"]
 TRAEFIK_DEFAULT_CERT = "TRAEFIK DEFAULT CERT"
 LOG_LINES = 40
-TOTAL_CHECKS = 6
+CORE_CHECKS = 6  # migração, app, health x2, TLS, login: decidem o sucesso do deploy
+TOTAL_CHECKS = 9  # CORE_CHECKS + 3 smoke checks (o do webhook só roda com o Asaas ligado)
+SMOKE_TIMEOUT = 30
+SMOKE_TOKEN = "A" * 43  # token sintático e inexistente: nunca um token real
 LOCAL_IP = "127.0.0.1"
 
 _URL_PASSWORD = re.compile(r"(\w+://[^:/\s@]+:)[^@\s]+@")
@@ -32,6 +36,7 @@ class Check:
     ok: bool
     detail: str = ""
     critical: bool = False  # falha que justifica rollback (migração ou convergência do app)
+    smoke: bool = False  # verificação de funcionalidade nova: falha só avisa, nunca reverte nem reprova o deploy
 
 
 def redact(text: str, secret_values: set[str] | frozenset[str] = frozenset()) -> str:
@@ -64,17 +69,29 @@ class _LocalHTTPS(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
-def http_status(url: str, timeout: float) -> int:
-    """Status de um GET https sem seguir redirecionamento, direto neste servidor (não depende do DNS)."""
+def http_fetch(method: str, url: str, timeout: float) -> tuple[int, str]:
+    """(status, content-type) de uma chamada https sem seguir redirecionamento e sem cookie, direto neste servidor.
+    POST envia o corpo `{}` e nenhum token. Falha de rede devolve (0, "")."""
     parts = urllib.parse.urlsplit(url)
     conn = _LocalHTTPS(parts.hostname or "", 443, timeout=timeout, context=ssl.create_default_context())
+    headers = {"User-Agent": "reino-installer"}
+    body = None
+    if method == "POST":
+        headers["Content-Type"] = "application/json"
+        body = "{}"
     try:
-        conn.request("GET", parts.path or "/", headers={"User-Agent": "reino-installer"})
-        return conn.getresponse().status
+        conn.request(method, parts.path or "/", body=body, headers=headers)
+        resp = conn.getresponse()
+        return resp.status, resp.getheader("Content-Type") or ""
     except (OSError, http.client.HTTPException):
-        return 0
+        return 0, ""
     finally:
         conn.close()
+
+
+def http_status(url: str, timeout: float) -> int:
+    """Status de um GET https sem seguir redirecionamento, direto neste servidor (não depende do DNS)."""
+    return http_fetch("GET", url, timeout)[0]
 
 
 def tls_check(host: str) -> tuple[bool, str]:
@@ -143,12 +160,30 @@ def url_probe(url: str, http: HttpGet, want: int = 200) -> Callable[[], "tuple[b
     return probe
 
 
+def manifest_probe(url: str, fetch: Fetch) -> Callable[[], "tuple[bool, str]"]:
+    def probe() -> tuple[bool, str]:
+        status, ctype = fetch("GET", url, 10)
+        ok = status == 200 and "json" in ctype.lower()
+        return ok, f"GET {url} -> {status or 'sem resposta'} ({ctype or 'sem content-type'})"
+    return probe
+
+
+def webhook_probe(url: str, fetch: Fetch) -> Callable[[], "tuple[bool, str]"]:
+    """Sem token a rota existe e recusa (401/403). 404 ou 5xx = rota ausente ou app mal configurado."""
+    def probe() -> tuple[bool, str]:
+        status, _ = fetch("POST", url, 10)
+        return status in (401, 403), f"POST {url} sem token -> {status or 'sem resposta'} (esperado 401/403)"
+    return probe
+
+
 def run_checks(domain: str, digest: str, run: Runner, http: HttpGet = http_status,
                tls: CertCheck = tls_check, say: Callable[[str], None] = print,
                sleep: Callable[[float], None] = time.sleep,
                clock: Callable[[], float] = time.monotonic,
-               names: dict[str, str] | None = None, migrate_timeout: float = 300, app_timeout: float = 420, http_timeout: float = 180) -> list[Check]:
-    """Para no primeiro check que falha (os seguintes dependem dele)."""
+               names: dict[str, str] | None = None, migrate_timeout: float = 300, app_timeout: float = 420, http_timeout: float = 180,
+               fetch: Fetch = http_fetch, asaas_on: bool = False) -> list[Check]:
+    """Para no primeiro check essencial que falha (os seguintes dependem dele). Os smoke checks só rodam
+    depois que todos os essenciais passam; cada um roda mesmo se outro falhar e nenhum é crítico."""
     base = f"https://{domain}"
     names = names or {"reino_app": "reino_reino_app", "migrate": "reino_migrate"}
     steps: list[tuple[str, Callable[[], "tuple[bool, str]"], float, float, bool]] = [
@@ -166,7 +201,21 @@ def run_checks(domain: str, digest: str, run: Runner, http: HttpGet = http_statu
         results.append(Check(name, ok, detail, critical))
         say(f"{'✔' if ok else '✘'} {name}: {detail}")
         if not ok:
-            break
+            return results
+    smoke: list[tuple[str, Callable[[], "tuple[bool, str]"]]] = [
+        ("PWA admin (manifest)", manifest_probe(f"{base}/admin/manifest.webmanifest", fetch)),
+        ("página de pagamento (token inválido)", url_probe(f"{base}/pagar/{SMOKE_TOKEN}", http)),
+    ]
+    if asaas_on:
+        smoke.append(("webhook Asaas", webhook_probe(f"{base}/api/webhooks/asaas", fetch)))
+    else:
+        say("- webhook Asaas: ignorado (Asaas desligado no .env.production)")
+    timeout = min(http_timeout, SMOKE_TIMEOUT)
+    for name, probe in smoke:
+        say(f"... verificando {name} (até {int(timeout)}s)")
+        ok, detail = wait_until(probe, timeout, 5, sleep, clock)
+        results.append(Check(name, ok, detail, False, True))
+        say(f"{'✔' if ok else '✘ AVISO'} {name}: {detail}")
     return results
 
 
