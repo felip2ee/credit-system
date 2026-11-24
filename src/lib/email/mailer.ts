@@ -47,8 +47,9 @@ export function senderDomain(): string | null {
 
 let cachedTransport: { key: string; transporter: Transporter } | null = null;
 
-// Um transporter por processo (sem TCP/TLS/auth novos a cada envio). A chave cobre a config: mudou, recria.
-// Sem `pool: true`: um socket ocioso morto não deve derrubar o envio; o nodemailer reconecta sozinho a cada envio.
+// Um transporter por processo: o cache só evita recriá-lo a cada envio. A chave cobre a config: mudou, recria.
+// Sem `pool: true`, o nodemailer abre uma conexão (TCP/TLS/auth) por sendMail; um socket ocioso morto não derruba o envio.
+// O ganho de velocidade vem do loop do cron, não deste cache.
 function getTransporter(cfg: NonNullable<ReturnType<typeof readConfig>>): Transporter {
   const key = JSON.stringify([cfg.host, cfg.port, cfg.secure, cfg.user, cfg.pass]);
   if (cachedTransport?.key === key) return cachedTransport.transporter;

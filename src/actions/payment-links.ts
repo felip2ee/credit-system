@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
@@ -52,6 +53,7 @@ export async function createPaymentLinkAction(input: { orderId: string }): Promi
 	try {
 		const result = await createPaymentLink(session, parsed.data.orderId);
 		if (!result.ok) return { error: FAILURE_MESSAGES[result.reason] };
+		revalidatePath("/admin/cobrancas");
 		return { error: null, id: result.id, url: new URL(`/pagar/${result.token}`, config.betterAuthUrl).toString() };
 	} catch (error) {
 		logFailure("createPaymentLinkAction", error);

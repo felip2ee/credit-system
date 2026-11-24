@@ -8,6 +8,7 @@ const publicPaths = [
   "/mfa/setup",
   "/mfa/verify",
   "/termos",
+  "/admin/manifest.webmanifest",
   "/privacidade",
   "/api/webhooks/asaas",
   "/api/webhooks/whatsapp",

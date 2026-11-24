@@ -18,6 +18,7 @@ describe("middleware public paths", () => {
     "/api/health/live",
     "/api/health/ready",
     "/manifest.webmanifest",
+    "/admin/manifest.webmanifest",
     "/sw.js",
     "/termos",
     "/privacidade",

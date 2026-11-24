@@ -44,7 +44,8 @@ export function createOrderPoller(initialState: OrderState, deps: PollerDeps) {
 		let delay: number;
 		try {
 			const res = await deps.fetchStatus();
-			if (res.status === 401 || res.status === 404) {
+			if (stopped) return;
+			if (res.status === 401 || res.status === 403 || res.status === 404) {
 				stopped = true;
 				return;
 			}

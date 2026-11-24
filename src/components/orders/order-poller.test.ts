@@ -119,12 +119,32 @@ describe("createOrderPoller", () => {
 		expect(timers).toHaveLength(2);
 	});
 
-	it.each([401, 404])("stops on %i", async (status) => {
+	it.each([401, 403, 404])("stops on %i", async (status) => {
 		const t = setup("ready", [{ status }]);
 		t.poller.start();
 		await t.fire();
 		expect(t.pending()).toHaveLength(0);
 		expect(t.refresh).not.toHaveBeenCalled();
+	});
+
+	it("does not refresh when stopped while a request is in flight", async () => {
+		let release: (r: StatusResult) => void = () => undefined;
+		const refresh = vi.fn();
+		let timer: (() => void) | undefined;
+		const poller = createOrderPoller("ready", {
+			fetchStatus: () => new Promise<StatusResult>((r) => (release = r)),
+			refresh,
+			isHidden: () => false,
+			setTimer: (fn) => ((timer = fn), 1),
+			clearTimer: () => undefined,
+		});
+		poller.start();
+		timer?.();
+		poller.stop();
+		release(ok("released"));
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(refresh).not.toHaveBeenCalled();
 	});
 
 	it("backs off on network or server errors and recovers", async () => {

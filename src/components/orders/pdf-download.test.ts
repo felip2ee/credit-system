@@ -1,16 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { downloadPdf, parseFilename, type PdfDownloadDeps } from "./pdf-download";
+import { downloadPdf, parseFilename, REVOKE_DELAY_MS, type PdfDownloadDeps } from "./pdf-download";
 
 function makeDeps(over: Partial<PdfDownloadDeps> = {}, res?: Response): PdfDownloadDeps {
 	return {
 		fetchFn: vi.fn().mockResolvedValue(
-			res ?? new Response("%PDF", { status: 200, headers: { "Content-Disposition": 'attachment; filename="dossie.pdf"' } }),
+			res ?? new Response("%PDF", { status: 200, headers: { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="dossie.pdf"' } }),
 		),
 		nav: {},
 		createObjectURL: vi.fn().mockReturnValue("blob:x"),
 		revokeObjectURL: vi.fn(),
 		clickAnchor: vi.fn(),
+		setTimer: vi.fn(),
 		...over,
 	};
 }
@@ -43,7 +44,19 @@ describe("downloadPdf", () => {
 		const deps = makeDeps();
 		expect(await downloadPdf("/pdf", deps)).toEqual({ kind: "downloaded" });
 		expect(deps.clickAnchor).toHaveBeenCalledWith("blob:x", "dossie.pdf");
+		expect(deps.revokeObjectURL).not.toHaveBeenCalled();
+		const [fn, ms] = vi.mocked(deps.setTimer).mock.calls[0];
+		expect(ms).toBe(REVOKE_DELAY_MS);
+		fn();
 		expect(deps.revokeObjectURL).toHaveBeenCalledWith("blob:x");
+	});
+
+	it("resposta HTML com 200 (sessão expirada) vira erro", async () => {
+		const share = vi.fn();
+		const deps = makeDeps({ nav: { canShare: () => true, share } }, new Response("<html>", { status: 200, headers: { "Content-Type": "text/html" } }));
+		expect((await downloadPdf("/pdf", deps)).kind).toBe("error");
+		expect(share).not.toHaveBeenCalled();
+		expect(deps.clickAnchor).not.toHaveBeenCalled();
 	});
 
 	it("resposta não OK vira erro e não compartilha", async () => {
@@ -59,7 +72,6 @@ describe("downloadPdf", () => {
 		const deps = makeDeps({ nav: { canShare: () => true, share: vi.fn().mockRejectedValue(denied) } });
 		expect(await downloadPdf("/pdf", deps)).toEqual({ kind: "downloaded" });
 		expect(deps.clickAnchor).toHaveBeenCalledWith("blob:x", "dossie.pdf");
-		expect(deps.revokeObjectURL).toHaveBeenCalledWith("blob:x");
 	});
 
 	it("AbortError vira cancelled", async () => {

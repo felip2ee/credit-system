@@ -35,6 +35,7 @@ export function PdfDownloadButton({ href }: { href: string }) {
 			createObjectURL: (blob) => URL.createObjectURL(blob),
 			revokeObjectURL: (url) => URL.revokeObjectURL(url),
 			clickAnchor,
+			setTimer: (fn, ms) => setTimeout(fn, ms),
 		});
 		if (result.kind === "error") setError(result.message);
 		busy.current = false;

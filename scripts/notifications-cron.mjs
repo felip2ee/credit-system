@@ -115,7 +115,6 @@ async function checkBackup({ backupStateFile, stat: statFile, alerter, state, no
   await alerter.alert("backup_stale", SUBJECTS.backup_stale, alertBody("backup_stale", { "idade em horas": Math.floor(ageMs / 3_600_000) }, at));
 }
 
-// Uma iteração: dispatch, tick opcional e checagem do marcador de backup. `state` guarda os contadores entre iterações.
 // Alvos de uma iteração. Com tick: dispatch, tick e dispatch de novo, para enviar já o que o tick enfileirou.
 export function buildTargets(dispatchUrl, tickUrl) {
   const targets = [{ name: "dispatch", url: dispatchUrl, label: "" }];
@@ -126,6 +125,7 @@ export function buildTargets(dispatchUrl, tickUrl) {
   return targets;
 }
 
+// Uma iteração: dispatch, tick opcional e checagem do marcador de backup. `state` guarda os contadores entre iterações.
 export async function runOnce({
   targets,
   secret,
