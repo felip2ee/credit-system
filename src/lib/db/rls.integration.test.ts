@@ -1104,7 +1104,15 @@ describe("bureaus, slug checks and metrics", () => {
 						A.bureau.id,
 					]),
 			),
-		).rejects.toMatchObject({ code: "42501" });
+		).resolves.toMatchObject({ rowCount: 1 });
+		// Migration 056: o slug é editável, mas a política bureaus_update continua só do superadmin.
+		await expect(
+			withDbContext(app, A.bureauAdmin, (c) =>
+				c.query("update bureaus set slug = 'outro-slug' where id = $1", [
+					A.bureau.id,
+				]),
+			),
+		).resolves.toMatchObject({ rowCount: 0 });
 	});
 });
 
