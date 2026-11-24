@@ -17,6 +17,10 @@ const onlyDigits = (value: string) => value.replace(/\D/g, "");
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const newToken = () => randomBytes(32).toString("base64url"); // 43 caracteres
 const newCode = () => String(randomInt(0, 1_000_000)).padStart(6, "0");
+// Código de 6 dígitos só vaza se aparecer como valor inteiro. Como substring ele colide por acaso com
+// dígitos de uuid, hash, telefone e microssegundos do mesmo registro (flaky); o resto segue por substring.
+const leaks = (text: string, value: string) =>
+	/^\d{6}$/.test(value) ? new RegExp(`(?<![\\w.+:-])${value}(?![\\w.+:-])`).test(text) : text.includes(value);
 const newPhone = () => `+55639${String(randomInt(0, 100_000_000)).padStart(8, "0")}`;
 // Um IP por caso: o limite do cadastro é por IP e a tabela persiste entre execuções.
 const newIp = () => `10.${randomInt(0, 256)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
@@ -266,7 +270,7 @@ describe("register_client", () => {
 			[r.userId],
 		);
 		expect(phone.rows[0].code_hash).toBe(sha256(code));
-		expect(phone.rows[0].as_text).not.toContain(code);
+		expect(leaks(phone.rows[0].as_text, code)).toBe(false);
 	});
 
 	it("email challenge failure rolls back the whole registration", async () => {
@@ -676,6 +680,16 @@ describe("legal acceptance", () => {
 });
 
 describe("audit hygiene", () => {
+	it("leaks() flags a 6-digit code only as a whole value, never inside uuid, hash, phone or timestamp", () => {
+		const row = '(6a7d669c-83ac-42ea-9100-084e8a26c912,x,phone,+5563971258912,"2026-01-01 10:00:00.712589+00",f)';
+		expect(row).toContain("712589"); // o falso positivo antigo
+		expect(leaks(row, "712589")).toBe(false);
+		expect(leaks("(id,phone,+5563900000000,712589,0,5)", "712589")).toBe(true);
+		expect(leaks('{"code":"712589"}', "712589")).toBe(true);
+		expect(leaks("abc712589def", "712589")).toBe(false);
+		expect(leaks("user@x.test|tok", "tok")).toBe(true); // valores longos seguem por substring
+	});
+
 	it("audit metadata has no document, raw email, raw phone, token or code", async () => {
 		expect(registered.length).toBeGreaterThan(5);
 		const { rows } = await owner.query<{ blob: string }>(
@@ -689,7 +703,7 @@ describe("audit hygiene", () => {
 			...secrets,
 		];
 		for (const row of rows) {
-			for (const value of sensitive) expect(row.blob).not.toContain(value);
+			for (const value of sensitive) expect(leaks(row.blob, value), value).toBe(false);
 		}
 	});
 });
