@@ -1,9 +1,8 @@
-// Visitas e métricas do app do admin do Bureau. Visita: contagem diária agregada, sem IP, sem cookie.
+// Métricas do app do admin do Bureau. Visita: contagem diária agregada, sem IP, sem cookie (gravada por visit-buffer.ts).
 // Nenhum PoolClient sai deste módulo.
 import { getRevenueSummary } from "@/lib/dashboard/queries";
 import { canViewRevenue } from "@/lib/dashboard/access";
 import { revenueRange, type RevenuePeriodKey } from "@/lib/dashboard/period";
-import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
 const RANKING_SIZE = 5;
@@ -16,24 +15,6 @@ export type BureauAdminMetrics = {
 	affiliates: number;
 	ranking: { name: string; sales: number; commission: number }[];
 };
-
-// Chamada pela página pública (sem sessão). Falha de contagem nunca quebra a página.
-export async function recordBureauVisit(bureauId: string): Promise<void> {
-	try {
-		await pool.query("select record_bureau_page_view($1)", [bureauId]);
-	} catch (error) {
-		console.error("recordBureauVisit failed", error instanceof Error ? error.message : "unknown error");
-	}
-}
-
-// Versão da página pública: ela só conhece o slug (public_bureau_by_slug não devolve o id).
-export async function recordBureauVisitBySlug(slug: string): Promise<void> {
-	try {
-		await pool.query("select record_bureau_page_view_by_slug($1)", [slug]);
-	} catch (error) {
-		console.error("recordBureauVisitBySlug failed", error instanceof Error ? error.message : "unknown error");
-	}
-}
 
 // Tudo do Bureau do chamador (ctx.bureauId, mais a RLS). Cadastros = contas de cliente criadas no Bureau no período
 // (todo cadastro de cliente nasce pela página do Bureau; affiliate_referrals só cobre os indicados).

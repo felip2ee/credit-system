@@ -161,7 +161,7 @@ Fluxo para o cliente: [operations/payment-links.md](operations/payment-links.md)
 - Bots contam. Não há filtro (limite conhecido).
 - Só a equipe do próprio Bureau lê a contagem (`bureau_page_views_staff_select`).
 - Troca de slug: `updateBureau` grava o slug antigo em `bureau_slug_history` na mesma transação. Um slug que já foi de outro Bureau fica reservado para o redirect.
-- `/b/<slug>` com slug que não existe em `bureaus` consulta o histórico e responde 308 (`permanentRedirect`) para `/b/<slug atual>`. Cadeia de trocas aponta direto para o slug atual, porque cada linha guarda o `bureau_id`.
+- `/b/<slug>` com slug que não existe em `bureaus` consulta o histórico e responde 307 (`redirect`, temporário: o 308 seria guardado pelo navegador e faria laço se o slug voltasse a ser o antigo) para `/b/<slug atual>`. Cadeia de trocas aponta direto para o slug atual, porque cada linha guarda o `bureau_id`.
 
 ## Decisões
 

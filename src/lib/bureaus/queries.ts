@@ -1,5 +1,7 @@
 // Painel do superadmin: Bureaus, convite do primeiro admin e métricas.
 // A permissão `bureaus:manage` é checada na action; aqui o RLS barra quem não é superadmin.
+import type { PoolClient } from "pg";
+
 import { writeAuditEvent } from "@/lib/audit/write";
 import {
 	setTemporaryCredentials,
@@ -40,13 +42,23 @@ class EmailInUse extends Error {}
 
 type PgError = { code?: string; constraint?: string };
 
+// Serializa quem escolhe ou libera um slug: sem a trava, "confere o histórico, depois grava" deixa dois pedidos
+// passarem juntos e um Bureau ficaria com o slug que o histórico já aponta para outro.
+// Várias travas em ordem fixa, para duas renomeações cruzadas (a→b e b→a) não travarem uma à outra.
+async function lockSlugs(client: PoolClient, slugs: string[]): Promise<void> {
+	for (const slug of Array.from(new Set(slugs)).sort()) {
+		await client.query("select pg_advisory_xact_lock(hashtextextended('slug:' || $1, 0))", [slug]);
+	}
+}
+
 export async function createBureau(
 	identity: DbIdentity,
 	input: BureauCreate,
 ): Promise<CreateBureauResult> {
 	try {
 		return await withUserTransaction(platformIdentity(identity), async (client) => {
-			// Um slug que já foi de outro bureau segue reservado para o redirect 308.
+			await lockSlugs(client, [input.slug]);
+			// Um slug que já foi de outro bureau segue reservado para o redirect.
 			const reserved = await client.query("select 1 from bureau_slug_history where old_slug = $1", [input.slug]);
 			if (reserved.rowCount) return { ok: false as const, reason: "slug_taken" as const };
 			const { rows } = await client.query<{ id: string }>(
@@ -93,7 +105,7 @@ export type UpdateBureauResult =
 	| { ok: true }
 	| { ok: false; reason: "not_found" | "slug_taken" | "slug_reserved" };
 
-// Troca de slug: o antigo vai para bureau_slug_history (redirect 308) na mesma transação.
+// Troca de slug: o antigo vai para bureau_slug_history (redirect) na mesma transação.
 // Rejeita um slug que é old_slug de OUTRO bureau; voltar ao próprio old_slug apaga essa linha.
 export async function updateBureau(
 	identity: DbIdentity,
@@ -110,6 +122,7 @@ export async function updateBureau(
 			const newSlug = input.slug && input.slug !== oldSlug ? input.slug : null;
 
 			if (newSlug) {
+				await lockSlugs(client, [newSlug, oldSlug]);
 				const { rows: owners } = await client.query<{ bureau_id: string }>(
 					"select bureau_id from bureau_slug_history where old_slug = $1",
 					[newSlug],

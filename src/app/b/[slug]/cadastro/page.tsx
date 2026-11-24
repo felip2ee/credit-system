@@ -1,4 +1,4 @@
-import { notFound, permanentRedirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { PublicShell } from "@/components/portal/public-shell";
 import { RegisterForm } from "@/components/register/register-form";
@@ -22,7 +22,7 @@ export default async function RegisterPage({
   const resolved = await resolveBureauSlug(params.slug);
   if (resolved.kind === "redirect") {
     const ref = typeof searchParams.ref === "string" ? `?ref=${encodeURIComponent(searchParams.ref)}` : "";
-    permanentRedirect(`/b/${resolved.slug}/cadastro${ref}`);
+    redirect(`/b/${resolved.slug}/cadastro${ref}`);
   }
   if (resolved.kind === "missing") notFound();
   const { bureau } = resolved;

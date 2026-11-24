@@ -65,9 +65,9 @@ export default async function AdminHomePage({ searchParams }: { searchParams: { 
       <section aria-label="Métricas" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Stat label="Visitas" value={String(metrics.visits)} hint="Acessos ao link público" icon={Eye} />
         <Stat label="Cadastros" value={String(metrics.signups)} hint="Novos clientes" icon={UserPlus} />
-        <Stat label="Vendas" value={String(metrics.sales)} hint="Pedidos pagos" icon={ShoppingBag} />
+        <Stat label="Vendas" value={String(metrics.sales)} hint="Pesquisas pagas" icon={ShoppingBag} />
         {metrics.revenue !== null && (
-          <Stat label="Faturamento" value={formatCurrency(metrics.revenue)} hint="Pedidos concluídos" icon={TrendingUp} />
+          <Stat label="Faturamento" value={formatCurrency(metrics.revenue)} hint="Valor recebido" icon={TrendingUp} />
         )}
         <Stat label="Afiliados" value={String(metrics.affiliates)} hint="Com código ativo" icon={HandCoins} />
       </section>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound, permanentRedirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { LoginForm } from "@/components/auth/login-form";
@@ -26,7 +26,7 @@ export default async function PublicBureauEntryPage({
   const resolved = await resolveBureauSlug(params.slug);
   if (resolved.kind === "redirect") {
     const next = typeof searchParams.next === "string" ? `?next=${encodeURIComponent(searchParams.next)}` : "";
-    permanentRedirect(`/b/${resolved.slug}/entrar${next}`);
+    redirect(`/b/${resolved.slug}/entrar${next}`);
   }
   if (resolved.kind === "missing") notFound();
   const { bureau } = resolved;

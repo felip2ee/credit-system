@@ -24,7 +24,8 @@ import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedClientProfile, seedTenant, type SeededTenant } from "@/test/seed";
 
-import { getBureauAdminMetrics, recordBureauVisit, recordBureauVisitBySlug } from "./metrics";
+import { getBureauAdminMetrics } from "./metrics";
+import { bufferBureauVisit, flushBureauVisits } from "./visit-buffer";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL });
 
@@ -42,6 +43,11 @@ const views = async (bureauId: string) =>
 			bureauId,
 		])).rows[0].n,
 	);
+
+async function visit(slug: string, times = 1) {
+	for (let i = 0; i < times; i++) bufferBureauVisit(slug);
+	await flushBureauVisits();
+}
 
 async function settle(t: SeededTenant, clientId: string, price: string, daysAgo: number) {
 	const { rows } = await owner.query<{ order_ref: string }>(
@@ -66,21 +72,18 @@ async function affiliateWith(t: SeededTenant) {
 	return { affiliate, referred };
 }
 
-describe("recordBureauVisit", () => {
-	it("counts one visit per call for an active bureau", async () => {
+describe("visit buffer flush", () => {
+	it("counts the buffered visits of an active bureau in one flush", async () => {
 		const t = await seedTenant(owner, "visit");
-		await recordBureauVisit(t.bureau.id);
-		await recordBureauVisitBySlug(t.bureau.slug);
-		expect(await views(t.bureau.id)).toBe(2);
+		await visit(t.bureau.slug, 3);
+		expect(await views(t.bureau.id)).toBe(3);
 	});
 
-	it("records nothing for a missing slug, an unknown id or an inactive bureau, and never throws", async () => {
+	it("records nothing for a missing slug or an inactive bureau, and never throws", async () => {
 		const t = await seedTenant(owner, "visit-off");
 		await owner.query("update bureaus set status = 'inactive' where id = $1", [t.bureau.id]);
-		await recordBureauVisitBySlug(t.bureau.slug);
-		await recordBureauVisit(t.bureau.id);
-		await recordBureauVisitBySlug("nao-existe-xyz");
-		await expect(recordBureauVisit("not-a-uuid")).resolves.toBeUndefined();
+		await visit(t.bureau.slug);
+		await expect(visit("nao-existe-xyz")).resolves.toBeUndefined();
 		expect(await views(t.bureau.id)).toBe(0);
 	});
 });
@@ -88,7 +91,7 @@ describe("recordBureauVisit", () => {
 describe("getBureauAdminMetrics", () => {
 	it("sums visits, signups, sales and revenue by period", async () => {
 		const t = await seedTenant(owner, "metrics");
-		await recordBureauVisit(t.bureau.id);
+		await visit(t.bureau.slug);
 		await owner.query("insert into bureau_page_views (bureau_id, day, count) values ($1, current_date - 40, 7)", [t.bureau.id]);
 		await settle(t, t.client.userId, "100.00", 0);
 		await settle(t, t.client.userId, "50.50", 0);
@@ -135,7 +138,7 @@ describe("getBureauAdminMetrics", () => {
 	it("does not mix data between bureaus", async () => {
 		const a = await seedTenant(owner, "iso-a");
 		const b = await seedTenant(owner, "iso-b");
-		await recordBureauVisit(a.bureau.id);
+		await visit(a.bureau.slug);
 		await settle(a, a.client.userId, "99.00", 0);
 		await affiliateWith(a);
 

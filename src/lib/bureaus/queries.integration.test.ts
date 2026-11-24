@@ -370,6 +370,96 @@ describe("updateBureau: slug", () => {
 	});
 });
 
+describe("slug race (advisory lock)", () => {
+	const suffix = () => randomBytes(4).toString("hex");
+	async function makeBureau() {
+		const input = newInput();
+		const created = await createBureau(superadmin, input);
+		if (!created.ok) throw new Error("setup");
+		return { id: created.id, slug: input.slug, name: input.name };
+	}
+	// Nunca: um Bureau vivo com o slug E o histórico apontando o mesmo slug para outro.
+	async function expectNoSplitOwnership(slug: string) {
+		const live = await owner.query("select id from bureaus where slug = $1", [slug]);
+		const hist = await owner.query("select bureau_id from bureau_slug_history where old_slug = $1", [slug]);
+		expect(live.rowCount === 1 && hist.rowCount === 1).toBe(false);
+	}
+
+	it("createBureau waits for the slug lock held by another transaction", async () => {
+		const input = newInput();
+		const holder = await owner.connect();
+		try {
+			await holder.query("begin");
+			await holder.query("select pg_advisory_xact_lock(hashtextextended('slug:' || $1, 0))", [input.slug]);
+			let done = false;
+			const pending = createBureau(superadmin, input).finally(() => (done = true));
+			await new Promise((r) => setTimeout(r, 300));
+			expect(done).toBe(false);
+			await holder.query("commit");
+			await expect(pending).resolves.toMatchObject({ ok: true });
+		} finally {
+			holder.release();
+		}
+	});
+
+	it("updateBureau waits for the lock of the new slug", async () => {
+		const b = await makeBureau();
+		const target = `alvo-${suffix()}`;
+		const holder = await owner.connect();
+		try {
+			await holder.query("begin");
+			await holder.query("select pg_advisory_xact_lock(hashtextextended('slug:' || $1, 0))", [target]);
+			let done = false;
+			const pending = updateBureau(superadmin, { id: b.id, name: b.name, slug: target }).finally(() => (done = true));
+			await new Promise((r) => setTimeout(r, 300));
+			expect(done).toBe(false);
+			await holder.query("commit");
+			await expect(pending).resolves.toEqual({ ok: true });
+		} finally {
+			holder.release();
+		}
+	});
+
+	it("A renames foo to bar while B creates foo: B never owns foo while history says foo belongs to A", async () => {
+		for (let i = 0; i < 4; i++) {
+			const a = await makeBureau();
+			const [ra, rb] = await Promise.all([
+				updateBureau(superadmin, { id: a.id, name: a.name, slug: `bar-${suffix()}` }),
+				createBureau(superadmin, newInput({ slug: a.slug })),
+			]);
+			expect(ra).toEqual({ ok: true });
+			expect(rb).toEqual({ ok: false, reason: "slug_taken" });
+			await expectNoSplitOwnership(a.slug);
+			const hist = await owner.query("select bureau_id from bureau_slug_history where old_slug = $1", [a.slug]);
+			expect(hist.rows).toEqual([{ bureau_id: a.id }]);
+		}
+	});
+
+	it("A renames foo to bar while B renames to foo: exactly one outcome", async () => {
+		for (let i = 0; i < 4; i++) {
+			const a = await makeBureau();
+			const b = await makeBureau();
+			const [ra, rb] = await Promise.all([
+				updateBureau(superadmin, { id: a.id, name: a.name, slug: `bar-${suffix()}` }),
+				updateBureau(superadmin, { id: b.id, name: b.name, slug: a.slug }),
+			]);
+			expect(ra).toEqual({ ok: true });
+			expect(rb).toEqual({ ok: false, reason: "slug_taken" });
+			await expectNoSplitOwnership(a.slug);
+		}
+	});
+
+	it("crossed renames a to b and b to a do not deadlock", async () => {
+		const a = await makeBureau();
+		const b = await makeBureau();
+		const results = await Promise.all([
+			updateBureau(superadmin, { id: a.id, name: a.name, slug: b.slug }),
+			updateBureau(superadmin, { id: b.id, name: b.name, slug: a.slug }),
+		]);
+		for (const r of results) expect(r.ok === true || r.reason === "slug_taken").toBe(true);
+	});
+});
+
 describe("inviteBureauAdmin", () => {
 	it("rejects the e-mail of a pending admin (profile hidden by RLS) and of another role", async () => {
 		const input = newInput();

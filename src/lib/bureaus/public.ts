@@ -41,7 +41,7 @@ export type ResolvedBureauSlug =
   | { kind: "redirect"; slug: string }
   | { kind: "missing" };
 
-// Slug atual do bureau, ou o slug atual de quem já teve este slug (redirect 308 nas páginas).
+// Slug atual do bureau, ou o slug atual de quem já teve este slug (redirect nas páginas).
 export async function resolveBureauSlug(slug: string): Promise<ResolvedBureauSlug> {
   const bureau = await getPublicBureau(slug);
   if (bureau) return { kind: "bureau", bureau };
