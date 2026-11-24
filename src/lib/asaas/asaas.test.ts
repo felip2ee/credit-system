@@ -197,6 +197,20 @@ describe("customers", () => {
 		await expect(exists(jsonResponse({}, 502))).rejects.toBeInstanceOf(AsaasOutcomeUnknownError);
 	});
 
+	it("cancelPixCharge: DELETE /v3/payments/{id}; 404 counts as done; other errors throw", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ deleted: true, id: "pay_1" }));
+		await createAsaasClient(settings, fetchMock).cancelPixCharge("pay_1");
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("https://api.asaas.example/v3/payments/pay_1");
+		expect(init.method).toBe("DELETE");
+
+		const cancel = (response: Response) =>
+			createAsaasClient(settings, vi.fn().mockResolvedValue(response)).cancelPixCharge("pay_1");
+		await expect(cancel(jsonResponse({ errors: [] }, 404))).resolves.toBeUndefined();
+		await expect(cancel(jsonResponse({ errors: [] }, 400))).rejects.toBeInstanceOf(AsaasHttpError);
+		await expect(cancel(jsonResponse({}, 502))).rejects.toBeInstanceOf(AsaasOutcomeUnknownError);
+	});
+
 	it("creates a customer with notifications disabled and returns its id", async () => {
 		const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: "cus_9" }));
 

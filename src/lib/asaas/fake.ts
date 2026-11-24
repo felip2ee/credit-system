@@ -31,6 +31,10 @@ export function deleteFakeCustomer(id: string): void {
 	if (customer) fakeCustomers.set(id, { ...customer, deleted: true });
 }
 const isDeleted = (id: string): boolean => fakeCustomers.get(id)?.deleted === true;
+// Pagamentos que o fake cancelou (cancelPixCharge). Estado do processo, só para testes.
+const cancelledPayments = new Set<string>();
+export const resetFakeCancelledPayments = (): void => cancelledPayments.clear();
+export const getFakeCancelledPayments = (): string[] => Array.from(cancelledPayments);
 // Número de teste que o fake recusa, como o Asaas faria com um cartão não autorizado.
 export const FAKE_DECLINED_CARD_LAST4 = "0002";
 
@@ -65,6 +69,9 @@ export function createFakeAsaasClient(): AsaasClient {
 			const customer = fakeCustomers.get(asaasCustomerId);
 			if (!customer || customer.deleted) throw new AsaasHttpError(404, "PUT /v3/customers/{id}");
 			fakeCustomers.set(asaasCustomerId, { ...customer, ...input });
+		},
+		async cancelPixCharge(asaasPaymentId) {
+			cancelledPayments.add(asaasPaymentId);
 		},
 		async createCardCharge({ externalReference, installments, card, customerId }) {
 			// O Asaas também responde 400 para cliente apagado: o cliente não distingue isto de uma recusa.

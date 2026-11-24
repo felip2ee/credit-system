@@ -147,18 +147,20 @@ describe("payment_links", () => {
 		expect(none.rows).toHaveLength(0);
 	});
 
-	it("lets app_webhook mark the order's link paid through payment_link_mark_paid only", async () => {
+	it("marks the order's link paid only through the owner path: neither app_webhook nor app_runtime may execute payment_link_mark_paid", async () => {
 		const order = await newOrder(a);
 		const hash = hashOf();
 		await insertLink(a, order, hash);
 		await expect(webhook.query("select * from payment_links")).rejects.toThrow(/permission denied/);
-		const first = await webhook.query("select payment_link_mark_paid($1) as n", [order]);
+		// 060: apply_payment_link_charge (dono) é quem chama; o papel do webhook não executa mais a função.
+		await expect(webhook.query("select payment_link_mark_paid($1)", [order])).rejects.toThrow(/permission denied/);
+		await expect(app.query("select payment_link_mark_paid($1)", [order])).rejects.toThrow(/permission denied/);
+		const first = await owner.query("select payment_link_mark_paid($1) as n", [order]);
 		expect(first.rows[0].n).toBe(1);
-		const again = await webhook.query("select payment_link_mark_paid($1) as n", [order]);
+		const again = await owner.query("select payment_link_mark_paid($1) as n", [order]);
 		expect(again.rows[0].n).toBe(0);
 		const { rows } = await app.query("select status from public_payment_link_by_hash($1)", [hash]);
 		expect(rows[0].status).toBe("paid");
-		await expect(app.query("select payment_link_mark_paid($1)", [order])).rejects.toThrow(/permission denied/);
 	});
 });
 

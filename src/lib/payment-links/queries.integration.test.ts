@@ -28,20 +28,19 @@ vi.mock("next/headers", () => ({
 }));
 
 import { pool } from "@/lib/db/pool";
-import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_WEBHOOK_URL } from "@/test/db-env";
+import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedOrderDossier, seedTenant, type SeededTenant } from "@/test/seed";
 
 import { createPaymentLink, listPaymentLinks, resolvePaymentLink } from "./queries";
 import { generateToken } from "./token";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
-const webhook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 2 });
 
 let a: SeededTenant;
 let b: SeededTenant;
 
 afterAll(async () => {
-	await Promise.all([owner.end(), webhook.end(), pool.end()]);
+	await Promise.all([owner.end(), pool.end()]);
 });
 
 // Pedido de balcão aguardando pagamento, com liquidação (preço 300, custo 120).
@@ -125,7 +124,7 @@ describe("createPaymentLink", () => {
 
 		const link = await createPaymentLink(a.bureauAdmin, orderA);
 		if (!link.ok) throw new Error("expected ok");
-		await webhook.query("select payment_link_mark_paid($1)", [orderA]);
+		await owner.query("select payment_link_mark_paid($1)", [orderA]);
 		expect(await createPaymentLink(a.bureauAdmin, orderA)).toEqual({ ok: false, reason: "already_paid" });
 	});
 });
@@ -161,7 +160,7 @@ describe("resolvePaymentLink", () => {
 		expect(await resolvePaymentLink(link.token)).toEqual({ ok: false, reason: "expired" });
 
 		await owner.query("update payment_links set status = 'active' where id = $1", [link.id]);
-		await webhook.query("select payment_link_mark_paid($1)", [orderId]);
+		await owner.query("select payment_link_mark_paid($1)", [orderId]);
 		expect(await resolvePaymentLink(link.token)).toEqual({ ok: false, reason: "paid" });
 	});
 
@@ -191,6 +190,11 @@ describe("listPaymentLinks", () => {
 		expect(ids.indexOf(second.id)).toBeLessThan(ids.indexOf(first.id));
 		expect(list.find((l) => l.id === first.id)).toMatchObject({ status: "cancelled", orderId: mine, amount: "300.00" });
 		expect(list.find((l) => l.id === second.id)?.status).toBe("active");
+		expect(list.find((l) => l.id === first.id)?.paidAt).toBeNull();
+		await owner.query("select payment_link_mark_paid($1)", [mine]);
+		const paid = (await listPaymentLinks(a.bureauAdmin)).find((l) => l.id === second.id);
+		expect(paid?.status).toBe("paid");
+		expect(paid?.paidAt).toBeInstanceOf(Date);
 		const json = JSON.stringify(list);
 		expect(json).not.toContain(first.token);
 		expect(json).not.toContain(second.token);

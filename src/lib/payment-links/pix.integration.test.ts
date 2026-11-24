@@ -41,7 +41,13 @@ import PaymentLinkPage from "@/app/pagar/[token]/page";
 import { POST } from "@/app/api/webhooks/asaas/route";
 import { getAsaasClient } from "@/lib/asaas";
 import { ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
-import { buildFakePaymentEvent, createFakeAsaasClient } from "@/lib/asaas/fake";
+import {
+	buildFakePaymentEvent,
+	createFakeAsaasClient,
+	getFakeCancelledPayments,
+	resetFakeCancelledPayments,
+	resetFakeCustomers,
+} from "@/lib/asaas/fake";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
@@ -121,6 +127,8 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+	resetFakeCancelledPayments();
+	resetFakeCustomers();
 	vi.mocked(getAsaasClient).mockReset();
 	vi.mocked(getAsaasClient).mockImplementation(() => createFakeAsaasClient());
 });
@@ -361,8 +369,16 @@ describe("webhook do Asaas para cobrança de link", () => {
 		await webhook(payEvent(row, 300));
 		const before = await walletMoney(a);
 		const state = await orderState(o.orderId);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const res = await webhook(payEvent(row, 300, randomUUID(), "PAYMENT_REFUNDED"));
 		expect(res.status).toBe(200);
+		expect(error).toHaveBeenCalledWith("[asaas-webhook] estorno de pix de link sem tratamento", {
+			event: "PAYMENT_REFUNDED",
+			asaasPaymentId: row.asaas_payment_id,
+		});
+		error.mockRestore();
+		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1 order by received_at", [row.asaas_payment_id])).rows.map((r) => r.result);
+		expect(results).toEqual(["link_paid", "link_refund_ignored"]);
 		expect(await walletMoney(a)).toBe(before);
 		expect(await orderState(o.orderId)).toBe(state);
 		expect((await charges(o.linkId))[0].status).toBe("paid");
@@ -405,5 +421,189 @@ describe("webhook do Asaas para cobrança de link", () => {
 		await webhook(buildFakePaymentEvent({ eventId: randomUUID(), asaasPaymentId: charge.asaasPaymentId, value: 100 }));
 		const after = (await owner.query("select available from wallets where bureau_id = $1", [a.bureau.id])).rows[0].available;
 		expect(Number(after) - Number(before)).toBe(100);
+	});
+});
+
+// Pagamento de balcão já lançado (sem avançar o pedido), como um pagamento parcial em dinheiro.
+const addCounterPayment = (t: SeededTenant, orderId: string, amount: number, voided = false) =>
+	owner.query(
+		`insert into counter_payments (bureau_id, dossier_id, method, amount, registered_by, voided_at, voided_by, void_reason)
+		 values ($1, $2, 'cash', $3, $4, $5, $6, $7)`,
+		[t.bureau.id, orderId, amount, t.bureauAdmin.userId, voided ? new Date() : null, voided ? t.bureauAdmin.userId : null, voided ? "teste" : null],
+	);
+
+describe("pagamento parcial no balcão (H1)", () => {
+	it("charges only what is left, and the webhook for that amount advances the order", async () => {
+		const o = await linkedOrder(a);
+		await addCounterPayment(a, o.orderId, 100);
+		const res = await getOrCreateLinkPixCharge(o.linkId);
+		expect(res.ok && res.amount).toBe("200.00");
+		const [row] = await charges(o.linkId);
+		expect(row.amount).toBe("200.00");
+
+		await webhook(payEvent(row, 200));
+		const payments = await counterPayments(o.orderId);
+		expect(payments.map((p) => p.amount).sort()).toEqual(["100.00", "200.00"]);
+		expect(await orderState(o.orderId)).toBe("awaiting_authorization");
+		expect(await linkStatus(o.linkId)).toBe("paid");
+	});
+
+	it("ignores voided payments and applies the Pix amount range to what is left", async () => {
+		const voided = await linkedOrder(a);
+		await addCounterPayment(a, voided.orderId, 100, true);
+		const full = await getOrCreateLinkPixCharge(voided.linkId);
+		expect(full.ok && full.amount).toBe("300.00");
+
+		const small = await linkedOrder(a);
+		await addCounterPayment(a, small.orderId, 295);
+		expect(await getOrCreateLinkPixCharge(small.linkId)).toEqual({ ok: false, reason: "amount_out_of_range" });
+
+		const covered = await linkedOrder(a);
+		await addCounterPayment(a, covered.orderId, 300);
+		expect(await getOrCreateLinkPixCharge(covered.linkId)).toEqual({ ok: false, reason: "unavailable" });
+		expect(await chargeCount(small.linkId)).toBe(0);
+		expect(await chargeCount(covered.linkId)).toBe(0);
+	});
+
+	it("a counter payment added after the charge makes the Pix amount_mismatch: nothing advances; the next open charges the new remainder", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		await addCounterPayment(a, o.orderId, 50);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		await webhook(payEvent(row, 300));
+		error.mockRestore();
+
+		expect(await counterPayments(o.orderId)).toHaveLength(1);
+		expect(await orderState(o.orderId)).toBe("awaiting_payment");
+		expect(await linkStatus(o.linkId)).toBe("active");
+		expect((await charges(o.linkId))[0].status).toBe("pending");
+		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1", [row.asaas_payment_id])).rows;
+		expect(results.map((r) => r.result)).toEqual(["amount_mismatch"]);
+
+		const next = await getOrCreateLinkPixCharge(o.linkId);
+		expect(next.ok && next.amount).toBe("250.00");
+		expect(getFakeCancelledPayments()).toEqual([row.asaas_payment_id]);
+	});
+
+	it("order already fully paid at the counter: the Pix that arrives is flagged link_order_not_payable, not mismatch", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		await addCounterPayment(a, o.orderId, 300);
+		await owner.query("update dossier_orders set state = 'awaiting_authorization' where dossier_id = $1", [o.orderId]);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		await webhook(payEvent(row, 300));
+		error.mockRestore();
+		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1", [row.asaas_payment_id])).rows;
+		expect(results.map((r) => r.result)).toEqual(["link_order_not_payable"]);
+		expect(await counterPayments(o.orderId)).toHaveLength(1);
+	});
+});
+
+describe("Pix antigo cancelado no Asaas (M1)", () => {
+	it("cancels the old payment when the charge is rotated", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [old] = await charges(o.linkId);
+		await owner.query("update pix_charges set expires_at = now() - interval '1 minute' where id = $1", [old.id]);
+		expect((await getOrCreateLinkPixCharge(o.linkId)).ok).toBe(true);
+		expect(getFakeCancelledPayments()).toEqual([old.asaas_payment_id]);
+	});
+
+	it("a failing cancel never blocks the new charge", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [old] = await charges(o.linkId);
+		await owner.query("update pix_charges set expires_at = now() - interval '1 minute' where id = $1", [old.id]);
+		vi.mocked(getAsaasClient).mockImplementation(() => ({
+			...createFakeAsaasClient(),
+			cancelPixCharge: () => Promise.reject(new Error("asaas down")),
+		}));
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		expect((await getOrCreateLinkPixCharge(o.linkId)).ok).toBe(true);
+		expect(error).toHaveBeenCalledWith("[payment-link-pix] falhou ao cancelar Pix antigo no Asaas", {
+			asaasPaymentId: old.asaas_payment_id,
+			name: "Error",
+		});
+		error.mockRestore();
+		expect((await charges(o.linkId)).map((r) => r.status)).toEqual(["expired", "pending"]);
+	});
+
+	it("cancels the open Pix of a link that gets replaced, and the old Pix, if paid anyway, is still booked", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [old] = await charges(o.linkId);
+		const next = await createPaymentLink(a.bureauAdmin, o.orderId);
+		if (!next.ok) throw new Error("expected link");
+		expect(getFakeCancelledPayments()).toEqual([old.asaas_payment_id]);
+
+		await webhook(payEvent(old, 300));
+		expect(await counterPayments(o.orderId)).toHaveLength(1);
+		expect(await linkStatus(next.id)).toBe("paid");
+	});
+
+	it("a failing cancel does not block the replacement link", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		vi.mocked(getAsaasClient).mockImplementation(() => ({
+			...createFakeAsaasClient(),
+			cancelPixCharge: () => Promise.reject(new Error("asaas down")),
+		}));
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		expect((await createPaymentLink(a.bureauAdmin, o.orderId)).ok).toBe(true);
+		error.mockRestore();
+	});
+});
+
+describe("estorno de Pix de link (M2)", () => {
+	it("refund before RECEIVED: the charge becomes refunded and the late RECEIVED does not advance the order", async () => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		await webhook(payEvent(row, 300, randomUUID(), "PAYMENT_REFUNDED"));
+		expect((await charges(o.linkId))[0].status).toBe("refunded");
+		await webhook(payEvent(row, 300));
+		error.mockRestore();
+
+		expect(await counterPayments(o.orderId)).toHaveLength(0);
+		expect(await orderState(o.orderId)).toBe("awaiting_payment");
+		expect(await linkStatus(o.linkId)).toBe("active");
+		const results = (await owner.query("select result from asaas_webhook_events where asaas_payment_id = $1 order by received_at", [row.asaas_payment_id])).rows.map((r) => r.result);
+		expect(results).toEqual(["link_refund_ignored", "link_duplicate"]);
+	});
+
+	it.each(["PAYMENT_PARTIALLY_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED"])("%s on a paid charge is logged and changes nothing", async (event) => {
+		const o = await linkedOrder(a);
+		await getOrCreateLinkPixCharge(o.linkId);
+		const [row] = await charges(o.linkId);
+		await webhook(payEvent(row, 300));
+		const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		await webhook(payEvent(row, 300, randomUUID(), event));
+		expect(error).toHaveBeenCalledWith("[asaas-webhook] estorno de pix de link sem tratamento", {
+			event,
+			asaasPaymentId: row.asaas_payment_id,
+		});
+		error.mockRestore();
+		expect((await charges(o.linkId))[0].status).toBe("paid");
+		expect(await counterPayments(o.orderId)).toHaveLength(1);
+	});
+});
+
+describe("cliente Asaas do pagador (L4)", () => {
+	it("reuses the Asaas customer across charges of the same holder, keyed by holder id", async () => {
+		const o = await linkedOrder(a);
+		const fake = createFakeAsaasClient();
+		const createCustomer = vi.fn(fake.createCustomer);
+		vi.mocked(getAsaasClient).mockImplementation(() => ({ ...fake, createCustomer }));
+		await getOrCreateLinkPixCharge(o.linkId);
+		await owner.query("update pix_charges set expires_at = now() - interval '1 minute' where payment_link_id = $1", [o.linkId]);
+		await getOrCreateLinkPixCharge(o.linkId);
+
+		expect(await chargeCount(o.linkId)).toBe(2);
+		expect(createCustomer).toHaveBeenCalledTimes(1);
+		const holder = (await owner.query("select d.holder_id from dossiers d where d.id = $1", [o.orderId])).rows[0].holder_id;
+		expect(createCustomer.mock.calls[0][0].externalReference).toBe(`holder:${holder}`);
 	});
 });

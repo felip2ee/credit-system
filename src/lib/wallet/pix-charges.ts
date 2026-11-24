@@ -318,7 +318,9 @@ export type AsaasPaymentResult =
 	| "link_paid"
 	| "link_duplicate"
 	| "link_ignored"
-	| "link_order_not_payable";
+	| "link_order_not_payable"
+	// Estorno ou chargeback de Pix de link (060): sem tratamento automático; a operação decide.
+	| "link_refund_ignored";
 
 // Estorno de PIX que o saldo disponível não cobriu (pix_charges.refund_shortfall > 0), para o superadmin.
 export type RefundShortfall = { chargeId: string; amount: string; shortfall: string; createdAt: Date };

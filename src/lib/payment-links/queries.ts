@@ -4,6 +4,7 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
+import { cancelAsaasPayments } from "./pix";
 import { generateToken, hashToken, PAYMENT_LINK_TOKEN_PATTERN } from "./token";
 
 export const PAYMENT_LINK_VALIDITY_DAYS = 7;
@@ -21,7 +22,9 @@ export type CreatePaymentLinkResult =
 // primeiro. Por isso a segunda chamada cancela o link ativo (vencido ou não) e emite outro, na mesma transação. O link
 // antigo deixa de abrir; o novo é o único ativo. Pedido de outro Bureau não aparece (RLS): not_found.
 export async function createPaymentLink(identity: DbIdentity, orderId: string): Promise<CreatePaymentLinkResult> {
-	return withUserTransaction(identity, async (client) => {
+	// Pix ainda aberto no Asaas dos links trocados: cancelado depois do commit, sem travar o link novo.
+	let replacedPayments: string[] = [];
+	const result = await withUserTransaction<CreatePaymentLinkResult>(identity, async (client) => {
 		// Serializa os cliques do mesmo pedido: sem isso o segundo insert esbarraria no índice parcial (23505).
 		await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`payment-link:${orderId}`]);
 
@@ -37,10 +40,16 @@ export async function createPaymentLink(identity: DbIdentity, orderId: string): 
 		const paid = await client.query("select 1 from payment_links where order_id = $1 and status = 'paid'", [orderId]);
 		if (paid.rows.length > 0) return { ok: false, reason: "already_paid" };
 
-		const cancelled = await client.query(
+		const cancelled = await client.query<{ id: string }>(
 			"update payment_links set status = 'cancelled' where order_id = $1 and status = 'active' returning id",
 			[orderId],
 		);
+		const open = await client.query<{ asaas_payment_id: string }>(
+			`select asaas_payment_id from pix_charges
+			  where payment_link_id = any($1::uuid[]) and status = 'pending' and asaas_payment_id is not null`,
+			[cancelled.rows.map((r) => r.id)],
+		);
+		replacedPayments = open.rows.map((r) => r.asaas_payment_id);
 		const { token, hash } = generateToken();
 		const { rows } = await client.query<{ id: string; expires_at: Date }>(
 			`insert into payment_links (bureau_id, order_id, token_hash, expires_at, created_by)
@@ -57,6 +66,8 @@ export async function createPaymentLink(identity: DbIdentity, orderId: string): 
 		});
 		return { ok: true, id: rows[0].id, token, expiresAt: rows[0].expires_at };
 	});
+	if (result.ok) await cancelAsaasPayments(replacedPayments);
+	return result;
 }
 
 export type PaymentLinkSummary = {
@@ -118,6 +129,8 @@ export type PaymentLinkListItem = {
 	status: "active" | "paid" | "expired" | "cancelled";
 	expiresAt: Date;
 	createdAt: Date;
+	// Quando o link foi pago; nulo enquanto não está pago.
+	paidAt: Date | null;
 	productName: string;
 	holderName: string;
 	maskedDocument: string;
@@ -136,12 +149,13 @@ export async function listPaymentLinks(identity: DbIdentity): Promise<PaymentLin
 			status: PaymentLinkListItem["status"];
 			expires_at: Date;
 			created_at: Date;
+			paid_at: Date | null;
 			product_code: string;
 			subject_name: string;
 			subject_document_masked: string;
 			amount: string | null;
 		}>(
-			`select l.id, l.order_id, l.status, l.expires_at, l.created_at, o.product_code, o.subject_name,
+			`select l.id, l.order_id, l.status, l.expires_at, l.created_at, l.paid_at, o.product_code, o.subject_name,
 			        o.subject_document_masked, s.price::text as amount
 			   from payment_links l
 			   join dossier_orders o on o.dossier_id = l.order_id
@@ -157,6 +171,7 @@ export async function listPaymentLinks(identity: DbIdentity): Promise<PaymentLin
 			status: r.status,
 			expiresAt: r.expires_at,
 			createdAt: r.created_at,
+			paidAt: r.paid_at,
 			productName: PRODUCT_NAMES[r.product_code] ?? "Consulta",
 			holderName: r.subject_name,
 			maskedDocument: r.subject_document_masked,

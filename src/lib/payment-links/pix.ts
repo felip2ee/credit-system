@@ -20,6 +20,8 @@ type ReserveRow = {
 	amount: string | null;
 	pix_payload: string | null;
 	expires_at: Date | null;
+	// Pagamento Asaas da cobrança que a reserva fechou: cancelado lá, melhor esforço.
+	stale_asaas_payment_id: string | null;
 };
 
 const QR_WIDTH = 208;
@@ -49,6 +51,24 @@ async function cancelReserved(chargeId: string): Promise<void> {
 	}
 }
 
+// Cancela no Asaas os Pix que deixaram de valer (cobrança trocada ou link substituído). Melhor esforço: a falha só vai ao
+// log (id do pagamento, nunca token nem documento) e nunca trava quem chamou. Pago depois mesmo assim o webhook baixa.
+export async function cancelAsaasPayments(asaasPaymentIds: string[]): Promise<void> {
+	if (asaasPaymentIds.length === 0) return;
+	await Promise.all(
+		asaasPaymentIds.map((asaasPaymentId) =>
+			Promise.resolve()
+				.then(() => getAsaasClient().cancelPixCharge(asaasPaymentId))
+				.catch((error: unknown) => {
+					console.error("[payment-link-pix] falhou ao cancelar Pix antigo no Asaas", {
+						asaasPaymentId,
+						name: error instanceof Error ? error.name : typeof error,
+					});
+				}),
+		),
+	);
+}
+
 // Cria ou reusa a cobrança Pix pendente do link. `linkId` vem de resolvePaymentLink (link ativo, não vencido).
 export async function getOrCreateLinkPixCharge(linkId: string): Promise<LinkPixResult> {
 	let row: ReserveRow | undefined;
@@ -59,6 +79,7 @@ export async function getOrCreateLinkPixCharge(linkId: string): Promise<LinkPixR
 		return { ok: false, reason: "failed" };
 	}
 	if (!row) return { ok: false, reason: "failed" };
+	if (row.stale_asaas_payment_id) await cancelAsaasPayments([row.stale_asaas_payment_id]);
 	if (row.result === "reused" && row.pix_payload && row.expires_at && row.amount) {
 		return toCharge(row.pix_payload, row.expires_at, row.amount);
 	}
@@ -69,21 +90,23 @@ export async function getOrCreateLinkPixCharge(linkId: string): Promise<LinkPixR
 	const { charge_id: chargeId, external_reference: externalReference, amount, expires_at: expiresAt } = row;
 	try {
 		const payer = (
-			await pool.query<{ payer_name: string; payer_document: string; payer_email: string }>(
+			await pool.query<{ payer_name: string; payer_document: string; payer_email: string; holder_id: string }>(
 				"select * from payment_link_charge_payer($1)",
 				[chargeId],
 			)
 		).rows[0];
 		if (!payer) throw new Error("titular sem dados de pagador");
 		const asaas = getAsaasClient();
+		// Referência estável (titular): cobranças repetidas reusam o cliente em vez de criar outro com o documento completo.
+		const customerReference = `holder:${payer.holder_id}`;
 		const customerId =
-			(await asaas.findCustomerByExternalReference(chargeId)) ??
+			(await asaas.findCustomerByExternalReference(customerReference)) ??
 			(
 				await asaas.createCustomer({
 					name: payer.payer_name,
 					cpfCnpj: payer.payer_document,
 					email: payer.payer_email,
-					externalReference: chargeId,
+					externalReference: customerReference,
 				})
 			).asaasCustomerId;
 		const pix = await asaas.createPixCharge({
