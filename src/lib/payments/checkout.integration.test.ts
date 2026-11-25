@@ -568,7 +568,21 @@ describe("client", () => {
 	});
 });
 
+// A short value (CVV, expiry year) can appear by chance inside a random UUID, hash or
+// timestamp. It only counts as a leak when it stands alone, not glued to other id characters.
+function leaks(text: string, value: string): boolean {
+	if (value.length > 6) return text.includes(value);
+	return new RegExp(`(?<![\\w.+:-])${value}(?![\\w.+:-])`).test(text);
+}
+
 describe("sensitive data", () => {
+	it("leaks() flags a short secret only as a whole value, never inside an id", () => {
+		expect(leaks('"id":"cbcaf195-987e-47c1-8247-ffa0ffadc7eb"', "987")).toBe(false);
+		expect(leaks('{"cvv":"987"}', "987")).toBe(true);
+		expect(leaks("cvv=987,", "987")).toBe(true);
+		expect(leaks("4242424242424242", "4242424242424242")).toBe(true);
+	});
+
 	it("keeps card number, CVV, document and postal code out of audit, logs and results", async () => {
 		const t = await seedTenant(owner, "Co Leak");
 		const results = [
@@ -580,7 +594,7 @@ describe("sensitive data", () => {
 		const audit = await owner.query("select metadata::text as m from audit_logs where bureau_id = $1", [t.bureau.id]);
 		const seen = JSON.stringify([results, audit.rows, errorSpy.mock.calls, warnSpy.mock.calls]);
 		expect(audit.rows.length).toBeGreaterThan(0);
-		for (const secret of [GOOD_CARD, DECLINED_CARD, CVV, CPF, CEP]) expect(seen).not.toContain(secret);
-		expect(seen).not.toContain("2099");
+		for (const secret of [GOOD_CARD, DECLINED_CARD, CVV, CPF, CEP]) expect(leaks(seen, secret), secret).toBe(false);
+		expect(leaks(seen, "2099")).toBe(false);
 	});
 });
