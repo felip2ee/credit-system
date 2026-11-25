@@ -137,7 +137,7 @@ class UpdateFlowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp, DNS_OK:
             run = srv()
-            inst, out = self.update_installer(tmp, run, yes=False, confirm_backup=False, input_fn=answer, getpass_fn=no_input)
+            inst, out = self.update_installer(tmp, run, yes=False, confirm_backup=False, input_fn=answer, getpass_fn=lambda prompt: "")
             self.assertEqual(inst.execute(), 0)
             self.assertEqual(len(prompts), 2, prompts)  # oferta + confirma do resumo, nada mais
             self.assertTrue(any("reaproveitando tudo" in p for p in prompts))

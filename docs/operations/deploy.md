@@ -187,7 +187,7 @@ Antes de um deploy com migration nova, rode o backup manual do passo 4.5.
 `ASAAS_DRIVER`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` e `ASAAS_API_BASE_URL` vêm só do `.env.production`. O instalador faz o deploy com esse arquivo. Valor definido só no Portainer ou com `docker service update` é **sobrescrito** no próximo deploy; variável vazia no arquivo desliga o Asaas.
 
 - A primeira instalação pergunta o driver (vazio = Asaas desligado). Com `asaas`, pede a chave e o token (sem mostrá-los).
-- O `--update` nunca muda um valor preenchido. Aceita `export ASAAS_X=...` e mantém a linha como está. Linha ilegível (aspas abertas) para o instalador: `linha ilegível em .env.production: <número>`.
+- O `--update` pergunta a chave de API (sem mostrá-la) quando `ASAAS_API_KEY` está vazia: grava chave, `ASAAS_DRIVER=asaas`, URL padrão e, se faltar, um token de webhook gerado, tudo no `.env.production`. Enter = pular. Com `--yes` não pergunta. Nunca muda um valor preenchido. Aceita `export ASAAS_X=...` e mantém a linha como está. Linha ilegível (aspas abertas) para o instalador: `linha ilegível em .env.production: <número>`.
 - Trava antes do deploy: se o serviço no ar tem uma `ASAAS_*` preenchida e o arquivo a deixaria vazia, o instalador avisa (só os nomes). Com `--yes` ele para; no modo interativo pede confirmação (padrão: não). Se o `docker service inspect` falhar, ele pula a conferência e avisa.
 - Conferir à mão: `diff .env.production .env.production.bak-<carimbo>` e `docker service inspect reino_reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}'` (mostra segredos: não cole a saída em chat ou ticket).
 
