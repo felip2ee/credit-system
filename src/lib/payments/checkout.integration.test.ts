@@ -77,6 +77,7 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
+import { leaks } from "@/test/leaks";
 import { seedClientProfile, seedTenant, type SeededTenant } from "@/test/seed";
 import { computeCardCharge } from "@/lib/wallet/card-fees";
 
@@ -580,7 +581,7 @@ describe("sensitive data", () => {
 		const audit = await owner.query("select metadata::text as m from audit_logs where bureau_id = $1", [t.bureau.id]);
 		const seen = JSON.stringify([results, audit.rows, errorSpy.mock.calls, warnSpy.mock.calls]);
 		expect(audit.rows.length).toBeGreaterThan(0);
-		for (const secret of [GOOD_CARD, DECLINED_CARD, CVV, CPF, CEP]) expect(seen).not.toContain(secret);
-		expect(seen).not.toContain("2099");
+		for (const secret of [GOOD_CARD, DECLINED_CARD, CVV, CPF, CEP]) expect(leaks(seen, secret), secret).toBe(false);
+		expect(leaks(seen, "2099")).toBe(false);
 	});
 });

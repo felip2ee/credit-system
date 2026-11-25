@@ -33,6 +33,7 @@ import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { PiiDecryptError } from "@/lib/pii/crypto";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
+import { leaks } from "@/test/leaks";
 import { seedClientProfile, seedSuperadmin, seedSupportSession, seedTenant, type SeededTenant } from "@/test/seed";
 
 import {
@@ -159,7 +160,7 @@ describe("saveOwnerPayer / loadOwnerPayerForCharge", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0].metadata).toMatchObject({ fields: ["document", "postalCode", "addressNumber"], payerMask: "***.982.***-**" });
 		const json = JSON.stringify(rows);
-		for (const secret of [CPF, CEP, NUMBER]) expect(json).not.toContain(secret);
+		for (const secret of [CPF, CEP, NUMBER]) expect(leaks(json, secret), secret).toBe(false);
 	});
 
 	it("rejects an invalid patch and writes nothing", async () => {
@@ -194,7 +195,7 @@ describe("saveOwnerPayer / loadOwnerPayerForCharge", () => {
 		const error = await load(as(t.client), clientScope(t), lost).catch((e: unknown) => e);
 		expect(error).toBeInstanceOf(PiiDecryptError);
 		const text = `${(error as Error).message}${(error as Error).stack ?? ""}`;
-		for (const secret of [CPF, CEP, NUMBER]) expect(text).not.toContain(secret);
+		for (const secret of [CPF, CEP, NUMBER]) expect(leaks(text, secret), secret).toBe(false);
 
 		expect(await save(t, as(t.client), clientScope(t), { document: CPF_OTHER }, lost)).toEqual({ ok: true });
 		const healed = await load(as(t.client), clientScope(t), lost);

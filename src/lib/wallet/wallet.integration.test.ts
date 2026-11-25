@@ -6,6 +6,7 @@ import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL, TEST_DATABASE_WEBHOOK_URL } from "@/test/db-env";
+import { leaks } from "@/test/leaks";
 import {
 	seedPixCharge,
 	seedSuperadmin,
@@ -646,7 +647,7 @@ describe("apply_asaas_payment", () => {
 			record_id: entry.rows[0].id,
 		});
 		expect(audit.rows[0].metadata).toMatchObject({ source: "asaas_webhook" });
-		expect(JSON.stringify(audit.rows[0].metadata)).not.toContain("9999");
+		expect(leaks(JSON.stringify(audit.rows[0].metadata), "9999")).toBe(false);
 
 		const stored = await owner.query(
 			"select result from asaas_webhook_events where event_id = $1",
