@@ -183,7 +183,7 @@ describe("comissão na captura", () => {
 			[c.id],
 		);
 		expect(audit.rows).toHaveLength(1);
-		expect(JSON.stringify(audit.rows[0].metadata)).not.toMatch(/\d{11}/);
+		expect(JSON.stringify(audit.rows[0].metadata)).not.toMatch(/(?<![\w.+:-])\d{11}(?![\w.+:-])/); // 11 dígitos soltos; dentro de um uuid colide por acaso
 	});
 
 	it("a % 100 do afiliado fica limitada ao que sobra depois do Bureau: 320,00, e a plataforma fica com 0,00", async () => {

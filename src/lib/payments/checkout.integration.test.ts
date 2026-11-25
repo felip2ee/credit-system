@@ -77,6 +77,7 @@ import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
+import { leaks } from "@/test/leaks";
 import { seedClientProfile, seedTenant, type SeededTenant } from "@/test/seed";
 import { computeCardCharge } from "@/lib/wallet/card-fees";
 
@@ -568,21 +569,7 @@ describe("client", () => {
 	});
 });
 
-// A short value (CVV, expiry year) can appear by chance inside a random UUID, hash or
-// timestamp. It only counts as a leak when it stands alone, not glued to other id characters.
-function leaks(text: string, value: string): boolean {
-	if (value.length > 6) return text.includes(value);
-	return new RegExp(`(?<![\\w.+:-])${value}(?![\\w.+:-])`).test(text);
-}
-
 describe("sensitive data", () => {
-	it("leaks() flags a short secret only as a whole value, never inside an id", () => {
-		expect(leaks('"id":"cbcaf195-987e-47c1-8247-ffa0ffadc7eb"', "987")).toBe(false);
-		expect(leaks('{"cvv":"987"}', "987")).toBe(true);
-		expect(leaks("cvv=987,", "987")).toBe(true);
-		expect(leaks("4242424242424242", "4242424242424242")).toBe(true);
-	});
-
 	it("keeps card number, CVV, document and postal code out of audit, logs and results", async () => {
 		const t = await seedTenant(owner, "Co Leak");
 		const results = [
