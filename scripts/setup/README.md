@@ -42,7 +42,7 @@ O que acontece:
 2. Pede o token das imagens (`read:packages`).
 3. Detecta o que já existe: Docker, Swarm, Traefik, rede, certificado e a stack `reino`. Instala só o que falta e pergunta antes de cada passo que muda o servidor.
 4. Pergunta domínio, SMTP, e-mail do superadmin, DEPS, OpenAI e S3, e duas opções: `Ativar WhatsApp (Meta Cloud API)? [s/N]` e `Ativar notificações push no portal? [S/n]`. Os e-mails de alerta usam o do superadmin como padrão (Enter aceita). Se o `openssl` faltar, o instalador pede as duas chaves VAPID.
-5. Imprime uma linha `✔ <etapa>` a cada passo (ou `✘ <etapa>: <motivo>`). Publica a stack e verifica: migração concluída, app no ar, `/api/health/live` e `/api/health/ready` com 200, certificado válido, `/login` com 200.
+5. Imprime uma linha `✔ <etapa>` a cada passo (ou `✘ <etapa>: <motivo>`). Publica a stack e verifica: migração concluída, app no ar, `/api/health/live` e `/api/health/ready` com 200, certificado válido, `/login` com 200. Depois roda 3 smoke checks que só avisam (manifest do PWA admin, `/pagar/<token inválido>`, webhook do Asaas sem token = 401/403; o último só com o Asaas ligado).
 6. Mostra `PRONTO` com a URL. Se o DNS ainda não aponta para o servidor, mostra "app OK localmente; DNS ainda não aponta para este servidor".
 
 Se já existe outro programa nas portas 80 ou 443 (nginx, apache), o instalador para e explica. Ele não disputa a porta.
@@ -118,3 +118,12 @@ Depois de uma atualização com o PR de pagamentos por pagador:
 - Para ver o plano sem mudar nada: acrescente `--dry-run` no fim do comando, depois de `"$d/install.sh"`.
 - Imagem do commit ainda não publicada: o instalador para antes de mudar o servidor. Espere o workflow e rode de novo.
 - Logs: `docker service logs reino_reino_app` (app), `docker service logs reino_migrate` (migração).
+
+## Asaas: o `.env.production` é a única fonte
+
+`ASAAS_DRIVER`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` e `ASAAS_API_BASE_URL` vêm só do `.env.production`. O instalador faz o deploy com esse arquivo. Valor definido só no Portainer ou com `docker service update` é **sobrescrito** no próximo deploy; variável vazia no arquivo desliga o Asaas.
+
+- A primeira instalação pergunta o driver (vazio = Asaas desligado). Com `asaas`, pede a chave e o token (sem mostrá-los).
+- O `--update` nunca muda um valor preenchido. Aceita `export ASAAS_X=...` e mantém a linha como está. Linha ilegível (aspas abertas) para o instalador: `linha ilegível em .env.production: <número>`.
+- Trava antes do deploy: se o serviço no ar tem uma `ASAAS_*` preenchida e o arquivo a deixaria vazia, o instalador avisa (só os nomes). Com `--yes` ele para; no modo interativo pede confirmação (padrão: não). Se o `docker service inspect` falhar, ele pula a conferência e avisa.
+- Conferir à mão: `diff .env.production .env.production.bak-<carimbo>` e `docker service inspect reino_reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}'` (mostra segredos: não cole a saída em chat ou ticket).

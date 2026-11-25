@@ -1,5 +1,7 @@
 // Painel do superadmin: Bureaus, convite do primeiro admin e métricas.
 // A permissão `bureaus:manage` é checada na action; aqui o RLS barra quem não é superadmin.
+import type { PoolClient } from "pg";
+
 import { writeAuditEvent } from "@/lib/audit/write";
 import {
 	setTemporaryCredentials,
@@ -28,6 +30,7 @@ export type BureauMetrics = {
 	dossierCount: number;
 	consultationCount: number;
 	consultations30d: number;
+	affiliateCount: number;
 };
 
 export type CreateBureauResult =
@@ -39,12 +42,25 @@ class EmailInUse extends Error {}
 
 type PgError = { code?: string; constraint?: string };
 
+// Serializa quem escolhe ou libera um slug: sem a trava, "confere o histórico, depois grava" deixa dois pedidos
+// passarem juntos e um Bureau ficaria com o slug que o histórico já aponta para outro.
+// Várias travas em ordem fixa, para duas renomeações cruzadas (a→b e b→a) não travarem uma à outra.
+async function lockSlugs(client: PoolClient, slugs: string[]): Promise<void> {
+	for (const slug of Array.from(new Set(slugs)).sort()) {
+		await client.query("select pg_advisory_xact_lock(hashtextextended('slug:' || $1, 0))", [slug]);
+	}
+}
+
 export async function createBureau(
 	identity: DbIdentity,
 	input: BureauCreate,
 ): Promise<CreateBureauResult> {
 	try {
 		return await withUserTransaction(platformIdentity(identity), async (client) => {
+			await lockSlugs(client, [input.slug]);
+			// Um slug que já foi de outro bureau segue reservado para o redirect.
+			const reserved = await client.query("select 1 from bureau_slug_history where old_slug = $1", [input.slug]);
+			if (reserved.rowCount) return { ok: false as const, reason: "slug_taken" as const };
 			const { rows } = await client.query<{ id: string }>(
 				"insert into bureaus (name, slug) values ($1, $2) returning id",
 				[input.name.trim(), input.slug],
@@ -85,24 +101,64 @@ export async function createBureau(
 	}
 }
 
+export type UpdateBureauResult =
+	| { ok: true }
+	| { ok: false; reason: "not_found" | "slug_taken" | "slug_reserved" };
+
+// Troca de slug: o antigo vai para bureau_slug_history (redirect) na mesma transação.
+// Rejeita um slug que é old_slug de OUTRO bureau; voltar ao próprio old_slug apaga essa linha.
 export async function updateBureau(
 	identity: DbIdentity,
 	input: BureauUpdate,
-): Promise<{ ok: true } | { ok: false; reason: "not_found" }> {
-	return withUserTransaction(platformIdentity(identity), async (client) => {
-		const { rowCount } = await client.query(
-			"update bureaus set name = $2 where id = $1",
-			[input.id, input.name.trim()],
-		);
-		if (!rowCount) return { ok: false as const, reason: "not_found" as const };
-		await writeAuditEvent(client, {
-			actorId: identity.userId,
-			action: "bureau.update",
-			targetTable: "bureaus",
-			targetId: input.id,
+): Promise<UpdateBureauResult> {
+	try {
+		return await withUserTransaction(platformIdentity(identity), async (client) => {
+			const { rows } = await client.query<{ slug: string }>(
+				"select slug from bureaus where id = $1 for update",
+				[input.id],
+			);
+			if (!rows[0]) return { ok: false as const, reason: "not_found" as const };
+			const oldSlug = rows[0].slug;
+			const newSlug = input.slug && input.slug !== oldSlug ? input.slug : null;
+
+			if (newSlug) {
+				await lockSlugs(client, [newSlug, oldSlug]);
+				const { rows: owners } = await client.query<{ bureau_id: string }>(
+					"select bureau_id from bureau_slug_history where old_slug = $1",
+					[newSlug],
+				);
+				if (owners[0] && owners[0].bureau_id !== input.id) {
+					return { ok: false as const, reason: "slug_taken" as const };
+				}
+				// Apaga o novo slug (voltou ao próprio antigo) e o atual (evita PK duplicada se ele já era antigo de outro).
+				await client.query("delete from bureau_slug_history where old_slug = any($1)", [[newSlug, oldSlug]]);
+				await client.query("insert into bureau_slug_history (old_slug, bureau_id) values ($1, $2)", [oldSlug, input.id]);
+			}
+
+			await client.query("update bureaus set name = $2, slug = coalesce($3, slug) where id = $1", [
+				input.id,
+				input.name.trim(),
+				newSlug,
+			]);
+			await writeAuditEvent(client, {
+				actorId: identity.userId,
+				action: "bureau.update",
+				targetTable: "bureaus",
+				targetId: input.id,
+				metadata: newSlug ? { slugFrom: oldSlug, slugTo: newSlug } : undefined,
+			});
+			return { ok: true as const };
 		});
-		return { ok: true as const };
-	});
+	} catch (error) {
+		const pg = error as PgError;
+		if (pg.code === "23505" && pg.constraint === "bureaus_slug_key") {
+			return { ok: false, reason: "slug_taken" };
+		}
+		if (pg.code === "23514" && pg.constraint === "bureaus_slug_not_reserved") {
+			return { ok: false, reason: "slug_reserved" };
+		}
+		throw error;
+	}
 }
 
 export async function setBureauStatus(
@@ -165,6 +221,7 @@ type MetricsRow = {
 	dossier_count: string;
 	consultation_count: string;
 	consultations_30d: string;
+	affiliate_count: string;
 };
 
 // Só contagens por Bureau (platform_bureau_metrics): nenhum dado pessoal sai do banco.
@@ -185,6 +242,7 @@ export async function listBureauMetrics(
 			dossierCount: Number(r.dossier_count),
 			consultationCount: Number(r.consultation_count),
 			consultations30d: Number(r.consultations_30d),
+			affiliateCount: Number(r.affiliate_count),
 		}));
 	});
 }

@@ -207,17 +207,26 @@ def partial_db_secrets(existing: set[str]) -> bool:
     return bool(have) and have != DB_SECRETS
 
 
+class Stop(Exception):
+    """Interrompe a instalação com uma mensagem clara (código de saída 1)."""
+
+
+_EXPORT = re.compile(r"^export[ \t]+")
+
+
 def parse_env(text: str) -> dict[str, str]:
+    """Lê KEY=valor (aceita `export KEY=...`). Linha ilegível para: sem ela a chave pareceria ausente. Nunca mostra o valor."""
     values: dict[str, str] = {}
-    for line in text.splitlines():
+    for number, line in enumerate(text.splitlines(), 1):
         if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
             continue
         key, _, raw = line.partition("=")
+        key = _EXPORT.sub("", key.strip())
         try:
             parts = shlex.split(raw)
         except ValueError:
-            continue
-        values[key.strip()] = parts[0] if parts else ""
+            raise Stop(f"{key}: linha ilegível em .env.production: {number}") from None
+        values[key] = parts[0] if parts else ""
     return values
 
 
@@ -225,9 +234,9 @@ def set_env_value(text: str, key: str, value: str) -> str:
     """Troca (ou acrescenta) uma linha KEY=... sem tocar no resto do arquivo."""
     line = f"{key}={value}"
     eol = "\r\n" if "\r\n" in text else "\n"  # preserva CRLF
-    pattern = re.compile(rf"^{re.escape(key)}=[^\r\n]*", re.MULTILINE)
+    pattern = re.compile(rf"^([ \t]*(?:export[ \t]+)?){re.escape(key)}=[^\r\n]*", re.MULTILINE)  # mantém o prefixo
     if pattern.search(text):
-        return pattern.sub(lambda _m: line, text)
+        return pattern.sub(lambda m: m.group(1) + line, text)
     return text.rstrip("\r\n") + eol + line + eol
 
 

@@ -80,6 +80,9 @@ export type AsaasClient = {
 	// Não é idempotente: após AsaasOutcomeUnknownError, busque pela externalReference antes de criar de novo.
 	createCustomer(input: AsaasCustomerInput & { externalReference?: string }): Promise<{ asaasCustomerId: string }>;
 	updateCustomer(asaasCustomerId: string, input: AsaasCustomerInput): Promise<void>;
+	// DELETE /v3/payments/{id}: cancela a cobrança Pix ainda em aberto, para o código antigo não ser pago. Pagamento já
+	// recebido não é apagado pelo Asaas (erro 4xx). 404 (já apagada) conta como feito.
+	cancelPixCharge(asaasPaymentId: string): Promise<void>;
 	// Lança CardDeclinedError na recusa. O crédito vem só do webhook.
 	createCardCharge(input: CardChargeInput): Promise<CardChargeResult>;
 	// Agenda a NFS-e. Agendar não é emitir: a emissão chega depois pelo evento INVOICE_AUTHORIZED.

@@ -116,6 +116,7 @@ const cardPaymentSchema = z.object({
 		.object({ creditCardBrand: z.string().nullish(), creditCardNumber: z.string().nullish() })
 		.nullish(),
 });
+const deletedPaymentSchema = z.object({ id: z.string().min(1).nullish(), deleted: z.boolean().nullish() });
 const qrSchema = z.object({ encodedImage: z.string().min(1), payload: z.string().min(1) });
 
 // Vencimento no fuso de Brasília (a data é local ao negócio, não UTC).
@@ -131,7 +132,7 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 
 	// Erros levam só método, caminho e status: nunca a chave nem o corpo da resposta.
 	async function call<T>(
-		method: "GET" | "POST" | "PUT",
+		method: "GET" | "POST" | "PUT" | "DELETE",
 		path: string,
 		label: string,
 		schema: z.ZodType<T>,
@@ -192,6 +193,22 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 				qrSchema,
 			);
 			return { asaasPaymentId: payment.id, pixPayload: qr.payload, qrImageBase64: qr.encodedImage };
+		},
+
+		// DELETE /v3/payments/{id} (docs.asaas.com, remover cobrança). Não conferido em sandbox: pagamento já recebido deve
+		// responder 4xx (nada é apagado); o webhook segue baixando o que foi pago.
+		async cancelPixCharge(asaasPaymentId: string): Promise<void> {
+			try {
+				await call(
+					"DELETE",
+					`/v3/payments/${encodeURIComponent(asaasPaymentId)}`,
+					"DELETE /v3/payments/{id}",
+					deletedPaymentSchema,
+				);
+			} catch (error) {
+				if (error instanceof AsaasHttpError && error.status === 404) return;
+				throw error;
+			}
 		},
 
 		// O rótulo é sempre fixo: a referência vai na URL e nunca pode aparecer em erro. Só o id sai do servidor.

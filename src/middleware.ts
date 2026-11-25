@@ -8,6 +8,7 @@ const publicPaths = [
   "/mfa/setup",
   "/mfa/verify",
   "/termos",
+  "/admin/manifest.webmanifest",
   "/privacidade",
   "/api/webhooks/asaas",
   "/api/webhooks/whatsapp",
@@ -19,7 +20,7 @@ const publicPaths = [
   "/sw.js",
 ];
 
-const publicPrefixes = ["/b/", "/autorizacao-scr/", "/cadastro/"];
+const publicPrefixes = ["/b/", "/autorizacao-scr/", "/cadastro/", "/pagar/"];
 
 function hasSessionCookie(request: NextRequest): boolean {
   return request.cookies.getAll().some(({ name }) => name.endsWith(".session_token"));

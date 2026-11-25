@@ -84,7 +84,14 @@ export async function updateBureau(values: unknown): Promise<BureauActionResult>
 
   try {
     const result = await updateBureauQuery(session, parsed.data);
-    if (!result.ok) return { error: "Bureau não encontrado." };
+    if (!result.ok) {
+      const messages = {
+        not_found: "Bureau não encontrado.",
+        slug_taken: "Este endereço (slug) já está em uso ou pertence a um link antigo de outro Bureau.",
+        slug_reserved: "Este endereço (slug) é reservado. Escolha outro.",
+      } as const;
+      return { error: messages[result.reason] };
+    }
   } catch {
     return { error: "Falha ao salvar o Bureau." };
   }

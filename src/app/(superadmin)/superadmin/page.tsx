@@ -16,6 +16,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CopyLinkButton } from "@/components/superadmin/copy-link-button";
+import { config } from "@/lib/config";
 import { getRequiredSession } from "@/lib/auth/session";
 import { listBureauMetrics } from "@/lib/bureaus/queries";
 
@@ -32,6 +34,7 @@ function BureauStatus({ status }: { status: string }) {
 export default async function SuperadminPage() {
   const session = await getRequiredSession();
   const bureaus = await listBureauMetrics(session);
+  const baseUrl = config.betterAuthUrl.replace(/\/$/, "");
 
   const total = (pick: (b: (typeof bureaus)[number]) => number) => bureaus.reduce((sum, b) => sum + pick(b), 0);
   const stats = [
@@ -90,6 +93,10 @@ export default async function SuperadminPage() {
               </Link>
               <BureauStatus status={b.status} />
             </div>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="break-all text-muted-foreground">/b/{b.slug}</span>
+              <CopyLinkButton url={`${baseUrl}/b/${b.slug}`} />
+            </div>
             <dl className="grid grid-cols-2 gap-4">
               {[
                 ["Equipe", b.staffCount],
@@ -113,7 +120,7 @@ export default async function SuperadminPage() {
         <TableHeader>
           <TableRow>
             <TableHead>Nome</TableHead>
-            <TableHead>Slug</TableHead>
+            <TableHead>Link público</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Equipe</TableHead>
             <TableHead className="text-right">Titulares</TableHead>
@@ -130,7 +137,12 @@ export default async function SuperadminPage() {
                   {b.name}
                 </Link>
               </TableCell>
-              <TableCell>{b.slug}</TableCell>
+              <TableCell>
+                <div className="flex items-center gap-2">
+                  <span>/b/{b.slug}</span>
+                  <CopyLinkButton url={`${baseUrl}/b/${b.slug}`} />
+                </div>
+              </TableCell>
               <TableCell>
                 <BureauStatus status={b.status} />
               </TableCell>

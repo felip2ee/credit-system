@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { optionalPasswordSchema } from "./password";
+import { SLUG_PATTERN } from "./register";
 
 const name = z
   .string()
@@ -21,6 +22,8 @@ export const bureauCreateSchema = z.object({
 export const bureauUpdateSchema = z.object({
   id: z.string().uuid(),
   name,
+  // Ausente = não troca o slug.
+  slug: z.string().regex(SLUG_PATTERN, "Use de 3 a 40 letras minúsculas, números ou hífen.").optional(),
 });
 
 export type BureauCreate = z.infer<typeof bureauCreateSchema>;

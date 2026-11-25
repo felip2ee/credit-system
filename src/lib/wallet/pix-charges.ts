@@ -199,7 +199,7 @@ export async function getChargeStatus(
 	const owner =
 		scope.kind === "client"
 			? { clause: "client_profile_id = $2", value: scope.clientProfileId }
-			: { clause: "client_profile_id is null and bureau_id = $2", value: scope.bureauId };
+			: { clause: "client_profile_id is null and payment_link_id is null and bureau_id = $2", value: scope.bureauId };
 	const { rows } = await client.query<{ status: PixChargeStatus; billing_type: BillingType }>(
 		`select case when status = 'pending' and expires_at < now() then 'expired' else status end as status, billing_type
 		   from pix_charges where id = $1 and ${owner.clause}`,
@@ -217,8 +217,8 @@ export async function cancelUnboundPixCharge(client: PoolClient, chargeId: strin
 export async function countPendingPixCharges(client: PoolClient, bureauId: string): Promise<number> {
 	const { rows } = await client.query<{ total: number }>(
 		`select count(*)::int as total from pix_charges
-		  where bureau_id = $1 and client_profile_id is null and billing_type = 'PIX' and status = 'pending'
-		    and expires_at > now()`,
+		  where bureau_id = $1 and client_profile_id is null and payment_link_id is null and billing_type = 'PIX'
+		    and status = 'pending' and expires_at > now()`,
 		[bureauId],
 	);
 	return rows[0].total;
@@ -252,8 +252,8 @@ const SELECT_CHARGE = `select id, amount, fee_amount, total_charged,
 	pix_payload, expires_at, created_at
 	from pix_charges`;
 
-// Telas do Bureau nunca leem cobrança de cliente (nem o pix_payload dela).
-const BUREAU_ONLY = "client_profile_id is null";
+// Telas do Bureau nunca leem cobrança de cliente (nem o pix_payload dela) nem a de link de pagamento (não é recarga).
+const BUREAU_ONLY = "client_profile_id is null and payment_link_id is null";
 
 const toCharge = (r: ChargeRow): PixCharge => ({
 	id: r.id,
@@ -313,7 +313,16 @@ export type AsaasPaymentResult =
 	| "unknown_charge"
 	| "partial_refund_ignored"
 	| "chargeback_ignored"
-	| "amount_mismatch";
+	| "amount_mismatch"
+	// Cobrança de link de pagamento (058): baixa o link e o pedido de balcão; nunca a carteira.
+	| "link_paid"
+	| "link_duplicate"
+	| "link_ignored"
+	| "link_order_not_payable"
+	// Estorno ou chargeback de Pix de link (060): sem tratamento automático; a operação decide.
+	| "link_refund_ignored"
+	// Pix de link lançado, mas a soma dos pagamentos passou o preço (balcão entrou depois da cobrança): a operação devolve a diferença.
+	| "link_overpaid";
 
 // Estorno de PIX que o saldo disponível não cobriu (pix_charges.refund_shortfall > 0), para o superadmin.
 export type RefundShortfall = { chargeId: string; amount: string; shortfall: string; createdAt: Date };

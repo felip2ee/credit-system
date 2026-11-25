@@ -113,6 +113,7 @@ def installer(root, run, **kw):
     kw.setdefault("confirm_backup", True)  # testes de migrations pendentes passam confirm_backup=False
     kw.setdefault("environ", {"CS_GHCR_TOKEN": TOKEN, "CS_GH_USER": "felip2ee", "CS_GH_TOKEN": CLONE_TOKEN})
     kw.setdefault("http", lambda url, t: 200)
+    kw.setdefault("fetch", lambda m, url, t: (401, "") if m == "POST" else (200, "application/manifest+json"))
     kw.setdefault("tls", lambda host: (True, "certificado válido"))
     kw.setdefault("timeouts", {"migrate": 1, "app": 1, "http": 1})
     kw.setdefault("secure_dir", Path(root) / "secure")

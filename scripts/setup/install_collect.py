@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 
+import install_asaas as asaas
 import setup_production as sp
 
 PLAN = "Vou perguntar: domínio, SMTP, superadmin, DEPS, OpenAI, backup S3; WhatsApp e push são opcionais."
@@ -84,4 +85,20 @@ def collect_installer(core, defaults: dict[str, str]) -> tuple[dict[str, str], d
         env["WEB_PUSH_VAPID_PUBLIC_KEY"], provided["web_push_vapid_private_key"] = pair
         env["WEB_PUSH_VAPID_SUBJECT"] = core.ask("Contato VAPID (mailto: ou https://)", f"mailto:{env['SUPERADMIN_EMAIL']}",
                                                  lambda v: v != "" and sp.valid_vapid_subject(v))
+    env.update(collect_asaas(core))
     return env, provided
+
+
+def collect_asaas(core) -> dict[str, str]:
+    """Opcional: resposta vazia = Asaas desligado. Chave e token vão para o .env.production e nunca para a saída."""
+    values = {k: "" for k in asaas.ASAAS_VARS}
+    driver = core.ask("Asaas ligado? Digite asaas (vazio = desligado)", "", asaas.VALIDATORS["ASAAS_DRIVER"])
+    if driver != "asaas":
+        return values
+    values["ASAAS_DRIVER"] = driver
+    values["ASAAS_API_BASE_URL"] = core.ask("URL da API do Asaas", asaas.DEFAULT_URL, lambda v: v.startswith("https://"))
+    values["ASAAS_API_KEY"] = sp.ask_secret("Chave de API do Asaas", lambda v: bool(v.strip()), core.getpass_fn)
+    values["ASAAS_WEBHOOK_TOKEN"] = sp.ask_secret(f"Token do webhook do Asaas (mín. {asaas.MIN_TOKEN} caracteres)",
+                                                  lambda v: len(v) >= asaas.MIN_TOKEN, core.getpass_fn)
+    core.secret_values |= {values[k] for k in asaas.SECRET_VARS}
+    return values

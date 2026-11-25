@@ -43,7 +43,7 @@ import {
 	type SeededTenant,
 } from "@/test/seed";
 
-import { getMyDelivery, getMyOrder, listMyOrders } from "./client-queries";
+import { getMyDelivery, getMyOrder, getMyOrderState, listMyOrders } from "./client-queries";
 import { claimOrders, completeOrder, placeOrder, refreshOrderState, releaseDelivery, revokeDelivery } from "./queries";
 import { setAiStatus } from "./tick-queries";
 import type { OpenOrderInput } from "./types";
@@ -206,6 +206,18 @@ describe("getMyOrder", () => {
 		expect(await withUserTransaction(t.client, (c) => getMyOrder(c, id))).toMatchObject({ dossierId: id, mode: "online", state: "awaiting_authorization" });
 		expect(await withUserTransaction(other, (c) => getMyOrder(c, id))).toBeNull();
 		expect(await withUserTransaction(t.client, (c) => getMyOrder(c, crypto.randomUUID()))).toBeNull();
+	});
+});
+
+describe("getMyOrderState", () => {
+	it("getMyOrderState returns only the own order state and null for another client's", async () => {
+		const t = await newTenant("cq state");
+		const other = await seedClientProfile(owner, t.bureau.id);
+		const id = await place(t, t.client, ownInput);
+
+		expect(await withUserTransaction(t.client, (c) => getMyOrderState(c, id))).toBe("awaiting_authorization");
+		expect(await withUserTransaction(other, (c) => getMyOrderState(c, id))).toBeNull();
+		expect(await withUserTransaction(t.client, (c) => getMyOrderState(c, crypto.randomUUID()))).toBeNull();
 	});
 });
 

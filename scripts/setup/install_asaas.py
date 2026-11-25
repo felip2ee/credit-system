@@ -1,6 +1,7 @@
 """Variáveis ASAAS_* no .env.production: entram vazias quando ausentes, nunca são sobrescritas e nunca são impressas."""
 from __future__ import annotations
 
+import json
 import re
 
 import install_detect as det
@@ -15,12 +16,13 @@ VALIDATORS = {
     "ASAAS_API_KEY": lambda v: True,
     "ASAAS_WEBHOOK_TOKEN": lambda v: v == "" or len(v) >= MIN_TOKEN,
 }
+DEFAULT_URL = "https://api.asaas.com"  # padrão da stack: ${ASAAS_API_BASE_URL:-https://api.asaas.com}
 OFF_LINE = ("  - Asaas: DESLIGADO (preencha ASAAS_DRIVER, ASAAS_API_KEY e ASAAS_WEBHOOK_TOKEN no .env.production)")
 
 
 def missing_keys(text: str) -> list[str]:
     """Chaves sem linha no arquivo. Linha ilegível (aspas abertas) conta como presente: nunca é reescrita."""
-    raw = set(re.findall(r"^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=", text, re.MULTILINE))
+    raw = set(re.findall(r"^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=", text, re.MULTILINE))
     return [k for k in ASAAS_VARS if k not in raw]
 
 
@@ -58,3 +60,24 @@ def status_lines(text: str, added: list[str]) -> list[str]:
         return lines + ["  - AVISO: Asaas LIGADO, mas " + "; ".join(problems) + ". Pix, cartão e webhook vão falhar "
                         "(gere o token com 'openssl rand -hex 24')."]
     return lines + ["  - Asaas: LIGADO (driver asaas; chave e token preenchidos)"]
+
+
+def running_values(run, service: str) -> dict[str, str] | None:
+    """ASAAS_* do serviço no ar (`docker service inspect`). None = não consegui ler. Chamador: nunca imprimir os valores."""
+    code, out = run(["docker", "service", "inspect", service, "--format", "{{json .Spec.TaskTemplate.ContainerSpec.Env}}"])
+    if code != 0:
+        return None
+    try:
+        items = json.loads(out) or []
+    except ValueError:
+        return None
+    if not isinstance(items, list):
+        return None
+    pairs = (i.partition("=") for i in items if isinstance(i, str))
+    return {k: v for k, _, v in pairs if k in ASAAS_VARS}
+
+
+def blanked(env: dict[str, str], running: dict[str, str]) -> list[str]:
+    """Chaves preenchidas no ar que o deploy deixaria vazias (URL vazia vale o padrão da stack)."""
+    return [k for k in ASAAS_VARS if running.get(k) and not env.get(k)
+            and not (k == "ASAAS_API_BASE_URL" and running[k] == DEFAULT_URL)]

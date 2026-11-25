@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { OrderStateBadge } from "@/components/orders/client-order-list";
 import { CancelOrderButton } from "@/components/orders/cancel-order-button";
 import { DeliveryView } from "@/components/orders/delivery-view";
+import { OrderAutoRefresh } from "@/components/orders/order-auto-refresh";
 import { OrderMembers } from "@/components/orders/order-members";
 import { canCancelOrder } from "@/components/orders/order-rules";
 import { orderSteps } from "@/components/orders/order-steps";
@@ -55,6 +56,7 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 
 	return (
 		<div className="space-y-6">
+			<OrderAutoRefresh orderId={order.dossierId} initialState={order.state} />
 			<Link href="/portal/pesquisas" className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
 				<ArrowLeft aria-hidden className="size-5" />
 				Voltar às pesquisas

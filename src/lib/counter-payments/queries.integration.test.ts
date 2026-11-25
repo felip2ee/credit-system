@@ -57,6 +57,8 @@ async function setup(label: string, online = false) {
 		bureauId: tenant.bureau.id,
 		clientProfileId: online ? tenant.client.userId : null,
 	});
+	// Pedido de balcão real nasce aguardando pagamento (open_order); o seed nasce em awaiting_authorization.
+	if (!online) await owner.query("update dossier_orders set state = 'awaiting_payment' where dossier_id = $1", [dossierId]);
 	const operator: DbIdentity = { ...tenant.operator };
 	const admin: DbIdentity = { ...tenant.bureauAdmin };
 	const client: DbIdentity = { ...tenant.client };
@@ -159,7 +161,9 @@ describe("registerCounterPayment", () => {
 
 	it("rejects a client", async () => {
 		const { dossierId, client } = await setup("Counter R3");
-		await expect(registerCounterPayment(client, pay(dossierId, "10.00"))).rejects.toThrow();
+		// O pedido de balcão não é legível pelo cliente (RLS): o lock não acha o pedido e nada é gravado.
+		expect(await registerCounterPayment(client, pay(dossierId, "10.00"))).toEqual({ ok: false, reason: "not_found" });
+		expect((await owner.query("select 1 from counter_payments where dossier_id = $1", [dossierId])).rows).toHaveLength(0);
 	});
 
 	it("does not touch any wallet", async () => {
@@ -168,6 +172,93 @@ describe("registerCounterPayment", () => {
 		await registerCounterPayment(operator, pay(dossierId, "30.00"));
 		const { rows } = await owner.query("select available, reserved from wallets where bureau_id = $1", [tenant.bureau.id]);
 		expect(rows).toEqual([{ available: "100.00", reserved: "0.00" }]);
+	});
+});
+
+// Preço 300 (liquidação) sobre o pedido aguardando pagamento.
+async function priced(label: string) {
+	const ctx = await setup(label);
+	await owner.query(
+		"insert into order_settlements (order_ref, bureau_id, mode, price, cost) values ($1, $2, 'counter', 300.00, 120.00)",
+		[ctx.dossierId, ctx.tenant.bureau.id],
+	);
+	return ctx;
+}
+const stateOfOrder = async (dossierId: string) =>
+	(await owner.query<{ state: string }>("select state from dossier_orders where dossier_id = $1", [dossierId])).rows[0].state;
+const settled = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("registerCounterPayment: pedido travado e saldo (M-B)", () => {
+	it("refuses a payment on an order that is no longer awaiting payment (paid by link, cancelled) and writes nothing", async () => {
+		const { dossierId, operator } = await priced("Counter B1");
+		await owner.query("update dossier_orders set state = 'awaiting_authorization' where dossier_id = $1", [dossierId]);
+		expect(await registerCounterPayment(operator, pay(dossierId, "10.00"))).toEqual({ ok: false, reason: "order_not_payable" });
+		await owner.query("update dossier_orders set state = 'cancelled', state_reason = 'cancelled_by_staff' where dossier_id = $1", [dossierId]);
+		expect(await registerCounterPayment(operator, pay(dossierId, "10.00"))).toEqual({ ok: false, reason: "order_not_payable" });
+		expect((await owner.query("select 1 from counter_payments where dossier_id = $1", [dossierId])).rows).toHaveLength(0);
+	});
+
+	it("refuses an amount above what is still due, accepts exactly the rest", async () => {
+		const { dossierId, operator } = await priced("Counter B2");
+		expect(await registerCounterPayment(operator, pay(dossierId, "300.01"))).toEqual({ ok: false, reason: "amount_exceeds_due" });
+		expect(await registerCounterPayment(operator, pay(dossierId, "100.00"))).toMatchObject({ ok: true });
+		expect(await registerCounterPayment(operator, pay(dossierId, "200.01"))).toEqual({ ok: false, reason: "amount_exceeds_due" });
+		expect(await registerCounterPayment(operator, pay(dossierId, "200.00"))).toMatchObject({ ok: true });
+		expect(await stateOfOrder(dossierId)).toBe("awaiting_authorization");
+	});
+
+	it("takes the order lock first: a register waits for a transaction that holds the order", async () => {
+		const { dossierId, operator } = await priced("Counter B3");
+		const holder = await owner.connect();
+		await holder.query("begin");
+		await holder.query("select 1 from dossier_orders where dossier_id = $1 for update", [dossierId]);
+		let done = false;
+		const pending = registerCounterPayment(operator, pay(dossierId, "50.00")).then((r) => {
+			done = true;
+			return r;
+		});
+		await settled(400);
+		expect(done).toBe(false);
+		await holder.query("commit");
+		holder.release();
+		expect(await pending).toMatchObject({ ok: true });
+	});
+
+	it("a register that waits for an order paid meanwhile is refused after the lock, never double-booked", async () => {
+		const { dossierId, operator, tenant } = await priced("Counter B4");
+		const holder = await owner.connect();
+		await holder.query("begin");
+		await holder.query("select 1 from dossier_orders where dossier_id = $1 for update", [dossierId]);
+		const pending = registerCounterPayment(operator, pay(dossierId, "300.00"));
+		await settled(300);
+		await holder.query(
+			`insert into counter_payments (bureau_id, dossier_id, method, amount, registered_by)
+			 values ($1, $2, 'pix', 300.00, $3)`,
+			[tenant.bureau.id, dossierId, tenant.bureauAdmin.userId],
+		);
+		await holder.query("update dossier_orders set state = 'awaiting_authorization' where dossier_id = $1", [dossierId]);
+		await holder.query("commit");
+		holder.release();
+		expect(await pending).toEqual({ ok: false, reason: "order_not_payable" });
+		expect((await owner.query("select 1 from counter_payments where dossier_id = $1", [dossierId])).rows).toHaveLength(1);
+	});
+
+	it("void takes the order lock too", async () => {
+		const { dossierId, operator } = await priced("Counter B5");
+		const created = (await registerCounterPayment(operator, pay(dossierId, "100.00"))) as { id: string };
+		const holder = await owner.connect();
+		await holder.query("begin");
+		await holder.query("select 1 from dossier_orders where dossier_id = $1 for update", [dossierId]);
+		let done = false;
+		const pending = voidCounterPayment(operator, { id: created.id, reason: "Erro de digitação" }).then((r) => {
+			done = true;
+			return r;
+		});
+		await settled(400);
+		expect(done).toBe(false);
+		await holder.query("commit");
+		holder.release();
+		expect(await pending).toEqual({ ok: true });
 	});
 });
 

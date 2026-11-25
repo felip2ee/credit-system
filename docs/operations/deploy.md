@@ -41,8 +41,12 @@ Para travar o código exato, defina também `CS_EXPECTED_SHA` (40 caracteres). O
 3. `https://<APP_DOMAIN>/api/health/live` e `/api/health/ready` respondem 200.
 4. O certificado TLS é válido e não é o padrão do Traefik.
 5. `/login` responde 200.
+6. Smoke checks das funções novas. Só avisam: a falha aparece como `AVISO` no resumo, não reverte nada e não reprova o deploy (cada um tem até 30 s):
+   - `GET /admin/manifest.webmanifest` responde 200 sem cookie de sessão e com `Content-Type` JSON (o PWA do admin continua instalável; o middleware precisa mantê-lo público).
+   - `GET /pagar/<token inexistente de 43 caracteres>` responde 200 (página neutra, sem 5xx e sem redirecionar para `/login`). O instalador nunca envia um token real.
+   - `POST /api/webhooks/asaas` com corpo `{}` e sem token responde 401 ou 403 (a rota existe e recusa). Só roda com `ASAAS_DRIVER=asaas` no `.env.production`; com o Asaas desligado, o instalador avisa que ignorou o teste (a rota responderia 500 sem configuração).
 
-As etapas 3 a 5 conectam em `127.0.0.1:443` com SNI e `Host` iguais a `APP_DOMAIN` e verificam o certificado de forma estrita. Elas não dependem do DNS. Cada etapa tem timeout e mostra uma linha de progresso.
+As etapas 3 a 6 conectam em `127.0.0.1:443` com SNI e `Host` iguais a `APP_DOMAIN` e verificam o certificado de forma estrita. Elas não dependem do DNS. Cada etapa tem timeout e mostra uma linha de progresso.
 
 **Rollback.** O rollback usa o `docker-stack.yml` do commit anterior (`git show <CS_DEPLOYED_SHA>:docker-stack.yml`, num arquivo temporário 0600 removido no fim) com os digests antigos e leva também as variáveis novas (`PIX_FEE_CENTS` etc.; inofensivo se a stack antiga não as usa). Com `CS_DEPLOYED_SHA` desconhecido, o instalador avisa e usa o `docker-stack.yml` atual. Se o `docker login` do rollback falha, ele tenta o deploy mesmo assim (imagem antiga provavelmente em cache); se o deploy não se aplica, imprime `ROLLBACK NÃO APLICADO: produção está na versão nova <digest>` com o comando manual. O `.env.production` volta ao texto antigo. Só a falha da migração ou da convergência do app (etapas 1 e 2) dispara rollback. O instalador mostra as últimas 40 linhas do serviço com falha (sem segredos), restaura o texto antigo do `.env.production` e refaz o `docker stack deploy` com ele (todos os serviços, idempotente). Ele não usa `docker service rollback`. Se o Swarm já reverteu o app (`rollback_started` ou `rollback_completed`), ele avisa e só alinha os outros serviços. Sem rollback: primeira instalação (não há versão anterior; a stack fica no ar para inspeção) e digest novo igual ao anterior. Falha só de health, TLS ou `/login` não reverte nada: o instalador mostra o diagnóstico (DNS, logs do Traefik, rede e resolver) e você roda de novo depois de corrigir. Se o próprio `docker stack deploy` falha, ele restaura o `.env.production` e para. Migrations não voltam (seção 6).
 
@@ -56,7 +60,7 @@ As etapas 3 a 5 conectam em `127.0.0.1:443` com SNI e `Host` iguais a `APP_DOMAI
 
 **Portainer.** A stack criada por `docker stack deploy` aparece no Portainer como stack externa. Use-o só para ver serviços, tarefas e logs (o resultado de `reino_migrate` fica em Services, `reino_migrate`, Tasks e Logs). Não edite o compose, não use "Update the stack" nem recrie a stack por lá: ele não tem as variáveis do `.env.production` nem os secrets, e as variáveis obrigatórias (`PIX_FEE_CENTS` etc.) fariam o deploy falhar. O instalador é a fonte; `docker stack deploy` atualiza a mesma stack, sem recriá-la nem apagar volumes.
 
-**O que ainda é manual (depois do PR de pagamentos por pagador).** Revisar `CARD_FEE_TABLE`; guardar a chave PII no gerenciador de senhas; trocar a chave do Asaas; teste real de cartão e de Pix com taxa (checklist **(post-deploy)** de [payments.md](payments.md), seção 7).
+**O que ainda é manual (depois do PR de pagamentos por pagador).** Revisar `CARD_FEE_TABLE`; guardar a chave PII no gerenciador de senhas; trocar a chave do Asaas; teste real de cartão e de Pix com taxa (checklist **(post-deploy)** de [payments.md](payments.md), seção 7). Também manual, **(post-deploy)**: pagar um link real com Pix e confirmar a baixa; instalar o PWA do admin num celular; testar o download do PDF no app instalado no iPhone.
 
 Credenciais e a stack do Traefik ficam fora do git, em `/root/credit-system-credentials/` (modo 0700, arquivos 0600): `credenciais-<data>-GUARDAR.txt` (primeira instalação), `credenciais-novos-<data>-GUARDAR.txt` (secrets criados numa atualização; arquivos antigos nunca são sobrescritos) e `traefik-stack.yml`. O `.env.production` fica na raiz do repositório, onde a stack o lê. O instalador pergunta só o que não consegue gerar ou detectar. WhatsApp e push são opcionais, com uma pergunta sim/não cada. Desligados, os secrets recebem os marcadores `whatsapp-disabled` e `push-disabled` (o Swarm recusa secret vazio). A senha do superadmin, o `whatsapp_verify_token` e o par VAPID são gerados. Os e-mails de alerta (`BACKUP_ALERT_TO`, `OPS_ALERT_TO`) usam o do superadmin como padrão. O backup S3 continua obrigatório (`docker-stack.yml`). Cada passo do instalador imprime uma linha `✔ <etapa>` (ou `✘ <etapa>: <motivo>` se falhar). Numa execução com sucesso, o instalador imprime no terminal um bloco com todas as credenciais geradas (o mesmo conteúdo do arquivo; nunca os tokens do GitHub) e pergunta `Credenciais salvas? Apagar o arquivo <caminho> agora? [s/N]`. Responda `s` só depois de salvar o bloco em um gerenciador de senhas. Com `--yes`, o instalador não apaga o arquivo e mostra o caminho. Numa execução com falha, nenhuma credencial é impressa. Os itens **(post-deploy)** do passo 4 (backup, drill, monitor, checklist) continuam manuais.
 
@@ -177,6 +181,15 @@ Cada deploy usa digest. A configuração recusa tag ou `latest`.
 O serviço `migrate` roda a cada deploy. As migrations já aplicadas não rodam de novo: o runner confere o checksum. Um `pg_advisory_lock` impede duas execuções ao mesmo tempo (D10).
 
 Antes de um deploy com migration nova, rode o backup manual do passo 4.5.
+
+## Asaas: o `.env.production` é a única fonte
+
+`ASAAS_DRIVER`, `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` e `ASAAS_API_BASE_URL` vêm só do `.env.production`. O instalador faz o deploy com esse arquivo. Valor definido só no Portainer ou com `docker service update` é **sobrescrito** no próximo deploy; variável vazia no arquivo desliga o Asaas.
+
+- A primeira instalação pergunta o driver (vazio = Asaas desligado). Com `asaas`, pede a chave e o token (sem mostrá-los).
+- O `--update` nunca muda um valor preenchido. Aceita `export ASAAS_X=...` e mantém a linha como está. Linha ilegível (aspas abertas) para o instalador: `linha ilegível em .env.production: <número>`.
+- Trava antes do deploy: se o serviço no ar tem uma `ASAAS_*` preenchida e o arquivo a deixaria vazia, o instalador avisa (só os nomes). Com `--yes` ele para; no modo interativo pede confirmação (padrão: não). Se o `docker service inspect` falhar, ele pula a conferência e avisa.
+- Conferir à mão: `diff .env.production .env.production.bak-<carimbo>` e `docker service inspect reino_reino_app --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}'` (mostra segredos: não cole a saída em chat ou ticket).
 
 ## 6. Rollback
 

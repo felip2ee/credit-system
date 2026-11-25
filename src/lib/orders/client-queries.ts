@@ -157,3 +157,12 @@ export async function getMyDelivery(client: PoolClient, dossierId: string): Prom
 		dossierOpinion: head.dossier_opinion,
 	};
 }
+
+// Só o estado, para o polling da página do pedido. Nulo se não existe ou é de outro cliente.
+export async function getMyOrderState(client: PoolClient, dossierId: string): Promise<OrderState | null> {
+	const { rows } = await client.query<{ state: OrderState }>(
+		"select state::text as state from dossier_orders where dossier_id = $1 and client_profile_id = app_user_id()",
+		[dossierId],
+	);
+	return rows[0]?.state ?? null;
+}

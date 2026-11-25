@@ -1,10 +1,8 @@
-import { Download } from "lucide-react";
-
 import { ConsultationResult, ConsultationUnavailable } from "@/components/consultations/consultation-result";
 import { MarkdownReport } from "@/components/shared/markdown-report";
 import { MapaMentalView } from "@/components/parecer/mapa-mental";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { PdfDownloadButton } from "@/components/orders/pdf-download-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { StateTone } from "@/components/ui/state-tone";
@@ -73,14 +71,7 @@ function MemberResult({ member }: { member: ClientDelivery["members"][number] })
 }
 
 function PdfButton({ href }: { href: string }) {
-	return (
-		<Button asChild glow className="w-full sm:w-auto">
-			<a href={href}>
-				<Download aria-hidden />
-				Baixar PDF
-			</a>
-		</Button>
-	);
+	return <PdfDownloadButton href={href} />;
 }
 
 export function DeliveryView({ delivery }: { delivery: ClientDelivery }) {

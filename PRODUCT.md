@@ -25,6 +25,7 @@ Fonte: [spec de produto](docs/superpowers/specs/2026-10-13-plataforma-bureau-pro
 - **Terceiros:** o titular sempre autoriza o SCR antes da consulta.
 - **Assistido (balcão):** o operador cadastra o cliente, registra o pagamento, envia a autorização, executa a consulta e libera o resultado.
 - **Entrega:** relatório na tela, PDF, parecer IA (incluso em todo pedido) e aviso por e-mail, WhatsApp e push no aparelho (portal do cliente, opcional).
+- **Link de pagamento (balcão):** o operador abre a consulta, gera um link `/pagar/<token>` (válido 7 dias) e envia ao cliente. O cliente paga o Pix na página e a baixa é automática.
 - **Cadastro do cliente** em `/b/<slug>`: confirmação de e-mail, validação de CPF/CNPJ, aceite de termos (LGPD) e confirmação do telefone por código no WhatsApp.
 
 ## MVP
@@ -67,6 +68,8 @@ Cada milestone tem spec e plano em `docs/superpowers/`. Não descreva um milesto
 - **Venda online:** o cliente paga a plataforma. Ao consumir um produto, o Bureau recebe a % dele sobre o preço bruto (comissão do Bureau). O restante fica com a plataforma. O repasse é manual.
 - **Venda de balcão:** o cliente paga o Bureau. O Bureau repassa à plataforma o preço menos a comissão do Bureau, debitado do saldo pré-pago (comprado via Asaas). A comissão do Bureau fica com ele.
 - **Cupons:** o Bureau cria cupons percentuais ou de valor fixo. Cada cupom vale para todos os produtos ou para produtos escolhidos. Limites: usos totais, usos por cliente, início e validade. O cliente digita o código no portal antes de abrir uma pesquisa. O desconto sai da comissão do Bureau: a parte da plataforma não muda. Se o desconto passa da comissão, o Bureau cobre a diferença. Spec: [docs/superpowers/specs/2026-11-19-cupons-desconto-design.md](docs/superpowers/specs/2026-11-19-cupons-desconto-design.md).
+- **App do Bureau (`/admin`):** app instalável no mesmo domínio, com os links do Bureau, nova consulta, cobranças e métricas. O Pix do link cai na conta Asaas da plataforma. Não há repasse automático ao Bureau nem NFS-e do Pix de link. Runbook: [docs/operations/payment-links.md](docs/operations/payment-links.md).
+- **Visitas:** a vitrine `/b/<slug>` conta visitas por dia, sem IP e sem cookie. Bots entram na contagem.
 - **Reserva, captura e estorno:** o valor é reservado ao pedir. É capturado quando a consulta DEPS retorna sucesso. É liberado se a consulta falha.
 - **Livro-razão:** todo movimento é um lançamento imutável. O saldo nunca é editável.
 - **Catálogo:** só o superadmin define produtos (Dossiê Pessoa Física e Dossiê Empresarial, mapeados aos produtos DEPS), preço de venda, % do Bureau e bloqueio de produto por Bureau. O Bureau não edita nada disso e não tem custo. Produto sem preço, ou bloqueado para o Bureau, não está à venda. A plataforma não vende nada até o superadmin definir esses valores.

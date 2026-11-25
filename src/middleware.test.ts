@@ -18,11 +18,13 @@ describe("middleware public paths", () => {
     "/api/health/live",
     "/api/health/ready",
     "/manifest.webmanifest",
+    "/admin/manifest.webmanifest",
     "/sw.js",
     "/termos",
     "/privacidade",
     "/cadastro/confirmar-email",
     "/b/reino/cadastro",
+    "/pagar/abc123",
   ])("lets %s through without cookie", (path) => {
     const res = run(path);
     expect(res.headers.get("location")).toBeNull();
