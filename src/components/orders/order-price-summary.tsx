@@ -18,7 +18,7 @@ export function OrderPriceSummary({ breakdown, pricePerPartner }: { breakdown: O
 			</div>
 			{ignoredRows > 0 && (
 				<p className="text-muted-foreground">
-					{ignoredRows} {ignoredRows === 1 ? "pessoa sem CPF completo ainda não entra" : "pessoas sem CPF completo ainda não entram"} no valor.
+					{ignoredRows} {ignoredRows === 1 ? "linha repetida ou incompleta não entra" : "linhas repetidas ou incompletas não entram"} no valor.
 				</p>
 			)}
 		</div>

@@ -17,7 +17,7 @@ test("Voltar mantém os dados", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
 
   await page.getByRole("button", { name: "Voltar" }).click();
-  await expect(page.getByLabel("Nome da pessoa 1")).toHaveValue("e2e Pessoa Volta");
+  await expect(page.getByLabel("Nome da pessoa 1", { exact: true })).toHaveValue("e2e Pessoa Volta");
   await expect(page.getByLabel("E-mail da pessoa 1")).toHaveValue("e2e-volta@example.test");
 
   await page.getByRole("button", { name: "Voltar" }).click();
@@ -42,7 +42,7 @@ test("trocar a escolha limpa os dados", async ({ page }) => {
   await expect(page.getByLabel("Razão social")).toHaveValue("");
 });
 
-test("Enter numa etapa avança e não envia", async ({ page }) => {
+test("Enter não pula etapa", async ({ page }) => {
   await page.goto("/portal/pesquisas/nova");
   await page.getByRole("radio", { name: /Para uma empresa/ }).check();
   await next(page);
@@ -103,14 +103,14 @@ test('"Adicionar eu" preenche o e-mail da conta e some depois de usado', async (
 test("limite de pessoas desabilita Adicionar pessoa", async ({ page }) => {
   await startCompanyOrder(page);
   for (let n = 1; n <= MAX_PEOPLE; n++) await page.getByRole("button", { name: "Adicionar pessoa" }).click();
-  await expect(page.getByLabel(`Nome da pessoa ${MAX_PEOPLE}`)).toBeVisible();
+  await expect(page.getByLabel(`Nome da pessoa ${MAX_PEOPLE}`, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Adicionar pessoa" })).toBeDisabled();
 });
 
 test("comprador, sócio e cônjuge entram na lista e a revisão mostra os três", async ({ page }) => {
   await startCompanyOrder(page);
   await page.getByRole("button", { name: "Adicionar eu" }).click();
-  await page.getByLabel("Nome da pessoa 1").fill("e2e Comprador");
+  await page.getByLabel("Nome da pessoa 1", { exact: true }).fill("e2e Comprador");
   await page.getByLabel("CPF da pessoa 1").fill(validCpf());
   await addPerson(page, 2, person("socio"));
   await addPerson(page, 3, person("conjuge"));

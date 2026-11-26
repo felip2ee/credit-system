@@ -75,8 +75,8 @@ export function ReviewStep({ product, productCode, subject, people, breakdown, c
 						<p className="text-base text-muted-foreground">Nenhuma pessoa na lista. Volte e adicione quem autoriza a consulta.</p>
 					) : (
 						<ul className="space-y-2">
-							{people.map((p) => (
-								<li key={`${p.document}-${p.email}`} className="min-w-0 rounded-card border border-border bg-muted p-3 text-base">
+							{people.map((p, i) => (
+								<li key={`${i}`} className="min-w-0 rounded-card border border-border bg-muted p-3 text-base">
 									<span className="block break-words font-medium">{p.name}</span>
 									<span className="block break-words text-muted-foreground">
 										{maskDocument("PF", p.document)} · {p.email}

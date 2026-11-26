@@ -112,7 +112,7 @@ export async function startCompanyOrder(page: Page, stamp = Date.now()): Promise
 // Adds one row on the people step and fills it. `n` is the 1-based row number.
 export async function addPerson(page: Page, n: number, person: { name: string; cpf: string; email: string }): Promise<void> {
   await page.getByRole("button", { name: "Adicionar pessoa" }).click();
-  await page.getByLabel(`Nome da pessoa ${n}`).fill(person.name);
+  await page.getByLabel(`Nome da pessoa ${n}`, { exact: true }).fill(person.name);
   await page.getByLabel(`CPF da pessoa ${n}`).fill(person.cpf);
   await page.getByLabel(`E-mail da pessoa ${n}`).fill(person.email);
 }

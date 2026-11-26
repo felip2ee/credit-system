@@ -45,16 +45,16 @@ const toSubject = (subject: Subject, productCode: string) => ({
 	documentDigits: onlyDigits(subject.document),
 });
 
-// D9: um consentimento por membro. O e-mail do sócio é obrigatório; o contato da empresa nunca vale por ele.
+// D9: um consentimento por membro. O e-mail da pessoa é obrigatório; o contato da empresa nunca vale por ele.
 const partnerEmailSchema = z
-	.string({ required_error: "Informe o e-mail do sócio." })
+	.string({ required_error: "Informe o e-mail da pessoa." })
 	.trim()
-	.min(1, "Informe o e-mail do sócio.")
-	.email("E-mail do sócio inválido.")
+	.min(1, "Informe o e-mail da pessoa.")
+	.email("E-mail da pessoa inválido.")
 	.max(254, "E-mail muito longo.");
 
 const partnerSchema = z.object({
-	document: z.string().refine(isValidCPF, "CPF do sócio inválido."),
+	document: z.string().refine(isValidCPF, "CPF da pessoa inválido."),
 	name: nameSchema,
 	email: partnerEmailSchema,
 	percentage: percentageSchema.nullish().transform((v) => v ?? null),
