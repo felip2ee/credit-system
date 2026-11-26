@@ -5,6 +5,7 @@ import {
   CELL_PADDING,
   chunkRows,
   columnLayout,
+  columnsFit,
   dropEmptyColumns,
   estimateRowHeight,
   estimateTextWidth,
@@ -186,5 +187,19 @@ describe("chunkRows solo rows", () => {
     const chunks = chunkRows(rows, 4, 4, () => false, (r) => r === "S");
     expect(chunks).toEqual([["a", "b"], ["S"], ["c", "d"]]);
     expect(chunks.flat()).toEqual(rows);
+  });
+});
+
+describe("columnsFit", () => {
+  const labels = ["UF", "Tipo", "Valor", "Cidade", "Data debito", "Informante", "Disponivel em", "Numero contrato", "Documento origem", "Tipo participante"];
+  const row = ["TO", "OO", "R$ 166.090,47", "PALMAS", "28/10/2026", "BANCO SANTANDER BRASIL S.A.", "20/11/2026", "UG2302320400288", "**.400.285/0001-**", "PRINCIPAL"];
+  const types = labels.map((l, i) => inferColumnType(l, [row[i]]));
+  const mins = types.map((t, i) => (t === "text" ? 0 : valueMinWidth([row[i]])));
+
+  it("recusa 10 colunas que se sobreporiam (consulta Restrições)", () => {
+    expect(columnsFit(types, 503, labels, mins, [row])).toBe(false);
+  });
+  it("aceita tabela estreita", () => {
+    expect(columnsFit(["text", "money"], 503, ["Nome", "Valor"], [0, 70], [["Ana", "R$ 1,00"]])).toBe(true);
   });
 });

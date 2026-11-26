@@ -89,8 +89,8 @@ export function DeliveryView({ delivery }: { delivery: ClientDelivery }) {
 					<h2 className="text-xl font-semibold">
 						{m.name ?? "Consulta"} <span className="text-base font-normal text-muted-foreground">({m.type})</span>
 					</h2>
-					<MemberResult member={m} />
 					{m.opinion && <OpinionReadOnly title="Parecer de IA" parecer={m.opinion} />}
+					<MemberResult member={m} />
 				</section>
 			))}
 			<Card>

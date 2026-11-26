@@ -139,6 +139,27 @@ export function columnLayout(
   return types.map((type, i) => ({ width: widths[i], align: alignOf(type) }));
 }
 
+// A grade cabe quando cada coluna alcança o próprio mínimo: a palavra do cabeçalho e, nas colunas de texto, o maior
+// token do valor (token até MAX_TOKEN_CHARS fica inteiro; acima disso o react-pdf quebra em partes). Se não cabe,
+// as colunas se sobreporiam: a tabela deve sair em registros empilhados.
+const MAX_TOKEN_CHARS = 16; // = MAX_TOKEN_PART de fonts.ts
+export function columnsFit(
+  types: ColumnType[],
+  contentWidth: number,
+  labels: string[],
+  minWidths: number[],
+  cells: string[][],
+  fontSize: number = PDF_TYPE.table,
+): boolean {
+  const total = types.reduce((sum, type, i) => {
+    const floor = headerMinWidth(labels[i] ?? "");
+    if (type !== "text") return sum + Math.max(floor, minWidths[i] ?? 0);
+    const token = Math.max(0, ...cells.flatMap((row) => (row[i] ?? "").split(/\s+/).map((w) => estimateTextWidth(w.slice(0, MAX_TOKEN_CHARS), fontSize))));
+    return sum + Math.max(floor, token + CELL_PADDING * 2);
+  }, 0);
+  return total <= contentWidth;
+}
+
 // Blocos de linhas. Uma linha "de abertura" (título de grupo) nunca fica sozinha no fim de um bloco.
 // Uma linha "solo" (conteúdo aninhado ou muito alta) forma o próprio bloco: a quebra de página cai entre linhas.
 export function chunkRows<T>(

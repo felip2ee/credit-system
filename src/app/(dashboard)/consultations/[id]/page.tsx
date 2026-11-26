@@ -111,6 +111,10 @@ export default async function ConsultationDetailPage({
         </Card>
       )}
 
+      {query.status === "completed" && (
+        <ConsultationOpinion queryId={query.id} report={opinion} />
+      )}
+
       {content &&
         (content.full ? (
           <FullConsultationResult view={content.full} />
@@ -122,10 +126,6 @@ export default async function ConsultationDetailPage({
         ) : (
           <ConsultationUnavailable {...incompatibleView(query.id)} />
         ))}
-
-      {query.status === "completed" && (
-        <ConsultationOpinion queryId={query.id} report={opinion} />
-      )}
     </div>
   );
 }

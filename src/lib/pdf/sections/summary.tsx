@@ -40,7 +40,6 @@ export function summaryFigures(full: FullConsultationView): SummaryFigure[] {
   const totals = scr ? asTable(findPart(scr, TOTALS_PART), ["descricao", "valor"]) : null;
   const creditRow = totals ? totals.rows.findIndex((_, r) => /^carteira de cr[eé]dito/i.test(cellOf(totals, r, "descricao"))) : -1;
   const risk = fieldText(score ? findPart(score, null) : undefined, "risco");
-  const policy = fieldText(classification, "politica");
   const size = fieldText(classification, "porte");
   const ticket = fieldText(classification, "ticketMedio");
   return [
@@ -55,7 +54,6 @@ export function summaryFigures(full: FullConsultationView): SummaryFigure[] {
       label: "Parecer",
       value: approved === "Sim" ? "Aprovado" : approved === "Não" ? "Reprovado" : EMPTY,
       color: approved === "Sim" ? PDF_COLORS.positive : approved === "Não" ? PDF_COLORS.negative : undefined,
-      caption: isBlankText(policy) ? undefined : policy,
     },
     {
       label: "Limite sugerido",

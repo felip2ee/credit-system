@@ -59,6 +59,13 @@ export function CompleteConsultationPage({
       <Identity header={header} full={full} eyebrow={eyebrowText(documentKind, header.produto, roleLabel)} />
       <Summary full={full} />
 
+      {opinion && (
+        <>
+          <SectionTitle title="Parecer de IA" reserve={120} />
+          <OpinionBlock opinion={opinion} />
+        </>
+      )}
+
       {full.sections.map((section) => (
         <Fragment key={section.id}>
           {renderCuratedSection(section, { scoreValue: full.scoreValue }) ?? (
@@ -71,13 +78,6 @@ export function CompleteConsultationPage({
         <>
           <SectionTitle title="Outros dados" />
           <GenericBlocks blocks={full.generic} />
-        </>
-      )}
-
-      {opinion && (
-        <>
-          <SectionTitle title="Parecer de IA" reserve={120} />
-          <OpinionBlock opinion={opinion} />
         </>
       )}
 

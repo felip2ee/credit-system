@@ -199,7 +199,7 @@ class RunningEnvGuard(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         run = with_running_env(srv(), self.RUNNING if running is None else running, code)
         inst, out = installer(make_old_root(tmp.name, text), run, update=True, input_fn=lambda p: "n",
-                              getpass_fn=no_input, **kw)
+                              getpass_fn=(no_input if kw.get("yes", True) else (lambda prompt: "")), **kw)
         try:
             with DNS_OK:
                 result = inst.execute()

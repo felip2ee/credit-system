@@ -118,6 +118,7 @@ def installer(root, run, **kw):
     kw.setdefault("timeouts", {"migrate": 1, "app": 1, "http": 1})
     kw.setdefault("secure_dir", Path(root) / "secure")
     kw.setdefault("stamp", lambda: "T1")
+    kw.setdefault("getpass_fn", lambda prompt: "")  # chave do Asaas vazia no .env: Enter = pular
     return ins.Installer(run=run, root=root, out=out.append, sleep=lambda s: None, **kw), out
 
 

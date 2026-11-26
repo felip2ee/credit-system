@@ -1,6 +1,7 @@
 """Coleta de configuração do instalador: pergunta só o que não dá para gerar ou detectar."""
 from __future__ import annotations
 
+import secrets
 import base64
 
 import install_asaas as asaas
@@ -87,6 +88,27 @@ def collect_installer(core, defaults: dict[str, str]) -> tuple[dict[str, str], d
                                                  lambda v: v != "" and sp.valid_vapid_subject(v))
     env.update(collect_asaas(core))
     return env, provided
+
+
+def ask_missing_asaas(core, current: dict[str, str]) -> dict[str, str]:
+    """Atualização: se a chave do Asaas está vazia no .env.production, pergunta e devolve os valores a gravar.
+    Resposta vazia = pular (nada muda). Chave já preenchida nunca é perguntada nem tocada."""
+    if current.get("ASAAS_API_KEY"):
+        return {}
+    key = core.getpass_fn("Chave de API do Asaas (vazio = pular): ").strip()
+    if not key:
+        return {}
+    values = {"ASAAS_DRIVER": "asaas", "ASAAS_API_KEY": key}
+    if not current.get("ASAAS_API_BASE_URL"):
+        values["ASAAS_API_BASE_URL"] = asaas.DEFAULT_URL
+    token = current.get("ASAAS_WEBHOOK_TOKEN", "")
+    if len(token) < asaas.MIN_TOKEN:
+        token = secrets.token_hex(24)
+        core.say("Token do webhook gerado e gravado em ASAAS_WEBHOOK_TOKEN no .env.production "
+                 "(copie de lá para o painel do Asaas; o valor não é impresso).")
+        values["ASAAS_WEBHOOK_TOKEN"] = token
+    core.secret_values |= {key, token}
+    return values
 
 
 def collect_asaas(core) -> dict[str, str]:

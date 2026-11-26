@@ -5,6 +5,7 @@ import { PDF_FONT_FAMILY, PDF_FONT_FAMILY_BOLD } from "./fonts";
 import {
   CELL_PADDING,
   chunkRows,
+  columnsFit,
   columnLayout,
   dropEmptyColumns,
   estimateRowHeight,
@@ -55,6 +56,7 @@ const st = StyleSheet.create({
   row: { flexDirection: "row", flexShrink: 0, minHeight: PDF_ROW_HEIGHT, paddingVertical: 3.6 },
   td: { fontFamily: PDF_FONT_FAMILY, fontSize: PDF_TYPE.table, color: PDF_COLORS.ink, lineHeight: 1.2 },
   bold: { fontFamily: PDF_FONT_FAMILY_BOLD },
+  record: { flexDirection: "row", flexWrap: "wrap", paddingTop: 4, borderBottomWidth: 0.5, borderBottomColor: PDF_COLORS.rule },
   fieldBox: { width: "50%", marginBottom: 5, paddingRight: 8 },
   fieldLabel: { fontFamily: PDF_FONT_FAMILY, fontSize: PDF_TYPE.table, color: PDF_COLORS.muted },
   fieldValue: { fontFamily: PDF_FONT_FAMILY, fontSize: PDF_TYPE.body, color: PDF_COLORS.ink, lineHeight: 1.3 },
@@ -154,6 +156,10 @@ export function PdfTable({
   const types = kept.columns.map((column, i) => column.type ?? inferColumnType(column.label, cells.map((r) => r[i])));
   const minWidths = types.map((type, i) => (type === "text" ? 0 : valueMinWidth(cells.map((r) => r[i]))));
   const layout = columnLayout(types, PDF_PAGE.contentWidth - indent, kept.columns.map((column) => column.label), minWidths);
+  // Colunas demais para a largura da página: cada linha sai como registro (rótulo/valor), sem sobreposição.
+  if (!columnsFit(types, PDF_PAGE.contentWidth - indent, kept.columns.map((column) => column.label), minWidths, cells)) {
+    return <StackedRows columns={kept.columns} data={data} title={title} indent={indent} />;
+  }
   const widths = layout.map((col) => col.width);
   const heights = data.map((row) => (row.heading ? 0 : estimateRowHeight(row.cells, widths)));
   const heightOf = new Map(data.map((row, i) => [row, heights[i]]));
@@ -209,6 +215,39 @@ export function PdfTable({
           </View>
         );
       })}
+    </View>
+  );
+}
+
+const EMPTY_FIELD = /^(—|-|)$/;
+
+function StackedRows({ columns, data, title, indent }: { columns: PdfTableColumn[]; data: PdfTableRow[]; title?: string; indent: number }) {
+  return (
+    <View style={{ marginLeft: indent }}>
+      {title ? <Text style={st.title}>{title}</Text> : null}
+      {data.map((row, i) =>
+        row.heading ? (
+          <View key={i} style={st.noShrink}>
+            {row.heading}
+            {row.extra}
+          </View>
+        ) : (
+          <View key={i} style={st.noShrink}>
+            <View
+              wrap={false}
+              style={[st.record, i % 2 === 1 ? { backgroundColor: PDF_COLORS.zebra } : {}]}
+            >
+              {columns.map((column, c) => (EMPTY_FIELD.test(row.cells[c]?.trim() ?? "") ? null : (
+                <View key={c} style={st.fieldBox}>
+                  <Text style={st.fieldLabel}>{column.label}</Text>
+                  <Text style={st.fieldValue}>{row.cells[c]}</Text>
+                </View>
+              )))}
+            </View>
+            {row.extra ? <View style={st.extraBox}>{row.extra}</View> : null}
+          </View>
+        ),
+      )}
     </View>
   );
 }

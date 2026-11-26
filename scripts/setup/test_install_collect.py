@@ -108,3 +108,29 @@ class CollectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AskMissingAsaasTest(unittest.TestCase):
+    class Core:
+        def __init__(self, answer):
+            self.answer, self.secret_values, self.lines = answer, set(), []
+            self.getpass_fn = lambda prompt: self.answer
+            self.say = self.lines.append
+
+    def test_chave_vazia_grava_driver_url_e_token(self):
+        core = self.Core("k-abc")
+        got = col.ask_missing_asaas(core, {"ASAAS_API_KEY": ""})
+        self.assertEqual((got["ASAAS_DRIVER"], got["ASAAS_API_KEY"], got["ASAAS_API_BASE_URL"]), ("asaas", "k-abc", "https://api.asaas.com"))
+        self.assertGreaterEqual(len(got["ASAAS_WEBHOOK_TOKEN"]), 32)
+        self.assertIn("k-abc", core.secret_values)
+        self.assertFalse(any(got["ASAAS_WEBHOOK_TOKEN"] in line for line in core.lines))
+
+    def test_enter_pula(self):
+        self.assertEqual(col.ask_missing_asaas(self.Core(""), {}), {})
+
+    def test_chave_preenchida_nunca_pergunta(self):
+        def boom(_):
+            raise AssertionError("perguntou")
+        core = self.Core("x")
+        core.getpass_fn = boom
+        self.assertEqual(col.ask_missing_asaas(core, {"ASAAS_API_KEY": "ja-tem"}), {})

@@ -19,7 +19,7 @@ import install_detect as det
 import install_update as upd
 import install_verify as ver
 import setup_production as sp
-from install_collect import yes_no
+from install_collect import ask_missing_asaas, yes_no
 from install_core import (ENV_FILE, GH_ENV, STACK, Stop, acquire_lock, backup_env,  # noqa: F401 (re-export para testes)
                           default_runner, read_env_text, write_env_atomic)
 from install_rollback import Rollback
@@ -97,6 +97,9 @@ class Installer(Rollback):
         for key in added_asaas:  # ausentes entram vazias; preenchidas nunca são tocadas
             env[key] = self.reconciled[key] = ""
         self.secret_values |= asaas.secret_values(old_text)
+        if not self.yes and not self.dry_run:
+            for key, value in ask_missing_asaas(self, det.parse_env(old_text)).items():
+                env[key] = self.reconciled[key] = value
         self.preflight_stack({**env, **digests})
         head = self.run(["git", "-C", str(self.root), "rev-parse", "HEAD"])[1].strip()
         note, pending = upd.migrations_note(self.run, self.root, env.get("CS_DEPLOYED_SHA", ""))
