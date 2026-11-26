@@ -103,9 +103,14 @@ def ask_missing_asaas(core, current: dict[str, str]) -> dict[str, str]:
         values["ASAAS_API_BASE_URL"] = asaas.DEFAULT_URL
     token = current.get("ASAAS_WEBHOOK_TOKEN", "")
     if len(token) < asaas.MIN_TOKEN:
-        token = secrets.token_hex(24)
-        core.say("Token do webhook gerado e gravado em ASAAS_WEBHOOK_TOKEN no .env.production "
-                 "(copie de lá para o painel do Asaas; o valor não é impresso).")
+        token = core.getpass_fn(f"Token do webhook do Asaas (mín. {asaas.MIN_TOKEN} caracteres; vazio = gerar um): ").strip()
+        while token and len(token) < asaas.MIN_TOKEN:
+            print("  token curto demais, tente de novo.")
+            token = core.getpass_fn(f"Token do webhook do Asaas (mín. {asaas.MIN_TOKEN} caracteres; vazio = gerar um): ").strip()
+        if not token:
+            token = secrets.token_hex(24)
+            core.say("Token do webhook gerado e gravado em ASAAS_WEBHOOK_TOKEN no .env.production "
+                     "(copie de lá para o painel do Asaas; o valor não é impresso).")
         values["ASAAS_WEBHOOK_TOKEN"] = token
     core.secret_values |= {key, token}
     return values

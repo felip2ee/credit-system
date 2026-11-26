@@ -112,9 +112,9 @@ if __name__ == "__main__":
 
 class AskMissingAsaasTest(unittest.TestCase):
     class Core:
-        def __init__(self, answer):
-            self.answer, self.secret_values, self.lines = answer, set(), []
-            self.getpass_fn = lambda prompt: self.answer
+        def __init__(self, answer, token=""):
+            self.answer, self.secret_values, self.lines, self.prompts = answer, set(), [], []
+            self.getpass_fn = lambda prompt: (self.prompts.append(prompt), token if "Token" in prompt else self.answer)[1]
             self.say = self.lines.append
 
     def test_chave_vazia_grava_driver_url_e_token(self):
@@ -124,6 +124,13 @@ class AskMissingAsaasTest(unittest.TestCase):
         self.assertGreaterEqual(len(got["ASAAS_WEBHOOK_TOKEN"]), 32)
         self.assertIn("k-abc", core.secret_values)
         self.assertFalse(any(got["ASAAS_WEBHOOK_TOKEN"] in line for line in core.lines))
+
+    def test_pergunta_o_token_do_webhook_depois_da_chave(self):
+        core = self.Core("k-abc", token="t" * 40)
+        got = col.ask_missing_asaas(core, {})
+        self.assertEqual(got["ASAAS_WEBHOOK_TOKEN"], "t" * 40)
+        self.assertEqual(len(core.prompts), 2)
+        self.assertIn("Token do webhook", core.prompts[1])
 
     def test_enter_pula(self):
         self.assertEqual(col.ask_missing_asaas(self.Core(""), {}), {})
