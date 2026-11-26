@@ -35,6 +35,8 @@ import { reserveOrder } from "@/lib/settlement/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedBureauCost, seedCatalogItem, seedClientProfile, seedClientWalletTopup, seedTenant, seedWalletTopup, withDbContext, type SeededTenant } from "@/test/seed";
 
+import { countPendingClientPixCharges, listClientPixCharges } from "@/lib/wallet/pix-charges";
+
 import { openOrder, placeOrder, refreshOrderState } from "./queries";
 import type { OpenOrderInput } from "./types";
 
@@ -262,5 +264,16 @@ describe("order PIX schema", () => {
 		await withDbContext(pool, clientCtx(buyerOf(t)), async (c) => {
 			await expect(c.query("delete from order_pix_quotes")).rejects.toMatchObject({ code: "42501" });
 		});
+	});
+
+	it("keeps the order PIX out of the top-up list and the top-up pending cap", async () => {
+		const t = await newTenant("ops topup apart");
+		const dossierId = await openOnlineOrder(buyerOf(t));
+		await seedQuote(t, dossierId);
+		await ownerCharge(t, dossierId, "pending");
+
+		const buyer = buyerOf(t);
+		expect(await withUserTransaction(buyer, (c) => listClientPixCharges(c, buyer.userId))).toEqual([]);
+		expect(await withUserTransaction(buyer, (c) => countPendingClientPixCharges(c, buyer.userId))).toBe(0);
 	});
 });

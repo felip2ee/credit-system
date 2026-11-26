@@ -229,12 +229,12 @@ export async function countPendingPixCharges(client: PoolClient, bureauId: strin
 	return rows[0].total;
 }
 
-// Teto próprio de cada cliente. Usa pix_charges_client_created_idx (client_profile_id, ...): não é o índice
+// Teto próprio de cada cliente, só da recarga: o PIX do pedido (order_id) não conta. Usa pix_charges_client_created_idx (client_profile_id, ...): não é o índice
 // parcial de pendentes, mas um cliente tem poucas linhas e o plano filtra status/expiração sobre elas.
 export async function countPendingClientPixCharges(client: PoolClient, clientProfileId: string): Promise<number> {
 	const { rows } = await client.query<{ total: number }>(
 		`select count(*)::int as total from pix_charges
-		  where client_profile_id = $1 and billing_type = 'PIX' and status = 'pending' and expires_at > now()`,
+		  where client_profile_id = $1 and order_id is null and billing_type = 'PIX' and status = 'pending' and expires_at > now()`,
 		[clientProfileId],
 	);
 	return rows[0].total;
@@ -286,7 +286,7 @@ export async function listPixCharges(client: PoolClient, bureauId: string): Prom
 	return rows.map(toCharge);
 }
 
-// Cobrança do cliente na tela dele: o código PIX só vem enquanto a cobrança está pendente.
+// Recarga do cliente na tela dele (sem o PIX do pedido): o código PIX só vem enquanto a cobrança está pendente.
 export type ClientPixCharge = Omit<PixCharge, "pixPayload"> & { pixPayload: string | null };
 
 export async function listClientPixCharges(client: PoolClient, clientProfileId: string): Promise<ClientPixCharge[]> {
@@ -295,7 +295,7 @@ export async function listClientPixCharges(client: PoolClient, clientProfileId: 
 		   case when status = 'pending' and expires_at < now() then 'expired' else status end as status,
 		   case when status = 'pending' and expires_at >= now() then pix_payload end as pix_payload,
 		   expires_at, created_at
-		 from pix_charges where client_profile_id = $1 order by created_at desc limit $2`,
+		 from pix_charges where client_profile_id = $1 and order_id is null order by created_at desc limit $2`,
 		[clientProfileId, LIST_LIMIT],
 	);
 	return rows.map((r) => ({

@@ -74,6 +74,18 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 					{!ended && orderStepLines(order).map((line) => <p key={line}>{line}</p>)}
 				</CardContent>
 			</Card>
+			{order.state === "awaiting_payment" && order.mode === "online" && (
+				<StatusBanner
+					tone="waiting"
+					title="Aguardando o pagamento do PIX"
+					description="O pedido segue sozinho depois que o pagamento for confirmado."
+					action={
+						<Button asChild>
+							<Link href={`/portal/pesquisas/${order.dossierId}/pagar`}>Pagar com PIX</Link>
+						</Button>
+					}
+				/>
+			)}
 			{failure && (
 				<StatusBanner
 					tone={order.state === "failed" ? "attention" : "neutral"}

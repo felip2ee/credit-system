@@ -143,7 +143,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 				setServerError(result?.error ?? "Não foi possível abrir o pedido.");
 				return;
 			}
-			router.push(`/portal/pesquisas/${result.id}`);
+			router.push(`/portal/pesquisas/${result.id}${result.paymentRequired ? "/pagar" : ""}`);
 		});
 	};
 

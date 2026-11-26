@@ -62,6 +62,23 @@ async function insertUser(client: PoolClient, input: { email: string; password: 
   return id;
 }
 
+type ClientCredentials = { email: string; password: string; cpf: string; phone: string };
+
+async function insertClient(client: PoolClient, bureauId: string, name: string, creds: ClientCredentials) {
+  const clientId = await insertUser(client, { ...creds, name, role: "client", bureauId });
+  await client.query(
+    `insert into holders (bureau_id, type, name, document, email, phone, client_profile_id, created_by)
+     values ($1, 'PF', $2, $3, $4, $5, $6, $6)`,
+    [bureauId, name, creds.cpf, creds.email, creds.phone, clientId],
+  );
+  await client.query(
+    `insert into legal_acceptances (profile_id, document_id)
+     select $1, d.id from (select distinct on (kind) id from legal_documents where published_at <= now() order by kind, version desc) d`,
+    [clientId],
+  );
+  return clientId;
+}
+
 export default async function globalSetup() {
   assertE2eDatabase(DATABASE_OWNER_URL);
   mkdirSync(AUTH_DIR, { recursive: true });
@@ -76,20 +93,12 @@ export default async function globalSetup() {
     const staffId = await insertUser(client, { ...E2E.staff, name: "e2e Operador", role: "operator", bureauId });
     await insertUser(client, { ...E2E.superadmin, name: "e2e Superadmin", role: "superadmin", bureauId: null });
     const disabledId = await insertUser(client, { ...E2E.disabled, name: "e2e Desativado", role: "operator", bureauId });
-    const clientId = await insertUser(client, { ...E2E.client, name: "e2e Cliente", role: "client", bureauId });
-    await client.query(
-      `insert into holders (bureau_id, type, name, document, email, phone, client_profile_id, created_by)
-       values ($1, 'PF', 'e2e Cliente', $2, $3, $4, $5, $5)`,
-      [bureauId, E2E.client.cpf, E2E.client.email, E2E.client.phone, clientId],
-    );
-    await client.query(
-      `insert into legal_acceptances (profile_id, document_id)
-       select $1, d.id from (select distinct on (kind) id from legal_documents where published_at <= now() order by kind, version desc) d`,
-      [clientId],
-    );
+    const clientId = await insertClient(client, bureauId, "e2e Cliente", E2E.client);
+    const clientNoBalanceId = await insertClient(client, bureauId, "e2e Cliente PIX", E2E.clientNoBalance);
     // Phone fields change only through account functions; the e2e run confirms the phone directly.
     await client.query("set local session_replication_role = replica");
     await client.query("update profiles set phone_e164 = $2, phone_verified_at = now() where id = $1", [clientId, E2E.client.phone]);
+    await client.query("update profiles set phone_e164 = $2, phone_verified_at = now() where id = $1", [clientNoBalanceId, E2E.clientNoBalance.phone]);
     await client.query("update profiles set is_active = false where id = $1", [disabledId]);
     await client.query(
       "insert into bureau_affiliate_settings (bureau_id, default_pct, updated_by) values ($1, $2, $3)",
