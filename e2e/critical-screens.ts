@@ -1,6 +1,6 @@
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
-import { CLIENT_STATE, dbQuery, E2E, openOrder, resetRateLimit, runTick, STAFF_STATE, SUPERADMIN_STATE, TICK_POLL_TIMEOUT_MS } from "./fixtures";
+import { addPerson, CLIENT_STATE, dbQuery, E2E, openOrder, resetRateLimit, runTick, STAFF_STATE, startCompanyOrder, SUPERADMIN_STATE, TICK_POLL_TIMEOUT_MS, validCpf } from "./fixtures";
 
 // The 10 critical client screens and the first screen of each panel (spec "Telas críticas do cliente").
 // Shared by a11y.spec.ts and mobile.spec.ts.
@@ -37,6 +37,34 @@ export const SCREENS: Screen[] = [
   { name: "portal: termos", auth: "client", open: goto(() => "/portal/termos") },
   { name: "portal: início", auth: "client", open: goto(() => "/portal") },
   { name: "portal: nova pesquisa", auth: "client", open: goto(() => "/portal/pesquisas/nova") },
+  {
+    name: "portal: nova pesquisa, dados da empresa",
+    auth: "client",
+    open: async (page) => {
+      await page.goto("/portal/pesquisas/nova");
+      await page.getByRole("radio", { name: /Para uma empresa/ }).check();
+      await page.getByRole("button", { name: "Continuar" }).click();
+      await expect(page.getByRole("heading", { name: "Dados da empresa" })).toBeVisible();
+    },
+  },
+  {
+    name: "portal: nova pesquisa, pessoas",
+    auth: "client",
+    open: async (page) => {
+      await startCompanyOrder(page);
+      await addPerson(page, 1, { name: "e2e Pessoa Tela", cpf: validCpf(), email: `e2e-tela-${Date.now()}@example.test` });
+    },
+  },
+  {
+    name: "portal: nova pesquisa, revisão",
+    auth: "client",
+    open: async (page) => {
+      await startCompanyOrder(page);
+      await addPerson(page, 1, { name: "e2e Pessoa Tela", cpf: validCpf(), email: `e2e-tela-${Date.now()}@example.test` });
+      await page.getByRole("button", { name: "Continuar" }).click();
+      await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
+    },
+  },
   { name: "portal: lista de pesquisas", auth: "client", open: goto(() => "/portal/pesquisas") },
   { name: "portal: andamento do pedido", auth: "client", open: goto((ids) => `/portal/pesquisas/${ids.dossierId}`) },
   { name: "portal: créditos (PIX)", auth: "client", open: goto(() => "/portal/credits") },
