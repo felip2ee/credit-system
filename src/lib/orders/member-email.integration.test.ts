@@ -373,7 +373,7 @@ describe("update_my_order_member_email (068)", () => {
 	it("enforces the cooldown and the daily limit", async () => {
 		const t = await newTenant("me limit");
 		const { dossierId, partner } = await companyWithPartner(t);
-		const limit = (await pool.query<{ n: number }>("select client_member_change_limit() as n")).rows[0].n;
+		const limit = (await owner.query<{ n: number }>("select client_member_change_limit() as n")).rows[0].n;
 		expect(limit).toBe(3);
 
 		expect((await call(t.client, dossierId, partner.consultation_id, mail())).ok).toBe(true);
@@ -402,7 +402,7 @@ describe("update_my_order_member_email (068)", () => {
 
 		expect(results.map((r) => r.reason).sort()).toEqual([null, "resend_too_soon"]);
 		expect((await authRow(partner.scr_id)).changes).toBe(1);
-		expect(await memberAudit(dossierId)).toHaveLength(1);
+		expect((await memberAudit(dossierId)).map((r) => r.action).sort()).toEqual(["order.member_email_attempt", "order.member_email_update"]);
 	});
 
 	it("resends without a new email", async () => {
@@ -438,6 +438,176 @@ describe("update_my_order_member_email (068)", () => {
 
 		expect(await call(t.client, dossierId, partner.consultation_id, target)).toMatchObject({ ok: false, reason: "too_many_requests" });
 		expect((await authRow(partner.scr_id)).changes).toBe(0);
+	});
+});
+
+const attempts = async (dossierId: string) =>
+	(await owner.query("select * from audit_logs where record_id = $1 and action = 'order.member_email_attempt'", [dossierId])).rows;
+const dailyCap = async () => (await owner.query<{ n: number }>("select client_member_daily_cap() as n")).rows[0].n;
+
+describe("abuse caps (069)", () => {
+	it("caps the actions of one client across all of their authorizations", async () => {
+		const t = await newTenant("cap agg", "3000.00");
+		const cap = await dailyCap();
+		expect(cap).toBe(10);
+		const orders = [];
+		for (let i = 0; i < 4; i++) orders.push(await companyWithPartner(t));
+
+		// Trocas com e-mail igual não gastam nada, nem o teto agregado.
+		for (let i = 0; i < cap + 1; i++) {
+			expect(await call(t.client, orders[0].dossierId, orders[0].partner.consultation_id, orders[0].partner.email)).toMatchObject({
+				reason: "same_email",
+			});
+		}
+		let done = 0;
+		for (const o of orders) {
+			for (let k = 0; k < 3 && done < cap; k++, done++) {
+				await ageChanges(o.partner.scr_id);
+				expect((await call(t.client, o.dossierId, o.partner.consultation_id, mail())).ok).toBe(true);
+			}
+		}
+		expect(done).toBe(cap);
+
+		// A 4ª autorização ainda tem limite próprio, mas o teto do cliente já acabou: motivo existente, nada muda.
+		const last = orders[3];
+		const before = await authRow(last.partner.scr_id);
+		await ageChanges(last.partner.scr_id);
+		expect(await call(t.client, last.dossierId, last.partner.consultation_id, mail())).toMatchObject({
+			ok: false,
+			reason: "too_many_requests",
+		});
+		expect(await call(t.client, last.dossierId, last.partner.consultation_id, null)).toMatchObject({
+			ok: false,
+			reason: "too_many_requests",
+		});
+		const after = await authRow(last.partner.scr_id);
+		expect(after.public_token).toBe(before.public_token);
+		expect(after.email).toBe(before.email);
+		expect((await owner.query("select count(*)::int as n from audit_logs where user_id = $1 and action like 'order.member_%'", [t.client.userId])).rows[0].n).toBe(cap);
+	});
+
+	it("counts a refused attempt and does not spend the authorization limit", async () => {
+		const t = await newTenant("cap attempt");
+		const { dossierId, partner, wrong } = await companyWithPartner(t);
+		const right = "novo@example.com";
+		expect((await call(t.client, dossierId, partner.consultation_id, right)).ok).toBe(true);
+
+		for (let i = 0; i < 3; i++) {
+			expect(await call(t.client, dossierId, partner.consultation_id, mail())).toMatchObject({ ok: false, reason: "resend_too_soon" });
+		}
+
+		// 1 troca; as recusas não entram em contact_changes_at.
+		expect((await authRow(partner.scr_id)).changes).toBe(1);
+		const rows = await attempts(dossierId);
+		expect(rows).toHaveLength(3);
+		expect(rows[0]).toMatchObject({ user_id: t.client.userId, bureau_id: t.bureau.id, table_name: "dossier_orders" });
+		expect(rows[0].metadata).toEqual({ consultation_id: partner.consultation_id, authorization_id: partner.scr_id, reason: "resend_too_soon" });
+		const text = JSON.stringify(rows);
+		expect(text).not.toContain(right);
+		expect(text).not.toContain(wrong);
+
+		// 1 sucesso + 3 recusas = 4 no teto: sobram cap - 4 ações.
+		const cap = await dailyCap();
+		await owner.query(
+			`insert into audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+			 select $1, $2, 'order.member_email_attempt', 'dossier_orders', $3, '{}'::jsonb from generate_series(1, $4)`,
+			[t.bureau.id, t.client.userId, dossierId, cap - 4],
+		);
+		await ageChanges(partner.scr_id);
+		expect(await call(t.client, dossierId, partner.consultation_id, mail())).toMatchObject({ ok: false, reason: "too_many_requests" });
+	});
+
+	it("counts the refused recipient cap as an attempt", async () => {
+		const t = await newTenant("cap recipient", "3000.00");
+		const target = "alvo@example.com";
+		for (let i = 0; i < 3; i++) await place(t, t.client, companyInput([target]));
+		const { dossierId, partner } = await companyWithPartner(t);
+
+		expect(await call(t.client, dossierId, partner.consultation_id, target)).toMatchObject({ ok: false, reason: "too_many_requests" });
+
+		const rows = await attempts(dossierId);
+		expect(rows).toHaveLength(1);
+		expect(rows[0].metadata.reason).toBe("too_many_requests");
+		expect(JSON.stringify(rows)).not.toContain(target);
+		expect((await authRow(partner.scr_id)).changes).toBe(0);
+	});
+
+	it("caps pending requests per phone, also on resend", async () => {
+		const t = await newTenant("cap phone", "3000.00");
+		const phone = "+5511999991111";
+		for (let i = 0; i < 3; i++) {
+			const other = await companyWithPartner(t);
+			await owner.query("update scr_authorizations set phone_e164 = $2 where id = $1", [other.partner.scr_id, phone]);
+		}
+		const { dossierId, partner } = await companyWithPartner(t);
+		await owner.query("update scr_authorizations set phone_e164 = $2 where id = $1", [partner.scr_id, phone]);
+
+		expect(await call(t.client, dossierId, partner.consultation_id, mail())).toMatchObject({ ok: false, reason: "too_many_requests" });
+		expect(await call(t.client, dossierId, partner.consultation_id, null)).toMatchObject({ ok: false, reason: "too_many_requests" });
+
+		expect((await authRow(partner.scr_id)).changes).toBe(0);
+		expect(await attempts(dossierId)).toHaveLength(2);
+		expect(JSON.stringify(await attempts(dossierId))).not.toContain(phone);
+
+		// Sem o telefone compartilhado a troca passa.
+		await owner.query("update scr_authorizations set phone_e164 = null where id = $1", [partner.scr_id]);
+		expect((await call(t.client, dossierId, partner.consultation_id, mail())).ok).toBe(true);
+	});
+
+	it("keeps the cap of one client away from another client of the same bureau", async () => {
+		const t = await newTenant("cap isolation", "3000.00");
+		const b = await seedClientProfile(owner, t.bureau.id);
+		await seedClientWalletTopup(owner, { clientProfileId: b.userId, amount: "300.00", createdBy: t.bureauAdmin.userId });
+		const a1 = await companyWithPartner(t);
+		const bOrder = await place(t, b, companyInput([mail()]));
+		const bPartner = await partnerOf(bOrder);
+		const cap = await dailyCap();
+		await owner.query(
+			`insert into audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+			 select $1, $2, 'order.member_resend', 'dossier_orders', $3, '{}'::jsonb from generate_series(1, $4)`,
+			[t.bureau.id, t.client.userId, a1.dossierId, cap],
+		);
+
+		expect(await call(t.client, a1.dossierId, a1.partner.consultation_id, mail())).toMatchObject({ ok: false, reason: "too_many_requests" });
+		// B segue livre e não escreve nem lê o contador de A.
+		expect((await call(b, bOrder, bPartner.consultation_id, mail())).ok).toBe(true);
+		// B não alcança a autorização de A, e a tentativa não conta para ninguém.
+		expect(await call(b, a1.dossierId, a1.partner.consultation_id, mail())).toMatchObject({ ok: false, reason: "not_found" });
+		expect((await owner.query("select count(*)::int as n from audit_logs where user_id = $1 and action like 'order.member_%'", [b.userId])).rows[0].n).toBe(1);
+	});
+
+	it("refuses an authorization that belongs to another buyer", async () => {
+		const t = await newTenant("cap buyer");
+		const other = await seedClientProfile(owner, t.bureau.id);
+		const { dossierId, partner } = await companyWithPartner(t);
+		await owner.query("update scr_authorizations set client_profile_id = $2 where id = $1", [partner.scr_id, other.userId]);
+
+		expect(await call(t.client, dossierId, partner.consultation_id, mail())).toEqual({ ok: false, reason: "not_found", authorization_id: null });
+		expect(await memberAudit(dossierId)).toEqual([]);
+	});
+
+	it("works without the select grant on consultations.scr_email", async () => {
+		const priv = (
+			await owner.query<{ ok: boolean }>("select has_column_privilege('auth_profile_lookup', 'public.consultations', 'scr_email', 'select') as ok")
+		).rows[0].ok;
+		expect(priv).toBe(false);
+
+		const t = await newTenant("cap scr email");
+		const { dossierId, partner } = await companyWithPartner(t);
+		const before = (await owner.query("select scr_email from consultations where id = $1", [partner.consultation_id])).rows[0];
+		// Reenviar não toca scr_email.
+		expect((await call(t.client, dossierId, partner.consultation_id, null)).ok).toBe(true);
+		expect((await owner.query("select scr_email from consultations where id = $1", [partner.consultation_id])).rows[0]).toEqual(before);
+		// Corrigir grava o e-mail novo.
+		await ageChanges(partner.scr_id);
+		const right = mail();
+		expect((await call(t.client, dossierId, partner.consultation_id, right)).ok).toBe(true);
+		expect((await owner.query("select scr_email from consultations where id = $1", [partner.consultation_id])).rows[0]).toEqual({ scr_email: right });
+	});
+
+	it("keeps the cap functions closed to the app role", async () => {
+		await expect(pool.query("select client_member_daily_cap()")).rejects.toThrow(/permission denied/);
+		await expect(pool.query("select client_member_change_limit()")).rejects.toThrow(/permission denied/);
 	});
 });
 

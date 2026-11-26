@@ -49,6 +49,7 @@ A página do pedido lista cada membro com o estado: pendente, autorizado, recusa
 - Recusas sem gastar limite: `same_email` (e-mail igual ao atual, sem diferença de caixa), `contact_is_buyer`, `own_account_email` (o membro é um Titular do comprador: só reenviar). Teto de 3 autorizações `pending` em 24 h por destinatário: `too_many_requests`.
 - `client_order_members` devolve o id da consulta, o e-mail mascarado e as flags `can_edit_email`, `can_resend` e `changes_left`. A interface só lê as flags; o servidor decide de novo a cada ação.
 - Auditoria na mesma transação: `order.member_email_update` e `order.member_resend`, com e-mail mascarado e `shared_dossiers`. Nunca guarda o e-mail completo nem o documento.
+- Tetos contra abuso (069): no máximo 10 ações por cliente em 24 h (trocas, reenvios e tentativas recusadas, `client_member_daily_cap()`), 3 pedidos pendentes por celular de terceiro, e a recusa por `resend_too_soon` ou `too_many_requests` grava `order.member_email_attempt` (só ids e motivo) sem gastar o limite da autorização. Acima do teto o motivo é `too_many_requests`.
 
 ### Cancelamento pelo cliente
 
