@@ -4,6 +4,7 @@ import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 
 import { percentageSchema } from "./holder";
 import { uuidSchema } from "./id";
+import { payerFieldsSchema } from "./payer";
 
 export const MAX_PARTNERS = 20;
 const MAX_REASON = 500;
@@ -150,6 +151,15 @@ export const counterOrderSchema = z
 	}));
 
 export const orderIdSchema = uuidSchema;
+
+// PIX do pedido. Sem valor nem método: o preço vem da cotação guardada no servidor e o método é sempre PIX.
+export const orderPixSchema = z.object({
+	dossierId: uuidSchema,
+	idempotencyKey: z.string().uuid(),
+	payerKind: z.enum(["owner", "other"]).default("owner"),
+	payer: payerFieldsSchema.optional(),
+	declaration: z.literal(true).optional(),
+});
 
 // Correção do contato do pedido de autorização. E-mail e celular em branco = manter o atual (reenvio). Para o próprio
 // Titular do comprador o servidor usa o e-mail da conta e descarta o que for digitado.

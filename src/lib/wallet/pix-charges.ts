@@ -29,8 +29,11 @@ export type PixCharge = {
 
 export type BillingType = "PIX" | "CREDIT_CARD";
 
-// Dono da carteira que recebe a recarga: o cliente (portal) ou o Bureau (empresa).
-export type ChargeScope = { kind: "client"; clientProfileId: string } | { kind: "bureau"; bureauId: string };
+// Dono da carteira que recebe a recarga: o cliente (portal) ou o Bureau (empresa). `orderId`: cobrança Pix do pedido
+// online (063); o banco só aceita o valor guardado em order_pix_quotes.
+export type ChargeScope =
+	| { kind: "client"; clientProfileId: string; orderId?: string }
+	| { kind: "bureau"; bureauId: string };
 
 export const MAX_CARD_ATTEMPTS_PER_HOUR = 5;
 export const MAX_CARD_ATTEMPTS_PER_IP_PER_HOUR = 10;
@@ -71,10 +74,11 @@ export async function reserveCharge(
 	if (!topupAmountSchema.safeParse(input.amount).success) return { ok: false, reason: "invalid_amount" };
 
 	const clientProfileId = input.scope.kind === "client" ? input.scope.clientProfileId : null;
+	const orderId = input.scope.kind === "client" ? (input.scope.orderId ?? null) : null;
 	const { rows } = await client.query<{ id: string; expires_at: Date }>(
 		`insert into pix_charges (bureau_id, external_reference, amount, expires_at, requested_by, client_profile_id,
-		   billing_type, installments, fee_amount, total_charged, payer_kind, payer_document_masked, request_ip)
-		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		   billing_type, installments, fee_amount, total_charged, payer_kind, payer_document_masked, request_ip, order_id)
+		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 on conflict (external_reference) do nothing
 		 returning id, expires_at`,
 		[
@@ -91,6 +95,7 @@ export async function reserveCharge(
 			input.payerKind,
 			input.payerDocumentMasked,
 			input.requestIp ?? null,
+			orderId,
 		],
 	);
 	if (rows[0]) {

@@ -77,9 +77,22 @@ import { withUserTransaction } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
+import { quoteOrder } from "@/lib/catalog/quote";
+import { placeOrder } from "@/lib/orders/queries";
+import type { OpenOrderInput } from "@/lib/orders/types";
 import { leaks } from "@/test/leaks";
-import { seedClientProfile, seedTenant, type SeededTenant } from "@/test/seed";
+import { reserveCharge } from "@/lib/wallet/pix-charges";
+import {
+	seedBureauCost,
+	seedCatalogItem,
+	seedClientProfile,
+	seedTenant,
+	seedWalletTopup,
+	type SeededTenant,
+} from "@/test/seed";
 import { computeCardCharge } from "@/lib/wallet/card-fees";
+
+import { revalidatePath } from "next/cache";
 
 import { runCheckout } from "./checkout";
 
@@ -579,5 +592,108 @@ describe("sensitive data", () => {
 		expect(audit.rows.length).toBeGreaterThan(0);
 		for (const secret of [GOOD_CARD, DECLINED_CARD, CVV, CPF, CEP]) expect(leaks(seen, secret), secret).toBe(false);
 		expect(leaks(seen, "2099")).toBe(false);
+	});
+});
+
+describe("order PIX", () => {
+	const orderInput: OpenOrderInput = {
+		productCode: "dossie_pf",
+		self: true,
+		subject: null,
+		partners: [],
+		contact: { email: null, phoneE164: null },
+		buyerProfileId: null,
+	};
+
+	// Pedido online sem saldo do cliente: fica em awaiting_payment com o preço (50,00) guardado na cotação.
+	async function awaitingOrder(label: string) {
+		const t = await seedTenant(owner, label);
+		await owner.query("update products set active = true where code = 'dossie_pf'");
+		const { rows } = await owner.query<{ id: string }>("select id from products where code = 'dossie_pf'");
+		await seedBureauCost(owner, { bureauId: t.bureau.id, productId: rows[0].id, cost: "1.00", costPerPartner: "0.00", setBy: t.bureauAdmin.userId });
+		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: rows[0].id, salePrice: "50.00", salePricePerPartner: "0.00", updatedBy: t.bureauAdmin.userId });
+		await seedWalletTopup(owner, { bureauId: t.bureau.id, amount: "200.00", createdBy: t.bureauAdmin.userId });
+		await giveHolderAddress(t);
+		const q = await quoteOrder({ ...t.operator }, "dossie_pf", { partnerCount: 0 });
+		if (!q.ok) throw new Error(`quote failed: ${q.reason}`);
+		const placed = await placeOrder({ ...t.client }, orderInput, q);
+		if (!placed.ok || placed.state !== "awaiting_payment") throw new Error("order not awaiting payment");
+		return { t, dossierId: placed.dossierId };
+	}
+	const orderScope = (t: SeededTenant, orderId: string) => ({ ...clientScope(t), orderId });
+	const withFee = async (value: string, run: () => Promise<void>) => {
+		const before = process.env.PIX_FEE_CENTS;
+		process.env.PIX_FEE_CENTS = value;
+		try {
+			await run();
+		} finally {
+			if (before === undefined) delete process.env.PIX_FEE_CENTS;
+			else process.env.PIX_FEE_CENTS = before;
+		}
+	};
+
+	it("order charge stores order_id and the quote amount", async () => {
+		await withFee("199", async () => {
+			const { t, dossierId } = await awaitingOrder("Ord Pix");
+			const body = input({ amount: "50.00" });
+
+			const result = await runCheckout(t.client, orderScope(t, dossierId), body, META);
+
+			expect(result).toMatchObject({ error: null, method: "PIX", summary: { rechargeCents: 5000, feeCents: 199, totalCents: 5199 } });
+			expect(hooks.pixAmounts).toEqual(["51.99"]);
+			const { rows } = await owner.query(
+				"select order_id, amount, fee_amount, total_charged, client_profile_id from pix_charges where external_reference = $1",
+				[body.idempotencyKey],
+			);
+			expect(rows).toEqual([
+				{ order_id: dossierId, amount: "50.00", fee_amount: "1.99", total_charged: "51.99", client_profile_id: t.client.userId },
+			]);
+			expect(revalidatePath).toHaveBeenCalledWith(`/portal/pesquisas/${dossierId}/pagar`);
+			expect(revalidatePath).toHaveBeenCalledWith(`/portal/pesquisas/${dossierId}`);
+		});
+	});
+
+	it("order charge with a tampered amount fails closed", async () => {
+		const { t, dossierId } = await awaitingOrder("Ord Tamper");
+		const body = input({ amount: "49.00" });
+
+		const attempt = withUserTransaction(t.client, (client) =>
+			reserveCharge(client, t.client, {
+				scope: orderScope(t, dossierId),
+				externalReference: body.idempotencyKey,
+				amount: "49.00",
+				billingType: "PIX",
+				installments: 1,
+				feeAmount: "0.00",
+				totalCharged: null,
+				payerKind: "owner",
+				payerDocumentMasked: "***.982.***-**",
+			}),
+		);
+
+		await expect(attempt).rejects.toThrow();
+		expect(await countRows(t.bureau.id)).toBe(0);
+	});
+
+	it("a second live charge for the same order is refused", async () => {
+		const { t, dossierId } = await awaitingOrder("Ord Twice");
+		const first = await runCheckout(t.client, orderScope(t, dossierId), input({ amount: "50.00" }), META);
+
+		const second = await runCheckout(t.client, orderScope(t, dossierId), input({ amount: "50.00" }), META);
+
+		expect(first.error).toBeNull();
+		expect(second.error).not.toBeNull();
+		expect(hooks.pix).toBe(1);
+		expect(await countRows(t.bureau.id)).toBe(1);
+	});
+
+	it("an order accepts only PIX", async () => {
+		const { t, dossierId } = await awaitingOrder("Ord Card");
+
+		const result = await runCheckout(t.client, orderScope(t, dossierId), cardInput({ amount: "50.00" }), META);
+
+		expect(result).toEqual({ error: "Este pedido só aceita PIX." });
+		expect(hooks.card).toBe(0);
+		expect(await countRows(t.bureau.id)).toBe(0);
 	});
 });
