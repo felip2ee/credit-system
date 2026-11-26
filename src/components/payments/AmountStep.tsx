@@ -12,13 +12,15 @@ type Props = {
   priceRows: ReferencePriceRow[];
   amount: string;
   onAmountChange: (amount: string) => void;
+  /** Clique numa linha de preço: preenche o valor e foca o campo. */
+  onPick: (amount: string) => void;
   error?: string;
   disabled: boolean;
   amountRef: Ref<HTMLInputElement>;
 };
 
 // Etapa 1: tabela de preços (cada linha preenche o valor) e o campo de valor.
-export function AmountStep({ priceRows, amount, onAmountChange, error, disabled, amountRef }: Props) {
+export function AmountStep({ priceRows, amount, onAmountChange, onPick, error, disabled, amountRef }: Props) {
   return (
     <div className="space-y-3">
       {priceRows.length > 0 && (
@@ -34,7 +36,7 @@ export function AmountStep({ priceRows, amount, onAmountChange, error, disabled,
                   <button
                     type="button"
                     disabled={disabled || !ok}
-                    onClick={() => onAmountChange(fromCents(row.cents).replace(".", ","))}
+                    onClick={() => onPick(fromCents(row.cents).replace(".", ","))}
                     className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-background disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="min-w-0 flex-1">

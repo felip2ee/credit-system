@@ -21,7 +21,7 @@ import { AmountStep } from "./AmountStep";
 import { CardPaymentForm } from "./CardPaymentForm";
 import { acquireKey, checkoutFingerprint, settleKey, type KeyHolder, type SubmitOutcome } from "./checkout-key";
 import { pixSubmitLabel, pixSummaryFor, pixSummaryLine, unavailableMessage } from "./checkout-summary";
-import { canContinue, errorsForStep, firstStepWithErrors, STEP_TITLE, stepsFor, type Step } from "./checkout-steps";
+import { advance, firstStepWithErrors, previousStep, STEP_TITLE, stepsFor, submitAction, type Step } from "./checkout-steps";
 import { installmentLabel } from "./InstallmentSelect";
 import { MethodStep } from "./MethodStep";
 import { PayerStep } from "./PayerStep";
@@ -66,7 +66,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
   const [isPending, startTransition] = useTransition();
   const amountRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const stepMounted = useRef(false);
+  const prevStep = useRef<Step>("amount");
   const requestSeq = useRef(0);
   const firstLoad = useRef(true);
   const keyHolder = useRef<KeyHolder>(null);
@@ -79,8 +79,8 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
 
   // A cada troca de etapa o foco vai ao título (não na abertura, que foca o valor).
   useEffect(() => {
-    if (stepMounted.current) headingRef.current?.focus();
-    stepMounted.current = true;
+    if (prevStep.current !== step) headingRef.current?.focus();
+    prevStep.current = step;
   }, [step]);
 
   // Ao abrir e quando o valor muda (as parcelas dependem dele).
@@ -132,15 +132,16 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
   const goBack = () => {
     setErrors({});
     setSubmitError(null);
-    setStep(steps[Math.max(0, stepIndex - 1)]);
+    setStep(previousStep(steps, step));
   };
 
   // Avança só se a etapa atual não tem erro; os erros das etapas seguintes ficam para quando chegarem lá.
   const goNext = () => {
     const built = draft("");
     const found = built.ok ? {} : built.errors;
-    setErrors(errorsForStep(step, found));
-    if (canContinue(step, found)) setStep(steps[stepIndex + 1]);
+    const result = advance(steps, step, found);
+    setErrors(result.errors);
+    setStep(result.step);
   };
 
   const changeKind = (next: PayerKind) => {
@@ -162,7 +163,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!isLast) {
+    if (submitAction(steps, step) === "next") {
       goNext();
       return;
     }
@@ -257,7 +258,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
       </div>
 
       {step === "amount" && (
-        <AmountStep priceRows={priceRows} amount={amount} onAmountChange={setAmount} error={errors.amount} disabled={isPending} amountRef={amountRef} />
+        <AmountStep priceRows={priceRows} amount={amount} onAmountChange={setAmount} onPick={(v) => { setAmount(v); amountRef.current?.focus(); }} error={errors.amount} disabled={isPending} amountRef={amountRef} />
       )}
 
       {ctx === null && (
