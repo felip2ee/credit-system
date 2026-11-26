@@ -26,7 +26,7 @@ Fonte: [spec de produto](docs/superpowers/specs/2026-10-13-plataforma-bureau-pro
 - **Assistido (balcão):** o operador cadastra o cliente, registra o pagamento, envia a autorização, executa a consulta e libera o resultado.
 - **Entrega:** relatório na tela, PDF, parecer IA (incluso em todo pedido) e aviso por e-mail, WhatsApp e push no aparelho (portal do cliente, opcional).
 - **Link de pagamento (balcão):** o operador abre a consulta, gera um link `/pagar/<token>` (válido 7 dias) e envia ao cliente. O cliente paga o Pix na página e a baixa é automática.
-- **Cadastro do cliente** em `/b/<slug>`: confirmação de e-mail, validação de CPF/CNPJ, aceite de termos (LGPD) e confirmação do telefone por código no WhatsApp.
+- **Cadastro do cliente** em `/b/<slug>`: validação de CPF/CNPJ, aceite de termos (LGPD) e confirmação do telefone por código no WhatsApp.
 
 ## MVP
 
