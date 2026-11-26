@@ -230,7 +230,6 @@ describe("client orders through the portal actions", () => {
       });
     }
     await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "300.00", createdBy: t.bureauAdmin.userId });
-    await owner.query('update "user" set email_verified = true where id = $1', [t.client.userId]);
     await owner.query(
       `insert into legal_acceptances (profile_id, document_id)
        select $1, d.id from legal_documents d where d.kind in ('terms', 'privacy') and d.published_at <= now()

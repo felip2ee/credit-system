@@ -50,7 +50,7 @@ async function cleanup(client: PoolClient) {
 
 async function insertUser(client: PoolClient, input: { email: string; password: string; name: string; role: string; bureauId: string | null }) {
   const id = randomUUID();
-  await client.query('insert into "user" (id, name, email, email_verified) values ($1, $2, $3, true)', [id, input.name, input.email]);
+  await client.query('insert into "user" (id, name, email) values ($1, $2, $3)', [id, input.name, input.email]);
   await client.query(
     "insert into account (id, issuer, account_id, provider_id, user_id, password, updated_at) values ($1, 'local:credential', $2, 'credential', $2, $3, now())",
     [randomUUID(), id, await hashPassword(input.password)],

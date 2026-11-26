@@ -33,7 +33,7 @@ import { isValidCPF, onlyDigits } from "@/lib/utils";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { randomCpf, seedTenant, type SeededTenant } from "@/test/seed";
 
-import { confirmEmailAction, registerClientAction } from "./register";
+import { registerClientAction } from "./register";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 
@@ -81,8 +81,8 @@ function formValues(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-describe("registerClientAction + confirmEmailAction", () => {
-	it("registers end to end, keeps a verifiable password and confirms the e-mail from the notification token", async () => {
+describe("registerClientAction", () => {
+	it("registers end to end with no confirmation e-mail", async () => {
 		requestIp.current = `10.${randomInt(0, 256)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
 		const values = formValues();
 
@@ -116,18 +116,10 @@ describe("registerClientAction + confirmEmailAction", () => {
 		const acceptances = await owner.query("select count(*)::int as n from legal_acceptances where profile_id = $1", [userId]);
 		expect(acceptances.rows[0].n).toBe(2);
 
-		const notification = await owner.query<{ params: { url: string } }>(
-			"select params from notifications where reference = $1",
-			[`profile:${userId}`],
-		);
-		expect(notification.rows).toHaveLength(1);
-		const token = new URL(notification.rows[0].params.url).searchParams.get("token");
-		expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-
-		await expect(confirmEmailAction(token)).resolves.toEqual({ error: null });
-		const verified = await owner.query<{ email_verified: boolean }>('select email_verified from "user" where id = $1', [userId]);
-		expect(verified.rows[0].email_verified).toBe(true);
-
+		const notifications = await owner.query("select 1 from notifications where reference = $1", [`profile:${userId}`]);
+		expect(notifications.rows).toHaveLength(0);
+		const challenges = await owner.query("select 1 from verification_challenges where profile_id = $1 and kind = 'email'", [userId]);
+		expect(challenges.rows).toHaveLength(0);
 	});
 
 	it("refuses a second registration with the same e-mail", async () => {

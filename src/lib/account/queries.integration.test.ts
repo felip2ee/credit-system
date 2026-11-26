@@ -82,7 +82,6 @@ describe("getClientAccountStatus", () => {
 		await withDbContext(pool, client, async (db) => {
 			const before = await getClientAccountStatus(db, client.userId);
 			expect(before).toMatchObject({
-				emailVerified: false,
 				phoneE164: null,
 				phoneVerified: false,
 				notificationChannel: "email",
