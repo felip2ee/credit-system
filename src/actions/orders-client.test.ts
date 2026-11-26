@@ -96,15 +96,6 @@ describe("openClientOrderAction", () => {
 		expect(state.placeOrder).not.toHaveBeenCalled();
 	});
 
-	it("places the order for a client with an unverified e-mail", async () => {
-		state.accountStatus.mockResolvedValue({ termsAccepted: true, emailVerified: false });
-
-		const result = await openClientOrderAction(ownOrder);
-
-		expect(result.error).toBeNull();
-		expect(state.placeOrder).toHaveBeenCalledTimes(1);
-	});
-
 	it("zod refuses a bad payload without calling placeOrder", async () => {
 		const result = await openClientOrderAction({ ...thirdOrder, subject: { name: "Maria Souza", document: "111.111.111-11" } });
 

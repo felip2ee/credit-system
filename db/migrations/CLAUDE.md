@@ -4,11 +4,11 @@ Source of truth for the Postgres 18 schema. Security-sensitive: roles, grants an
 
 ## Responsibility
 
-Holds `NNN_snake_case.sql` files (001–005, 008–035, 038–061 today): roles, Better Auth tables, business tables, RLS, indexes, public SCR authorization, and the grant boundary for cross-tenant functions. It does NOT hold application queries (`src/lib/<domain>/queries.ts`) or the runner (`scripts/db/migrate.mjs`).
+Holds `NNN_snake_case.sql` files (001–005, 008–035, 038–062 today): roles, Better Auth tables, business tables, RLS, indexes, public SCR authorization, and the grant boundary for cross-tenant functions. It does NOT hold application queries (`src/lib/<domain>/queries.ts`) or the runner (`scripts/db/migrate.mjs`).
 
 ## Key patterns
 
-- File name must match `^\d{3}_[a-z0-9_]+\.sql$` (enforced by `loadMigrations`); next number is 062.
+- File name must match `^\d{3}_[a-z0-9_]+\.sql$` (enforced by `loadMigrations`); next number is 063.
 - Policy: until the first production deploy the directory is an editable base. From the first production deploy (date: fill in at deploy) it is forward-only with checksum.
 - Applied files are immutable: `schema_migrations` stores a sha256 checksum and the runner throws on a mismatch or a missing file. Fix by adding a new migration. A forward-only migration adds a new file and never edits an old one.
 - `021_client_accounts.sql` holds the client self-registration gateway (`register_client`, verification and legal-acceptance functions) and the `protect_profile_contact` trigger.

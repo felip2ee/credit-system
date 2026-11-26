@@ -30,7 +30,7 @@ export default function ConfirmEmailPage({
           <ConfirmEmailButton token={token} />
         ) : (
           <div className="space-y-3">
-            <StatusBanner tone="attention" title="Link inválido." description="Entre na sua conta para pedir um novo link." />
+            <StatusBanner tone="attention" title="Link inválido." description="O link é inválido ou expirou. A confirmação de e-mail não é mais necessária: use o portal normalmente." />
             <Button asChild variant="cta" size="lg" className="w-full">
               <Link href="/login">Entrar</Link>
             </Button>

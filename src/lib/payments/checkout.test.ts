@@ -37,7 +37,6 @@ const s = vi.hoisted(() => ({
 	bureauAttempts: vi.fn(),
 	pendingBureau: vi.fn(),
 	pendingClient: vi.fn(),
-	emailVerified: vi.fn(),
 	clientWallet: vi.fn(),
 	bureauWallet: vi.fn(),
 }));
@@ -65,7 +64,6 @@ vi.mock("@/lib/payers/queries", () => ({
 	clearAsaasCustomer: s.clear,
 	markPayerSynced: s.synced,
 }));
-vi.mock("@/lib/account/queries", () => ({ getClientAccountStatus: s.emailVerified }));
 vi.mock("@/lib/wallet/client-queries", () => ({ getClientWallet: s.clientWallet }));
 vi.mock("@/lib/wallet/queries", () => ({ getWallet: s.bureauWallet }));
 vi.mock("@/lib/wallet/pix-charges", () => ({
@@ -161,7 +159,6 @@ beforeEach(() => {
 	s.view.mockResolvedValue(fullView);
 	s.load.mockResolvedValue(loaded());
 	s.save.mockResolvedValue({ ok: true });
-	s.emailVerified.mockResolvedValue({ emailVerified: true });
 	s.clientWallet.mockResolvedValue({ available: "0.00" });
 	s.bureauWallet.mockResolvedValue({ available: "0.00" });
 	s.reserve.mockResolvedValue({ ok: true, id: "ch1", expiresAt: new Date("2030-01-01T00:30:00Z"), reused: false });
@@ -372,15 +369,6 @@ describe("runCheckout, Pix", () => {
 });
 
 describe("runCheckout, scope rules", () => {
-	it("does not block a client with an unverified e-mail", async () => {
-		s.emailVerified.mockResolvedValue({ emailVerified: false });
-
-		const result = await runCheckout(session, clientScope, pixInput(), meta);
-
-		expect(result.error).toBeNull();
-		expect(s.reserve).toHaveBeenCalled();
-	});
-
 	it.each([
 		["client", clientScope],
 		["Bureau", bureauScope],

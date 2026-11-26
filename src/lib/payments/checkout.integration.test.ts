@@ -504,6 +504,12 @@ describe("client", () => {
 		const t = await seedTenant(owner, "Cli Known");
 		await giveHolderAddress(t);
 		const body = input();
+		// seedTenant cria o usuário com e-mail não verificado: o cliente paga mesmo assim.
+		const { rows: user } = await owner.query<{ email_verified: boolean }>(
+			'select email_verified from "user" where id = $1',
+			[t.client.userId],
+		);
+		expect(user[0].email_verified).toBe(false);
 
 		const result = await runCheckout(t.client, clientScope(t), body, META);
 

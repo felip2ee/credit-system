@@ -142,14 +142,14 @@ describe("confirmEmailAction", () => {
 
 	it.each([undefined, "", "curto", `${"A".repeat(42)}!`, 42])("treats a malformed token (%s) as invalid without a query", async (token) => {
 		await expect(confirmEmailAction(token)).resolves.toEqual({
-			error: "Link inválido ou já usado. Entre no portal e peça um novo e-mail.",
+			error: "Link inválido ou expirado. A confirmação de e-mail não é mais necessária: use o portal normalmente.",
 		});
 		expect(state.confirmEmailVerification).not.toHaveBeenCalled();
 	});
 
 	it.each([
-		["invalid", "Link inválido ou já usado. Entre no portal e peça um novo e-mail."],
-		["expired", "Link expirado. Entre no portal e peça um novo e-mail."],
+		["invalid", "Link inválido ou expirado. A confirmação de e-mail não é mais necessária: use o portal normalmente."],
+		["expired", "Link inválido ou expirado. A confirmação de e-mail não é mais necessária: use o portal normalmente."],
 	])("maps %s to its message", async (reason, message) => {
 		state.confirmEmailVerification.mockResolvedValue({ ok: false, reason });
 
