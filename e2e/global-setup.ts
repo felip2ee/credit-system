@@ -113,6 +113,10 @@ export default async function globalSetup() {
     // Platform model (055): the price belongs to the product; the Bureau gets E2E_BUREAU_PCT of the gross price. The helper
     // writes the Bureau override as (price - cost) / price, so cost 14.00 on price 20.00 gives 30%.
     await setPlatformSale(owner, { bureauId, productId, salePrice: E2E.salePrice, salePricePerPartner: E2E.salePricePerPartner, cost: "14.00", setBy: staffId });
+    // Same 30% Bureau rate as above (cost 7.00 on price 10.00), so the affiliate commission math does not change.
+    const pf = await client.query<{ id: string }>("select id from products where code = $1", [E2E.productPf]);
+    await owner.query("update products set active = true where id = $1", [pf.rows[0].id]);
+    await setPlatformSale(owner, { bureauId, productId: pf.rows[0].id, salePrice: E2E.salePricePf, cost: "7.00", setBy: staffId });
     await seedWalletTopup(owner, { bureauId, amount: "500.00", createdBy: staffId });
     await seedClientWalletTopup(owner, { clientProfileId: clientId, amount: "100.00", createdBy: staffId });
   } catch (error) {

@@ -48,7 +48,7 @@ test("Enter não pula etapa", async ({ page }) => {
   await next(page);
   await page.getByLabel("CNPJ da empresa").press("Enter");
   await expect(page.getByRole("heading", { name: "Revise o pedido" })).toHaveCount(0);
-  await expect(page.getByText("CNPJ inválido.")).toBeVisible();
+  await expect(page.getByText("Informe o documento.")).toBeVisible();
 });
 
 test("o foco vai ao título da etapa", async ({ page }) => {

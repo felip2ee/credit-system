@@ -27,6 +27,9 @@ export const E2E = {
   product: "dossie_empresarial",
   salePrice: "20.00",
   salePricePerPartner: "5.00",
+  // "Só para você": a página de nova pesquisa só lista o que o Bureau vende.
+  productPf: "dossie_pf",
+  salePricePf: "10.00",
 } as const;
 
 // A tick sweeps every Bureau with due work, so one pass can take several seconds on a shared database.

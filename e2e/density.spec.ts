@@ -27,7 +27,7 @@ test("portal: a base é 16 px e o layout tem .portal-dense", async ({ browser })
 test("portal: o padding do primeiro CardContent é 16 px", async ({ browser }) => {
   const { context, page } = await newPage(browser, "client", { viewport: PHONE });
   try {
-    await page.goto("/portal");
+    await page.goto("/portal/pesquisas/nova"); // a home do cliente e2e não renderiza Card
     expect(await firstDensePadding(page)).toBe("16px");
   } finally {
     await context.close();

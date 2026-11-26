@@ -74,6 +74,8 @@ jobs:
           SMTP_PASS: e2e-only-placeholder
           TRAEFIK_PROXY_CIDR: 10.0.0.0/8
           ASAAS_DRIVER: fake
+          # Test token for the fake driver; e2e/portal-order-pix.spec.ts reads it from the env. Not a secret.
+          ASAAS_WEBHOOK_TOKEN: e2e-only-webhook-token-fedcba9876543210
           PII_ENCRYPTION_KEY: ci:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
           CARD_FEE_TABLE: 1:2.99:49,6:2.99:49,12:2.99:49
           WHATSAPP_DRIVER: fake
