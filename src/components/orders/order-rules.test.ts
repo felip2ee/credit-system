@@ -10,6 +10,7 @@ import {
 	canConfirmOrder,
 	hasBuyerRow,
 	isSelfOrder,
+	memberActionHint,
 	orderHasMembers,
 	orderIsBlocked,
 	orderPriceBreakdown,
@@ -172,5 +173,26 @@ describe("reviewActionLabel", () => {
 	it("muda com valor zero", () => {
 		expect(reviewActionLabel(0)).toBe("Confirmar pedido");
 		expect(reviewActionLabel(1)).toBe("Ir para o pagamento");
+	});
+});
+
+describe("memberActionHint", () => {
+	const base = { scrStatus: "pending" as const, canEditEmail: true, canResend: true, changesLeft: 3 };
+	it("is null for authorized, refused and expired", () => {
+		for (const scrStatus of ["authorized", "refused", "expired"] as const) {
+			expect(memberActionHint({ ...base, scrStatus })).toBeNull();
+		}
+	});
+	it("shows the exhausted limit and no buttons when changesLeft is 0", () => {
+		expect(memberActionHint({ ...base, canEditEmail: false, canResend: false, changesLeft: 0 })).toBe(
+			"Limite de envios de hoje atingido. Tente amanhã.",
+		);
+	});
+	it("uses the singular with one send left", () => {
+		expect(memberActionHint({ ...base, changesLeft: 1 })).toBe("Resta 1 envio hoje.");
+		expect(memberActionHint(base)).toBe("Restam 3 envios hoje.");
+	});
+	it("says the email comes from the account for the buyer's own member", () => {
+		expect(memberActionHint({ ...base, canEditEmail: false, canResend: false })).toBe("E-mail da sua conta.");
 	});
 });

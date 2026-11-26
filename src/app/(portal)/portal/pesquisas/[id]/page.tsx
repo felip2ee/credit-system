@@ -121,7 +121,7 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 					}
 				/>
 			)}
-			<OrderMembers members={members} mode={order.mode} />
+			<OrderMembers members={members} mode={order.mode} dossierId={order.dossierId} orderState={order.state} />
 			{canCancelOrder(order.state, order.mode) && <CancelOrderButton dossierId={order.dossierId} />}
 			{order.state === "released" &&
 				(delivery ? (
