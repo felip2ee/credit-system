@@ -31,6 +31,7 @@ vi.mock("next/headers", () => ({
 
 import { ASAAS_EVENT_PAYMENT_RECEIVED, ASAAS_EVENT_PAYMENT_REFUNDED } from "@/lib/asaas/client";
 import { buildFakePaymentEvent } from "@/lib/asaas/fake";
+import { quoteOrder } from "@/lib/catalog/quote";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
@@ -39,7 +40,7 @@ import { applyAsaasPayment } from "@/lib/wallet/pix-charges";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedBureauCost, seedCatalogItem, seedClientWalletTopup, seedTenant, seedWalletTopup, type SeededTenant } from "@/test/seed";
 
-import { openOrder } from "./queries";
+import { completeOrder, openOrder, placeOrder } from "./queries";
 import type { OpenOrderInput } from "./types";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 6 });
@@ -284,5 +285,208 @@ describe("order PIX refund before capture", () => {
 
 		expect((await orderRow(s.dossierId)).state).toBe("awaiting_payment");
 		expect(await cancelAudits(s.dossierId)).toHaveLength(0);
+	});
+});
+
+// Vários pedidos do mesmo cliente (067): o estorno do PIX cancela o pedido do PIX estornado, não o mais antigo, e só
+// enquanto o reservado da carteira não cobre as liquidações vivas. Preço 50,00 salvo onde o PIX leva outro valor.
+describe("order PIX refund with several orders of one client", () => {
+	// Pedido pago com o saldo: recarrega o preço e abre; a reserva nasce na abertura.
+	async function openWithBalance(t: SeededTenant, amount = "50.00"): Promise<string> {
+		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount, createdBy: t.bureauAdmin.userId });
+		const q = await quoteOrder({ ...t.operator }, "dossie_pf", { partnerCount: 0 });
+		if (!q.ok) throw new Error(`quote failed: ${q.reason}`);
+		const placed = await placeOrder(buyerOf(t), input, q);
+		if (!placed.ok) throw new Error(`place failed: ${placed.reason}`);
+		expect(placed.state).toBe("awaiting_authorization");
+		return placed.dossierId;
+	}
+	// Pedido pago com PIX: abre sem saldo (aguarda o pagamento) e o evento de pagamento reserva.
+	async function openWithPix(t: SeededTenant, couponPercent?: string): Promise<Setup> {
+		const couponCode = couponPercent ? await seedCoupon(t, couponPercent) : undefined;
+		const s = await setup("multi pix", { tenant: t, price: couponPercent ? "20.00" : "50.00", couponCode });
+		expect(await pay(s)).toBe("order_paid");
+		return s;
+	}
+	const stateOf = async (id: string) => (await orderRow(id)).state;
+	const makeExecuting = async (id: string) => {
+		await makeReady(id);
+		await owner.query("update dossier_orders set state = 'executing' where dossier_id = $1", [id]);
+	};
+	const cancelled = { state: "cancelled", state_reason: "payment_refunded" };
+
+	it("two orders: the refunded one cancels, the order paid with balance stays covered and captures", async () => {
+		const t = await newTenant("multi two");
+		const a = await openWithBalance(t);
+		const b = await openWithPix(t);
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "100.00" });
+
+		expect(await refund(b)).toBe("refunded");
+
+		expect(await orderRow(b.dossierId)).toEqual(cancelled);
+		expect(await settlementStatus(b.dossierId)).toBe("released");
+		expect(await stateOf(a)).toBe("awaiting_authorization");
+		expect(await settlementStatus(a)).toBe("reserved");
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "50.00" });
+		// O estorno já tirou o valor do reservado: nenhuma devolução, nenhum saldo negativo.
+		expect(await ledgerKinds(t)).toEqual(["topup", "reserve", "topup", "reserve", "reversal"]);
+		expect(await cancelAudits(a)).toHaveLength(0);
+		expect(await cancelAudits(b.dossierId)).toHaveLength(1);
+		await expectConserved(t);
+
+		// Repetir o evento não muda nada.
+		expect(await refund(b)).toBe("duplicate");
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "50.00" });
+
+		// O pedido A captura inteiro: não cai no clawback.
+		expect(await withUserTransaction(t.bureauAdmin, (c) => captureOrder(c, a))).toMatchObject({ ok: true, status: "captured" });
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "0.00" });
+		await expectConserved(t);
+	});
+
+	it("three orders: only the refunded one in the middle cancels", async () => {
+		const t = await newTenant("multi three");
+		const a = await openWithBalance(t);
+		const b = await openWithPix(t);
+		const c = await openWithBalance(t);
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "150.00" });
+
+		expect(await refund(b)).toBe("refunded");
+
+		expect(await orderRow(b.dossierId)).toEqual(cancelled);
+		expect(await stateOf(a)).toBe("awaiting_authorization");
+		expect(await stateOf(c)).toBe("awaiting_authorization");
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "100.00" });
+		for (const id of [a, c]) {
+			expect(await withUserTransaction(t.bureauAdmin, (cl) => captureOrder(cl, id))).toMatchObject({ ok: true, status: "captured" });
+		}
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "0.00" });
+		await expectConserved(t);
+	});
+
+	it("own extra balance covers the refund and nothing cancels", async () => {
+		const t = await newTenant("multi covered");
+		const a = await openWithBalance(t);
+		const b = await openWithPix(t);
+		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "50.00", createdBy: t.bureauAdmin.userId });
+		expect(await wallet(t)).toEqual({ available: "50.00", reserved: "100.00" });
+
+		expect(await refund(b)).toBe("refunded");
+
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "100.00" });
+		expect(await stateOf(a)).toBe("awaiting_authorization");
+		expect(await stateOf(b.dossierId)).toBe("awaiting_authorization");
+		expect(await cancelAudits(b.dossierId)).toHaveLength(0);
+		await expectConserved(t);
+	});
+
+	it("order A already executing: the refunded order B cancels and A captures whole", async () => {
+		const t = await newTenant("multi a executing");
+		const a = await openWithBalance(t);
+		await makeExecuting(a);
+		const b = await openWithPix(t);
+
+		expect(await refund(b)).toBe("refunded");
+
+		expect(await orderRow(b.dossierId)).toEqual(cancelled);
+		expect(await stateOf(a)).toBe("executing");
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "50.00" });
+		expect(await withUserTransaction(t.bureauAdmin, (c) => captureOrder(c, a))).toMatchObject({ ok: true, status: "captured" });
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "0.00" });
+		await expectConserved(t);
+	});
+
+	it("refunded order B already executing: the older order A (awaiting) cancels so that B captures whole", async () => {
+		const t = await newTenant("multi b executing");
+		const a = await openWithBalance(t);
+		const b = await openWithPix(t);
+		await makeExecuting(b.dossierId);
+
+		expect(await refund(b)).toBe("refunded");
+
+		expect(await orderRow(a)).toEqual(cancelled);
+		expect(await settlementStatus(a)).toBe("released");
+		expect(await stateOf(b.dossierId)).toBe("executing");
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "50.00" });
+		expect(await withUserTransaction(t.bureauAdmin, (c) => captureOrder(c, b.dossierId))).toMatchObject({ ok: true, status: "captured" });
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "0.00" });
+		await expectConserved(t);
+	});
+
+	it("keeps cancelling from the newest to the oldest while the reservation stays short", async () => {
+		const t = await newTenant("multi cascade");
+		const a = await openWithPix(t);
+		const b = await openWithPix(t, "60");
+		const c = await openWithPix(t, "60");
+		await makeExecuting(a.dossierId);
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "90.00" });
+
+		// A (50,00) estornado e já executando: reservado 40,00 para 90,00 de liquidações. C (a mais nova) e depois B cancelam.
+		expect(await refund(a)).toBe("refunded");
+
+		expect(await orderRow(c.dossierId)).toEqual(cancelled);
+		expect(await orderRow(b.dossierId)).toEqual(cancelled);
+		expect(await stateOf(a.dossierId)).toBe("executing");
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "40.00" });
+		// A reserva restante (40,00) não cobre A (50,00): o clawback da captura devolve os 40,00 ao saldo, sem negativo.
+		expect(await withUserTransaction(t.bureauAdmin, (cl) => captureOrder(cl, a.dossierId))).toMatchObject({ ok: true, status: "released", clawedBack: true });
+		expect(await wallet(t)).toEqual({ available: "40.00", reserved: "0.00" });
+		await expectConserved(t);
+	});
+
+	it("stops cancelling as soon as the reservation covers the live orders", async () => {
+		const t = await newTenant("multi stop");
+		const a = await openWithBalance(t);
+		const b = await openWithPix(t);
+		const c = await openWithBalance(t);
+		const d = await openWithBalance(t);
+		await makeExecuting(b.dossierId);
+
+		// B (50,00) estornado e executando: faltam 50,00. Só D (a mais nova) cancela; A e C seguem.
+		expect(await refund(b)).toBe("refunded");
+
+		expect(await orderRow(d)).toEqual(cancelled);
+		expect(await stateOf(c)).toBe("awaiting_authorization");
+		expect(await stateOf(a)).toBe("awaiting_authorization");
+		expect(await wallet(t)).toEqual({ available: "0.00", reserved: "150.00" });
+		await expectConserved(t);
+	});
+
+	it("an order refund never deadlocks with the tick closing the same order", async () => {
+		const t = await newTenant("multi deadlock");
+		const s = await openWithPix(t);
+		await makeExecuting(s.dossierId);
+		// X segura a carteira: o fechamento (T1) espera por ela depois de ter travado o que vem antes; o estorno (T2) chega depois.
+		const x = await owner.connect();
+		let t1: Promise<unknown> | undefined;
+		let t2: Promise<unknown> | undefined;
+		try {
+			await x.query("begin");
+			await x.query("select 1 from client_wallets where client_profile_id = $1 for update", [t.client.userId]);
+			t1 = withUserTransaction(t.bureauAdmin, (c) => completeOrder(c, t.bureauAdmin, s.dossierId));
+			const waiting = async (fn: string) =>
+				Number(
+					(await rows<{ n: string }>(
+						"select count(*)::text as n from pg_stat_activity where wait_event_type = 'Lock' and query ilike $1 and pid <> pg_backend_pid()",
+						[`%${fn}%`],
+					))[0].n,
+				) > 0;
+			const until = async (fn: string) => {
+				for (let i = 0; i < 100 && !(await waiting(fn)); i++) await new Promise((r) => setTimeout(r, 50));
+				expect(await waiting(fn)).toBe(true);
+			};
+			await until("capture_order");
+			t2 = refund(s);
+			await until("apply_asaas_payment");
+		} finally {
+			await x.query("rollback");
+			x.release();
+		}
+		// Sem impasse (40P01): o fechamento termina primeiro (travou o pedido antes) e o estorno depois.
+		expect(await t1).toBe("completed");
+		expect(await t2).toBe("refunded");
+		expect(await orderRow(s.dossierId)).toEqual({ state: "completed", state_reason: null });
+		expect(await settlementStatus(s.dossierId)).toBe("captured");
+		await expectConserved(t);
 	});
 });

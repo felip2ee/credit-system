@@ -346,11 +346,18 @@ async function releaseReservation(client: PoolClient, dossierId: string): Promis
 	if (!released.ok) throw new Error(`release failed: ${released.reason}`);
 }
 
+// Ordem global de travas: pedido -> liquidação -> carteira. A captura e a liberação travam a liquidação e a carteira;
+// travar o pedido antes evita o impasse com o estorno do PIX (apply_asaas_payment), que segue a mesma ordem.
+async function lockOrder(client: PoolClient, dossierId: string): Promise<void> {
+	await client.query("select 1 from dossier_orders where dossier_id = $1 for update", [dossierId]);
+}
+
 export async function completeOrder(
 	client: PoolClient,
 	identity: DbIdentity,
 	dossierId: string,
 ): Promise<"completed" | "failed"> {
+	await lockOrder(client, dossierId);
 	const captured = await captureOrder(client, dossierId);
 	// Falha da captura lança: a transação volta, a lease vence e o tick tenta de novo.
 	if (!captured.ok) throw new Error(`capture failed: ${captured.reason}`);
@@ -380,6 +387,7 @@ export async function failOrder(
 	dossierId: string,
 	reason: OrderStateReason,
 ): Promise<void> {
+	await lockOrder(client, dossierId);
 	await releaseReservation(client, dossierId);
 	await closeAsFailed(client, identity, dossierId, reason);
 }
