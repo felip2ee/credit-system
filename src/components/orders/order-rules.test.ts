@@ -14,7 +14,6 @@ import {
 	orderIsBlocked,
 	orderPriceBreakdown,
 	orderTotalCents,
-	productLabel,
 	reviewActionLabel,
 } from "./order-rules";
 
@@ -48,11 +47,9 @@ describe("declaração do comprador", () => {
 describe("campos do Dossiê Pessoa Física", () => {
 	it("conta PF pesquisa a si mesma", () => {
 		expect(isSelfOrder("dossie_pf", "PF")).toBe(true);
-		expect(productLabel("Dossiê Pessoa Física", "dossie_pf", "PF")).toBe("Dossiê Pessoa Física (você)");
 	});
 	it("conta PJ vê os campos do responsável", () => {
 		expect(isSelfOrder("dossie_pf", "PJ")).toBe(false);
-		expect(productLabel("Dossiê Pessoa Física", "dossie_pf", "PJ")).toBe("Dossiê Pessoa Física");
 	});
 	it("Dossiê Empresarial nunca é próprio", () => {
 		expect(isSelfOrder("dossie_empresarial", "PF")).toBe(false);

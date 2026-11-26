@@ -42,7 +42,7 @@ export function ResearchIntro() {
 				<li>Um diagnóstico de crédito de uma pessoa ou empresa: dívidas e histórico no sistema financeiro.</li>
 				<li>Antes, você autoriza a consulta. Ela é só do seu CPF ou dos CNPJs das suas empresas.</li>
 				<li>Depois, você vê o relatório na tela e em PDF. Avisamos por e-mail e WhatsApp.</li>
-				<li>O valor sai do seu saldo só quando a consulta roda.</li>
+				<li>Você paga por Pix antes de a consulta rodar.</li>
 			</ul>
 		</details>
 	);

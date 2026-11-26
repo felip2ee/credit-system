@@ -84,10 +84,6 @@ export function canConfirmOrder(input: { hasMembers: boolean; declarationAccepte
 	return !input.hasMembers || input.declarationAccepted;
 }
 
-export function productLabel(name: string, productCode: OrderProductCode, holderType: HolderType): string {
-	return isSelfOrder(productCode, holderType) ? `${name} (você)` : name;
-}
-
 const CANCELLABLE_STATES: OrderState[] = ["awaiting_authorization", "ready"];
 
 // Só o pedido online: no balcão o cliente pagou à parte e quem cancela é a equipe.

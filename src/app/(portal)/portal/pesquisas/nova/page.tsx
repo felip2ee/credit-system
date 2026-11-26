@@ -11,7 +11,6 @@ import { withUserTransaction } from "@/lib/db/transaction";
 import { getCurrentDeclaration } from "@/lib/orders/client-ops";
 import { getMyHolderType } from "@/lib/orders/client-queries";
 import type { OrderProductCode } from "@/lib/orders/types";
-import { getClientWallet } from "@/lib/wallet/client-queries";
 
 export const metadata = { title: "Nova pesquisa" };
 
@@ -24,7 +23,6 @@ export default async function NewClientOrderPage() {
 		return {
 			slug: bureau.rows[0]?.slug ?? null,
 			status: await getClientAccountStatus(client, session.userId),
-			wallet: await getClientWallet(client, session.userId),
 			holderType: await getMyHolderType(client, session.userId),
 			declaration: await getCurrentDeclaration(client),
 		};
@@ -35,7 +33,7 @@ export default async function NewClientOrderPage() {
 		.map((item) => ({ code: item.code, name: item.name, price: item.salePrice, pricePerPartner: item.salePricePerPartner }));
 
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<PageHeader title="Nova pesquisa" description="Escolha o dossiê e informe os dados do pedido" />
 			{products.length === 0 ? (
 				<StatusBanner tone="neutral" title="Nenhum produto à venda no momento." description="Tente novamente mais tarde." />
@@ -45,7 +43,7 @@ export default async function NewClientOrderPage() {
 					holderType={data.holderType}
 					declaration={data.declaration}
 					selfDocumentMasked={data.status.documentMasked}
-					available={data.wallet?.available ?? "0"}
+					buyer={{ name: session.name, email: session.email }}
 				/>
 			)}
 		</div>

@@ -1,6 +1,6 @@
 import { ChevronDown } from "lucide-react";
 
-import { productLabel, type HolderType } from "@/components/orders/order-rules";
+import { choiceTitle, type HolderType } from "@/components/orders/order-rules";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { productCopy } from "@/lib/catalog/product-copy";
@@ -30,20 +30,20 @@ export function ProductPicker({ products, value, onChange, holderType }: Product
 					<div key={p.code} className="min-w-0 space-y-1">
 						<label
 							htmlFor={`product-${p.code}`}
-							className="flex min-h-12 min-w-0 cursor-pointer flex-col gap-1 rounded-card border border-input p-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-brand-soft sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+							className="flex min-h-11 min-w-0 cursor-pointer flex-col gap-1 rounded-card border border-input p-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-brand-soft sm:flex-row sm:items-center sm:justify-between sm:gap-3"
 						>
 							<span className="flex min-w-0 items-start gap-3">
 								<RadioGroupItem id={`product-${p.code}`} value={p.code} className="mt-1 shrink-0" />
 								<span className="min-w-0">
-									<span className="block break-words font-bold">{productLabel(p.name, p.code, holderType)}</span>
-									{copy && <span className="block break-words text-sm text-muted-foreground">{copy.summary}</span>}
+									<span className="block break-words font-bold">{choiceTitle(p.code, holderType)}</span>
+									<span className="block break-words text-sm text-muted-foreground">{p.name}</span>
 								</span>
 							</span>
 							<span className="pl-9 text-sm font-medium tabular-nums text-muted-foreground sm:shrink-0 sm:pl-0 sm:text-right">
 								{p.code === "dossie_empresarial" ? (
 									<>
 										{formatCurrency(Number(p.price))} por empresa
-										<br />+ {formatCurrency(Number(p.pricePerPartner))} por sócio
+										<br />+ {formatCurrency(Number(p.pricePerPartner))} por pessoa
 									</>
 								) : (
 									formatCurrency(Number(p.price))
@@ -52,7 +52,7 @@ export function ProductPicker({ products, value, onChange, holderType }: Product
 						</label>
 						{copy && (
 							<details className="group px-3">
-								<summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 text-sm font-bold text-primary [&::-webkit-details-marker]:hidden">
+								<summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-sm font-bold text-primary [&::-webkit-details-marker]:hidden">
 									O que você recebe
 									<ChevronDown aria-hidden className="size-5 shrink-0 transition-transform group-open:rotate-180" />
 								</summary>
