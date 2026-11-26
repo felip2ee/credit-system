@@ -51,6 +51,7 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 - **Destaque escuro** (`#0B3A2E`): `<Card variant="dark">` ou a classe `card-dark`, `<BalanceCard tone="dark">`. Use no hero e no máximo em um segundo destaque por tela. Menu lateral (`bg-sidebar` `#05261F`), `bg-ink`, `bg-secondary` e `on-dark` também re-declaram as variáveis escuras. Não use `bg-background` para fazer bloco.
 - **Amarelo `#FFC400`** só em botão primário, estado ativo (menu, segmented, pílula), barra de gráfico com contorno e pequeno selo. Como texto ou borda sobre branco, `text-primary` e `border-primary` viram verde escuro (variável `--link`); amarelo como texto só dentro de destaque escuro.
 - **Escala compacta, só no admin.** Variante Tailwind `admin:` (plugin em `tailwind.config.ts`, seletor `.theme-admin &`). O portal não muda. Título de página 24 px, subtítulo 14 px, corpo 14 px, rótulo 12 a 13 px. Hero com número serifado de 32 px; demais números de 24 px. Cartão com raio 18 px, padding 16 a 20 px, gap 12 px entre cartões, 20 a 24 px entre seções. Botão `h-10` (40 px, `sm` `h-9`), campo `h-10`, linha de tabela `py-2.5`, ícone em quadradinho de 36 px. Alvo mínimo de 36 px.
+- **Densidade do portal logado.** Variante Tailwind `dense:` (plugin ao lado do `admin:`, seletor `.portal-dense &`, em qualquer largura). Só o layout `(portal)` tem `.portal-dense`; login, landing e admin ficam fora. `Card` com padding 16 px, `Button` `h-11` (`lg` `h-12`, `icon` `h-11 w-11`), `Input` e `Select` `h-11`, espaço entre blocos de 16 px. Limite conhecido: diálogos e toasts do Radix renderizam em `body`, fora de `.portal-dense`, e ficam no tamanho normal.
 - Menu lateral de 224 px (`w-56`): item `h-10`, texto 14 px, ícone 18 px, logo `h-10`. Item ativo amarelo com texto `#05261F`.
 - **Filtro de período e abas:** `SegmentedNav` (`src/components/ui/segmented-nav.tsx`): contêiner pílula branco com borda, opção `h-9`, ativa amarela. Usado no Dashboard (período), na lista de pesquisas (tipo) e na lista de pagamentos no balcão (forma de pagamento). Cada opção é link; `current="page"` para abas.
 - **Estados** (`StatusBadge`, `StatusBanner`, toast): `toneStyle` lê `--st-<tom>-bg|fg|border`. No admin são os tons claros de `STATE_COLORS`; fora dele, os escuros de `APP_STATE_COLORS`.
@@ -76,8 +77,8 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 
 - Títulos (h1 a h3) em **Georgia** (serifa), pela classe `font-heading`.
 - Texto corrido: **Atkinson Hyperlegible** (400 e 700), carregada com `next/font/google` em `src/app/layout.tsx` (variável `--font-sans`). No PDF, TTF do repositório.
-- Base de 18 px no portal e nas páginas públicas (`.area-portal`), 16 px nos painéis. Nunca menos de 14 px; no portal nunca menos de 16 px. Altura de linha 1,5.
-- Alvos de toque: 48 px no portal e nas páginas públicas, 44 px nos painéis. 8 px entre alvos.
+- Base de 18 px só nas páginas públicas e de auth (`.area-portal`); 16 px no portal logado (`.area-portal.portal-dense`, layout do portal) e nos painéis. Nunca menos de 14 px; no portal nunca menos de 16 px. Altura de linha 1,5.
+- Alvos de toque: 48 px nas páginas públicas e de auth; 44 px no portal logado e nos painéis. 8 px entre alvos.
 - Botão só com ícone leva `aria-label`. Ícone importante tem texto ao lado.
 
 ## Estados
@@ -116,8 +117,8 @@ Três partes, nesta ordem, sem termo técnico e sem código de erro. Use `failur
 
 Primitivos em `src/components/ui/` (Radix + `cva` + `cn()`). Não crie botão, campo ou selo à mão.
 
-- Ação: `Button` (pílula). `default` é creme com borda dourada clara e texto `--cta-foreground`; `cta` é dourado cheio (`--cta`, hover `--cta-hover`) só para as entradas "Nova pesquisa" e "Novo pedido"; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#123029`, `--ink`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho dourado só ao `default` e ao `cta` e só no CTA principal da tela. `IconButton` é circular de 48 px e exige `aria-label`.
-- Formulário: `Input`, `Textarea`, `Select` (8 px, 48 px de altura; erro por `aria-invalid`), `Field` (rótulo sempre visível, ajuda e erro ligados por `aria-describedby`), `SearchInput` (pílula), `Label`, `Checkbox`, `RadioGroup`, `Dialog` (24 px, scrim escuro).
+- Ação: `Button` (pílula). `default` é creme com borda dourada clara e texto `--cta-foreground`; `cta` é dourado cheio (`--cta`, hover `--cta-hover`) só para as entradas "Nova pesquisa" e "Novo pedido"; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#123029`, `--ink`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho dourado só ao `default` e ao `cta` e só no CTA principal da tela. `IconButton` é circular, 48 px em público e auth e 44 px no portal logado e nos painéis, e exige `aria-label`.
+- Formulário: `Input`, `Textarea`, `Select` (8 px; 48 px de altura em público e auth, 44 px no portal e nos painéis; erro por `aria-invalid`), `Field` (rótulo sempre visível, ajuda e erro ligados por `aria-describedby`), `SearchInput` (pílula), `Label`, `Checkbox`, `RadioGroup`, `Dialog` (24 px, scrim escuro).
 - Cartão: `Card` com `variant` `flat` (padrão, borda de 1 px), `elevated`, `hero` (amarelo do portal) e `dark` (verde escuro do painel admin).
 - Cartões de produto mostram nome e descrição completos (sem corte); o bloco "O que você recebe" é um `<details>` com seta (chevron) que gira ao abrir.
 - Saldo e atalhos: `BalanceCard` (valor grande com `tabular-nums`, `hideable` mostra o olho; `displayBalance` em `balance.ts`), `QuickActions` + `QuickAction` (tile de 56 px com ícone, rótulo embaixo, `active` para a ação principal, link ou botão), `ListRow` (ícone circular cinza, título, subtítulo, valor à direita), `SectionHeader` (título e link).

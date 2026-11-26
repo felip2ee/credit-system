@@ -27,6 +27,9 @@ export const E2E = {
   product: "dossie_empresarial",
   salePrice: "20.00",
   salePricePerPartner: "5.00",
+  // "Só para você": a página de nova pesquisa só lista o que o Bureau vende.
+  productPf: "dossie_pf",
+  salePricePf: "10.00",
 } as const;
 
 // A tick sweeps every Bureau with due work, so one pass can take several seconds on a shared database.
@@ -97,20 +100,35 @@ export async function authorizeScr(page: Page, request: APIRequestContext, dossi
   }
 }
 
-// Opens an order on /portal/pesquisas/nova (Dossiê Empresarial with 1 partner) and returns the dossier id.
-export async function openOrder(page: Page, { expectPayment = false } = {}): Promise<string> {
-  const stamp = Date.now();
+// Steps 1 and 2 of the purchase wizard for a company: leaves the page on "Pessoas da empresa".
+export async function startCompanyOrder(page: Page, stamp = Date.now()): Promise<void> {
   await page.goto("/portal/pesquisas/nova");
-  await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();
+  await page.getByRole("radio", { name: /Para uma empresa/ }).check();
+  await page.getByRole("button", { name: "Continuar" }).click();
   await page.getByLabel("CNPJ da empresa").fill(validCnpj());
   await page.getByLabel("Razão social").fill("e2e Empresa Portal");
   await page.getByLabel("E-mail do responsável").fill(`e2e-resp-${stamp}@example.test`);
-  await page.getByRole("button", { name: "Adicionar sócio" }).click();
-  await page.getByLabel("Nome do sócio 1").fill("e2e Sócio Portal");
-  await page.getByLabel("CPF do sócio 1").fill(validCpf());
-  await page.getByLabel("E-mail do sócio 1").fill(`e2e-partner-${stamp}@example.test`);
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Pessoas da empresa" })).toBeVisible();
+}
+
+// Adds one row on the people step and fills it. `n` is the 1-based row number.
+export async function addPerson(page: Page, n: number, person: { name: string; cpf: string; email: string }): Promise<void> {
+  await page.getByRole("button", { name: "Adicionar pessoa" }).click();
+  await page.getByLabel(`Nome da pessoa ${n}`, { exact: true }).fill(person.name);
+  await page.getByLabel(`CPF da pessoa ${n}`).fill(person.cpf);
+  await page.getByLabel(`E-mail da pessoa ${n}`).fill(person.email);
+}
+
+// Opens an order on /portal/pesquisas/nova (Dossiê Empresarial with 1 person) and returns the dossier id.
+export async function openOrder(page: Page, { expectPayment = false } = {}): Promise<string> {
+  const stamp = Date.now();
+  await startCompanyOrder(page, stamp);
+  await addPerson(page, 1, { name: "e2e Sócio Portal", cpf: validCpf(), email: `e2e-partner-${stamp}@example.test` });
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
   // The declaration is mandatory: the confirm button stays disabled until the buyer accepts it.
-  const confirm = page.getByRole("button", { name: "Confirmar pedido" });
+  const confirm = page.getByRole("button", { name: "Ir para o pagamento" });
   await expect(confirm).toBeDisabled();
   await page.getByLabel("Li e concordo com a declaração acima.").check();
   await expect(confirm).toBeEnabled();

@@ -61,7 +61,7 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 		: null;
 
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<OrderAutoRefresh orderId={order.dossierId} initialState={order.state} />
 			<Link href="/portal/pesquisas" className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
 				<ArrowLeft aria-hidden className="size-5" />

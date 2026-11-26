@@ -24,7 +24,7 @@ export default async function PortalNotificationsPage() {
 	if (!hasPermission(session, "portal:read")) redirect("/portal");
 
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<PageHeader title="Notificações" description="Avisos neste aparelho" />
 			<Card>
 				<CardHeader>

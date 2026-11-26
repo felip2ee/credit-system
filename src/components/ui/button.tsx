@@ -29,10 +29,10 @@ const buttonVariants = cva(
         onBrand: "bg-primary text-primary-foreground hover:bg-primary-hover",
       },
       size: {
-        default: "h-12 px-6 py-2 admin:h-10 admin:px-4",
+        default: "h-12 px-6 py-2 admin:h-10 admin:px-4 dense:h-11 dense:px-5",
         sm: "h-11 px-4 admin:h-9 admin:px-3.5",
-        lg: "h-14 px-8 admin:h-11 admin:px-6",
-        icon: "h-12 w-12 admin:h-10 admin:w-10",
+        lg: "h-14 px-8 admin:h-11 admin:px-6 dense:h-12 dense:px-6",
+        icon: "h-12 w-12 admin:h-10 admin:w-10 dense:h-11 dense:w-11",
       },
     },
     defaultVariants: {

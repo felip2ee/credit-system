@@ -33,7 +33,7 @@ export default async function NewClientOrderPage() {
 		.map((item) => ({ code: item.code, name: item.name, price: item.salePrice, pricePerPartner: item.salePricePerPartner }));
 
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<PageHeader title="Nova pesquisa" description="Escolha o dossiê e informe os dados do pedido" />
 			{products.length === 0 ? (
 				<StatusBanner tone="neutral" title="Nenhum produto à venda no momento." description="Tente novamente mais tarde." />
@@ -43,6 +43,7 @@ export default async function NewClientOrderPage() {
 					holderType={data.holderType}
 					declaration={data.declaration}
 					selfDocumentMasked={data.status.documentMasked}
+					buyer={{ name: session.name, email: session.email }}
 				/>
 			)}
 		</div>

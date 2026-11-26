@@ -19,6 +19,7 @@ export const COUPON_INVALID = "Cupom inválido ou indisponível";
 export const CLIENT_ORDER_MESSAGES: Record<string, string> = {
 	...SHARED_MESSAGES,
 	insufficient_balance: "Saldo insuficiente. Compre créditos para continuar.",
+	contact_is_buyer: "Use um e-mail diferente do seu. O seu e-mail só vale na linha com o seu CPF.",
 	third_party_not_allowed:
 		"No portal, o Dossiê Pessoa Física é só para você. Envie seu link para a outra pessoa consultar na conta dela.",
 	price_mismatch: "O preço mudou. Revise e confirme de novo.",

@@ -32,7 +32,7 @@ export default async function AffiliatePage() {
   });
   if (!data.summary || !data.slug) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <PageHeader title="Afiliação" />
         <StatusBanner tone="neutral" title="Seu código de afiliado ainda não está disponível." description="Tente de novo mais tarde." />
       </div>
@@ -44,7 +44,7 @@ export default async function AffiliatePage() {
   const fee = withdrawalsEnabled ? await readWithdrawalFee(session) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Afiliação" />
       <HowItWorks fee={fee} />
       <AffiliateLinkCard link={affiliateLink(data.slug, code)} />

@@ -193,7 +193,7 @@ describe("openClientOrderAction", () => {
 		["product_not_for_sale", "Produto indisponível neste Bureau."],
 		["kind_mismatch", "O documento não combina com o produto."],
 		["self_holder_missing", "Sua conta não tem Titular. Fale com o Bureau."],
-		["contact_is_buyer", "Informe o e-mail e o celular do titular, não os seus."],
+		["contact_is_buyer", "Use um e-mail diferente do seu. O seu e-mail só vale na linha com o seu CPF."],
 		["buyer_not_found", "Cliente comprador não encontrado neste Bureau."],
 		[
 			"third_party_not_allowed",
