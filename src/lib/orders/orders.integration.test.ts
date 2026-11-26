@@ -218,7 +218,8 @@ describe("open_order", () => {
 	it("client opens an own order in one transaction", async () => {
 		const b = await newBuyer(T);
 		const result = await committed(b.identity, (c) => openOrder(c, { self: true, type: null, name: null, document: null }));
-		expect(result).toMatchObject({ ok: true, reason: null, state: "awaiting_authorization" });
+		// Online sem reserva ainda não está pago: espera o pagamento (063).
+		expect(result).toMatchObject({ ok: true, reason: null, state: "awaiting_payment" });
 		const dossierId = result.dossier_id as string;
 
 		const [dossier] = await rows("select kind, status, product, holder_id from dossiers where id = $1", [dossierId]);
@@ -252,7 +253,7 @@ describe("open_order", () => {
 			ai_status: "pending",
 			self_research: true,
 			subject_document_masked: maskCpf(b.digits),
-			state: "awaiting_authorization",
+			state: "awaiting_payment",
 			created_by: b.identity.userId,
 		});
 		const scr = await rows(
@@ -448,7 +449,7 @@ describe("open_order", () => {
 		await committed(b.identity, (c) => openOrder(c, { self: true }));
 		await authorize(b.holderId);
 		const second = await committed(b.identity, (c) => openOrder(c, { self: true }));
-		expect(second).toMatchObject({ ok: true, state: "ready" });
+		expect(second).toMatchObject({ ok: true, state: "awaiting_payment" });
 		const scr = await rows("select id from scr_authorizations where holder_id = $1", [b.holderId]);
 		expect(scr).toHaveLength(1);
 		const linked = await rows("select scr_authorization_id from consultations where dossier_id = $1", [second.dossier_id]);
@@ -464,7 +465,7 @@ describe("open_order", () => {
 		const [holder] = await rows<{ id: string }>("select id from holders where bureau_id = $1 and document_digits = $2", [T.bureau.id, document]);
 		await authorize(holder.id);
 		const other = await committed(second.identity, (c) => openOrder(c, args));
-		expect(other).toMatchObject({ ok: true, state: "awaiting_authorization" });
+		expect(other).toMatchObject({ ok: true, state: "awaiting_payment" });
 		const scr = await rows("select client_profile_id, status from scr_authorizations where holder_id = $1 order by requested_at, id", [holder.id]);
 		expect(scr).toHaveLength(2);
 		expect(new Set(scr.map((r) => r.client_profile_id))).toEqual(new Set([first.identity.userId, second.identity.userId]));
@@ -475,7 +476,7 @@ describe("open_order", () => {
 		await committed(b.identity, (c) => openOrder(c, { self: true }));
 		await authorize(b.holderId, "-1 minute");
 		const again = await committed(b.identity, (c) => openOrder(c, { self: true }));
-		expect(again).toMatchObject({ ok: true, state: "awaiting_authorization" });
+		expect(again).toMatchObject({ ok: true, state: "awaiting_payment" });
 		expect(await rows("select 1 from scr_authorizations where holder_id = $1", [b.holderId])).toHaveLength(2);
 	});
 
@@ -594,7 +595,7 @@ describe("open_order", () => {
 		expect(own.ok).toBe(true);
 		const pj = await newBuyer(T, "PJ");
 		const manager = await committed(pj.identity, (c) => openOrder(c, { document: cpf(), name: "Responsável", email: mail() }));
-		expect(manager).toMatchObject({ ok: true, state: "awaiting_authorization" });
+		expect(manager).toMatchObject({ ok: true, state: "awaiting_payment" });
 		const noEmail = await committed(pj.identity, (c) => openOrder(c, { document: cpf(), email: null }));
 		expect(noEmail).toMatchObject({ ok: false, reason: "invalid_input" });
 		// Conta PJ não compra o Dossiê Pessoa Física dela mesma: o Titular dela é PJ.
@@ -712,7 +713,7 @@ describe("open_order", () => {
 				],
 			}),
 		);
-		expect(result).toMatchObject({ ok: true, state: "awaiting_authorization" });
+		expect(result).toMatchObject({ ok: true, state: "awaiting_payment" });
 		expect(await rows("select 1 from consultations where dossier_id = $1", [result.dossier_id])).toHaveLength(3);
 	});
 
@@ -1241,7 +1242,9 @@ describe("due_order_bureaus", () => {
 		const inactive = await newTenant("due inactive");
 		const expiring = await newTenant("due expiring");
 
-		await committed((await newBuyer(waiting)).identity, (c) => openOrder(c, { self: true }));
+		const waitingOrder = await committed((await newBuyer(waiting)).identity, (c) => openOrder(c, { self: true }));
+		// Pedido online só tem trabalho a fazer depois de pago: marca como se a reserva já tivesse saído.
+		await owner.query("update dossier_orders set state = 'awaiting_authorization' where dossier_id = $1", [waitingOrder.dossier_id]);
 		await committed(staff(counter), (c) => openOrder(c, { email: mail() }));
 		await committed((await newBuyer(inactive)).identity, (c) => openOrder(c, { self: true }));
 		await owner.query("update bureaus set status = 'inactive' where id = $1", [inactive.bureau.id]);

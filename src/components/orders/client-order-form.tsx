@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Controller, useFieldArray, useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -26,7 +25,6 @@ import { CouponField, useCoupon } from "@/components/orders/coupon-field";
 import { OrderPriceSummary } from "@/components/orders/order-price-summary";
 import { ProductPicker } from "@/components/orders/product-picker";
 import { ResearchIntro } from "@/components/orders/research-intro";
-import { toCents } from "@/lib/catalog/money";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { clientOrderSchema, MAX_PARTNERS } from "@/lib/validators/order";
 import { failureMessage } from "@/lib/ui/failure-message";
@@ -41,7 +39,6 @@ interface ClientOrderFormProps {
 	holderType: HolderType;
 	// Documento mascarado da própria conta; nulo quando a conta não tem titular próprio.
 	selfDocumentMasked: string | null;
-	available: string;
 	declaration: { version: number; title: string; bodyMd: string };
 }
 
@@ -72,7 +69,7 @@ function FailureBanner({ what, next }: { what: string; next: string }) {
 	);
 }
 
-export function ClientOrderForm({ products, holderType, selfDocumentMasked, available, declaration }: ClientOrderFormProps) {
+export function ClientOrderForm({ products, holderType, selfDocumentMasked, declaration }: ClientOrderFormProps) {
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
 	const [serverError, setServerError] = useState<string | null>(null);
@@ -112,7 +109,6 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const listCents = breakdown?.totalCents ?? 0;
 	const coupon = useCoupon({ productCode, partners: breakdown?.partnerCount ?? 0 }, listCents);
 	const totalCents = coupon.totalCents;
-	const insufficient = toCents(available) < totalCents;
 
 	// Trocar de produto descarta o que não vale mais: dados de outra pessoa, sócios e a declaração.
 	useEffect(() => {
@@ -143,7 +139,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 				setServerError(result?.error ?? "Não foi possível abrir o pedido.");
 				return;
 			}
-			router.push(`/portal/pesquisas/${result.id}`);
+			router.push(`/portal/pesquisas/${result.id}${result.paymentRequired ? "/pagar" : ""}`);
 		});
 	};
 
@@ -306,39 +302,20 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 						<OrderPriceSummary breakdown={breakdown} pricePerPartner={Number(product.pricePerPartner)} />
 					)}
 					<CouponField coupon={coupon} />
-					<dl className="grid grid-cols-2 gap-4">
-						<div>
-							<dt className="text-muted-foreground">Total</dt>
-							<dd className="text-2xl font-bold tabular-nums" aria-live="polite">
-								{formatCurrency(totalCents / 100)}
-							</dd>
-						</div>
-						<div>
-							<dt className="text-muted-foreground">Saldo disponível</dt>
-							<dd className="text-2xl font-bold tabular-nums">{formatCurrency(Number(available))}</dd>
-						</div>
+					<dl>
+						<dt className="text-muted-foreground">Total</dt>
+						<dd className="text-2xl font-bold tabular-nums" aria-live="polite">
+							{formatCurrency(totalCents / 100)}
+						</dd>
 					</dl>
-					{insufficient && (
-						<StatusBanner
-							tone="attention"
-							title="Saldo insuficiente para este pedido."
-							description="Nada foi cobrado. Compre créditos e volte para confirmar."
-						/>
-					)}
 					{serverError && <FailureBanner what={serverError} next="Revise os dados e tente de novo." />}
 				</CardContent>
 			</Card>
 			<div className="sticky bottom-20 z-30 md:bottom-4">
-				{insufficient ? (
-					<Button asChild size="lg" glow className="w-full">
-						<Link href="/portal/credits">Comprar créditos</Link>
-					</Button>
-				) : (
-					<Button type="submit" size="lg" glow className="w-full" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
-						{isPending && <Loader2 aria-hidden className="animate-spin" />}
-						{isPending ? "Enviando..." : "Confirmar pedido"}
-					</Button>
-				)}
+				<Button type="submit" size="lg" glow className="w-full" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
+					{isPending && <Loader2 aria-hidden className="animate-spin" />}
+					{isPending ? "Enviando..." : "Confirmar pedido"}
+				</Button>
 			</div>
 		</form>
 	);

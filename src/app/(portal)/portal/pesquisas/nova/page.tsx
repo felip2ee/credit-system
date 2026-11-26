@@ -11,7 +11,6 @@ import { withUserTransaction } from "@/lib/db/transaction";
 import { getCurrentDeclaration } from "@/lib/orders/client-ops";
 import { getMyHolderType } from "@/lib/orders/client-queries";
 import type { OrderProductCode } from "@/lib/orders/types";
-import { getClientWallet } from "@/lib/wallet/client-queries";
 
 export const metadata = { title: "Nova pesquisa" };
 
@@ -24,7 +23,6 @@ export default async function NewClientOrderPage() {
 		return {
 			slug: bureau.rows[0]?.slug ?? null,
 			status: await getClientAccountStatus(client, session.userId),
-			wallet: await getClientWallet(client, session.userId),
 			holderType: await getMyHolderType(client, session.userId),
 			declaration: await getCurrentDeclaration(client),
 		};
@@ -45,7 +43,6 @@ export default async function NewClientOrderPage() {
 					holderType={data.holderType}
 					declaration={data.declaration}
 					selfDocumentMasked={data.status.documentMasked}
-					available={data.wallet?.available ?? "0"}
 				/>
 			)}
 		</div>

@@ -29,8 +29,11 @@ export type PixCharge = {
 
 export type BillingType = "PIX" | "CREDIT_CARD";
 
-// Dono da carteira que recebe a recarga: o cliente (portal) ou o Bureau (empresa).
-export type ChargeScope = { kind: "client"; clientProfileId: string } | { kind: "bureau"; bureauId: string };
+// Dono da carteira que recebe a recarga: o cliente (portal) ou o Bureau (empresa). `orderId`: cobrança Pix do pedido
+// online (063); o banco só aceita o valor guardado em order_pix_quotes.
+export type ChargeScope =
+	| { kind: "client"; clientProfileId: string; orderId?: string }
+	| { kind: "bureau"; bureauId: string };
 
 export const MAX_CARD_ATTEMPTS_PER_HOUR = 5;
 export const MAX_CARD_ATTEMPTS_PER_IP_PER_HOUR = 10;
@@ -71,10 +74,11 @@ export async function reserveCharge(
 	if (!topupAmountSchema.safeParse(input.amount).success) return { ok: false, reason: "invalid_amount" };
 
 	const clientProfileId = input.scope.kind === "client" ? input.scope.clientProfileId : null;
+	const orderId = input.scope.kind === "client" ? (input.scope.orderId ?? null) : null;
 	const { rows } = await client.query<{ id: string; expires_at: Date }>(
 		`insert into pix_charges (bureau_id, external_reference, amount, expires_at, requested_by, client_profile_id,
-		   billing_type, installments, fee_amount, total_charged, payer_kind, payer_document_masked, request_ip)
-		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		   billing_type, installments, fee_amount, total_charged, payer_kind, payer_document_masked, request_ip, order_id)
+		 values ($1, $2, $3, now() + make_interval(mins => $4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 on conflict (external_reference) do nothing
 		 returning id, expires_at`,
 		[
@@ -91,6 +95,7 @@ export async function reserveCharge(
 			input.payerKind,
 			input.payerDocumentMasked,
 			input.requestIp ?? null,
+			orderId,
 		],
 	);
 	if (rows[0]) {
@@ -115,12 +120,13 @@ export async function reserveCharge(
 	}
 
 	// Linha de outro tenant fica invisível pela RLS: também é reference_taken.
-	const existing = await client.query<{ id: string; expires_at: Date; requested_by: string }>(
-		"select id, expires_at, requested_by from pix_charges where external_reference = $1",
+	const existing = await client.query<{ id: string; expires_at: Date; requested_by: string; order_id: string | null }>(
+		"select id, expires_at, requested_by, order_id from pix_charges where external_reference = $1",
 		[input.externalReference],
 	);
 	const row = existing.rows[0];
-	if (!row || row.requested_by !== identity.userId) return { ok: false, reason: "reference_taken" };
+	// A chave de outro pedido (ou de uma recarga) não devolve a cobrança dela.
+	if (!row || row.requested_by !== identity.userId || row.order_id !== orderId) return { ok: false, reason: "reference_taken" };
 	return { ok: true, id: row.id, expiresAt: row.expires_at, reused: true };
 }
 
@@ -224,7 +230,8 @@ export async function countPendingPixCharges(client: PoolClient, bureauId: strin
 	return rows[0].total;
 }
 
-// Teto próprio de cada cliente. Usa pix_charges_client_created_idx (client_profile_id, ...): não é o índice
+// Teto próprio de cada cliente: conta o PIX da recarga e o do pedido (order_id), senão o pedido contornaria o teto. A tela de
+// recarga lista só a recarga (outra consulta). Usa pix_charges_client_created_idx (client_profile_id, ...): não é o índice
 // parcial de pendentes, mas um cliente tem poucas linhas e o plano filtra status/expiração sobre elas.
 export async function countPendingClientPixCharges(client: PoolClient, clientProfileId: string): Promise<number> {
 	const { rows } = await client.query<{ total: number }>(
@@ -281,7 +288,7 @@ export async function listPixCharges(client: PoolClient, bureauId: string): Prom
 	return rows.map(toCharge);
 }
 
-// Cobrança do cliente na tela dele: o código PIX só vem enquanto a cobrança está pendente.
+// Recarga do cliente na tela dele (sem o PIX do pedido): o código PIX só vem enquanto a cobrança está pendente.
 export type ClientPixCharge = Omit<PixCharge, "pixPayload"> & { pixPayload: string | null };
 
 export async function listClientPixCharges(client: PoolClient, clientProfileId: string): Promise<ClientPixCharge[]> {
@@ -290,7 +297,7 @@ export async function listClientPixCharges(client: PoolClient, clientProfileId: 
 		   case when status = 'pending' and expires_at < now() then 'expired' else status end as status,
 		   case when status = 'pending' and expires_at >= now() then pix_payload end as pix_payload,
 		   expires_at, created_at
-		 from pix_charges where client_profile_id = $1 order by created_at desc limit $2`,
+		 from pix_charges where client_profile_id = $1 and order_id is null order by created_at desc limit $2`,
 		[clientProfileId, LIST_LIMIT],
 	);
 	return rows.map((r) => ({
@@ -322,7 +329,11 @@ export type AsaasPaymentResult =
 	// Estorno ou chargeback de Pix de link (060): sem tratamento automático; a operação decide.
 	| "link_refund_ignored"
 	// Pix de link lançado, mas a soma dos pagamentos passou o preço (balcão entrou depois da cobrança): a operação devolve a diferença.
-	| "link_overpaid";
+	| "link_overpaid"
+	// Pix de pedido online (065): reservou o pedido; reserva recusada (o preço ficou como saldo); pedido já fora de awaiting_payment (ficou como saldo).
+	| "order_paid"
+	| "order_reserve_failed"
+	| "order_not_payable";
 
 // Estorno de PIX que o saldo disponível não cobriu (pix_charges.refund_shortfall > 0), para o superadmin.
 export type RefundShortfall = { chargeId: string; amount: string; shortfall: string; createdAt: Date };

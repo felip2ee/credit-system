@@ -5,9 +5,10 @@ import type { PoolClient } from "pg";
 import { writeAuditEvent } from "@/lib/audit/write";
 import type { DbIdentity } from "@/lib/db/transaction";
 import { recordHolderEvent } from "@/lib/holders/queries";
+import { PIX_CHARGE_TTL_MINUTES } from "@/lib/wallet/pix-charges";
 
 import { cancelOrder } from "./queries";
-import { LEASE_MINUTES, MAX_AI_ATTEMPTS, PAYMENT_WINDOW_DAYS, SCR_REQUEST_DAYS, type AiStatus, type OrderKind, type OrderStateReason } from "./types";
+import { LEASE_MINUTES, MAX_AI_ATTEMPTS, ORDER_PIX_GRACE_MINUTES, PAYMENT_WINDOW_DAYS, SCR_REQUEST_DAYS, type AiStatus, type OrderKind, type OrderStateReason } from "./types";
 
 export async function expireScrRequests(client: PoolClient, identity: DbIdentity): Promise<number> {
 	const { rows } = await client.query<{ id: string; holder_id: string }>(
@@ -45,11 +46,15 @@ async function markAuthorizationExpired(client: PoolClient, identity: DbIdentity
 	});
 }
 
-// Cancela o que não anda mais: autorização recusada ou expirada, e balcão sem pagamento no prazo.
+// Cancela o que não anda mais: autorização recusada ou expirada, balcão sem pagamento no prazo e pedido online sem PIX
+// vivo (ou com PIX pago e reserva recusada). `skip locked`: o tick nunca espera o webhook; quem trava o pedido primeiro decide.
 export async function cancelStalledOrders(client: PoolClient, identity: DbIdentity): Promise<number> {
 	const { rows } = await client.query<{ dossier_id: string; reason: OrderStateReason }>(
 		`select o.dossier_id,
-		        case when o.state = 'awaiting_payment' then 'payment_timeout'
+		        case when o.state = 'awaiting_payment' and o.mode = 'online'
+		                  and exists (select 1 from pix_charges c where c.order_id = o.dossier_id and c.status = 'paid')
+		               then 'payment_not_reserved'
+		             when o.state = 'awaiting_payment' then 'payment_timeout'
 		             when exists (select 1 from consultations c join scr_authorizations s on s.id = c.scr_authorization_id
 		                           where c.dossier_id = o.dossier_id and s.status = 'not_authorized') then 'scr_refused'
 		             else 'scr_expired' end as reason
@@ -57,11 +62,19 @@ export async function cancelStalledOrders(client: PoolClient, identity: DbIdenti
 		  where o.bureau_id = app_bureau_id()
 		    and ((o.state = 'awaiting_payment' and o.mode = 'counter'
 		          and o.created_at < now() - make_interval(days => $1))
+		      -- Online: PIX pago e reserva recusada (o valor já é saldo), ou nenhum PIX vivo depois da validade e da folga.
+		      or (o.state = 'awaiting_payment' and o.mode = 'online'
+		          and (exists (select 1 from pix_charges c where c.order_id = o.dossier_id and c.status = 'paid')
+		               or (o.created_at < now() - make_interval(mins => $2)
+		                   and not exists (select 1 from pix_charges c
+		                                    where c.order_id = o.dossier_id and c.status = 'pending'
+		                                      and c.expires_at > now() - make_interval(mins => $3)))))
 		      or (o.state = 'awaiting_authorization'
 		          and exists (select 1 from consultations c join scr_authorizations s on s.id = c.scr_authorization_id
 		                       where c.dossier_id = o.dossier_id and s.status in ('not_authorized', 'expired'))))
-		  order by o.created_at`,
-		[PAYMENT_WINDOW_DAYS],
+		  order by o.created_at
+		  for update of o skip locked`,
+		[PAYMENT_WINDOW_DAYS, PIX_CHARGE_TTL_MINUTES + ORDER_PIX_GRACE_MINUTES, ORDER_PIX_GRACE_MINUTES],
 	);
 	let cancelled = 0;
 	for (const row of rows) {

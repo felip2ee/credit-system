@@ -157,6 +157,15 @@ Fluxo para o cliente: [operations/payment-links.md](operations/payment-links.md)
 - Evento repetido não baixa de novo (`link_duplicate`). Pedido que não aceita mais pagamento (pago no balcão ou cancelado) vira `link_order_not_payable`, sem pagamento de balcão.
 - Dinheiro: entra na conta Asaas da plataforma. Não há repasse automático ao Bureau.
 
+## Pagamento por pedido
+
+- O cliente abre o pedido (`placeOrder`). Saldo que cobre o preço: reserva direta. Saldo menor: o pedido fica em `awaiting_payment` e o preço pago e o cupom vão para `order_pix_quotes` (imutável, 063).
+- `createOrderPixAction` chama `runCheckout` com `orderId` e só PIX. A cobrança é uma linha de `pix_charges` com `order_id`. O valor vem da cotação: o navegador não manda valor, e uma política restritiva no banco recusa valor diferente. Um PIX vivo por pedido (`pix_charges_order_live_idx`). PIX vencido não gera outro: o tick cancela o pedido.
+- Webhook: `apply_asaas_payment` desvia para `apply_order_pix_charge` (065). Numa transação, credita o preço na carteira do cliente, chama `reserve_order` com o preço e o cupom guardados e `refresh_order_state`. Resultados: `order_paid`, `order_reserve_failed`, `order_not_payable`. Os três pedem a nota do crédito.
+- O webhook roda sem sessão e `reserve_order` exige cliente. O ramo monta o contexto do cliente (`app.user_id`, `app.user_role`, `app.bureau_id`) e o restaura no fim. Pega a trava do cupom antes da carteira (mesma ordem de `placeOrder`).
+- Reserva recusada depois do pagamento: o valor fica como saldo, o pedido é cancelado pelo tick e o motivo é `payment_not_reserved`. Pedido já cancelado: o valor também vira saldo (`order_not_payable`).
+- Estorno do PIX do pedido (`PAYMENT_REFUNDED`, 066; vários pedidos, 067): `cancel_order_after_pix_refund` compara as liquidações `reserved` do cliente com `client_wallets.reserved` (já com o estorno). Só se faltar lastro cancela (`payment_refunded`): primeiro o pedido do PIX estornado, depois os outros `awaiting_authorization`/`ready`, do maior `seq` ao menor, até cobrir. Cada um devolve ao disponível só `least(preço, lastro - preços dos que seguem)`; pedido `executing` segue o clawback na captura (`reservation_clawed_back`). Ordem global de travas: cobrança, pedidos do cliente, liquidações, carteira (`completeOrder`/`failOrder` travam o pedido primeiro).
+
 ## Visitas e slug
 
 - `bureau_page_views` guarda uma contagem por Bureau e por dia. Sem IP, sem cookie e sem dado pessoal. O contador é gravado por `record_bureau_page_view` (ou a versão por slug), chamado por `src/lib/bureau-admin/metrics.ts`.

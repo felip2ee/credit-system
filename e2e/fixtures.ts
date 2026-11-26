@@ -15,6 +15,13 @@ export const E2E = {
     cpf: "529.982.247-25",
     phone: "+5511999990001",
   },
+  // Client with an empty wallet: the order cannot be paid from the balance, so it goes to the PIX screen.
+  clientNoBalance: {
+    email: "e2e-client-pix@example.test",
+    password: "e2e-client-pix-password-123",
+    cpf: "111.444.777-35",
+    phone: "+5511999990002",
+  },
   superadmin: { email: "e2e-superadmin@example.test", password: "e2e-superadmin-password-123" },
   disabled: { email: "e2e-disabled@example.test", password: "e2e-disabled-password-123" },
   product: "dossie_empresarial",
@@ -29,6 +36,7 @@ export const AUTH_DIR = "e2e/.auth";
 export const STAFF_STATE = `${AUTH_DIR}/staff.json`;
 export const STAFF_SECRET_FILE = `${AUTH_DIR}/staff-secret.txt`;
 export const CLIENT_STATE = `${AUTH_DIR}/client.json`;
+export const CLIENT_NO_BALANCE_STATE = `${AUTH_DIR}/client-no-balance.json`;
 export const SUPERADMIN_STATE = `${AUTH_DIR}/superadmin.json`;
 export const SUPERADMIN_SECRET_FILE = `${AUTH_DIR}/superadmin-secret.txt`;
 // Affiliate commission, % of the GROSS price, that global-setup sets for the e2e Bureau. The Bureau override is 30%
@@ -90,7 +98,7 @@ export async function authorizeScr(page: Page, request: APIRequestContext, dossi
 }
 
 // Opens an order on /portal/pesquisas/nova (Dossiê Empresarial with 1 partner) and returns the dossier id.
-export async function openOrder(page: Page): Promise<string> {
+export async function openOrder(page: Page, { expectPayment = false } = {}): Promise<string> {
   const stamp = Date.now();
   await page.goto("/portal/pesquisas/nova");
   await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();
@@ -107,8 +115,9 @@ export async function openOrder(page: Page): Promise<string> {
   await page.getByLabel("Li e concordo com a declaração acima.").check();
   await expect(confirm).toBeEnabled();
   await confirm.click();
-  await expect(page).toHaveURL(/\/portal\/pesquisas\/[0-9a-f-]{36}$/);
-  return page.url().split("/").pop() as string;
+  // Without balance the order goes to the PIX screen (/pagar).
+  await expect(page).toHaveURL(expectPayment ? /\/portal\/pesquisas\/[0-9a-f-]{36}\/pagar$/ : /\/portal\/pesquisas\/[0-9a-f-]{36}$/);
+  return new URL(page.url()).pathname.split("/")[3];
 }
 
 // better-auth limits sign-ins per IP (3 per 10 s) and every e2e request comes from 127.0.0.1.

@@ -123,6 +123,17 @@ describe("openClientOrderAction", () => {
 		expect(revalidatePath).toHaveBeenCalledWith("/portal/pesquisas");
 	});
 
+	it("returns paymentRequired when placeOrder needs a PIX", async () => {
+		state.placeOrder.mockResolvedValue({ ok: true, dossierId: DOSSIER_ID, state: "awaiting_payment", pixPriceCents: 5000 });
+
+		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({ error: null, id: DOSSIER_ID, paymentRequired: true });
+		expect(revalidatePath).toHaveBeenCalledWith("/portal/pesquisas");
+	});
+
+	it("keeps the plain result when the balance covers the price", async () => {
+		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({ error: null, id: DOSSIER_ID });
+	});
+
 	it("quotes base plus the per-partner value and sends the partners", async () => {
 		const partner = (document: string) => ({ document, name: "Sócio", email: `${document}@example.test` });
 		await openClientOrderAction({
