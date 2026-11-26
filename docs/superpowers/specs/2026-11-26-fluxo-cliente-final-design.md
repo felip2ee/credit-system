@@ -48,31 +48,37 @@ A tela é grande demais.
 
 ### Parte 2. Pagamento por pedido (dinheiro, revisão final com opus)
 
-- `placeOrder` online em duas fases: (1) cria o pedido em `awaiting_payment` com preço e cupom guardados, sem `reserve_order`; (2) cria o PIX Asaas ligado ao pedido (`external_reference` = chave de idempotência).
-- Migration nova: vínculo `pix_charges.order_id` (ou equivalente), com RLS e grants. Relaxar apenas o que for necessário em `pix_charges_link_shape_check`.
-- Webhook: ramo novo em `apply_asaas_payment` para PIX com pedido. Na mesma transação: credita a carteira com o valor pago, chama `reserve_order` com o preço guardado, chama `refresh_order_state`. Idempotente.
-- `refresh_order_state`: ramo online (hoje `awaiting_payment` só existe no balcão).
-- Valor do PIX vem do servidor e deve igualar o preço guardado. Valor menor não reserva nada.
-- Preço zero (cupom): sem PIX, vai direto para a reserva.
-- PIX vencido cancela o pedido. Teto de R$ 5.000 herdado da recarga: se o preço passar disso, mostrar erro claro.
-- Falha de reserva após pagamento: valor fica como saldo, pedido marcado com motivo, mensagem em pt-BR.
-- Tela: `/portal/pesquisas/[id]/pagar`, reaproveitando QR e `useChargePolling`. Ao pagar, redireciona ao pedido.
-- Testes: integração com Postgres para webhook repetido, valor errado, cupom esgotado e preço zero.
+Plano: `docs/superpowers/plans/2026-11-26-fluxo-cliente-2-pagamento-por-pedido.md`. Esta seção foi corrigida contra o código.
+
+- `placeOrder` online tenta a reserva como hoje. Saldo que cobre o preço (ou preço zero com cupom): reserva direta, sem PIX. Só `insufficient_balance` muda: o pedido fica em `awaiting_payment` e o preço pago e o cupom ficam em `order_pix_quotes` (tabela nova; `dossier_orders` não aceita colunas mutáveis novas sem mudar `open_order`).
+- `open_order` não muda: ele já chama `refresh_order_state`, e o ramo online novo de `refresh_order_state` (pago = liquidação `reserved` ou `captured`) põe o pedido sem reserva em `awaiting_payment`.
+- Vínculo: `pix_charges.order_id` → `order_pix_quotes`. `pix_charges_link_shape_check` NÃO muda (a cobrança do pedido tem `payment_link_id` nulo). Política restritiva: cobrança de pedido só com o valor guardado.
+- O PIX é criado por `runCheckout` (mesmo pagador, taxa, NFS-e e polling da recarga), com o valor lido do banco, nunca do navegador.
+- Webhook: função nova `apply_order_pix_charge`, chamada por `apply_asaas_payment`. `reserve_order` exige contexto de cliente (`app.user_id`, `app.user_role`, `app.bureau_id`): o webhook não tem sessão, então a função monta esse contexto local, usa uma vaga de cupom (054) e o restaura. Estorno segue o ramo de estorno existente (carteira do cliente e retomada da reserva).
+- Valor menor que o esperado: nada é creditado (`amount_mismatch`, regra da recarga). Valor maior: credita o preço (regra da recarga).
+- Falha da reserva depois do pagamento: o preço fica como saldo e o tick cancela o pedido com o motivo novo `payment_not_reserved`.
+- PIX vencido (30 min + 15 min de folga) cancela o pedido pelo tick com `payment_timeout`. `cancelOrder` passa a aceitar pedido online sem liquidação.
+- Limites do PIX: R$ 10,00 a R$ 5.000,00 (`pix_charges.amount`). Fora disso e sem saldo: erro claro, nada é gravado.
+- Tela: `/portal/pesquisas/[id]/pagar`, com QR feito do código copia e cola e `useChargePolling`. Ao pagar, vai ao pedido.
 
 ### Parte 3. Compra em etapas e densidade
 
-- Etapa 1: escolha "só para mim" ou "para uma empresa". Define `holderType` e `self`.
-- Etapa 2 (empresa): dados da empresa. Etapa 3: pessoas (o próprio comprador, sócios, cônjuges), cada uma com nome, CPF e e-mail. Etapa de revisão com a lista e o valor. Depois, a tela de pagamento da parte 2.
-- Limite de pessoas: `MAX_PARTNERS` (`src/lib/validators/order.ts`).
-- Sem mudar `open_order`, se o comprador já puder entrar como membro (a verificar: comportamento de `self` em empresa, migration 055).
-- Densidade: classe de escopo no portal. Base 16 px (`globals.css:93`), `p-6` vira `p-4` nos cards, espaçamentos menores. Botões e campos mantêm 44 px no celular (`docs/design.md:53`, `e2e/mobile.spec.ts`).
-- Divide `client-order-form.tsx` (345 linhas) em componentes por etapa.
+Plano: `docs/superpowers/plans/2026-11-26-fluxo-cliente-3-compra-em-etapas.md`.
+
+- Etapa 1: escolha "só para você" ou "para uma empresa". Define `productCode`. `self` sai de `isSelfOrder(productCode, holderType)`. O `holderType` vem da conta, não da escolha.
+- Empresa: etapa de dados da empresa; etapa de pessoas (o próprio comprador, sócios, cônjuges), cada uma com nome, CPF e e-mail próprio; etapa de revisão com a lista e o valor. Depois, a tela de pagamento da parte 2.
+- Limite de pessoas: `MAX_PARTNERS` (`src/lib/validators/order.ts`). O comprador conta como uma linha. E-mail repetido na lista é recusado.
+- Comprador como membro, sem mudar `open_order` (verificado na migration 055, regra D12): vale para conta PF. Ele entra como sócio comum, com o próprio CPF e o próprio e-mail. Conta PJ ou sem Titular não pode: o servidor devolve `contact_is_buyer`, e a tela esconde o botão.
+- Densidade: classe de escopo `.portal-dense` só no layout do portal, com a variante Tailwind `dense:`. `.area-portal` não muda: ela também vale para auth, onboarding e páginas públicas. Base 16 px, `p-4` nos cards, espaçamentos menores. Botões e campos de 44 px (hoje 48 px no portal; o piso do projeto é 44 px, `e2e/mobile.spec.ts`). `docs/design.md` é atualizado.
+- Divide `client-order-form.tsx` (345 linhas) em componentes por etapa. Os passos ficam em `order-wizard-steps.ts` (`order-steps.ts` já é dos passos do pedido pago).
 
 ### Parte 4. Aba de autorização
 
-- Mostrar e-mail mascarado e status por pessoa (`OrderMember`, `listMyOrderMembers`).
-- Nova ação do cliente: editar o e-mail de uma autorização `pending` e reenviar. zod, sessão, permissão, escopo do pedido por RLS, evento de auditoria na mesma transação. Pode precisar de função SQL, porque a RLS atual de `scr_authorizations` restringe o cliente.
-- Botão de reenviar sem editar. Autorização já `authorized` ou `refused` não edita.
+- Mostrar e-mail mascarado e status por pessoa. Hoje `client_order_members` (025) não devolve e-mail nem o id da consulta: a função muda (drop e create, migration nova). A tela continua sendo a seção "Autorizações" da página do pedido, não uma aba nova.
+- Nova ação do cliente: corrigir o e-mail de uma autorização e reenviar. Só função SQL `SECURITY DEFINER` serve: o cliente não tem política em `scr_authorizations` (004) e uma política nova exporia `public_token` e `auth_code`. O escopo é a posse do pedido (`dossier_orders.client_profile_id = app_user_id()`), conferida na função, nunca só pelo id da autorização. A RLS não faz esse escopo.
+- Não se escreve mecanismo novo. `update_order_contact` (044) já gira `public_token`, apaga `auth_code`, anula a notificação em fila, limita (2 min e 5 por 24 h em `contact_changes_at`) e audita com e-mail mascarado. É só para a equipe. A parte 4 cria a função do cliente com as mesmas regras, mais estritas (3 por 24 h). O e-mail novo sai pelo tick de pedidos (cron de 10 s), sem envio na ação.
+- Só autorização `pending` com prazo aberto edita, em pedido `awaiting_payment` ou `awaiting_authorization`. `expired` não edita: o tick cancela o pedido com `scr_expired`. `authorized` e `refused` não editam. Reenviar sem editar vale só em `awaiting_authorization`.
+- Duas ações: corrigir (e-mail obrigatório) e reenviar (sem e-mail). E-mail em branco nunca vira reenvio.
 
 ## Restrições
 
