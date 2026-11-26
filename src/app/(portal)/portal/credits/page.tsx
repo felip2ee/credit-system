@@ -14,7 +14,6 @@ import { getClientAccountStatus } from "@/lib/account/queries";
 import { getPublicCatalog } from "@/lib/bureaus/public";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
-import { pfTopupSuggestions } from "@/lib/validators/wallet";
 import { getClientWallet, listClientLedger } from "@/lib/wallet/client-queries";
 import { listClientPixCharges } from "@/lib/wallet/pix-charges";
 
@@ -40,7 +39,6 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
   }));
 
   const catalog = data.slug ? await getPublicCatalog(data.slug) : [];
-  const suggestions = pfTopupSuggestions(catalog.find((item) => item.code === "dossie_pf")?.salePrice ?? null);
   const priceRows = referencePriceRows(
     catalog.find((item) => item.code === "dossie_pf"),
     catalog.find((item) => item.code === "dossie_empresarial"),
@@ -61,7 +59,7 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
         <ClientBalance wallet={data.wallet}>
           {hasPermission(session, "credits:topup") &&
             (data.status.emailVerified ? (
-              <ClientTopupDialog suggestions={suggestions} priceRows={priceRows} />
+              <ClientTopupDialog priceRows={priceRows} />
             ) : (
               <p className="text-base font-bold">Confirme seu e-mail para comprar créditos.</p>
             ))}

@@ -8,10 +8,9 @@ import { CheckoutForm } from "@/components/payments/CheckoutForm";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import type { ReferencePriceRow } from "@/lib/catalog/reference-prices";
-import type { TopupSuggestion } from "@/lib/validators/wallet";
 import { CREDITS_PATH } from "@/lib/wallet/credits-path";
 
-export function ClientTopupDialog({ suggestions, priceRows }: { suggestions: TopupSuggestion[]; priceRows: ReferencePriceRow[] }) {
+export function ClientTopupDialog({ priceRows }: { priceRows: ReferencePriceRow[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
@@ -25,7 +24,6 @@ export function ClientTopupDialog({ suggestions, priceRows }: { suggestions: Top
         <CheckoutForm
           scope="client"
           action={requestClientTopupAction}
-          suggestions={suggestions}
           priceRows={priceRows}
           onClose={close}
           // O QR abre na página, pela URL: sobrevive a re-render e remontagem deste diálogo.

@@ -1,30 +1,29 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { getCheckoutContextAction, type CheckoutContextResult } from "@/actions/checkout-context";
-import { fromCents, toCents } from "@/lib/catalog/money";
-import { isTopupAmountCents, type ReferencePriceRow } from "@/lib/catalog/reference-prices";
+import { toCents } from "@/lib/catalog/money";
+import type { ReferencePriceRow } from "@/lib/catalog/reference-prices";
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { StatusBanner } from "@/components/ui/status-banner";
 import type { PayerField } from "@/lib/payers/queries";
 import type { CheckoutActionResult } from "@/lib/payments/checkout";
 import type { ChargeSummary } from "@/lib/wallet/pix-fees";
 import { formatCurrency } from "@/lib/utils";
 import type { CheckoutInput } from "@/lib/validators/checkout";
-import type { TopupSuggestion } from "@/lib/validators/wallet";
 import { parseTopupInput } from "@/lib/wallet/topup-input";
 
 import { buildCheckoutInput, EMPTY_CARD, PAYER_FIELDS, type CardDraft, type CheckoutErrors, type Method, type PayerKind } from "./checkout-model";
+import { AmountStep } from "./AmountStep";
 import { CardPaymentForm } from "./CardPaymentForm";
 import { acquireKey, checkoutFingerprint, settleKey, type KeyHolder, type SubmitOutcome } from "./checkout-key";
 import { pixSubmitLabel, pixSummaryFor, pixSummaryLine, unavailableMessage } from "./checkout-summary";
+import { canContinue, errorsForStep, firstStepWithErrors, STEP_TITLE, stepsFor, type Step } from "./checkout-steps";
 import { installmentLabel } from "./InstallmentSelect";
+import { MethodStep } from "./MethodStep";
 import { PayerStep } from "./PayerStep";
 import { useChargePolling, type PollOutcome } from "./useChargePolling";
 
@@ -38,7 +37,6 @@ type Props = {
   /** Pix gerado: o diálogo mostra o QR (cada tela decide onde). */
   onPix: (charge: { id: string; pixPayload: string; qrImageBase64: string; summary?: ChargeSummary }) => void;
   onClose: () => void;
-  suggestions?: TopupSuggestion[];
   /** Preços de referência dos dossiês (só no fluxo do cliente). */
   priceRows?: ReferencePriceRow[];
 };
@@ -51,7 +49,7 @@ const OUTCOME: Record<Exclude<PollOutcome, "aborted">, { tone: "success" | "atte
   refunded: { tone: "neutral", title: "Pagamento estornado." },
 };
 
-export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], priceRows = [] }: Props) {
+export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: Props) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<Method>("PIX");
@@ -61,11 +59,14 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], 
   const [declaration, setDeclaration] = useState(false);
   const [card, setCard] = useState<CardDraft>(EMPTY_CARD);
   const [installments, setInstallments] = useState(1);
+  const [step, setStep] = useState<Step>("amount");
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [ctx, setCtx] = useState<CheckoutContextResult | null>(null);
   const [isPending, startTransition] = useTransition();
   const amountRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const stepMounted = useRef(false);
   const requestSeq = useRef(0);
   const firstLoad = useRef(true);
   const keyHolder = useRef<KeyHolder>(null);
@@ -75,6 +76,12 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], 
   });
 
   useEffect(() => amountRef.current?.focus(), []);
+
+  // A cada troca de etapa o foco vai ao título (não na abertura, que foca o valor).
+  useEffect(() => {
+    if (stepMounted.current) headingRef.current?.focus();
+    stepMounted.current = true;
+  }, [step]);
 
   // Ao abrir e quando o valor muda (as parcelas dependem dele).
   useEffect(() => {
@@ -104,6 +111,37 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], 
   const cardUnavailable = activeMethod === "CREDIT_CARD" && options.length === 0;
   const missing = ctx?.missing?.[activeMethod] ?? [];
   const ready = ctx !== null && !ctx.error && ctx.owner !== undefined;
+  const steps = stepsFor(cardEnabled, activeMethod);
+  const stepIndex = Math.max(0, steps.indexOf(step));
+  const isLast = stepIndex === steps.length - 1;
+
+  const draft = (idempotencyKey: string) =>
+    buildCheckoutInput({
+      amount,
+      method: activeMethod,
+      kind,
+      installments: selected?.installments ?? 1,
+      missing,
+      editing,
+      values,
+      card,
+      declaration,
+      idempotencyKey,
+    });
+
+  const goBack = () => {
+    setErrors({});
+    setSubmitError(null);
+    setStep(steps[Math.max(0, stepIndex - 1)]);
+  };
+
+  // Avança só se a etapa atual não tem erro; os erros das etapas seguintes ficam para quando chegarem lá.
+  const goNext = () => {
+    const built = draft("");
+    const found = built.ok ? {} : built.errors;
+    setErrors(errorsForStep(step, found));
+    if (canContinue(step, found)) setStep(steps[stepIndex + 1]);
+  };
 
   const changeKind = (next: PayerKind) => {
     setKind(next);
@@ -124,25 +162,20 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], 
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
+    if (!isLast) {
+      goNext();
+      return;
+    }
     const acquired = acquireKey(
       keyHolder.current,
       checkoutFingerprint({ amount, method: activeMethod, installments: selected?.installments ?? 1, kind }),
       () => crypto.randomUUID(),
     );
-    const built = buildCheckoutInput({
-      amount,
-      method: activeMethod,
-      kind,
-      installments: selected?.installments ?? 1,
-      missing,
-      editing,
-      values,
-      card,
-      declaration,
-      idempotencyKey: acquired.key,
-    });
+    const built = draft(acquired.key);
     if (!built.ok) {
       setErrors(built.errors);
+      const back = firstStepWithErrors(steps, built.errors);
+      if (back) setStep(back);
       return;
     }
     setErrors({});
@@ -203,58 +236,29 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], 
 
   return (
     <form onSubmit={submit} className="space-y-5" noValidate>
-      <div className="space-y-2">
-        {priceRows.length > 0 && (
-          <section aria-labelledby="price-ref-title" className="space-y-2 rounded-md border border-border bg-muted p-3">
-            <h3 id="price-ref-title" className="text-base font-bold">
-              Quanto custa cada dossiê
-            </h3>
-            <ul className="space-y-2">
-              {priceRows.map((row) => {
-                const ok = isTopupAmountCents(row.cents);
-                return (
-                  <li key={row.key}>
-                    <button
-                      type="button"
-                      disabled={isPending || !ok}
-                      onClick={() => {
-                        setAmount(fromCents(row.cents).replace(".", ","));
-                        amountRef.current?.focus();
-                      }}
-                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-background disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-bold">{row.label}</span>
-                        <span className="block text-muted-foreground">
-                          {ok ? formatCurrency(row.cents / 100) : "Fora do limite de recarga (R$ 10,00 a R$ 5.000,00)"}
-                        </span>
-                      </span>
-                      {ok && <span className="shrink-0 font-bold">Recarregar {formatCurrency(row.cents / 100)}</span>}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            <p className="text-sm text-muted-foreground">
-              O valor da recarga é creditado inteiro no saldo. Pix e cartão têm taxa, mostrada antes de pagar.
-            </p>
-          </section>
-        )}
-        {suggestions.length > 0 && (
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Valores sugeridos">
-            {suggestions.map((s) => (
-              <Button key={s.pfCount} type="button" variant="outline" disabled={isPending} onClick={() => setAmount(s.amount.replace(".", ","))}>
-                {s.pfCount} PF · {formatCurrency(Number(s.amount))}
-              </Button>
-            ))}
-          </div>
-        )}
-        <Field id="topup-amount" label="Valor (R$ 10,00 a R$ 5.000,00)" error={errors.amount}>
-          {(a11y) => (
-            <Input {...a11y} ref={amountRef} inputMode="decimal" placeholder="0,00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isPending} />
-          )}
-        </Field>
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground">
+            Etapa {stepIndex + 1} de {steps.length}
+          </p>
+          <h3 ref={headingRef} tabIndex={-1} className="text-lg font-bold outline-none">
+            {STEP_TITLE[step]}
+          </h3>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isPending}
+          aria-label="Fechar"
+          className="-mr-2 -mt-2 inline-flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        >
+          <X className="size-5" aria-hidden="true" />
+        </button>
       </div>
+
+      {step === "amount" && (
+        <AmountStep priceRows={priceRows} amount={amount} onAmountChange={setAmount} error={errors.amount} disabled={isPending} amountRef={amountRef} />
+      )}
 
       {ctx === null && (
         <p role="status" className="text-sm text-muted-foreground">
@@ -265,51 +269,35 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], 
 
       {ready && ctx.owner && (
         <>
-          {cardEnabled && (
-            <fieldset className="space-y-2" disabled={isPending}>
-              <legend className="mb-2 text-base font-bold">Forma de pagamento</legend>
-              <RadioGroup value={activeMethod} onValueChange={(v) => setMethod(v as Method)} aria-label="Forma de pagamento">
-                {(
-                  [
-                    ["PIX", "Pix"],
-                    ["CREDIT_CARD", "Cartão de crédito, até 12x"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <div key={value} className="flex min-h-11 items-center gap-3">
-                    <RadioGroupItem value={value} id={`method-${value}`} disabled={value === "PIX" && pixDisabled} />
-                    <Label htmlFor={`method-${value}`} className="flex-1 cursor-pointer py-2">
-                      {label}
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
-            </fieldset>
-          )}
+          {step === "method" && <MethodStep value={activeMethod} onChange={setMethod} pixDisabled={pixDisabled} disabled={isPending} />}
 
           {unavailable && <StatusBanner tone="attention" title={unavailable} />}
 
-          <PayerStep
-            owner={ctx.owner}
-            missing={missing}
-            kind={kind}
-            onKindChange={changeKind}
-            values={values}
-            onValueChange={(field, v) => setValues((prev) => ({ ...prev, [field]: v }))}
-            editing={editing}
-            onToggleEdit={toggleEdit}
-            declaration={declaration}
-            onDeclarationChange={setDeclaration}
-            errors={errors}
-            disabled={isPending}
-          />
-
-          {pixSummary && (
-            <p aria-live="polite" className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground">
-              {pixSummaryLine(pixSummary)}
-            </p>
+          {step === "payer" && (
+            <>
+              <PayerStep
+                owner={ctx.owner}
+                missing={missing}
+                kind={kind}
+                onKindChange={changeKind}
+                values={values}
+                onValueChange={(field, v) => setValues((prev) => ({ ...prev, [field]: v }))}
+                editing={editing}
+                onToggleEdit={toggleEdit}
+                declaration={declaration}
+                onDeclarationChange={setDeclaration}
+                errors={errors}
+                disabled={isPending}
+              />
+              {pixSummary && (
+                <p aria-live="polite" className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground">
+                  {pixSummaryLine(pixSummary)}
+                </p>
+              )}
+            </>
           )}
 
-          {activeMethod === "CREDIT_CARD" &&
+          {step === "card" &&
             (cardUnavailable ? (
               <StatusBanner tone="neutral" title="Informe um valor válido para ver as parcelas." />
             ) : (
@@ -336,11 +324,13 @@ export function CheckoutForm({ scope, action, onPix, onClose, suggestions = [], 
       {submitError && <StatusBanner tone="attention" title={submitError} />}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
-          Cancelar
-        </Button>
-        <Button type="submit" glow disabled={isPending || !ready || amount === "" || cardUnavailable || noMethod}>
-          {submitLabel}
+        {stepIndex > 0 && (
+          <Button type="button" variant="outline" onClick={goBack} disabled={isPending}>
+            Voltar
+          </Button>
+        )}
+        <Button type="submit" glow disabled={isPending || !ready || amount === "" || (isLast && (cardUnavailable || noMethod))}>
+          {isLast ? submitLabel : "Continuar"}
         </Button>
       </div>
     </form>

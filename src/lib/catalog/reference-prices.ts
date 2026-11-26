@@ -5,7 +5,7 @@ import { MAX_TOPUP_CENTS, MIN_TOPUP_CENTS } from "@/lib/validators/wallet";
 export type ReferencePriceRow = { key: string; label: string; cents: number };
 
 // Quantidades de sócios mostradas na tabela de referência.
-const PARTNER_COUNTS = [1, 2, 3] as const;
+const PARTNER_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
 type Item = { salePrice: string; salePricePerPartner: string };
 
