@@ -66,7 +66,7 @@ export const MEMBER_EMAIL_MESSAGES: Record<string, string> = {
 	same_email: "Este já é o e-mail desta autorização. Use Reenviar.",
 	contact_is_buyer: "Informe o e-mail da outra pessoa, não o seu.",
 	own_account_email: "O e-mail desta pessoa vem da sua conta e não pode ser trocado aqui.",
-	too_many_requests: "Este e-mail já recebeu pedidos de autorização recentes. Tente novamente amanhã.",
+	too_many_requests: "Muitos pedidos de autorização recentes para este contato ou nesta conta. Tente novamente amanhã.",
 	resend_too_soon: "O pedido acabou de ser enviado. Aguarde 2 minutos para tentar de novo.",
 	resend_limit_reached: "Limite de envios de hoje atingido para esta pessoa. Tente amanhã.",
 };
