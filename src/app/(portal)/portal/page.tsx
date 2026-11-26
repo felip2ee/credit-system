@@ -27,7 +27,7 @@ export default async function PortalHomePage() {
     affiliate: showAffiliate ? await getMyAffiliateSummary(client) : null,
   }));
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <h1 className="text-2xl font-bold">Olá{firstName ? `, ${firstName}` : ""}</h1>
       <Button asChild variant="cta" size="lg" glow className="w-full">
         <Link href="/portal/pesquisas/nova">

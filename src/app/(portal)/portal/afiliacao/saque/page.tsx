@@ -33,7 +33,7 @@ export default async function AffiliateWithdrawalPage() {
   ]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Saque de comissão" />
       <Link href="/portal/afiliacao" className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
         <ArrowLeft aria-hidden className="size-5" />

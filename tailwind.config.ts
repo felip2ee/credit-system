@@ -132,6 +132,9 @@ const config: Config = {
     // Variante `admin:` aplica a classe só dentro de `.theme-admin` e só de `md` (768 px) para cima, onde o layout
     // mostra a sidebar. Abaixo disso vale a escala base (alvos de toque >= 44 px, e2e/mobile.spec.ts).
     plugin(({ addVariant }) => addVariant("admin", "@media (min-width: 768px) { .theme-admin & }")),
+    // Variante `dense:` aplica a classe só dentro de `.portal-dense` (layout do portal do cliente), em qualquer largura.
+    // Login, landing e admin ficam fora dela e mantêm a escala própria.
+    plugin(({ addVariant }) => addVariant("dense", ".portal-dense &")),
   ],
 };
 export default config;

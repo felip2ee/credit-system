@@ -21,7 +21,7 @@ export default async function ClientOrdersPage() {
 	const orders = await withUserTransaction(session, (client) => listMyOrders(client));
 
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<PageHeader title="Pesquisas" description="Seus pedidos e entregas">
 				<Button asChild variant="cta" glow>
 					<Link href="/portal/pesquisas/nova">Nova pesquisa</Link>

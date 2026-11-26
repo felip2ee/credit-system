@@ -51,7 +51,7 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Créditos" description="Saldo, recargas por PIX e extrato" />
       {data.wallet ? (
         <ClientBalance wallet={data.wallet}>

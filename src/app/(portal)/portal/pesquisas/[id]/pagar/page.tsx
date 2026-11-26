@@ -47,7 +47,7 @@ export default async function PayOrderPage({ params }: { params: { id: string } 
 			: null;
 
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<Link href={`/portal/pesquisas/${params.id}`} className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
 				<ArrowLeft aria-hidden className="size-5" />
 				Voltar ao pedido

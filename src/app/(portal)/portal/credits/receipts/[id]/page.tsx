@@ -58,7 +58,7 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
   const note = nfseNoteFor(receipt.nfseStatus, receipt.nfseUrl);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Recibo de recarga" description="Pagamento confirmado por PIX" />
       <Card>
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">

@@ -21,7 +21,7 @@ export default async function ClientProfilePage() {
   const status = await withUserTransaction(session, (client) => getClientAccountStatus(client, session.userId));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader title="Conta" description="Seus dados, telefone, avisos e segurança" />
       <AccountMenu showAffiliates={hasPermission(session, "affiliates:read")} />
       <Card>

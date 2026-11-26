@@ -93,6 +93,10 @@
   .area-portal {
     font-size: 1.125rem;
   }
+  /* Portal logado: base 16 px (layout do portal). Login, landing e páginas públicas ficam em 18 px. */
+  .area-portal.portal-dense {
+    font-size: 1rem;
+  }
 }
 
 /* Painel do Bureau e Superadmin (.theme-admin): página CLARA, cartões BRANCOS, destaques VERDES.
