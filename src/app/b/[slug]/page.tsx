@@ -40,7 +40,7 @@ export default async function PublicBureauPage({
 
   return (
     <div className={`landing ${serif.variable} ${sans.variable} min-h-screen`}>
-      <LandingHeader name={bureau.name} href={start} />
+      <LandingHeader href={start} />
       <main>
         <LandingHero href={start} />
         <LandingWhy />
@@ -55,7 +55,7 @@ export default async function PublicBureauPage({
         <LandingFaq />
         <LandingFinalCta href={start} />
       </main>
-      <LandingFooter name={bureau.name} />
+      <LandingFooter />
       <Toaster />
     </div>
   );

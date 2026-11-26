@@ -22,11 +22,11 @@ export function LandingFinalCta({ href }: { href: string }) {
   );
 }
 
-export function LandingFooter({ name }: { name: string }) {
+export function LandingFooter() {
   const link = "inline-flex min-h-11 items-center underline underline-offset-4 hover:text-white";
   return (
     <footer className={`${SECTION_X} flex flex-wrap items-center justify-between gap-x-6 gap-y-1 bg-[var(--landing-green)] py-4 text-sm text-[var(--landing-soft)]`}>
-      <p className="min-w-0 break-words">{name}</p>
+      <p className="min-w-0 break-words">Rainha Cred</p>
       <nav aria-label="Documentos legais" className="flex gap-6">
         <Link href="/termos" className={link}>
           Termos

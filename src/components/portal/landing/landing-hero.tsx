@@ -11,7 +11,7 @@ const PREVIEW_ROWS: { icon: LucideIcon; label: string; accent: boolean }[] = [
   { icon: ChartColumn, label: "Parecer estratégico", accent: true },
 ];
 
-export function LandingHeader({ name, href }: { name: string; href: string }) {
+export function LandingHeader({ href }: { href: string }) {
   return (
     <header className={`${SECTION_X} bg-[var(--landing-green)] pb-5 pt-5`}>
       <div className={CONTAINER}>
@@ -24,9 +24,6 @@ export function LandingHeader({ name, href }: { name: string; href: string }) {
             Entrar
           </Link>
         </div>
-        <p className="lp-serif mt-4 min-w-0 break-words border-t border-white/15 pt-4 text-[26px] font-bold leading-[1.15] text-[var(--landing-yellow)] lg:text-[32px]">
-          {name}
-        </p>
       </div>
     </header>
   );
