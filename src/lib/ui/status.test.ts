@@ -19,6 +19,7 @@ const VALUES: Record<StatusDomain, string[]> = {
 		"deps_unavailable",
 		"reservation_clawed_back",
 		"payment_not_reserved",
+		"payment_refunded",
 	],
 	consultation: ["pending_authorization", "authorized", "processing", "completed", "payload_incompatible", "error", "rejected"],
 	scr: ["pending", "authorized", "not_authorized", "expired"],

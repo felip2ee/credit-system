@@ -19,7 +19,8 @@ export type OrderStateReason =
 	| "deps_incompatible"
 	| "deps_unavailable"
 	| "reservation_clawed_back"
-	| "payment_not_reserved";
+	| "payment_not_reserved"
+	| "payment_refunded";
 export type AiStatus = "pending" | "done" | "failed";
 export type OrderProductCode = "dossie_pf" | "dossie_empresarial";
 export type OrderKind = "PF" | "PJ" | "PJ_FULL";
