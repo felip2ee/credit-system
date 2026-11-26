@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { fromCents, toCents } from "@/lib/catalog/money";
+import { toCents } from "@/lib/catalog/money";
 
 // Valor em reais com sinal, diferente de zero, até 2 casas e |valor| <= 99999999.99.
 export const signedMoneySchema = z.string().refine((value) => {
@@ -34,17 +34,3 @@ export const topupAmountSchema = z.string().refine((value) => {
 }, "Informe um valor entre R$ 10,00 e R$ 5.000,00, com até 2 casas decimais.");
 
 export const walletTopupSchema = z.object({ amount: topupAmountSchema });
-
-// Valores sugeridos na recarga do cliente: 1, 2, 4 e 8 pesquisas PF. O servidor valida só a faixa (topupAmountSchema).
-export const TOPUP_PF_MULTIPLES = [1, 2, 4, 8] as const;
-
-export type TopupSuggestion = { pfCount: number; amount: string };
-
-// Sem preço PF, sem sugestão. Fora da faixa de recarga, a sugestão some.
-export function pfTopupSuggestions(pfPrice: string | null): TopupSuggestion[] {
-	if (pfPrice === null) return [];
-	const unitCents = toCents(pfPrice);
-	return TOPUP_PF_MULTIPLES.map((pfCount) => ({ pfCount, cents: unitCents * pfCount }))
-		.filter(({ cents }) => cents >= MIN_TOPUP_CENTS && cents <= MAX_TOPUP_CENTS)
-		.map(({ pfCount, cents }) => ({ pfCount, amount: fromCents(cents) }));
-}
