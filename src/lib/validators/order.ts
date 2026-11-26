@@ -91,7 +91,7 @@ export const clientOrderSchema = z
 		subject: subjectSchema.nullish(),
 		contactEmail: optionalEmail,
 		contactPhone: optionalPhone,
-		partners: z.array(partnerSchema).max(MAX_PARTNERS, `No máximo ${MAX_PARTNERS} sócios.`).default([]),
+		partners: z.array(partnerSchema).max(MAX_PARTNERS, `No máximo ${MAX_PARTNERS} pessoas.`).default([]),
 		declarationAccepted: z.boolean().default(false),
 		// A versão do texto que o formulário mostrou. O banco recusa se já não for a vigente.
 		declarationVersion: z.number().int().positive().nullish().transform((v) => v ?? null),
@@ -103,6 +103,15 @@ export const clientOrderSchema = z
 		if (v.partners.length > 0 && v.productCode !== "dossie_empresarial") {
 			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners"], message: PARTNERS_ONLY_EMPRESARIAL });
 		}
+		// Um consentimento por e-mail: o mesmo e-mail em duas linhas é recusado (o CPF repetido segue contando uma vez).
+		const seenEmails = new Set<string>();
+		v.partners.forEach((p, i) => {
+			const email = p.email.trim().toLowerCase();
+			if (email && seenEmails.has(email)) {
+				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners", i, "email"], message: "Cada pessoa precisa de um e-mail próprio." });
+			}
+			seenEmails.add(email);
+		});
 		if (v.self) return;
 		if (!v.subject) {
 			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["subject"], message: "Informe quem será pesquisado." });

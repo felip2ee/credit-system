@@ -297,6 +297,67 @@ describe("client orders through the portal actions", () => {
     expect(await wallet(t)).toEqual({ available: "300.00", reserved: "0.00" });
   });
 
+  const BUYER_EMAIL_MESSAGE = "Use um e-mail diferente do seu. O seu e-mail só vale na linha com o seu CPF.";
+  const orderCount = async (t: SeededTenant) =>
+    (await owner.query("select 1 from dossier_orders where bureau_id = $1", [t.bureau.id])).rowCount;
+
+  it("the buyer enters as a member: own valid CPF and own e-mail as a partner opens the order", async () => {
+    const t = await readyClientTenant();
+    const buyerCpf = validCpf();
+    await owner.query("update holders set document = $2 where client_profile_id = $1", [t.client.userId, buyerCpf]);
+    const buyerEmail = await emailOf(t.client.userId);
+
+    const result = await openClientOrderAction({
+      ...company(true, await currentDeclarationVersion()),
+      partners: [{ document: buyerCpf, name: "Comprador Sócio", email: buyerEmail }, partner()],
+    });
+
+    expect(result.error).toBeNull();
+    const id = result.id as string;
+    const { rows: consultations } = await owner.query("select 1 from consultations where dossier_id = $1", [id]);
+    expect(consultations).toHaveLength(3);
+    const { rows: auths } = await owner.query<{ email: string; status: string }>(
+      `select lower(a.email) as email, a.status from scr_authorizations a
+         join consultations c on c.scr_authorization_id = a.id where c.dossier_id = $1`,
+      [id],
+    );
+    expect(auths).toHaveLength(3);
+    expect(auths.every((a) => a.status === "pending")).toBe(true);
+    expect(auths.map((a) => a.email)).toContain(buyerEmail.toLowerCase());
+    const { rows: audit } = await owner.query("select metadata->>'self_member' as self_member from audit_logs where action = 'order.open' and record_id = $1", [id]);
+    expect(audit).toEqual([{ self_member: "true" }]);
+  });
+
+  it("the buyer e-mail on a CPF that is not the buyer's is refused with the contact_is_buyer message and opens nothing", async () => {
+    const t = await readyClientTenant();
+    await owner.query("update holders set document = $2 where client_profile_id = $1", [t.client.userId, validCpf()]);
+    const buyerEmail = await emailOf(t.client.userId);
+
+    await expect(
+      openClientOrderAction({
+        ...company(true, await currentDeclarationVersion()),
+        partners: [{ document: validCpf(), name: "Outra Pessoa", email: buyerEmail }],
+      }),
+    ).resolves.toEqual({ error: BUYER_EMAIL_MESSAGE });
+
+    expect(await orderCount(t)).toBe(0);
+  });
+
+  it("an account with a PJ holder cannot add itself as a partner with its own e-mail", async () => {
+    const t = await readyClientTenant();
+    await owner.query("update holders set type = 'PJ', document = $2 where client_profile_id = $1", [t.client.userId, validCnpj()]);
+    const buyerEmail = await emailOf(t.client.userId);
+
+    await expect(
+      openClientOrderAction({
+        ...company(true, await currentDeclarationVersion()),
+        partners: [{ document: validCpf(), name: "Comprador Sócio", email: buyerEmail }],
+      }),
+    ).resolves.toEqual({ error: BUYER_EMAIL_MESSAGE });
+
+    expect(await orderCount(t)).toBe(0);
+  });
+
   it("cancelMyOrderAction gives the reservation back and stays inside the own orders", async () => {
     const t = await readyClientTenant();
     const opened = await openClientOrderAction({ productCode: "dossie_pf", self: true });
