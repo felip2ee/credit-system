@@ -73,7 +73,7 @@ import { AsaasOutcomeUnknownError, getAsaasClient } from "@/lib/asaas";
 import { ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
 import { buildFakePaymentEvent, getFakeCustomer, resetFakeCustomers } from "@/lib/asaas/fake";
 import { pool } from "@/lib/db/pool";
-import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { withUserTransaction } from "@/lib/db/transaction";
 import { getWebhookPool } from "@/lib/db/webhook-pool";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
@@ -163,10 +163,6 @@ const bureauBalance = async (bureauId: string) =>
 	(await owner.query<{ available: string }>("select available from wallets where bureau_id = $1", [bureauId])).rows[0].available;
 const clientBalance = async (id: string) =>
 	(await owner.query<{ available: string }>("select available from client_wallets where client_profile_id = $1", [id])).rows[0].available;
-
-async function verifyEmail(identity: DbIdentity): Promise<void> {
-	await owner.query('update "user" set email_verified = true where id = $1', [identity.userId]);
-}
 
 async function giveHolderAddress(t: SeededTenant, document = CPF): Promise<void> {
 	await owner.query("update holders set document = $2, zip_code = $3, address_number = '55' where id = $1", [
@@ -506,9 +502,14 @@ describe("Pix fee passthrough (PIX_FEE_CENTS)", () => {
 describe("client", () => {
 	it("pays Pix with the Holder data already known: no field asked, and the copy is stored encrypted", async () => {
 		const t = await seedTenant(owner, "Cli Known");
-		await verifyEmail(t.client);
 		await giveHolderAddress(t);
 		const body = input();
+		// seedTenant cria o usuário com e-mail não verificado: o cliente paga mesmo assim.
+		const { rows: user } = await owner.query<{ email_verified: boolean }>(
+			'select email_verified from "user" where id = $1',
+			[t.client.userId],
+		);
+		expect(user[0].email_verified).toBe(false);
 
 		const result = await runCheckout(t.client, clientScope(t), body, META);
 
@@ -523,22 +524,18 @@ describe("client", () => {
 		expect(await clientBalance(t.client.userId)).toBe("0.00");
 	});
 
-	it("without a known document asks for it, and without a verified e-mail refuses before anything is reserved", async () => {
+	it("without a known document asks for it before anything is reserved", async () => {
 		const t = await seedTenant(owner, "Cli Ask");
-		const unverified = await runCheckout(t.client, clientScope(t), input(), META);
-		await verifyEmail(t.client);
 		// CPF inválido (dígitos repetidos): o Titular não serve como dado conhecido.
 		await owner.query("update holders set document = '111.111.111-11' where id = $1", [t.holder.id]);
 		const asked = await runCheckout(t.client, clientScope(t), input(), META);
 
-		expect(unverified.error).toMatch(/e-mail/);
 		expect(asked.error).toMatch(/dados de pagamento/);
 		expect(await countRows(t.bureau.id)).toBe(0);
 	});
 
 	it("the Bureau (admin and operator) never reads the payer data of a client", async () => {
 		const t = await seedTenant(owner, "Cli Iso");
-		await verifyEmail(t.client);
 		await giveHolderAddress(t);
 		await runCheckout(t.client, clientScope(t), input(), META);
 		await runCheckout(t.bureauAdmin, bureauScope(t), input({ payer: { name: "Bureau X", document: CPF_OTHER } }), META);
@@ -556,7 +553,6 @@ describe("client", () => {
 
 	it("a client cannot pay into the wallet of another client or of the Bureau", async () => {
 		const t = await seedTenant(owner, "Cli Scope");
-		await verifyEmail(t.client);
 		await giveHolderAddress(t);
 		const other = await seedClientProfile(owner, t.bureau.id);
 

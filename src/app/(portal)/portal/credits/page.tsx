@@ -10,7 +10,6 @@ import { ClientTopupDialog } from "@/components/credits/ClientTopupDialog";
 import { PageHeader } from "@/components/layout/page-header";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
-import { getClientAccountStatus } from "@/lib/account/queries";
 import { getPublicCatalog } from "@/lib/bureaus/public";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
@@ -32,7 +31,6 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
 
   const data = await withUserTransaction(session, async (client) => ({
     slug: (await client.query<{ slug: string }>("select slug from bureaus where id = app_bureau_id()")).rows[0]?.slug ?? null,
-    status: await getClientAccountStatus(client, session.userId),
     wallet: await getClientWallet(client, session.userId),
     ledger: await listClientLedger(client, session.userId),
     charges: await listClientPixCharges(client, session.userId),
@@ -57,12 +55,7 @@ export default async function ClientCreditsPage({ searchParams }: { searchParams
       <PageHeader title="Créditos" description="Saldo, recargas por PIX e extrato" />
       {data.wallet ? (
         <ClientBalance wallet={data.wallet}>
-          {hasPermission(session, "credits:topup") &&
-            (data.status.emailVerified ? (
-              <ClientTopupDialog priceRows={priceRows} />
-            ) : (
-              <p className="text-base font-bold">Confirme seu e-mail para comprar créditos.</p>
-            ))}
+          {hasPermission(session, "credits:topup") && <ClientTopupDialog priceRows={priceRows} />}
         </ClientBalance>
       ) : (
         <StatusBanner tone="attention" title="Não encontramos sua carteira." description="Fale com o suporte para resolver." />

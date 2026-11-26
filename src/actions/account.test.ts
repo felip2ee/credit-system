@@ -7,7 +7,6 @@ const TX_CLIENT = { tx: true };
 const state = vi.hoisted(() => ({
 	role: "client" as string,
 	sessionError: null as Error | null,
-	requestEmail: vi.fn(),
 	requestPhone: vi.fn(),
 	confirmPhone: vi.fn(),
 	acceptLegal: vi.fn(),
@@ -18,10 +17,10 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/config", () => ({ config: { betterAuthUrl: "https://app.example.test" } }));
 vi.mock("next/headers", () => ({
 	headers: async () => new Headers({ "x-forwarded-for": "203.0.113.9", "user-agent": "vitest-agent" }),
 }));
-vi.mock("@/lib/config", () => ({ config: { betterAuthUrl: "https://app.example.test" } }));
 vi.mock("@/lib/auth/session", () => ({
 	getRequiredSession: vi.fn(async () => {
 		if (state.sessionError) throw state.sessionError;
@@ -32,7 +31,6 @@ vi.mock("@/lib/db/transaction", () => ({
 	withUserTransaction: async (_identity: unknown, work: (client: unknown) => unknown) => work(TX_CLIENT),
 }));
 vi.mock("@/lib/account/queries", () => ({
-	requestEmailVerification: state.requestEmail,
 	requestPhoneVerification: state.requestPhone,
 	confirmPhoneVerification: state.confirmPhone,
 	acceptLegalDocuments: state.acceptLegal,
@@ -54,7 +52,6 @@ import {
 	registerPushSubscriptionAction,
 	removePushSubscriptionAction,
 	requestPhoneVerificationAction,
-	resendEmailVerificationAction,
 	setNotificationChannelAction,
 } from "./account";
 
@@ -66,7 +63,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	state.role = "client";
 	state.sessionError = null;
-	for (const fn of [state.requestEmail, state.requestPhone, state.confirmPhone, state.acceptLegal, state.setChannel]) {
+	for (const fn of [state.requestPhone, state.confirmPhone, state.acceptLegal, state.setChannel]) {
 		fn.mockResolvedValue({ ok: true });
 	}
 	state.pushRegister.mockResolvedValue({ ok: true });
@@ -75,13 +72,12 @@ beforeEach(() => {
 });
 
 const calls = {
-	resendEmail: () => resendEmailVerificationAction(),
 	requestPhone: () => requestPhoneVerificationAction({ phone: "(63) 99999-1234" }),
 	confirmPhone: () => confirmPhoneAction({ code: "123456" }),
 	acceptLegal: () => acceptLegalDocumentsAction({ termsVersion: 1, privacyVersion: 1 }),
 	setChannel: () => setNotificationChannelAction({ channel: "whatsapp" }),
 };
-const queries = [state.requestEmail, state.requestPhone, state.confirmPhone, state.acceptLegal, state.setChannel];
+const queries = [state.requestPhone, state.confirmPhone, state.acceptLegal, state.setChannel];
 
 describe("authorization", () => {
 	it.each(["operator", "bureau_admin", "superadmin"])("%s is refused by every account action", async (role) => {
@@ -140,17 +136,6 @@ describe("input validation", () => {
 });
 
 describe("happy paths", () => {
-	it("resends the e-mail with a fresh token and the site url", async () => {
-		await expect(calls.resendEmail()).resolves.toEqual(OK);
-
-		expect(state.requestEmail).toHaveBeenCalledWith(
-			TX_CLIENT,
-			USER_ID,
-			expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
-			"https://app.example.test",
-		);
-	});
-
 	it("sends a generated code to the query and never returns or logs it", async () => {
 		const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
@@ -197,19 +182,7 @@ describe("reason messages", () => {
 	it.each([
 		["cooldown", "Aguarde 1 minuto antes de pedir outro envio."],
 		["too_many", "Limite de envios atingido. Tente de novo em uma hora."],
-		["already_verified", "Seu e-mail já está confirmado."],
-		["not_allowed", NOT_ALLOWED],
-		["invalid_input", NOT_ALLOWED],
-	])("e-mail resend: %s", async (reason, message) => {
-		state.requestEmail.mockResolvedValue({ ok: false, reason });
-		await expect(calls.resendEmail()).resolves.toEqual({ error: message });
-	});
-
-	it.each([
-		["cooldown", "Aguarde 1 minuto antes de pedir outro envio."],
-		["too_many", "Limite de envios atingido. Tente de novo em uma hora."],
 		["already_verified", "Este telefone já está confirmado."],
-		["email_not_verified", "Confirme seu e-mail antes de confirmar o telefone."],
 		["not_allowed", NOT_ALLOWED],
 		["invalid_input", NOT_ALLOWED],
 	])("phone request: %s", async (reason, message) => {

@@ -18,7 +18,7 @@ export interface RegisterActionResult {
 
 const INVALID_PHONE = "Celular inválido. Use DDD e número.";
 const REGISTER_FAILED = "Não foi possível concluir o cadastro. Tente novamente.";
-const INVALID_LINK = "Link inválido ou já usado. Entre no portal e peça um novo e-mail.";
+const INVALID_LINK = "Link inválido ou expirado. A confirmação de e-mail não é mais necessária: use o portal normalmente.";
 const CONFIRM_FAILED = "Não foi possível confirmar o e-mail. Tente novamente.";
 
 const REGISTER_MESSAGES: Record<RegisterFailure, string> = {
@@ -32,7 +32,7 @@ const REGISTER_MESSAGES: Record<RegisterFailure, string> = {
 
 const CONFIRM_MESSAGES = {
 	invalid: INVALID_LINK,
-	expired: "Link expirado. Entre no portal e peça um novo e-mail.",
+	expired: "Link inválido ou expirado. A confirmação de e-mail não é mais necessária: use o portal normalmente.",
 };
 
 // Só nome e código do erro: nunca documento, e-mail, telefone, token nem a mensagem do driver.

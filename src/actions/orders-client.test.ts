@@ -67,7 +67,7 @@ beforeEach(() => {
 	];
 	state.query.mockImplementation(async () => ({ rows: state.slugRows }));
 	state.placeOrder.mockResolvedValue({ ok: true, dossierId: DOSSIER_ID, state: "awaiting_authorization" });
-	state.accountStatus.mockResolvedValue({ termsAccepted: true, emailVerified: true });
+	state.accountStatus.mockResolvedValue({ termsAccepted: true });
 	state.holderType.mockResolvedValue("PF");
 	state.cancelMyOrder.mockResolvedValue({ ok: true });
 });
@@ -88,19 +88,10 @@ describe("openClientOrderAction", () => {
 	});
 
 	it("refuses a client without accepted terms and does not place the order", async () => {
-		state.accountStatus.mockResolvedValue({ termsAccepted: false, emailVerified: true });
+		state.accountStatus.mockResolvedValue({ termsAccepted: false });
 
 		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({
 			error: "Aceite os termos de uso antes de fazer um pedido.",
-		});
-		expect(state.placeOrder).not.toHaveBeenCalled();
-	});
-
-	it("refuses a client with an unverified e-mail and does not place the order", async () => {
-		state.accountStatus.mockResolvedValue({ termsAccepted: true, emailVerified: false });
-
-		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({
-			error: "Confirme seu e-mail antes de comprar créditos.",
 		});
 		expect(state.placeOrder).not.toHaveBeenCalled();
 	});

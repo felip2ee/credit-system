@@ -67,8 +67,7 @@ test("referred client buys, commission waits the hold, then converts to credits 
     );
     expect(referrals).toHaveLength(1);
 
-    // Buying needs a confirmed e-mail and credits; the commission needs a confirmed phone. The run sets them directly.
-    await dbQuery('update "user" set email_verified = true where email = $1', [referredEmail]);
+    // Comprar exige créditos; a comissão exige celular confirmado. O teste grava os dois direto.
     const [staff] = await dbQuery<{ id: string }>("select id from profiles where email = $1", [E2E.staff.email]);
     await dbQuery("select * from client_wallet_post_entry($1, 'topup', 100, $2, 'seed', null, $3)", [referred.userId, `seed-${Date.now()}`, staff.id]);
     await dbAs({ userId: referred.userId, role: "client", bureauId: referred.bureauId }, async (query) => {

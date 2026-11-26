@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { EmailVerificationBanner } from "@/components/account/email-verification-banner";
 import { headerBalance, portalNavItems } from "@/components/portal/nav-items";
 import { BottomNav } from "@/components/portal/bottom-nav";
 import { PortalHeader } from "@/components/portal/portal-header";
@@ -30,7 +29,6 @@ export default async function PortalLayout({ children }: { children: React.React
     <div className="area-portal flex min-h-screen flex-col bg-background">
       <IdleTimeout />
       <PortalHeader items={items} balance={headerBalance(canReadCredits, wallet)} />
-      {!status.emailVerified && <EmailVerificationBanner />}
       <main className="mx-auto w-full max-w-3xl flex-1 px-screen py-6 pb-28 md:max-w-5xl md:pb-6">{children}</main>
       <BottomNav items={items} />
       <Toaster />

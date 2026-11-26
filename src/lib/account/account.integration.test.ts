@@ -110,10 +110,10 @@ async function registerOk(tenant: SeededTenant, overrides: Partial<RegisterArgs>
 	return entry;
 }
 
-// Pedido de código por WhatsApp exige o e-mail confirmado.
-async function registerVerified(tenant: SeededTenant): Promise<Registered> {
+// O cadastro não envia e-mail: pede o link como o botão de reenvio faz (links antigos ainda valem).
+async function registerWithEmailLink(tenant: SeededTenant): Promise<Registered> {
 	const r = await registerOk(tenant);
-	await owner.query('update "user" set email_verified = true where id = $1', [r.userId]);
+	expect(await requestEmail(r, r.token)).toEqual({ ok: true, reason: null });
 	return r;
 }
 
@@ -222,35 +222,21 @@ describe("register_client", () => {
 			[uid],
 		);
 		expect(audit.rows).toEqual([{ bureau_id: A.bureau.id, ip: a.ip, user_agent: a.userAgent, metadata: { type: "PJ" } }]);
-		expect(await count("select count(*) as n from verification_challenges where profile_id = $1 and kind = 'email'", [uid])).toBe(1);
-		expect(
-			await count(
-				`select count(*) as n from notifications n join notification_templates t on t.id = n.template_id
-          where n.reference = $1 and t.key = 'email_verification' and n.channel = 'email' and n.status = 'pending'`,
-				[`profile:${uid}`],
-			),
-		).toBe(1);
+		expect(await count("select count(*) as n from verification_challenges where profile_id = $1 and kind = 'email'", [uid])).toBe(0);
+		expect(await count("select count(*) as n from notifications where reference = $1", [`profile:${uid}`])).toBe(0);
 	});
 
-	it("register_client enqueues email_verification with the token url and no document", async () => {
+	it("register_client creates no email challenge and no notification", async () => {
 		const r = await registerOk(A);
-		const { rows } = await owner.query<{ params: Record<string, string>; recipient: string; recipient_masked: string }>(
-			"select params, recipient, recipient_masked from notifications where reference = $1",
-			[`profile:${r.userId}`],
-		);
-		expect(rows).toHaveLength(1);
-		expect(rows[0].params.url).toBe(`${SITE_URL}/cadastro/confirmar-email?token=${r.token}`);
-		expect(rows[0].recipient).toBe(r.email);
-		expect(Object.keys(rows[0].params).sort()).toEqual(["clientName", "url"]);
-		for (const value of [...Object.values(rows[0].params), rows[0].recipient_masked]) {
-			expect(value).not.toContain(r.digits);
-		}
-		const audit = await owner.query<{ metadata: unknown }>("select metadata from audit_logs where user_id = $1", [r.userId]);
-		expect(JSON.stringify(audit.rows)).not.toContain(r.digits);
+		expect(await count("select count(*) as n from verification_challenges where profile_id = $1 and kind = 'email'", [r.userId])).toBe(0);
+		expect(await count("select count(*) as n from notifications where reference = $1", [`profile:${r.userId}`])).toBe(0);
+		const user = await owner.query('select email_verified from "user" where id = $1', [r.userId]);
+		expect(user.rows).toEqual([{ email_verified: false }]);
+		expect(await auditCount(r.userId, "client.register")).toBe(1);
 	});
 
 	it("challenge stores only the sha256 of the secret", async () => {
-		const r = await registerOk(A);
+		const r = await registerWithEmailLink(A);
 		const { rows } = await owner.query<{ code_hash: string; as_text: string }>(
 			"select code_hash, c::text as as_text from verification_challenges c where profile_id = $1",
 			[r.userId],
@@ -260,7 +246,6 @@ describe("register_client", () => {
 		expect(rows[0].as_text).not.toContain(r.token);
 
 		const code = newCode();
-		await owner.query('update "user" set email_verified = true where id = $1', [r.userId]);
 		await requestPhone(r, newPhone(), code);
 		const phone = await owner.query<{ code_hash: string; as_text: string }>(
 			"select code_hash, c::text as as_text from verification_challenges c where profile_id = $1 and kind = 'phone'",
@@ -268,13 +253,6 @@ describe("register_client", () => {
 		);
 		expect(phone.rows[0].code_hash).toBe(sha256(code));
 		expect(leaks(phone.rows[0].as_text, code)).toBe(false);
-	});
-
-	it("email challenge failure rolls back the whole registration", async () => {
-		const a = baseArgs(A.bureau.slug, { siteUrl: "ftp://x" });
-		await expect(callRegister(a)).rejects.toThrow(/email challenge failed/);
-		expect(await count('select count(*) as n from "user" where lower(email) = $1', [a.email])).toBe(0);
-		expect(await count("select count(*) as n from holders where bureau_id = $1 and document_digits = $2", [A.bureau.id, a.digits])).toBe(0);
 	});
 
 	it("document already in the bureau is refused with and without client_profile_id", async () => {
@@ -359,8 +337,25 @@ describe("register_client", () => {
 });
 
 describe("email verification", () => {
+	it("request_email_verification enqueues email_verification with the token url and no document", async () => {
+		const r = await registerWithEmailLink(A);
+		const { rows } = await owner.query<{ params: Record<string, string>; recipient: string; recipient_masked: string }>(
+			"select params, recipient, recipient_masked from notifications where reference = $1",
+			[`profile:${r.userId}`],
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0].params.url).toBe(`${SITE_URL}/cadastro/confirmar-email?token=${r.token}`);
+		expect(rows[0].recipient).toBe(r.email);
+		expect(Object.keys(rows[0].params).sort()).toEqual(["clientName", "url"]);
+		for (const value of [...Object.values(rows[0].params), rows[0].recipient_masked]) {
+			expect(value).not.toContain(r.digits);
+		}
+		const audit = await owner.query<{ metadata: unknown }>("select metadata from audit_logs where user_id = $1", [r.userId]);
+		expect(JSON.stringify(audit.rows)).not.toContain(r.digits);
+	});
+
 	it("confirm_email_verification confirms, audits, and a second click is ok", async () => {
-		const r = await registerOk(A);
+		const r = await registerWithEmailLink(A);
 		expect(await confirmEmail(r.token)).toEqual({ ok: true, reason: null });
 		const user = await owner.query("select email_verified from \"user\" where id = $1", [r.userId]);
 		expect(user.rows[0].email_verified).toBe(true);
@@ -372,7 +367,7 @@ describe("email verification", () => {
 	it("confirm_email_verification refuses unknown, malformed and expired tokens", async () => {
 		expect(await confirmEmail(newToken())).toEqual({ ok: false, reason: "invalid" });
 		expect(await confirmEmail("abc")).toEqual({ ok: false, reason: "invalid" });
-		const r = await registerOk(A);
+		const r = await registerWithEmailLink(A);
 		await owner.query("update verification_challenges set expires_at = now() - interval '1 minute' where profile_id = $1", [r.userId]);
 		expect(await confirmEmail(r.token)).toEqual({ ok: false, reason: "expired" });
 		const user = await owner.query("select email_verified from \"user\" where id = $1", [r.userId]);
@@ -380,7 +375,7 @@ describe("email verification", () => {
 	});
 
 	it("a new request invalidates the previous link", async () => {
-		const r = await registerOk(A);
+		const r = await registerWithEmailLink(A);
 		await ageChallenges(r.userId, "email");
 		const second = newToken();
 		expect(await requestEmail(r, second)).toEqual({ ok: true, reason: null });
@@ -389,7 +384,7 @@ describe("email verification", () => {
 	});
 
 	it("resend respects 60 s cooldown and 5 per hour, and refuses a verified email", async () => {
-		const r = await registerOk(A);
+		const r = await registerWithEmailLink(A);
 		expect(await requestEmail(r, newToken())).toEqual({ ok: false, reason: "cooldown" });
 		for (let i = 0; i < 4; i += 1) {
 			await ageChallenges(r.userId, "email");
@@ -398,7 +393,7 @@ describe("email verification", () => {
 		await ageChallenges(r.userId, "email");
 		expect(await requestEmail(r, newToken())).toEqual({ ok: false, reason: "too_many" });
 
-		const done = await registerOk(A);
+		const done = await registerWithEmailLink(A);
 		await confirmEmail(done.token);
 		expect(await requestEmail(done, newToken())).toEqual({ ok: false, reason: "already_verified" });
 	});
@@ -406,7 +401,6 @@ describe("email verification", () => {
 	it("request_email_verification refuses another user, a malformed token and a bad site url", async () => {
 		const r = await registerOk(A);
 		const other = await registerOk(A);
-		await ageChallenges(r.userId, "email");
 		expect(await requestEmail(r, newToken(), clientOf(other))).toEqual({ ok: false, reason: "not_allowed" });
 		expect(await requestEmail(r, "curto")).toEqual({ ok: false, reason: "invalid_input" });
 		const badUrl = await callAs(clientOf(r), "select ok, reason from request_email_verification($1, $2, $3)", [
@@ -420,7 +414,7 @@ describe("email verification", () => {
 
 describe("phone verification", () => {
 	it("request_phone_verification creates the challenge and the whatsapp notification", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		const code = newCode();
 		expect(await requestPhone(r, r.phone, code)).toEqual({ ok: true, reason: null });
 		const challenge = await owner.query(
@@ -438,8 +432,8 @@ describe("phone verification", () => {
 	});
 
 	it("request_phone_verification refuses other users, other roles and no context", async () => {
-		const r = await registerVerified(A);
-		const other = await registerVerified(A);
+		const r = await registerOk(A);
+		const other = await registerOk(A);
 		expect(await requestPhone(r, r.phone, newCode(), clientOf(other))).toEqual({ ok: false, reason: "not_allowed" });
 		const operator: Identity = { userId: A.operator.userId, role: "operator", bureauId: A.bureau.id };
 		const asOperator = await callAs(operator, "select ok, reason from request_phone_verification($1, $2, $3)", [
@@ -453,16 +447,15 @@ describe("phone verification", () => {
 		expect(await count("select count(*) as n from verification_challenges where profile_id = $1 and kind = 'phone'", [r.userId])).toBe(0);
 	});
 
-	it("phone request is refused until the email is verified", async () => {
+	it("request_phone_verification works with an unverified e-mail", async () => {
 		const r = await registerOk(A);
-		expect(await requestPhone(r, r.phone, newCode())).toEqual({ ok: false, reason: "email_not_verified" });
-		expect(await count("select count(*) as n from verification_challenges where profile_id = $1 and kind = 'phone'", [r.userId])).toBe(0);
-		await confirmEmail(r.token);
 		expect(await requestPhone(r, r.phone, newCode())).toEqual({ ok: true, reason: null });
+		const user = await owner.query('select email_verified from "user" where id = $1', [r.userId]);
+		expect(user.rows).toEqual([{ email_verified: false }]);
 	});
 
 	it("phone request refuses a non-Brazilian or landline number", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		for (const phone of ["+14155552671", "+556332221234", "+5563899991234", "+55639999912345"]) {
 			expect(await requestPhone(r, phone, newCode())).toEqual({ ok: false, reason: "invalid_input" });
 		}
@@ -471,20 +464,20 @@ describe("phone verification", () => {
 
 	it("sixth code to the same target number in one hour is too_many", async () => {
 		const target = newPhone();
-		const first = await registerVerified(A);
+		const first = await registerOk(A);
 		expect(await requestPhone(first, target, newCode())).toEqual({ ok: true, reason: null });
 		for (let i = 0; i < 4; i += 1) {
 			await ageChallenges(first.userId, "phone");
 			expect(await requestPhone(first, target, newCode())).toEqual({ ok: true, reason: null });
 		}
-		const second = await registerVerified(A);
+		const second = await registerOk(A);
 		expect(await requestPhone(second, target, newCode())).toEqual({ ok: false, reason: "too_many" });
 		const profile = await owner.query("select phone_e164 from profiles where id = $1", [second.userId]);
 		expect(profile.rows[0].phone_e164).toBe(second.phone);
 	});
 
 	it("resend respects 60 s cooldown and 5 per hour, and refuses a verified phone", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		expect(await requestPhone(r, r.phone, newCode())).toEqual({ ok: true, reason: null });
 		expect(await requestPhone(r, r.phone, newCode())).toEqual({ ok: false, reason: "cooldown" });
 		for (let i = 0; i < 4; i += 1) {
@@ -498,7 +491,7 @@ describe("phone verification", () => {
 		const profile = await owner.query("select phone_e164 from profiles where id = $1", [r.userId]);
 		expect(profile.rows[0].phone_e164).toBe(r.phone);
 
-		const done = await registerVerified(A);
+		const done = await registerOk(A);
 		const code = newCode();
 		await requestPhone(done, done.phone, code);
 		await confirmPhone(done, code);
@@ -506,7 +499,7 @@ describe("phone verification", () => {
 	});
 
 	it("new phone clears verification and resets channel to email", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		expect(await confirmPhone(r, code)).toEqual({ ok: true, reason: null });
@@ -525,7 +518,7 @@ describe("phone verification", () => {
 	});
 
 	it("confirm_phone_verification confirms with the right code and audits", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		expect(await confirmPhone(r, code)).toEqual({ ok: true, reason: null });
@@ -537,7 +530,7 @@ describe("phone verification", () => {
 	});
 
 	it("fifth wrong code consumes the challenge", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		const code = "111111";
 		await requestPhone(r, r.phone, code);
 		for (let i = 0; i < 4; i += 1) {
@@ -550,7 +543,7 @@ describe("phone verification", () => {
 	});
 
 	it("expired code is refused", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		await owner.query("update verification_challenges set expires_at = now() - interval '1 minute' where profile_id = $1 and kind = 'phone'", [r.userId]);
@@ -558,7 +551,7 @@ describe("phone verification", () => {
 	});
 
 	it("a right code for a challenge whose phone changed is invalid", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		// O dono do teste não está na lista do trigger protect_profile_contact: replica desliga o trigger só nesta transação.
@@ -575,8 +568,8 @@ describe("phone verification", () => {
 	});
 
 	it("confirm_phone_verification refuses other users and malformed codes", async () => {
-		const r = await registerVerified(A);
-		const other = await registerVerified(A);
+		const r = await registerOk(A);
+		const other = await registerOk(A);
 		const code = newCode();
 		await requestPhone(r, r.phone, code);
 		const asOther = await callAs(clientOf(other), "select ok, reason from confirm_phone_verification($1, $2)", [r.userId, code]);
@@ -587,7 +580,7 @@ describe("phone verification", () => {
 
 describe("notification channel", () => {
 	it("set_notification_channel needs a verified phone, audits once and ignores a repeat", async () => {
-		const r = await registerVerified(A);
+		const r = await registerOk(A);
 		expect(await setChannel(r, "whatsapp")).toEqual({ ok: false, reason: "phone_not_verified" });
 		expect(await setChannel(r, "sms")).toEqual({ ok: false, reason: "invalid_input" });
 
