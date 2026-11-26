@@ -248,10 +248,18 @@ const count = async (table: string, t: SeededTenant) =>
 	Number((await rows<{ n: string }>(`select count(*) as n from ${table} where bureau_id = $1`, [t.bureau.id]))[0].n);
 
 describe("placeOrder", () => {
-	it("insufficient balance leaves no dossier, order or scr row", async () => {
-		const t = await newTenant("ord broke", {});
+	it("online without balance waits for the PIX and reserves nothing", async () => {
+		const t = await newTenant("ord broke online", {});
 		const online = await placeOrder(buyerOf(t), ownInput(), await quote(staff(t), "dossie_pf"));
-		expect(online).toEqual({ ok: false, reason: "insufficient_balance" });
+		expect(online).toMatchObject({ ok: true, state: "awaiting_payment", pixPriceCents: 5000 });
+
+		expect(await count("order_settlements", t)).toBe(0);
+		expect(await count("order_pix_quotes", t)).toBe(1);
+		expect(await count("dossier_orders", t)).toBe(1);
+	});
+
+	it("counter insufficient balance leaves no dossier, order or scr row", async () => {
+		const t = await newTenant("ord broke", {});
 		const counter = await placeOrder(staff(t), thirdInput(), await quote(staff(t), "dossie_pf"));
 		expect(counter).toEqual({ ok: false, reason: "insufficient_balance" });
 

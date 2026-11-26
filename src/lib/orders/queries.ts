@@ -13,8 +13,10 @@ import { recordHolderEvent } from "@/lib/holders/queries";
 import { enqueueNotification } from "@/lib/notifications/queries";
 import { captureOrder, releaseOrder, reserveOrder } from "@/lib/settlement/queries";
 import type { OrderQuote, SettlementFailure } from "@/lib/settlement/types";
+import { MAX_TOPUP_CENTS, MIN_TOPUP_CENTS } from "@/lib/validators/wallet";
 
 import { recordOrderDeclaration } from "./client-ops";
+import { insertOrderPixQuote } from "./order-pix";
 import {
 	LEASE_MINUTES,
 	MAX_EXECUTION_ATTEMPTS,
@@ -71,7 +73,12 @@ export async function openOrder(client: PoolClient, input: OpenOrderInput): Prom
 	throw new Error("unexpected openOrder reason");
 }
 
-export type PlaceOrderFailure = OpenOrderFailure | SettlementFailure | "declaration_outdated";
+export type PlaceOrderFailure =
+	| OpenOrderFailure
+	| SettlementFailure
+	| "declaration_outdated"
+	| "pix_amount_above_limit"
+	| "pix_amount_below_minimum";
 export type PlaceOrderOptions = {
 	declaration?: { version: number; ip: string | null; userAgent: string | null };
 	// Só pedido online. O desconto é calculado aqui, na mesma transação da reserva; o banco confere o preço pago.
@@ -84,6 +91,12 @@ class PlaceOrderAbort extends Error {
 		super("placeOrder aborted");
 	}
 }
+
+const CODE_VALID_FAILURES: readonly PlaceOrderFailure[] = [
+	"coupon_funds_insufficient",
+	"pix_amount_above_limit",
+	"pix_amount_below_minimum",
+];
 
 // Cupom inválido por qualquer motivo (inclusive pedido de balcão, que não usa cupom) é o mesmo motivo: não revela qual.
 async function resolveCoupon(
@@ -102,14 +115,17 @@ async function resolveCoupon(
 	return { code, discountCents };
 }
 
-// Uma transação: abre, grava a declaração (portal), reserva e (balcão) atualiza o estado. Saldo insuficiente ou
-// declaração recusada não deixa Dossiê, pedido nem autorização.
+// Uma transação: abre, grava a declaração (portal), reserva e atualiza o estado. Online sem saldo para o preço pago:
+// o pedido fica em awaiting_payment com o preço e o cupom em order_pix_quotes (pixPriceCents); o PIX é criado depois.
+// Qualquer outra recusa (declaração, cupom, preço, faixa do PIX) não deixa Dossiê, pedido nem autorização.
 export async function placeOrder(
 	identity: DbIdentity,
 	input: OpenOrderInput,
 	quote: OrderQuote,
 	options: PlaceOrderOptions = {},
-): Promise<{ ok: true; dossierId: string; state: OrderState } | { ok: false; reason: PlaceOrderFailure }> {
+): Promise<
+	{ ok: true; dossierId: string; state: OrderState; pixPriceCents?: number } | { ok: false; reason: PlaceOrderFailure }
+> {
 	const mode: OrderMode = identity.role === "client" ? "online" : "counter";
 	// Cupom no pedido online: a tentativa é contada antes de avaliar o código (054). No limite ou com erro, recusa sem tocar no pedido.
 	const slot = options.couponCode && mode === "online" ? await beginCouponAttempt(identity) : undefined;
@@ -131,21 +147,35 @@ export async function placeOrder(
 				quote,
 				coupon,
 			});
-			if (!reserved.ok) throw new PlaceOrderAbort(reserved.reason);
-			if (mode === "online") return { ok: true as const, dossierId: opened.dossierId, state: opened.state };
-			const state = (await refreshOrderState(client, opened.dossierId)) ?? opened.state;
-			return { ok: true as const, dossierId: opened.dossierId, state };
+			if (!reserved.ok) {
+				// Online sem saldo: o pedido espera o PIX (abordagem A). Qualquer outra recusa desfaz tudo, como antes.
+				if (mode !== "online" || reserved.reason !== "insufficient_balance") throw new PlaceOrderAbort(reserved.reason);
+				const priceCents = quote.totalPriceCents - (coupon?.discountCents ?? 0);
+				if (priceCents > MAX_TOPUP_CENTS) throw new PlaceOrderAbort("pix_amount_above_limit");
+				if (priceCents < MIN_TOPUP_CENTS) throw new PlaceOrderAbort("pix_amount_below_minimum");
+				await insertOrderPixQuote(client, { dossierId: opened.dossierId, priceCents, couponCode: coupon?.code ?? null });
+				return { ok: true as const, dossierId: opened.dossierId, state: "awaiting_payment" as const, pixPriceCents: priceCents };
+			}
+			// O gatilho de order_settlements (064) já avançou o pedido online; o cliente não executa refresh_order_state
+			// (for update sem direito de update), então lê o estado.
+			const state = mode === "online" ? await readOrderState(client, opened.dossierId) : await refreshOrderState(client, opened.dossierId);
+			return { ok: true as const, dossierId: opened.dossierId, state: state ?? opened.state };
 		});
 		if (slot) await clearCouponAttempt(identity, slot);
 		return placed;
 	} catch (error) {
 		if (error instanceof PlaceOrderAbort) {
-			// Só o sucesso e a falta de saldo do Bureau (que não é erro de código) devolvem a vaga; o resto conta.
-			if (slot && error.reason === "coupon_funds_insufficient") await clearCouponAttempt(identity, slot);
+			// Só o sucesso e as recusas que não são erro de código (fundos do Bureau, faixa do PIX) devolvem a vaga; o resto conta.
+			if (slot && CODE_VALID_FAILURES.includes(error.reason)) await clearCouponAttempt(identity, slot);
 			return { ok: false, reason: error.reason };
 		}
 		throw error;
 	}
+}
+
+async function readOrderState(client: PoolClient, dossierId: string): Promise<OrderState | null> {
+	const { rows } = await client.query<{ state: OrderState }>("select state from dossier_orders where dossier_id = $1", [dossierId]);
+	return rows[0]?.state ?? null;
 }
 
 export async function refreshOrderState(client: PoolClient, dossierId: string): Promise<OrderState | null> {

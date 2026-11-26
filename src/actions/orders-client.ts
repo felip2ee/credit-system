@@ -20,6 +20,8 @@ import { clientOrderSchema, orderIdSchema } from "@/lib/validators/order";
 export interface ActionResult {
 	error: string | null;
 	id?: string;
+	// Pedido aberto sem saldo: o cliente segue para a tela do PIX.
+	paymentRequired?: true;
 }
 
 const NOT_ALLOWED = "Ação não permitida.";
@@ -105,7 +107,9 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 			return { error: message ?? ORDER_FAILED };
 		}
 		revalidatePath("/portal/pesquisas");
-		return { error: null, id: result.dossierId };
+		return result.pixPriceCents === undefined
+			? { error: null, id: result.dossierId }
+			: { error: null, id: result.dossierId, paymentRequired: true };
 	} catch (error) {
 		logFailure("openClientOrderAction", error);
 		return { error: ORDER_FAILED };

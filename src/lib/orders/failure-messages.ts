@@ -25,6 +25,8 @@ export const CLIENT_ORDER_MESSAGES: Record<string, string> = {
 	commission_not_configured: "Vendas indisponíveis no momento. Fale com o Bureau.",
 	too_many_orders: "Você atingiu o limite de pedidos de hoje. Tente amanhã.",
 	declaration_outdated: "A declaração mudou. Leia e confirme de novo.",
+	pix_amount_above_limit: "O valor passa do limite do PIX (R$ 5.000,00). Fale com o Bureau para pagar de outro jeito.",
+	pix_amount_below_minimum: "O valor fica abaixo do mínimo do PIX (R$ 10,00). Fale com o Bureau.",
 	coupon_invalid: COUPON_INVALID,
 	coupon_expired: COUPON_INVALID,
 	coupon_exhausted: COUPON_INVALID,
