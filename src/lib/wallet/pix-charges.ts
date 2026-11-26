@@ -120,12 +120,13 @@ export async function reserveCharge(
 	}
 
 	// Linha de outro tenant fica invisível pela RLS: também é reference_taken.
-	const existing = await client.query<{ id: string; expires_at: Date; requested_by: string }>(
-		"select id, expires_at, requested_by from pix_charges where external_reference = $1",
+	const existing = await client.query<{ id: string; expires_at: Date; requested_by: string; order_id: string | null }>(
+		"select id, expires_at, requested_by, order_id from pix_charges where external_reference = $1",
 		[input.externalReference],
 	);
 	const row = existing.rows[0];
-	if (!row || row.requested_by !== identity.userId) return { ok: false, reason: "reference_taken" };
+	// A chave de outro pedido (ou de uma recarga) não devolve a cobrança dela.
+	if (!row || row.requested_by !== identity.userId || row.order_id !== orderId) return { ok: false, reason: "reference_taken" };
 	return { ok: true, id: row.id, expiresAt: row.expires_at, reused: true };
 }
 
@@ -229,12 +230,13 @@ export async function countPendingPixCharges(client: PoolClient, bureauId: strin
 	return rows[0].total;
 }
 
-// Teto próprio de cada cliente, só da recarga: o PIX do pedido (order_id) não conta. Usa pix_charges_client_created_idx (client_profile_id, ...): não é o índice
+// Teto próprio de cada cliente: conta o PIX da recarga e o do pedido (order_id), senão o pedido contornaria o teto. A tela de
+// recarga lista só a recarga (outra consulta). Usa pix_charges_client_created_idx (client_profile_id, ...): não é o índice
 // parcial de pendentes, mas um cliente tem poucas linhas e o plano filtra status/expiração sobre elas.
 export async function countPendingClientPixCharges(client: PoolClient, clientProfileId: string): Promise<number> {
 	const { rows } = await client.query<{ total: number }>(
 		`select count(*)::int as total from pix_charges
-		  where client_profile_id = $1 and order_id is null and billing_type = 'PIX' and status = 'pending' and expires_at > now()`,
+		  where client_profile_id = $1 and billing_type = 'PIX' and status = 'pending' and expires_at > now()`,
 		[clientProfileId],
 	);
 	return rows[0].total;

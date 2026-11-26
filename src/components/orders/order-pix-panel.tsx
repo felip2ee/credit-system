@@ -34,7 +34,8 @@ type Props = {
 	view: Exclude<OrderPixView, "leave">;
 	dossierId: string;
 	priceCents: number;
-	// Gerada no servidor: o reenvio do mesmo PIX nunca cria uma segunda cobrança.
+	// Nova a cada render do servidor. A cobrança em duplicata é barrada pelo índice único de cobrança viva do pedido e pelo
+	// reuso na action (createOrderPixAction), não por esta chave.
 	idempotencyKey: string;
 	charge: QrCharge | null;
 };
@@ -54,17 +55,31 @@ export function OrderPixPanel({ view, dossierId, priceCents, idempotencyKey, cha
 			/>
 		);
 	}
+	if (view === "refunded") {
+		return (
+			<StatusBanner
+				tone="neutral"
+				title="PIX estornado. O pedido será cancelado."
+				description="Se ainda quiser a pesquisa, faça um novo pedido."
+				action={<NewOrderButton />}
+			/>
+		);
+	}
 	return (
 		<StatusBanner
 			tone="neutral"
 			title="O PIX venceu. O pedido será cancelado."
 			description="Nada foi cobrado. Faça um novo pedido."
-			action={
-				<Button asChild>
-					<Link href="/portal/pesquisas/nova">Fazer novo pedido</Link>
-				</Button>
-			}
+			action={<NewOrderButton />}
 		/>
+	);
+}
+
+function NewOrderButton() {
+	return (
+		<Button asChild>
+			<Link href="/portal/pesquisas/nova">Fazer novo pedido</Link>
+		</Button>
 	);
 }
 

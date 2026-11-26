@@ -98,6 +98,27 @@ describe("createOrderPixAction", () => {
 		expect(state.runCheckout).not.toHaveBeenCalled();
 	});
 
+	it("refuses a refunded charge without creating another PIX and without saying it expired", async () => {
+		state.getOrderPayment.mockResolvedValue(payment({ charge: charge({ status: "refunded", pixPayload: null }) }));
+
+		expect(await createOrderPixAction(body())).toEqual({ error: "O PIX foi estornado. O pedido será cancelado." });
+		expect(state.runCheckout).not.toHaveBeenCalled();
+	});
+
+	it("uses the live charge of a concurrent submit when runCheckout fails on the unique index", async () => {
+		state.getOrderPayment.mockResolvedValueOnce(payment()).mockResolvedValueOnce(payment({ charge: charge() }));
+		state.runCheckout.mockResolvedValue({ error: "Não foi possível gerar o PIX. Tente novamente." });
+
+		expect(await createOrderPixAction(body())).toEqual({ error: null, id: "charge-1", method: "PIX", reused: true });
+		expect(state.runCheckout).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps the checkout error when no live charge exists after the failure", async () => {
+		state.runCheckout.mockResolvedValue({ error: "Preencha os dados de pagamento que faltam." });
+
+		expect(await createOrderPixAction(body())).toEqual({ error: "Preencha os dados de pagamento que faltam." });
+	});
+
 	it("refuses a paid charge", async () => {
 		state.getOrderPayment.mockResolvedValue(payment({ charge: charge({ status: "paid", pixPayload: null }) }));
 

@@ -48,6 +48,9 @@ describe("orderPixView", () => {
 	it("is expired when the charge status is expired", () => {
 		expect(orderPixView(payment({ charge: charge({ status: "expired", pixPayload: null }) }), NOW)).toBe("expired");
 	});
+	it("shows refunded, not expired, for a refunded charge", () => {
+		expect(orderPixView(payment({ charge: charge({ status: "refunded", pixPayload: null }) }), NOW)).toBe("refunded");
+	});
 	it("tells that the payment came but the order did not start", () => {
 		expect(orderPixView(payment({ charge: charge({ status: "paid", pixPayload: null }) }), NOW)).toBe("paid_not_reserved");
 	});

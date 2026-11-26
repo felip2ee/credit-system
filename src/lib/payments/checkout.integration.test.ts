@@ -86,6 +86,7 @@ import {
 	seedBureauCost,
 	seedCatalogItem,
 	seedClientProfile,
+	seedPixCharge,
 	seedTenant,
 	seedWalletTopup,
 	type SeededTenant,
@@ -614,11 +615,14 @@ describe("order PIX", () => {
 		await seedCatalogItem(owner, { bureauId: t.bureau.id, productId: rows[0].id, salePrice: "50.00", salePricePerPartner: "0.00", updatedBy: t.bureauAdmin.userId });
 		await seedWalletTopup(owner, { bureauId: t.bureau.id, amount: "200.00", createdBy: t.bureauAdmin.userId });
 		await giveHolderAddress(t);
+		return { t, dossierId: await placeAwaiting(t) };
+	}
+	async function placeAwaiting(t: SeededTenant): Promise<string> {
 		const q = await quoteOrder({ ...t.operator }, "dossie_pf", { partnerCount: 0 });
 		if (!q.ok) throw new Error(`quote failed: ${q.reason}`);
 		const placed = await placeOrder({ ...t.client }, orderInput, q);
 		if (!placed.ok || placed.state !== "awaiting_payment") throw new Error("order not awaiting payment");
-		return { t, dossierId: placed.dossierId };
+		return placed.dossierId;
 	}
 	const orderScope = (t: SeededTenant, orderId: string) => ({ ...clientScope(t), orderId });
 	const withFee = async (value: string, run: () => Promise<void>) => {
@@ -695,5 +699,43 @@ describe("order PIX", () => {
 		expect(result).toEqual({ error: "Este pedido só aceita PIX." });
 		expect(hooks.card).toBe(0);
 		expect(await countRows(t.bureau.id)).toBe(0);
+	});
+
+	it("order PIX counts toward the pending cap of the client", async () => {
+		const { t, dossierId } = await awaitingOrder("Ord Cap");
+		for (let i = 0; i < 10; i++) {
+			await seedPixCharge(owner, { bureauId: t.bureau.id, requestedBy: t.client.userId, clientProfileId: t.client.userId });
+		}
+
+		const result = await runCheckout(t.client, orderScope(t, dossierId), input({ amount: "50.00" }), META);
+
+		expect(result).toEqual({ error: "Há PIX pendentes demais. Pague ou aguarde expirar antes de gerar outro." });
+		expect(hooks.pix).toBe(0);
+		expect(await countRows(t.bureau.id)).toBe(10);
+	});
+
+	it("a key used by another order is reference_taken, not the charge of that order", async () => {
+		const { t, dossierId } = await awaitingOrder("Ord Key");
+		const otherOrder = await placeAwaiting(t);
+		const body = input({ amount: "50.00" });
+		const first = await runCheckout(t.client, orderScope(t, dossierId), body, META);
+
+		const second = await runCheckout(t.client, orderScope(t, otherOrder), body, META);
+
+		expect(first.error).toBeNull();
+		expect(second).toEqual({ error: "Pedido já usado. Tente novamente." });
+		expect(hooks.pix).toBe(1);
+		expect(await countRows(t.bureau.id)).toBe(1);
+	});
+
+	it("the same key on the same order still reuses the charge", async () => {
+		const { t, dossierId } = await awaitingOrder("Ord Reuse");
+		const body = input({ amount: "50.00" });
+		await runCheckout(t.client, orderScope(t, dossierId), body, META);
+
+		const again = await runCheckout(t.client, orderScope(t, dossierId), body, META);
+
+		expect(again).toMatchObject({ error: null, reused: true });
+		expect(hooks.pix).toBe(1);
 	});
 });

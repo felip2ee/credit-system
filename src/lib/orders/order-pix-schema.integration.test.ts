@@ -266,7 +266,7 @@ describe("order PIX schema", () => {
 		});
 	});
 
-	it("keeps the order PIX out of the top-up list and the top-up pending cap", async () => {
+	it("keeps the order PIX out of the top-up list but inside the pending cap", async () => {
 		const t = await newTenant("ops topup apart");
 		const dossierId = await openOnlineOrder(buyerOf(t));
 		await seedQuote(t, dossierId);
@@ -274,6 +274,6 @@ describe("order PIX schema", () => {
 
 		const buyer = buyerOf(t);
 		expect(await withUserTransaction(buyer, (c) => listClientPixCharges(c, buyer.userId))).toEqual([]);
-		expect(await withUserTransaction(buyer, (c) => countPendingClientPixCharges(c, buyer.userId))).toBe(0);
+		expect(await withUserTransaction(buyer, (c) => countPendingClientPixCharges(c, buyer.userId))).toBe(1);
 	});
 });

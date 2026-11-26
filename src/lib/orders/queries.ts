@@ -78,7 +78,8 @@ export type PlaceOrderFailure =
 	| SettlementFailure
 	| "declaration_outdated"
 	| "pix_amount_above_limit"
-	| "pix_amount_below_minimum";
+	| "pix_amount_below_minimum"
+	| "too_many_awaiting_payment";
 export type PlaceOrderOptions = {
 	declaration?: { version: number; ip: string | null; userAgent: string | null };
 	// Só pedido online. O desconto é calculado aqui, na mesma transação da reserva; o banco confere o preço pago.
@@ -92,10 +93,15 @@ class PlaceOrderAbort extends Error {
 	}
 }
 
+// Cada pedido aguardando pagamento pode gerar uma cobrança real no Asaas e um pedido de autorização SCR: sem teto, um
+// cliente sem saldo abriria vários de graça. Abaixo do teto diário de pedidos online (5, em open_order).
+export const MAX_AWAITING_PAYMENT_ORDERS = 3;
+
 const CODE_VALID_FAILURES: readonly PlaceOrderFailure[] = [
 	"coupon_funds_insufficient",
 	"pix_amount_above_limit",
 	"pix_amount_below_minimum",
+	"too_many_awaiting_payment",
 ];
 
 // Cupom inválido por qualquer motivo (inclusive pedido de balcão, que não usa cupom) é o mesmo motivo: não revela qual.
@@ -153,6 +159,11 @@ export async function placeOrder(
 				const priceCents = quote.totalPriceCents - (coupon?.discountCents ?? 0);
 				if (priceCents > MAX_TOPUP_CENTS) throw new PlaceOrderAbort("pix_amount_above_limit");
 				if (priceCents < MIN_TOPUP_CENTS) throw new PlaceOrderAbort("pix_amount_below_minimum");
+				// open_order segura o lock do cliente até o fim desta transação: pedidos paralelos contam um por vez.
+				// A contagem inclui o pedido recém-aberto (já está em awaiting_payment).
+				if ((await countAwaitingPaymentOrders(client, identity.userId)) > MAX_AWAITING_PAYMENT_ORDERS) {
+					throw new PlaceOrderAbort("too_many_awaiting_payment");
+				}
 				await insertOrderPixQuote(client, { dossierId: opened.dossierId, priceCents, couponCode: coupon?.code ?? null });
 				return { ok: true as const, dossierId: opened.dossierId, state: "awaiting_payment" as const, pixPriceCents: priceCents };
 			}
@@ -171,6 +182,14 @@ export async function placeOrder(
 		}
 		throw error;
 	}
+}
+
+async function countAwaitingPaymentOrders(client: PoolClient, clientProfileId: string): Promise<number> {
+	const { rows } = await client.query<{ total: number }>(
+		"select count(*)::int as total from dossier_orders where client_profile_id = $1 and mode = 'online' and state = 'awaiting_payment'",
+		[clientProfileId],
+	);
+	return rows[0].total;
 }
 
 async function readOrderState(client: PoolClient, dossierId: string): Promise<OrderState | null> {

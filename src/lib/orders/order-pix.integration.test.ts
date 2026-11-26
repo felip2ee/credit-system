@@ -35,7 +35,7 @@ import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import { seedBureauCost, seedCatalogItem, seedClientProfile, seedClientWalletTopup, seedTenant, seedWalletTopup, type SeededTenant } from "@/test/seed";
 
 import { getOrderPayment } from "./order-pix";
-import { placeOrder } from "./queries";
+import { MAX_AWAITING_PAYMENT_ORDERS, placeOrder } from "./queries";
 import type { OpenOrderInput } from "./types";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
@@ -201,6 +201,40 @@ describe("placeOrder: balance or PIX", () => {
 		expect(await placeOrder(buyerOf(t), input, await quote(t), { couponCode: code })).toEqual({ ok: false, reason: "coupon_invalid" });
 		expect(await count("dossier_orders", t)).toBe(orders);
 		expect(await count("order_pix_quotes", t)).toBe(0);
+	});
+});
+
+describe("placeOrder: orders awaiting payment per client", () => {
+	it("refuses the order above the cap and leaves nothing of it", async () => {
+		const t = await newTenant("opx cap");
+		for (let i = 0; i < MAX_AWAITING_PAYMENT_ORDERS; i++) {
+			expect(await placeOrder(buyerOf(t), input, await quote(t))).toMatchObject({ ok: true, state: "awaiting_payment" });
+		}
+
+		expect(await placeOrder(buyerOf(t), input, await quote(t))).toEqual({ ok: false, reason: "too_many_awaiting_payment" });
+		expect(await count("dossier_orders", t)).toBe(MAX_AWAITING_PAYMENT_ORDERS);
+		expect(await count("order_pix_quotes", t)).toBe(MAX_AWAITING_PAYMENT_ORDERS);
+	});
+
+	it("parallel opens end with at most the cap awaiting payment", async () => {
+		const t = await newTenant("opx cap parallel");
+		const q = await quote(t);
+
+		const results = await Promise.all(Array.from({ length: 5 }, () => placeOrder(buyerOf(t), input, q)));
+
+		expect(results.filter((r) => r.ok)).toHaveLength(MAX_AWAITING_PAYMENT_ORDERS);
+		expect(results.filter((r) => !r.ok).every((r) => !r.ok && r.reason === "too_many_awaiting_payment")).toBe(true);
+		expect(await count("order_pix_quotes", t)).toBe(MAX_AWAITING_PAYMENT_ORDERS);
+	});
+
+	it("does not count orders that already left awaiting_payment", async () => {
+		const t = await newTenant("opx cap freed");
+		const first = await placeOrder(buyerOf(t), input, await quote(t));
+		if (!first.ok) throw new Error("placeOrder failed");
+		for (let i = 1; i < MAX_AWAITING_PAYMENT_ORDERS; i++) await placeOrder(buyerOf(t), input, await quote(t));
+		await owner.query("update dossier_orders set state = 'cancelled', state_reason = 'payment_timeout' where dossier_id = $1", [first.dossierId]);
+
+		expect(await placeOrder(buyerOf(t), input, await quote(t))).toMatchObject({ ok: true, state: "awaiting_payment" });
 	});
 });
 
