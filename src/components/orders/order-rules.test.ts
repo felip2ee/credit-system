@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	billablePartners,
 	blockedOrderMessage,
+	canAddSelf,
 	canCancelOrder,
+	choiceTitle,
 	countBillablePartners,
 	canConfirmOrder,
+	hasBuyerRow,
 	isSelfOrder,
 	orderHasMembers,
 	orderIsBlocked,
 	orderPriceBreakdown,
 	orderTotalCents,
 	productLabel,
+	reviewActionLabel,
 } from "./order-rules";
 
 const empresarial = { code: "dossie_empresarial" as const, price: "100.00", pricePerPartner: "30.00" };
@@ -124,5 +129,51 @@ describe("orderPriceBreakdown", () => {
 	it("CPF igual ao documento da empresa não entra", () => {
 		const b = orderPriceBreakdown(empresarial, [{ document: "11122233344" }], "111.222.333-44");
 		expect(b).toMatchObject({ partnerCount: 0, ignoredRows: 1, totalCents: 10000 });
+	});
+});
+
+describe("billablePartners", () => {
+	it("descarta linha incompleta, CPF repetido e CPF igual ao da empresa, e mantém a ordem", () => {
+		const rows = [
+			{ document: "529.982.247-25", n: 1 },
+			{ document: "123", n: 2 },
+			{ document: "52998224725", n: 3 },
+			{ document: "111.444.777-35", n: 4 },
+			{ document: "390.533.447-05", n: 5 },
+			{ n: 6 },
+		];
+		expect(billablePartners(rows, "390.533.447-05").map((r) => r.n)).toEqual([1, 4]);
+	});
+});
+
+describe("canAddSelf", () => {
+	it("só para conta PF", () => {
+		expect(canAddSelf("PF")).toBe(true);
+		expect(canAddSelf("PJ")).toBe(false);
+		expect(canAddSelf(null)).toBe(false);
+	});
+});
+
+describe("hasBuyerRow", () => {
+	it("ignora caixa e espaço e nunca casa e-mail vazio", () => {
+		expect(hasBuyerRow([{ email: "  Ana@Ex.com " }], "ana@ex.com")).toBe(true);
+		expect(hasBuyerRow([{ email: "b@ex.com" }], "ana@ex.com")).toBe(false);
+		expect(hasBuyerRow([{ email: "" }, {}], "")).toBe(false);
+	});
+});
+
+describe("choiceTitle", () => {
+	it("nomeia a escolha por produto e tipo de conta", () => {
+		expect(choiceTitle("dossie_pf", "PF")).toBe("Só para você");
+		expect(choiceTitle("dossie_pf", null)).toBe("Só para você");
+		expect(choiceTitle("dossie_pf", "PJ")).toBe("Para o responsável da empresa");
+		expect(choiceTitle("dossie_empresarial", "PF")).toBe("Para uma empresa");
+	});
+});
+
+describe("reviewActionLabel", () => {
+	it("muda com valor zero", () => {
+		expect(reviewActionLabel(0)).toBe("Confirmar pedido");
+		expect(reviewActionLabel(1)).toBe("Ir para o pagamento");
 	});
 });
