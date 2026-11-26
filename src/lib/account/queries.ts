@@ -117,7 +117,6 @@ export async function getCurrentLegalDocuments(): Promise<Record<LegalKind, Lega
 }
 
 export type ClientAccountStatus = {
-	emailVerified: boolean;
 	phoneE164: string | null;
 	phoneVerified: boolean;
 	notificationChannel: "email" | "whatsapp";
@@ -126,7 +125,6 @@ export type ClientAccountStatus = {
 };
 
 type StatusRow = {
-	email_verified: boolean;
 	phone_e164: string | null;
 	phone_verified: boolean;
 	notification_channel: "email" | "whatsapp";
@@ -147,7 +145,7 @@ function maskDocument(digits: string | null): string | null {
 // Roda com a identidade do cliente: o RLS limita as linhas.
 export async function getClientAccountStatus(client: PoolClient, userId: string): Promise<ClientAccountStatus> {
 	const { rows } = await client.query<StatusRow>(
-		`select u.email_verified, p.phone_e164, p.phone_verified_at is not null as phone_verified, p.notification_channel,
+		`select p.phone_e164, p.phone_verified_at is not null as phone_verified, p.notification_channel,
        (select h.document_digits from holders h where h.client_profile_id = p.id order by h.created_at limit 1)
          as document_digits,
        not exists (
@@ -158,14 +156,12 @@ export async function getClientAccountStatus(client: PoolClient, userId: string)
           where not exists (select 1 from legal_acceptances a where a.profile_id = p.id and a.document_id = cur.id)
        ) as terms_accepted
   from profiles p
-  join "user" u on u.id = p.auth_user_id
  where p.id = $1`,
 		[userId],
 	);
 	const row = rows[0];
 	if (!row) throw new Error("client profile not found");
 	return {
-		emailVerified: row.email_verified,
 		phoneE164: row.phone_e164,
 		phoneVerified: row.phone_verified,
 		notificationChannel: row.notification_channel,
@@ -185,23 +181,13 @@ async function callAccountFunction<R extends string>(
 	return accountResult(fn, rows[0], reasons);
 }
 
-export function requestEmailVerification(client: PoolClient, userId: string, token: string, siteUrl: string) {
-	return callAccountFunction(
-		client,
-		"requestEmailVerification",
-		"select ok, reason from request_email_verification($1, $2, $3)",
-		[userId, token, siteUrl],
-		["not_allowed", "already_verified", "invalid_input", "cooldown", "too_many"] as const,
-	);
-}
-
 export function requestPhoneVerification(client: PoolClient, userId: string, phoneE164: string, code: string) {
 	return callAccountFunction(
 		client,
 		"requestPhoneVerification",
 		"select ok, reason from request_phone_verification($1, $2, $3)",
 		[userId, phoneE164, code],
-		["not_allowed", "email_not_verified", "invalid_input", "already_verified", "cooldown", "too_many"] as const,
+		["not_allowed", "invalid_input", "already_verified", "cooldown", "too_many"] as const,
 	);
 }
 

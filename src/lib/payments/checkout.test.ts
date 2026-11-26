@@ -372,13 +372,13 @@ describe("runCheckout, Pix", () => {
 });
 
 describe("runCheckout, scope rules", () => {
-	it("blocks a client with an unverified e-mail before any reservation", async () => {
+	it("does not block a client with an unverified e-mail", async () => {
 		s.emailVerified.mockResolvedValue({ emailVerified: false });
 
 		const result = await runCheckout(session, clientScope, pixInput(), meta);
 
-		expect(result.error).toMatch(/e-mail/);
-		expect(s.reserve).not.toHaveBeenCalled();
+		expect(result.error).toBeNull();
+		expect(s.reserve).toHaveBeenCalled();
 	});
 
 	it.each([

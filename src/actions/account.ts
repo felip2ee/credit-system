@@ -6,15 +6,13 @@ import { headers } from "next/headers";
 import {
 	acceptLegalDocuments,
 	confirmPhoneVerification,
-	requestEmailVerification,
 	requestPhoneVerification,
 	setNotificationChannel,
 	type AccountResult,
 } from "@/lib/account/queries";
 import { requestMeta } from "@/lib/account/request-meta";
-import { generateEmailToken, generatePhoneCode } from "@/lib/account/secrets";
+import { generatePhoneCode } from "@/lib/account/secrets";
 import { getRequiredSession, type RequiredSession } from "@/lib/auth/session";
-import { config } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { toE164 } from "@/lib/notifications/recipient";
@@ -44,7 +42,6 @@ const BR_MOBILE = /^\+55\d{2}9\d{8}$/;
 
 type AccountReason =
 	| "not_allowed"
-	| "email_not_verified"
 	| "invalid_input"
 	| "already_verified"
 	| "cooldown"
@@ -58,7 +55,6 @@ type AccountReason =
 // already_verified muda com o canal (e-mail ou telefone): cada ação passa o texto dela.
 const MESSAGES: Record<Exclude<AccountReason, "already_verified">, string> = {
 	not_allowed: NOT_ALLOWED,
-	email_not_verified: "Confirme seu e-mail antes de confirmar o telefone.",
 	invalid_input: NOT_ALLOWED,
 	cooldown: "Aguarde 1 minuto antes de pedir outro envio.",
 	too_many: "Limite de envios atingido. Tente de novo em uma hora.",
@@ -104,17 +100,6 @@ async function runAsClient(step: string, work: Mutation): Promise<ActionResult> 
 		logFailure(step, error);
 		return { error: FAILED };
 	}
-}
-
-export async function resendEmailVerificationAction(): Promise<ActionResult> {
-	return runAsClient("resendEmailVerificationAction", async (session) =>
-		toActionResult(
-			await withUserTransaction(session, (client) =>
-				requestEmailVerification(client, session.userId, generateEmailToken(), config.betterAuthUrl),
-			),
-			"Seu e-mail já está confirmado.",
-		),
-	);
 }
 
 export async function requestPhoneVerificationAction(values: unknown): Promise<ActionResult> {

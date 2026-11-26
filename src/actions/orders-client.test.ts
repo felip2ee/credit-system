@@ -67,7 +67,7 @@ beforeEach(() => {
 	];
 	state.query.mockImplementation(async () => ({ rows: state.slugRows }));
 	state.placeOrder.mockResolvedValue({ ok: true, dossierId: DOSSIER_ID, state: "awaiting_authorization" });
-	state.accountStatus.mockResolvedValue({ termsAccepted: true, emailVerified: true });
+	state.accountStatus.mockResolvedValue({ termsAccepted: true });
 	state.holderType.mockResolvedValue("PF");
 	state.cancelMyOrder.mockResolvedValue({ ok: true });
 });
@@ -88,7 +88,7 @@ describe("openClientOrderAction", () => {
 	});
 
 	it("refuses a client without accepted terms and does not place the order", async () => {
-		state.accountStatus.mockResolvedValue({ termsAccepted: false, emailVerified: true });
+		state.accountStatus.mockResolvedValue({ termsAccepted: false });
 
 		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({
 			error: "Aceite os termos de uso antes de fazer um pedido.",
@@ -96,13 +96,13 @@ describe("openClientOrderAction", () => {
 		expect(state.placeOrder).not.toHaveBeenCalled();
 	});
 
-	it("refuses a client with an unverified e-mail and does not place the order", async () => {
+	it("places the order for a client with an unverified e-mail", async () => {
 		state.accountStatus.mockResolvedValue({ termsAccepted: true, emailVerified: false });
 
-		await expect(openClientOrderAction(ownOrder)).resolves.toEqual({
-			error: "Confirme seu e-mail antes de comprar créditos.",
-		});
-		expect(state.placeOrder).not.toHaveBeenCalled();
+		const result = await openClientOrderAction(ownOrder);
+
+		expect(result.error).toBeNull();
+		expect(state.placeOrder).toHaveBeenCalledTimes(1);
 	});
 
 	it("zod refuses a bad payload without calling placeOrder", async () => {

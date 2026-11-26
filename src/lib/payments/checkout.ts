@@ -4,7 +4,6 @@
 import { revalidatePath } from "next/cache";
 import type { PoolClient } from "pg";
 
-import { getClientAccountStatus } from "@/lib/account/queries";
 import { AsaasOutcomeUnknownError, CardDeclinedError, getAsaasClient } from "@/lib/asaas";
 import { toCents } from "@/lib/catalog/money";
 import { readCardFeeConfig, readPiiKeyring, readPixFeeConfig, type PiiKeyring } from "@/lib/config";
@@ -76,7 +75,6 @@ const UNAVAILABLE = "Pagamento indisponível. Contate o suporte.";
 const FAILED_PIX = "Não foi possível gerar o PIX. Tente novamente.";
 const FAILED_CARD = "Não foi possível processar o cartão. Tente novamente.";
 const CARD_OFF = "Pagamento no cartão indisponível no momento.";
-const EMAIL_NOT_VERIFIED = "Confirme seu e-mail antes de comprar créditos.";
 const NO_WALLET = "Carteira não encontrada. Contate o suporte.";
 const TOO_MANY_PENDING = "Há PIX pendentes demais. Pague ou aguarde expirar antes de gerar outro.";
 const TOO_MANY_CARD_ATTEMPTS = "Muitas tentativas de cartão. Aguarde um pouco antes de tentar de novo.";
@@ -133,14 +131,8 @@ function planCard(input: CheckoutInput): CardPlan | null {
 	}
 }
 
-async function assertWalletReady(
-	client: PoolClient,
-	session: DbIdentity,
-	scope: ChargeScope,
-): Promise<void> {
+async function assertWalletReady(client: PoolClient, scope: ChargeScope): Promise<void> {
 	if (scope.kind === "client") {
-		// Primeiro de tudo: sem e-mail confirmado nenhuma linha é reservada nem o Asaas é chamado.
-		if (!(await getClientAccountStatus(client, session.userId)).emailVerified) throw new BlockedError(EMAIL_NOT_VERIFIED);
 		if (!(await getClientWallet(client, scope.clientProfileId))) throw new BlockedError(NO_WALLET);
 		return;
 	}
@@ -194,7 +186,7 @@ async function reserve(
 	const nfseOn = isNfseConfigured();
 	return withUserTransaction(session, async (client) => {
 		await lockChargeScope(client, scope);
-		await assertWalletReady(client, session, scope);
+		await assertWalletReady(client, scope);
 		const source =
 			input.payerKind === "owner"
 				? await ownerPayer(client, session, scope, input, keyring, nfseOn)

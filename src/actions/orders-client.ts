@@ -24,8 +24,7 @@ export interface ActionResult {
 
 const NOT_ALLOWED = "Ação não permitida.";
 const INVALID_PHONE = "Celular inválido. Use DDD e número.";
-// Mesma trava de e-mail da recarga (credits-topup). Os termos só eram checados no layout do portal; a action chamada direto passava.
-const EMAIL_NOT_VERIFIED = "Confirme seu e-mail antes de comprar créditos.";
+// Os termos só eram checados no layout do portal; a action chamada direto passava.
 const TERMS_NOT_ACCEPTED = "Aceite os termos de uso antes de fazer um pedido.";
 const DECLARATION_REQUIRED = "Marque a declaração para continuar.";
 const ORDER_NOT_FOUND = "Pedido não encontrado.";
@@ -81,7 +80,6 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 	try {
 		const status = await withUserTransaction(session, (client) => getClientAccountStatus(client, session.userId));
 		if (!status.termsAccepted) return { error: TERMS_NOT_ACCEPTED };
-		if (!status.emailVerified) return { error: EMAIL_NOT_VERIFIED };
 		const withMembers = await hasMembers(session, parsed.data);
 		if (withMembers && !parsed.data.declarationAccepted) return { error: DECLARATION_REQUIRED };
 		if (withMembers && parsed.data.declarationVersion === null) return { error: CLIENT_ORDER_MESSAGES.declaration_outdated };
