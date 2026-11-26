@@ -40,6 +40,16 @@ A página do pedido lista cada membro com o estado: pendente, autorizado, recusa
 - A auditoria `order.update_contact` é gravada na própria função, na mesma transação, com ids, `previous_email_masked`, `email_masked`, `resend_only` e `buyer_override`. Nunca guarda o e-mail completo.
 - Risco residual conhecido: a regra D12 compara o e-mail sem normalizar `+tag` nem pontos (`a+x@dominio` e `a.b@gmail.com` passam como e-mails diferentes do comprador). A limitação já existia na abertura do pedido e não foi tratada aqui.
 
+### Correção do e-mail pelo cliente (068)
+
+- O cliente corrige o e-mail de um membro do próprio pedido, ou só reenvia o pedido de autorização, pela seção "Autorizações" da página do pedido. A função `update_my_order_member_email` vale em `awaiting_payment` (só corrigir) e `awaiting_authorization`, com a autorização `pending` e dentro do prazo. A posse do pedido é conferida em SQL: pedido de outro cliente, de outro Bureau ou sessão da equipe devolve `not_found`.
+- `authorized`, `refused` e `expired` não editam. Trocar o e-mail depois da resposta apagaria uma prova de consentimento, e o tick cancela o pedido vencido (`scr_expired`), então editar não o revive.
+- A troca gira o token, apaga o código, renova o prazo (7 dias, só em `awaiting_authorization`) e anula o e-mail ainda na fila. A função não envia: o tick emite o link novo, cerca de 20 s depois, porque a autorização fica `pending` sem código. O cliente não tem política de escrita em `scr_authorizations`, e `issueSelfScrAuthorization` precisa dela.
+- Limite: 3 trocas ou reenvios por autorização em 24 h (`client_member_change_limit()`), com 2 minutos entre um e outro. Os instantes ficam em `contact_changes_at`, o mesmo contador da equipe (limite 5): os dois lados somam. Motivos: `resend_too_soon`, `resend_limit_reached`.
+- Recusas sem gastar limite: `same_email` (e-mail igual ao atual, sem diferença de caixa), `contact_is_buyer`, `own_account_email` (o membro é um Titular do comprador: só reenviar). Teto de 3 autorizações `pending` em 24 h por destinatário: `too_many_requests`.
+- `client_order_members` devolve o id da consulta, o e-mail mascarado e as flags `can_edit_email`, `can_resend` e `changes_left`. A interface só lê as flags; o servidor decide de novo a cada ação.
+- Auditoria na mesma transação: `order.member_email_update` e `order.member_resend`, com e-mail mascarado e `shared_dossiers`. Nunca guarda o e-mail completo nem o documento.
+
 ### Cancelamento pelo cliente
 
 - O cliente cancela o próprio pedido em `awaiting_authorization` ou `ready`, com o botão "Cancelar pedido".
