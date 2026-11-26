@@ -16,6 +16,7 @@ vi.hoisted(() => {
 		SMTP_SECURE: "true",
 		SMTP_USER: "credit-system",
 		SMTP_PASS: "test-password",
+		DATABASE_WEBHOOK_URL: process.env.TEST_DATABASE_WEBHOOK_URL ?? "postgres://app_webhook:test@localhost:54329/credit_system_test",
 	});
 });
 
@@ -30,11 +31,14 @@ const fakes = vi.hoisted(() => ({ consultPF: vi.fn(), generateParecer: vi.fn(), 
 vi.mock("@/lib/deps/client", () => ({ getDepsClient: () => ({ consultPF: fakes.consultPF, consultPJ: vi.fn() }) }));
 vi.mock("@/lib/ai/opinion", () => ({ generateParecer: fakes.generateParecer, generateCompanyParecer: fakes.generateCompanyParecer }));
 
+import { buildFakePaymentEvent } from "@/lib/asaas/fake";
 import { quoteOrder } from "@/lib/catalog/quote";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { getWebhookPool } from "@/lib/db/webhook-pool";
 import { DEPS_PRODUCT_PF } from "@/lib/deps/products";
 import { acquireClaimLock, releaseClaimLock } from "@/lib/notifications/claim-lock.test-util";
+import { applyAsaasPayment } from "@/lib/wallet/pix-charges";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
 	randomCpf,
@@ -49,7 +53,8 @@ import {
 
 import pfCurrent from "../deps/__fixtures__/pf-current.json";
 import { getMyDelivery } from "./client-queries";
-import { placeOrder } from "./queries";
+import { cancelOrder, openOrder, placeOrder } from "./queries";
+import { cancelStalledOrders } from "./tick-queries";
 import { runOrdersTick, TICK_EXECUTION_LIMIT, type TickResult } from "./tick";
 import type { OpenOrderInput, OrderProductCode } from "./types";
 
@@ -94,7 +99,7 @@ beforeAll(async () => {
 afterAll(async () => {
 	vi.unstubAllEnvs();
 	vi.restoreAllMocks();
-	await Promise.all([owner.end(), pool.end()]);
+	await Promise.all([owner.end(), pool.end(), getWebhookPool().end()]);
 	await releaseClaimLock();
 });
 
@@ -188,6 +193,59 @@ const scrOf = async (dossierId: string) =>
 		  where s.id in (select scr_authorization_id from consultations where dossier_id = $1)`,
 		[dossierId],
 	))[0];
+
+
+// Pedido online aguardando PIX (sem reserva), com a cotação e, se pedido, uma cobrança do pedido.
+// created_at é imutável sob o gatilho do pedido: o teste o desliga só nesta transação.
+async function awaitingPixOrder(
+	t: SeededTenant,
+	opts: { orderAgeMin?: number; charge?: { status?: "pending" | "paid"; expiresInMin: number } } = {},
+) {
+	const dossierId = await withUserTransaction(buyerOf(t), async (client) => {
+		const opened = await openOrder(client, thirdInput());
+		if (!opened.ok) throw new Error(`open failed: ${opened.reason}`);
+		return opened.dossierId;
+	});
+	expect((await orderOf(dossierId)).state).toBe("awaiting_payment");
+	await owner.query("insert into order_pix_quotes (dossier_id, bureau_id, client_profile_id, price) values ($1, $2, $3, '50.00')", [
+		dossierId,
+		t.bureau.id,
+		t.client.userId,
+	]);
+	const paymentId = `pay_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+	let chargeId: string | null = null;
+	if (opts.charge) {
+		const inserted = await owner.query<{ id: string }>(
+			`insert into pix_charges (bureau_id, asaas_payment_id, amount, fee_amount, total_charged, status, pix_payload, expires_at, requested_by, client_profile_id, order_id, billing_type)
+			 values ($1, $2, '50.00', '0.99', '50.99', 'pending', 'pix-copia-e-cola-teste', now() + make_interval(mins => $3), $4, $4, $5, 'PIX') returning id`,
+			[t.bureau.id, paymentId, opts.charge.expiresInMin, t.client.userId, dossierId],
+		);
+		chargeId = inserted.rows[0].id;
+		if (opts.charge.status === "paid") await owner.query("update pix_charges set status = 'paid' where id = $1", [chargeId]);
+	}
+	if (opts.orderAgeMin) {
+		const c = await owner.connect();
+		try {
+			await c.query("begin");
+			await c.query("set local session_replication_role = replica");
+			await c.query("update dossier_orders set created_at = now() - make_interval(mins => $2) where dossier_id = $1", [dossierId, opts.orderAgeMin]);
+			await c.query("commit");
+		} finally {
+			c.release();
+		}
+	}
+	return { dossierId, paymentId };
+}
+
+const payOrder = (paymentId: string) =>
+	applyAsaasPayment({
+		eventId: crypto.randomUUID(),
+		eventType: "PAYMENT_RECEIVED",
+		asaasPaymentId: paymentId,
+		payload: buildFakePaymentEvent({ eventId: "x", asaasPaymentId: paymentId, value: 50.99 }),
+	});
+
+const cancelTick = (t: SeededTenant) => withUserTransaction(staff(t), (client) => cancelStalledOrders(client, staff(t)));
 
 // O Titular responde fora do sistema, com o código recebido por e-mail.
 const confirmScr = async (token: string, code: string) =>
@@ -405,6 +463,124 @@ describe("runOrdersTick", () => {
 
 		expect(await orderOf(id)).toEqual({ state: "cancelled", state_reason: "payment_timeout", ai_status: "pending" });
 		expect(await bureauWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
+	});
+
+	it("cancels an online order whose PIX expired", async () => {
+		const t = await newTenant("tick pix expired");
+		const { dossierId } = await awaitingPixOrder(t, { orderAgeMin: 60, charge: { expiresInMin: -16 } });
+		const before = await clientWallet(t);
+
+		expect(await cancelTick(t)).toBe(1);
+
+		expect(await orderOf(dossierId)).toMatchObject({ state: "cancelled", state_reason: "payment_timeout" });
+		expect(await clientWallet(t)).toEqual(before);
+		expect(await rows("select 1 from client_ledger_entries where client_profile_id = $1 and kind <> 'topup'", [t.client.userId])).toEqual([]);
+	});
+
+	it("keeps an online order with a live PIX", async () => {
+		const t = await newTenant("tick pix live");
+		const { dossierId } = await awaitingPixOrder(t, { orderAgeMin: 20, charge: { expiresInMin: 10 } });
+
+		expect(await cancelTick(t)).toBe(0);
+
+		expect((await orderOf(dossierId)).state).toBe("awaiting_payment");
+	});
+
+	it("keeps an online order inside the grace window", async () => {
+		const t = await newTenant("tick pix grace");
+		const { dossierId } = await awaitingPixOrder(t, { orderAgeMin: 60, charge: { expiresInMin: -5 } });
+
+		expect(await cancelTick(t)).toBe(0);
+
+		expect((await orderOf(dossierId)).state).toBe("awaiting_payment");
+	});
+
+	it("cancels an online order without any charge after 45 minutes", async () => {
+		const young = await newTenant("tick pix nocharge young");
+		const youngOrder = await awaitingPixOrder(young, { orderAgeMin: 44 });
+		expect(await cancelTick(young)).toBe(0);
+		expect((await orderOf(youngOrder.dossierId)).state).toBe("awaiting_payment");
+
+		const t = await newTenant("tick pix nocharge");
+		const { dossierId } = await awaitingPixOrder(t, { orderAgeMin: 46 });
+		expect(await cancelTick(t)).toBe(1);
+		expect(await orderOf(dossierId)).toMatchObject({ state: "cancelled", state_reason: "payment_timeout" });
+	});
+
+	it("cancels a paid order whose reservation failed", async () => {
+		const t = await newTenant("tick pix paid");
+		const { dossierId } = await awaitingPixOrder(t, { charge: { status: "paid", expiresInMin: 10 } });
+		const before = await clientWallet(t);
+
+		expect(await cancelTick(t)).toBe(1);
+
+		expect(await orderOf(dossierId)).toMatchObject({ state: "cancelled", state_reason: "payment_not_reserved" });
+		expect(await clientWallet(t)).toEqual(before);
+		expect(await rows("select 1 from order_settlements where order_ref = $1", [dossierId])).toEqual([]);
+	});
+
+	it("tick cancel and webhook payment never leave a reservation on a cancelled order", async () => {
+		// Tick primeiro: o webhook espera a trava do pedido e, depois do commit, o pedido já está cancelado.
+		const t = await newTenant("tick pix race");
+		const { dossierId, paymentId } = await awaitingPixOrder(t, { orderAgeMin: 60, charge: { expiresInMin: -16 } });
+		const before = await clientWallet(t);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		let cancelledByTick = 0;
+		const tick = withUserTransaction(staff(t), async (client) => {
+			cancelledByTick = await cancelStalledOrders(client, staff(t));
+			await gate;
+		});
+		await new Promise((r) => setTimeout(r, 300));
+		const webhook = payOrder(paymentId);
+		for (let i = 0; i < 100; i += 1) {
+			const waiting = await rows("select 1 from pg_stat_activity where wait_event_type = 'Lock' and query like '%apply_asaas_payment%'", []);
+			if (waiting.length) break;
+			await new Promise((r) => setTimeout(r, 50));
+		}
+		release();
+		await tick;
+
+		expect(cancelledByTick).toBe(1);
+		expect(await webhook).toBe("order_not_payable");
+		expect(await orderOf(dossierId)).toMatchObject({ state: "cancelled", state_reason: "payment_timeout" });
+		expect(await rows("select 1 from order_settlements where order_ref = $1", [dossierId])).toEqual([]);
+		const after = await clientWallet(t);
+		expect(Number(after.available)).toBe(Number(before.available) + 50);
+		expect(after.reserved).toBe(before.reserved);
+
+		// Webhook primeiro: o pedido avança e o tick não o cancela.
+		const t2 = await newTenant("tick pix race 2");
+		const second = await awaitingPixOrder(t2, { orderAgeMin: 60, charge: { expiresInMin: -16 } });
+		expect(await payOrder(second.paymentId)).toBe("order_paid");
+		expect(await cancelTick(t2)).toBe(0);
+		expect((await orderOf(second.dossierId)).state).toBe("awaiting_authorization");
+		expect(await rows("select status from order_settlements where order_ref = $1", [second.dossierId])).toEqual([{ status: "reserved" }]);
+	});
+
+	it("skips an order locked by another transaction", async () => {
+		const t = await newTenant("tick pix locked");
+		const { dossierId } = await awaitingPixOrder(t, { orderAgeMin: 60, charge: { expiresInMin: -16 } });
+		const holder = await owner.connect();
+		try {
+			await holder.query("begin");
+			await holder.query("select 1 from dossier_orders where dossier_id = $1 for update", [dossierId]);
+			expect(await cancelTick(t)).toBe(0);
+		} finally {
+			await holder.query("rollback");
+			holder.release();
+		}
+		expect((await orderOf(dossierId)).state).toBe("awaiting_payment");
+	});
+
+	it("staff cancel of an online order awaiting payment works", async () => {
+		const t = await newTenant("tick pix staff");
+		const { dossierId } = await awaitingPixOrder(t, { charge: { expiresInMin: 10 } });
+
+		const result = await withUserTransaction(staff(t), (client) => cancelOrder(client, staff(t), dossierId, "cancelled_by_staff"));
+
+		expect(result).toEqual({ ok: true });
+		expect(await orderOf(dossierId)).toMatchObject({ state: "cancelled", state_reason: "cancelled_by_staff" });
 	});
 
 	it("a failing Bureau does not stop the other one", async () => {

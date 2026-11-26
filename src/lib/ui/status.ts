@@ -47,6 +47,7 @@ const TABLE: Record<StatusDomain, Record<string, Entry>> = {
 		deps_incompatible: ["attention", FAILED, "Não conseguimos ler a resposta da consulta."],
 		deps_unavailable: ["attention", FAILED, "O serviço de consulta está fora do ar."],
 		reservation_clawed_back: ["neutral", "Pagamento estornado", "Pagamento estornado"],
+		payment_not_reserved: ["neutral", CANCELLED, "Pagamento recebido como saldo"],
 	},
 	consultation: {
 		pending_authorization: ["waiting", "Aguardando autorização", "Esperamos a autorização do titular.", "Peça ao titular que autorize."],

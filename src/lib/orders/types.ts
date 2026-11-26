@@ -18,7 +18,8 @@ export type OrderStateReason =
 	| "deps_no_data"
 	| "deps_incompatible"
 	| "deps_unavailable"
-	| "reservation_clawed_back";
+	| "reservation_clawed_back"
+	| "payment_not_reserved";
 export type AiStatus = "pending" | "done" | "failed";
 export type OrderProductCode = "dossie_pf" | "dossie_empresarial";
 export type OrderKind = "PF" | "PJ" | "PJ_FULL";
@@ -62,5 +63,7 @@ export const MAX_EXECUTION_ATTEMPTS = 5;
 export const MAX_AI_ATTEMPTS = 3;
 export const LEASE_MINUTES = 5;
 export const PAYMENT_WINDOW_DAYS = 7;
+// Folga depois da validade do PIX do pedido online, antes de o tick cancelar o pedido (o webhook pode atrasar).
+export const ORDER_PIX_GRACE_MINUTES = 15;
 // Prazo do pedido de autorização SCR, contado da criação do pedido (igual ao da 022: open_order e emissão).
 export const SCR_REQUEST_DAYS = 7;

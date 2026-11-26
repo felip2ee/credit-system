@@ -403,13 +403,20 @@ export async function cancelOrder(
 	dossierId: string,
 	reason: OrderStateReason,
 ): Promise<{ ok: true } | { ok: false; reason: "not_found" | "invalid_state" }> {
-	const found = await client.query<{ state: OrderState }>(
-		"select state from dossier_orders where dossier_id = $1 for update",
+	const found = await client.query<{ state: OrderState; mode: OrderMode }>(
+		"select state, mode from dossier_orders where dossier_id = $1 for update",
 		[dossierId],
 	);
-	if (!found.rows[0]) return { ok: false, reason: "not_found" };
-	if (!CANCELLABLE.includes(found.rows[0].state)) return { ok: false, reason: "invalid_state" };
-	await releaseReservation(client, dossierId);
+	const order = found.rows[0];
+	if (!order) return { ok: false, reason: "not_found" };
+	if (!CANCELLABLE.includes(order.state)) return { ok: false, reason: "invalid_state" };
+	// Pedido online que espera o PIX ainda não tem liquidação: não há reserva a liberar.
+	if (order.mode === "online" && order.state === "awaiting_payment") {
+		const released = await releaseOrder(client, dossierId);
+		if (!released.ok && released.reason !== "not_found") throw new Error(`release failed: ${released.reason}`);
+	} else {
+		await releaseReservation(client, dossierId);
+	}
 	await client.query(
 		"update dossier_orders set state = 'cancelled', state_reason = $2, lease_until = null, updated_at = now() where dossier_id = $1",
 		[dossierId, reason],
