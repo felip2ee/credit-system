@@ -164,6 +164,7 @@ Fluxo para o cliente: [operations/payment-links.md](operations/payment-links.md)
 - Webhook: `apply_asaas_payment` desvia para `apply_order_pix_charge` (065). Numa transação, credita o preço na carteira do cliente, chama `reserve_order` com o preço e o cupom guardados e `refresh_order_state`. Resultados: `order_paid`, `order_reserve_failed`, `order_not_payable`. Os três pedem a nota do crédito.
 - O webhook roda sem sessão e `reserve_order` exige cliente. O ramo monta o contexto do cliente (`app.user_id`, `app.user_role`, `app.bureau_id`) e o restaura no fim. Pega a trava do cupom antes da carteira (mesma ordem de `placeOrder`).
 - Reserva recusada depois do pagamento: o valor fica como saldo, o pedido é cancelado pelo tick e o motivo é `payment_not_reserved`. Pedido já cancelado: o valor também vira saldo (`order_not_payable`).
+- Estorno do PIX do pedido (`PAYMENT_REFUNDED`, 066): o ramo de estorno de `apply_asaas_payment` chama `cancel_order_after_pix_refund`. Se o pedido está `awaiting_authorization` ou `ready` e o estorno deixou a reserva incompleta (`order_reservation_left` < preço), libera a liquidação (`release_order`) e cancela o pedido com o motivo `payment_refunded`, na mesma transação. Estorno coberto por outro saldo do cliente não cancela. Pedido `executing` ou concluído segue o clawback na captura (`reservation_clawed_back`). Travas: cobrança, pedido, liquidação, carteira.
 
 ## Visitas e slug
 

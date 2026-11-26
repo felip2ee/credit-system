@@ -403,9 +403,13 @@ describe("order PIX webhook", () => {
 		expect(await topups(t)).toHaveLength(1);
 	});
 
-	it("refund after reservation claws back on capture", async () => {
+	// Estorno antes de executar cancela o pedido (order-pix-refund.integration.test.ts, 066). Com o pedido já executando,
+	// o estorno não o para: a captura devolve o clawback.
+	it("refund while executing claws back on capture", async () => {
 		const s = await setup("opw refund");
 		expect(await pay(s)).toBe("order_paid");
+		await owner.query("update dossier_orders set state = 'ready' where dossier_id = $1", [s.dossierId]);
+		await owner.query("update dossier_orders set state = 'executing' where dossier_id = $1", [s.dossierId]);
 
 		expect(await pay(s, { type: ASAAS_EVENT_PAYMENT_REFUNDED })).toBe("refunded");
 
