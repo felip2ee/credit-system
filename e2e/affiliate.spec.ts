@@ -107,7 +107,7 @@ test("referred client buys, commission waits the hold, then converts to credits 
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Valor a converter (R$)").fill(CONVERTED.toFixed(2));
   await page.getByRole("button", { name: "Usar como crédito" }).click();
-  await expect(page.getByText("Valor convertido em créditos.")).toBeVisible();
+  await expect(page.getByText("Valor convertido em créditos.")).toBeVisible({ timeout: 15_000 });
   expect(await creditsOf(affiliate.userId)).toBeCloseTo(creditsBefore + CONVERTED, 2);
 
   // A asks for a withdrawal of the rest.

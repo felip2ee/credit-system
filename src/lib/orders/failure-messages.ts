@@ -57,3 +57,16 @@ export const CONTACT_UPDATED_AWAITING_PAYMENT = "Contato atualizado. A autoriza�
 // Pedido em awaiting_authorization: o tick emite de novo a cada rodada (cerca de 1 minuto) enquanto a autorização não tem código.
 export const CONTACT_SEND_PENDING =
 	"Contato atualizado, mas o envio do pedido de autorização falhou. O sistema tenta enviar de novo em cerca de 1 minuto.";
+
+// Cliente corrige ou reenvia o e-mail de quem autoriza o SCR. Nenhuma mensagem leva e-mail.
+export const MEMBER_EMAIL_MESSAGES: Record<string, string> = {
+	not_found: "Pedido não encontrado.",
+	invalid_input: "E-mail inválido. Confira e tente de novo.",
+	invalid_state: "Esta autorização não pode mais ser alterada. Recarregue a página.",
+	same_email: "Este já é o e-mail desta autorização. Use Reenviar.",
+	contact_is_buyer: "Informe o e-mail da outra pessoa, não o seu.",
+	own_account_email: "O e-mail desta pessoa vem da sua conta e não pode ser trocado aqui.",
+	too_many_requests: "Muitos pedidos de autorização recentes para este contato ou nesta conta. Tente novamente amanhã.",
+	resend_too_soon: "O pedido acabou de ser enviado. Aguarde 2 minutos para tentar de novo.",
+	resend_limit_reached: "Limite de envios de hoje atingido para esta pessoa. Tente amanhã.",
+};

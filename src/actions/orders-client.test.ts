@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const USER_ID = "00000000-0000-4000-8000-000000000001";
 const BUREAU_ID = "00000000-0000-4000-8000-0000000000b1";
 const DOSSIER_ID = "00000000-0000-4000-8000-0000000000d1";
+const CONSULTATION_ID = "00000000-0000-4000-8000-0000000000c1";
+const AUTH_ID = "00000000-0000-4000-8000-0000000000a1";
 const CPF = "390.533.447-05";
 
 const state = vi.hoisted(() => ({
@@ -15,6 +17,7 @@ const state = vi.hoisted(() => ({
 	accountStatus: vi.fn(),
 	holderType: vi.fn(),
 	cancelMyOrder: vi.fn(),
+	updateMemberEmail: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -37,13 +40,14 @@ vi.mock("@/lib/account/queries", () => ({ getClientAccountStatus: state.accountS
 vi.mock("@/lib/orders/client-queries", () => ({ getMyHolderType: state.holderType }));
 vi.mock("@/lib/orders/client-ops", () => ({
 	cancelMyOrder: state.cancelMyOrder,
+	updateMyOrderMemberEmail: state.updateMemberEmail,
 }));
 
 import { revalidatePath } from "next/cache";
 
 import { getPublicCatalog } from "@/lib/bureaus/public";
 
-import { cancelMyOrderAction, openClientOrderAction } from "./orders-client";
+import { cancelMyOrderAction, openClientOrderAction, resendMyMemberAuthorizationAction, updateMyMemberEmailAction } from "./orders-client";
 
 const NOT_ALLOWED = "Ação não permitida.";
 const GENERIC = "Não foi possível concluir. Tente novamente.";
@@ -70,6 +74,7 @@ beforeEach(() => {
 	state.accountStatus.mockResolvedValue({ termsAccepted: true });
 	state.holderType.mockResolvedValue("PF");
 	state.cancelMyOrder.mockResolvedValue({ ok: true });
+	state.updateMemberEmail.mockResolvedValue({ ok: true, authorizationId: AUTH_ID });
 });
 
 describe("openClientOrderAction", () => {
@@ -366,6 +371,87 @@ describe("cancelMyOrderAction", () => {
 		state.cancelMyOrder.mockRejectedValue(new Error("boom"));
 
 		await expect(cancelMyOrderAction(DOSSIER_ID)).resolves.toEqual({ error: GENERIC });
+		spy.mockRestore();
+	});
+});
+
+describe("member email actions", () => {
+	const EMAIL = "joao.silva@example.test";
+	const valid = { dossierId: DOSSIER_ID, consultationId: CONSULTATION_ID, email: EMAIL };
+	const resendValues = { dossierId: DOSSIER_ID, consultationId: CONSULTATION_ID };
+
+	it.each(["joao@", ""])("updateMyMemberEmailAction rejects the email %j without a query", async (email) => {
+		await expect(updateMyMemberEmailAction({ ...valid, email })).resolves.toEqual({ error: "E-mail inválido." });
+		expect(state.updateMemberEmail).not.toHaveBeenCalled();
+	});
+
+	it("rejects ids that are not uuids", async () => {
+		await expect(updateMyMemberEmailAction({ ...valid, dossierId: "abc" })).resolves.toEqual({ error: "Pedido não encontrado." });
+		await expect(updateMyMemberEmailAction({ ...valid, consultationId: "abc" })).resolves.toEqual({ error: "Pedido não encontrado." });
+		await expect(resendMyMemberAuthorizationAction({ ...resendValues, dossierId: "abc" })).resolves.toEqual({
+			error: "Pedido não encontrado.",
+		});
+		expect(state.updateMemberEmail).not.toHaveBeenCalled();
+	});
+
+	it("refuses a staff session before any query", async () => {
+		state.role = "operator";
+
+		await expect(updateMyMemberEmailAction(valid)).resolves.toEqual({ error: NOT_ALLOWED });
+		await expect(resendMyMemberAuthorizationAction(resendValues)).resolves.toEqual({ error: NOT_ALLOWED });
+		expect(state.updateMemberEmail).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"not_found",
+		"invalid_input",
+		"invalid_state",
+		"same_email",
+		"contact_is_buyer",
+		"own_account_email",
+		"too_many_requests",
+		"resend_too_soon",
+		"resend_limit_reached",
+	])("maps the reason %s to a pt-BR message without an email", async (reason) => {
+		state.updateMemberEmail.mockResolvedValue({ ok: false, reason });
+
+		const result = await updateMyMemberEmailAction(valid);
+
+		expect(result.error).toBeTruthy();
+		expect(result.error).not.toBe(GENERIC);
+		expect(result.error).not.toContain("@");
+		expect(revalidatePath).not.toHaveBeenCalled();
+	});
+
+	it("returns the dossier id and revalidates the order page on success", async () => {
+		await expect(updateMyMemberEmailAction(valid)).resolves.toEqual({ error: null, id: DOSSIER_ID });
+
+		expect(state.updateMemberEmail).toHaveBeenCalledWith(expect.anything(), {
+			dossierId: DOSSIER_ID,
+			consultationId: CONSULTATION_ID,
+			email: EMAIL,
+		});
+		expect(revalidatePath).toHaveBeenCalledWith(`/portal/pesquisas/${DOSSIER_ID}`);
+	});
+
+	it("resend passes a null email to the wrapper", async () => {
+		await expect(resendMyMemberAuthorizationAction(resendValues)).resolves.toEqual({ error: null, id: DOSSIER_ID });
+
+		expect(state.updateMemberEmail).toHaveBeenCalledWith(expect.anything(), {
+			dossierId: DOSSIER_ID,
+			consultationId: CONSULTATION_ID,
+			email: null,
+		});
+		expect(revalidatePath).toHaveBeenCalledWith(`/portal/pesquisas/${DOSSIER_ID}`);
+	});
+
+	it("does not log the email when the query throws", async () => {
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		state.updateMemberEmail.mockRejectedValue(new Error(`insert failed for ${EMAIL}`));
+
+		await expect(updateMyMemberEmailAction(valid)).resolves.toEqual({ error: GENERIC });
+
+		expect(JSON.stringify(spy.mock.calls)).not.toContain(EMAIL);
 		spy.mockRestore();
 	});
 });

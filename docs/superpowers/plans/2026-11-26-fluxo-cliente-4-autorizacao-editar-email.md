@@ -53,7 +53,7 @@ Cinco falhas que um revisor deve procurar, cada uma com o teste na tarefa dona.
 
 | Arquivo | Ação | Tarefa |
 |---|---|---|
-| `db/migrations/065_client_member_email.sql` | criar | T1 |
+| `db/migrations/068_client_member_email.sql` | criar | T1 |
 | `src/lib/orders/member-email.integration.test.ts` | criar | T1 |
 | `docs/architecture.md`, `docs/operations/orders.md`, `db/migrations/CLAUDE.md` | editar (1 parágrafo cada) | T1 |
 | `src/lib/orders/client-ops.ts` | editar | T2 |
@@ -73,7 +73,7 @@ Ordem: T1, T2, T3 em série. Cada uma consome a assinatura da anterior.
 ## Task 1: Funções SQL, política de auditoria e testes de integração
 
 **Files:**
-- Create: `db/migrations/065_client_member_email.sql`
+- Create: `db/migrations/068_client_member_email.sql`
 - Create: `src/lib/orders/member-email.integration.test.ts`
 - Modify: `docs/architecture.md` (um parágrafo após o da 044), `docs/operations/orders.md`, `db/migrations/CLAUDE.md` (uma linha)
 
@@ -261,7 +261,7 @@ Casos de teste (arquivo `src/lib/orders/member-email.integration.test.ts`; copie
 - `lists members with masked email and action flags`: sócio pendente tem `can_edit_email` e `can_resend` verdadeiros, `email_masked` com `***@`, `consultation_id` preenchido. O JSON do resultado não contém e-mail completo nem CPF. Outro cliente, outro Bureau e equipe recebem zero linhas.
 
 - [ ] Escrever o arquivo de teste com os casos acima. Rodar `npx vitest run src/lib/orders/member-email.integration.test.ts` e ver todos falharem (funções inexistentes).
-- [ ] Criar `db/migrations/065_client_member_email.sql` com o SQL acima e a nova `client_order_members`. Rodar `npm run db:migrate`.
+- [ ] Criar `db/migrations/068_client_member_email.sql` com o SQL acima e a nova `client_order_members`. Rodar `npm run db:migrate`.
 - [ ] Rodar o mesmo comando e ver todos passarem. Rodar também `npx vitest run src/lib/orders/client-ops.integration.test.ts src/lib/orders/queries.integration.test.ts` (as 025 e 044 não podem quebrar).
 - [ ] Atualizar `docs/architecture.md`, `docs/operations/orders.md` e `db/migrations/CLAUDE.md` com: as duas funções, o limite 3 em 24 h, o motivo de o envio ser do tick, e o `expired` não editar.
 - [ ] Commit (coordenador): `feat(autorizacao): cliente corrige o e-mail de quem autoriza`.

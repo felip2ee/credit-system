@@ -161,6 +161,13 @@ export const counterOrderSchema = z
 
 export const orderIdSchema = uuidSchema;
 
+// Cliente corrige o e-mail de quem autoriza o SCR no próprio pedido. E-mail obrigatório (reenviar não leva e-mail).
+const memberRefSchema = z.object({ dossierId: uuidSchema, consultationId: uuidSchema });
+export const updateMemberEmailSchema = memberRefSchema.extend({
+	email: z.string({ required_error: "E-mail inválido.", invalid_type_error: "E-mail inválido." }).pipe(emailSchema),
+});
+export const resendMemberSchema = memberRefSchema;
+
 // PIX do pedido. Sem valor nem método: o preço vem da cotação guardada no servidor e o método é sempre PIX.
 export const orderPixSchema = z.object({
 	dossierId: uuidSchema,

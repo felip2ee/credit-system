@@ -9,13 +9,13 @@ import { getRequiredSession, type RequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { toE164 } from "@/lib/notifications/recipient";
-import { CLIENT_ORDER_MESSAGES, ORDER_FAILED } from "@/lib/orders/failure-messages";
-import { cancelMyOrder } from "@/lib/orders/client-ops";
+import { CLIENT_ORDER_MESSAGES, MEMBER_EMAIL_MESSAGES, ORDER_FAILED } from "@/lib/orders/failure-messages";
+import { cancelMyOrder, updateMyOrderMemberEmail } from "@/lib/orders/client-ops";
 import { getMyHolderType } from "@/lib/orders/client-queries";
 import { placeOrder, type PlaceOrderOptions } from "@/lib/orders/queries";
 import { quoteFromPublicCatalog } from "@/lib/orders/public-quote";
 import type { OpenOrderInput } from "@/lib/orders/types";
-import { clientOrderSchema, orderIdSchema } from "@/lib/validators/order";
+import { clientOrderSchema, orderIdSchema, resendMemberSchema, updateMemberEmailSchema } from "@/lib/validators/order";
 
 export interface ActionResult {
 	error: string | null;
@@ -133,4 +133,38 @@ export async function cancelMyOrderAction(dossierId: unknown): Promise<ActionRes
 		logFailure("cancelMyOrderAction", error);
 		return { error: ORDER_FAILED };
 	}
+}
+
+// Troca (email) ou reenvio (email nulo) do pedido de autorização de um membro. A função SQL confere posse e estado.
+async function changeMemberEmail(
+	step: string,
+	input: { dossierId: string; consultationId: string; email: string | null },
+): Promise<ActionResult> {
+	const session = await requireClient();
+	if (!session) return { error: NOT_ALLOWED };
+
+	try {
+		const result = await withUserTransaction(session, (client) => updateMyOrderMemberEmail(client, input));
+		if (!result.ok) return { error: MEMBER_EMAIL_MESSAGES[result.reason] ?? ORDER_FAILED };
+		revalidatePath(`/portal/pesquisas/${input.dossierId}`);
+		return { error: null, id: input.dossierId };
+	} catch (error) {
+		logFailure(step, error);
+		return { error: ORDER_FAILED };
+	}
+}
+
+export async function updateMyMemberEmailAction(values: unknown): Promise<ActionResult> {
+	const parsed = updateMemberEmailSchema.safeParse(values);
+	if (!parsed.success) {
+		const issue = parsed.error.issues[0];
+		return { error: issue?.path[0] === "email" ? issue.message : ORDER_NOT_FOUND };
+	}
+	return changeMemberEmail("updateMyMemberEmailAction", parsed.data);
+}
+
+export async function resendMyMemberAuthorizationAction(values: unknown): Promise<ActionResult> {
+	const parsed = resendMemberSchema.safeParse(values);
+	if (!parsed.success) return { error: ORDER_NOT_FOUND };
+	return changeMemberEmail("resendMyMemberAuthorizationAction", { ...parsed.data, email: null });
 }

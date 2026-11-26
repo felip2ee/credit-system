@@ -1,7 +1,7 @@
 // Regras de tela do pedido, sem React: o que cada conta vê, o total ao vivo e quando o cliente pode cancelar.
 import { buildQuote } from "@/lib/catalog/build-quote";
 import { toCents } from "@/lib/catalog/money";
-import type { OrderMemberScrStatus } from "@/lib/orders/client-ops";
+import type { OrderMember, OrderMemberScrStatus } from "@/lib/orders/client-ops";
 import type { OrderMode, OrderProductCode, OrderState } from "@/lib/orders/types";
 
 export type HolderType = "PF" | "PJ" | null;
@@ -118,3 +118,20 @@ export function choiceTitle(productCode: OrderProductCode, holderType: HolderTyp
 }
 
 export const reviewActionLabel = (totalCents: number): string => (totalCents > 0 ? "Ir para o pagamento" : "Confirmar pedido");
+
+// Texto de apoio por pessoa na seção Autorizações; nulo quando não há o que dizer.
+export function memberActionHint(
+	m: Pick<OrderMember, "scrStatus" | "canEditEmail" | "canResend" | "changesLeft">,
+): string | null {
+	if (m.scrStatus !== "pending") return null;
+	if (m.changesLeft === 0) return "Limite de envios de hoje atingido. Tente amanhã.";
+	if (m.canEditEmail || m.canResend) {
+		return m.changesLeft === 1 ? "Resta 1 envio hoje." : `Restam ${m.changesLeft} envios hoje.`;
+	}
+	return "E-mail da sua conta.";
+}
+
+// Foco só volta à linha quando as ações somem (true→false) e o foco caiu no body. No mount não mexe.
+export function shouldRestoreFocus(prevCanAct: boolean, canAct: boolean, activeIsBody: boolean): boolean {
+	return prevCanAct && !canAct && activeIsBody;
+}
