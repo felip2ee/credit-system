@@ -130,3 +130,8 @@ export function memberActionHint(
 	}
 	return "E-mail da sua conta.";
 }
+
+// Foco só volta à linha quando as ações somem (true→false) e o foco caiu no body. No mount não mexe.
+export function shouldRestoreFocus(prevCanAct: boolean, canAct: boolean, activeIsBody: boolean): boolean {
+	return prevCanAct && !canAct && activeIsBody;
+}

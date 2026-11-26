@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { shouldRestoreFocus } from "@/components/orders/order-rules";
 import type { OrderMember } from "@/lib/orders/client-ops";
 import type { OrderState } from "@/lib/orders/types";
 
@@ -44,9 +45,11 @@ export function MemberEmailActions({
   }, [error, open]);
 
   // Última troca: os botões somem após o refresh. Sem isto o foco cai no body.
+  const prevCanAct = useRef(canAct);
   useEffect(() => {
-    if (!canAct && document.activeElement === document.body)
+    if (shouldRestoreFocus(prevCanAct.current, canAct, document.activeElement === document.body))
       rowRef.current?.focus();
+    prevCanAct.current = canAct;
   }, [canAct]);
 
   const waitingPayment = orderState === "awaiting_payment";

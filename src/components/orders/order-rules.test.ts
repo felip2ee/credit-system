@@ -16,6 +16,7 @@ import {
 	orderPriceBreakdown,
 	orderTotalCents,
 	reviewActionLabel,
+	shouldRestoreFocus,
 } from "./order-rules";
 
 const empresarial = { code: "dossie_empresarial" as const, price: "100.00", pricePerPartner: "30.00" };
@@ -194,5 +195,20 @@ describe("memberActionHint", () => {
 	});
 	it("says the email comes from the account for the buyer's own member", () => {
 		expect(memberActionHint({ ...base, canEditEmail: false, canResend: false })).toBe("E-mail da sua conta.");
+	});
+});
+
+describe("shouldRestoreFocus", () => {
+	it("does not focus on mount with canAct=false", () => {
+		expect(shouldRestoreFocus(false, false, true)).toBe(false);
+	});
+	it("focuses when canAct goes true to false and focus is on body", () => {
+		expect(shouldRestoreFocus(true, false, true)).toBe(true);
+	});
+	it("does not focus when another element has focus", () => {
+		expect(shouldRestoreFocus(true, false, false)).toBe(false);
+	});
+	it("does not focus while canAct stays true", () => {
+		expect(shouldRestoreFocus(true, true, true)).toBe(false);
 	});
 });
