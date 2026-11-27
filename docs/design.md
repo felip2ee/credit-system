@@ -78,7 +78,7 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 
 - Títulos (h1 a h3) em **Georgia** (serifa), pela classe `font-heading`.
 - Texto corrido: **Atkinson Hyperlegible** (400 e 700), carregada com `next/font/google` em `src/app/layout.tsx` (variável `--font-sans`). No PDF, TTF do repositório.
-- Base de 18 px no portal e nas páginas públicas (`.area-portal`), 16 px nos painéis. Nunca menos de 14 px; no portal nunca menos de 16 px. Altura de linha 1,5.
+- Base de 18 px no portal e nas páginas públicas (`.area-portal`), 16 px nos painéis. Nunca menos de 14 px. Campo de texto tem 16 px abaixo de `md` (evita zoom no iOS) e 14 px de `md` em diante; botão 15 px; rótulo 14 px. Altura de linha 1,5.
 - Alvos de toque: 44 px no portal, nas páginas públicas e nos painéis (abaixo de `md`). 8 px entre alvos.
 - Botão só com ícone leva `aria-label`. Ícone importante tem texto ao lado.
 
