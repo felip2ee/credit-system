@@ -10,7 +10,7 @@ const HISTORY_LIMIT = 20;
 // A soma da % do Bureau com a % de afiliados não pode passar de 100 (a comissão do afiliado sai da parte da plataforma).
 export class SplitOver100Error extends Error {
 	constructor() {
-		super("bureau commission + affiliate pct above 100");
+		super("split layers (partners, bureau, referrer, affiliate) above 100");
 	}
 }
 
@@ -21,10 +21,13 @@ export async function lockCommissionSplit(client: PoolClient): Promise<void> {
 }
 
 // Roda dentro da transação da escrita, depois de lockCommissionSplit: achou um Bureau acima de 100, lança e desfaz tudo. `bureauId` nulo olha todos
-// (mudança da % global). Sem linha em bureau_affiliate_settings a % de afiliados é 0.
+// (mudança da % global). Camadas por Bureau: % do Bureau + % de afiliados + % do bureau indicador ativo + sócios ativos
+// (a soma dos sócios sozinha também tem teto, mesmo sem Bureau). Sem linha em bureau_affiliate_settings a % de afiliados é 0.
 export async function assertSplitWithin100(client: PoolClient, bureauId: string | null): Promise<void> {
 	const { rowCount } = await client.query(
-		`select 1
+		`select 1 where (select coalesce(sum(p.pct), 0) from platform_partners p where p.active) > 100
+      union all
+     select 1
        from bureaus b
        left join bureau_affiliate_settings s on s.bureau_id = b.id
       where ($1::uuid is null or b.id = $1)
@@ -32,7 +35,9 @@ export async function assertSplitWithin100(client: PoolClient, bureauId: string 
               (select r.pct from bureau_commission_rates r where r.bureau_id = b.id order by r.id desc limit 1),
               (select (g.value #>> '{}')::numeric from settings g
                 where g.key = 'bureau_commission_pct' and jsonb_typeof(g.value) = 'number'),
-              0) + coalesce(s.default_pct, 0) > 100
+              0) + coalesce(s.default_pct, 0)
+            + coalesce((select ref.pct from bureau_referrals ref where ref.referred_bureau_id = b.id and ref.active), 0)
+            + (select coalesce(sum(p.pct), 0) from platform_partners p where p.active) > 100
       limit 1`,
 		[bureauId],
 	);

@@ -7,12 +7,14 @@ import { AdminCredentialsForm } from "@/components/superadmin/admin-credentials-
 import { InviteAdminForm } from "@/components/superadmin/invite-admin-form";
 import { SupportStartForm } from "@/components/superadmin/support-start-form";
 import { BureauCommissionPanel } from "@/components/superadmin/bureau-commission-panel";
+import { BureauWalletForm } from "@/components/superadmin/bureau-wallet-form";
 import { BureauProductBlocksPanel } from "@/components/superadmin/bureau-product-blocks-panel";
 import { getBureauDefaultPct } from "@/lib/affiliates/rates";
 import { getEffectiveCommission } from "@/lib/catalog/queries";
 import { listBureauCommissionRates, listBureauProductBlocks } from "@/lib/commission/queries";
 import { getRequiredSession } from "@/lib/auth/session";
 import { getBureau, listBureauMetrics } from "@/lib/bureaus/queries";
+import { getBureauWalletId } from "@/lib/partners/queries";
 import { CopyLinkButton } from "@/components/superadmin/copy-link-button";
 import { config } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
@@ -41,6 +43,9 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
         blocks: await listBureauProductBlocks(session, bureau.id),
       }
     : null;
+
+  const walletIdManage = hasPermission(session, "bureau_wallet:manage") && !session.supportSessionId;
+  const bureauWalletId = walletIdManage ? await getBureauWalletId(session, bureau.id) : null;
 
   const wallet = hasPermission(session, "wallet:read")
     ? await withUserTransaction(session, async (client) => ({
@@ -91,6 +96,12 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
             <BureauProductBlocksPanel bureauId={bureau.id} rows={commission.blocks} canWrite={canManage} />
           </section>
         </>
+      )}
+      {walletIdManage && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold">Split do Asaas</h2>
+          <BureauWalletForm bureauId={bureau.id} initialWalletId={bureauWalletId} canWrite />
+        </section>
       )}
       {wallet?.balance && (
         <section className="space-y-3">

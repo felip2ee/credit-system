@@ -10,6 +10,7 @@ const SECTIONS = [
   { href: "/superadmin/settings/scr", title: "Termo SCR", description: "Termo de consentimento da autogestão de SCR" },
   { href: "/superadmin/settings/comissao", title: "Comissão dos Bureaus", description: "% do preço bruto que o Bureau recebe em cada venda" },
   { href: "/superadmin/settings/afiliados", title: "Afiliados", description: "Carência da comissão e taxa de saque" },
+  { href: "/superadmin/settings/socios", title: "Sócios", description: "walletId e % de cada sócio no split de toda cobrança" },
 ];
 
 export default function SuperadminSettingsPage() {
