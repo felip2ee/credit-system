@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canLeaveStep, hasTypedData, isStepSettled, STEP_CLICK_GUARD_MS, wizardSteps, type WizardFormState } from "@/components/orders/order-wizard-steps";
+import { canLeaveStep, hasTypedData, wizardSteps, type WizardFormState } from "@/components/orders/order-wizard-steps";
 
 const VALID_CPF = "529.982.247-25";
 const VALID_CNPJ = "11.222.333/0001-81";
@@ -108,16 +108,6 @@ describe("canLeaveStep", () => {
 
 	it("revisão: sempre pode seguir (a confirmação valida o resto)", () => {
 		expect(canLeaveStep("review", state({}))).toBe(true);
-	});
-});
-
-describe("isStepSettled", () => {
-	it("recusa o clique logo depois da troca de etapa (duplo clique)", () => {
-		expect(isStepSettled(1_000, 1_000 + STEP_CLICK_GUARD_MS - 1)).toBe(false);
-	});
-
-	it("aceita depois do tempo de guarda", () => {
-		expect(isStepSettled(1_000, 1_000 + STEP_CLICK_GUARD_MS)).toBe(true);
 	});
 });
 

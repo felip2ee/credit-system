@@ -16,7 +16,7 @@ export function HowItWorks({ fee }: HowItWorksProps) {
 
   return (
     <details open className="rounded-lg border bg-card p-4">
-      <summary className="cursor-pointer text-lg font-bold">Como funciona</summary>
+      <summary className="cursor-pointer text-base font-semibold">Como funciona</summary>
       <ol className="mt-3 list-decimal space-y-2 pl-5">
         {steps.map((step) => (
           <li key={step}>{step}</li>

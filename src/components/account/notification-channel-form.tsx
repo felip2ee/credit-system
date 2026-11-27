@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { setNotificationChannelAction } from "@/actions/account";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBanner } from "@/components/ui/status-banner";
 
@@ -31,27 +31,32 @@ export function NotificationChannelForm({ channel, phoneVerified }: Notification
 
   return (
     <div className="space-y-2">
-      <Label htmlFor="channel">Canal de avisos</Label>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Select value={value} onValueChange={(v) => setValue(v === "whatsapp" ? "whatsapp" : "email")}>
-          <SelectTrigger id="channel">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="email">E-mail</SelectItem>
-            <SelectItem value="whatsapp" disabled={!phoneVerified}>
-              WhatsApp
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        <Button type="button" className="w-full sm:w-auto" onClick={save} disabled={pending}>
-          {pending ? "Salvando..." : "Salvar"}
-        </Button>
-      </div>
-      {!phoneVerified && (
-        <p className="text-base text-muted-foreground">Confirme o telefone para usar o WhatsApp.</p>
-      )}
-      {message && <StatusBanner tone={message.isError ? "attention" : "success"} title={message.text} />}
+      <Field
+        id="channel"
+        label="Canal de avisos"
+        helper={phoneVerified ? undefined : "Confirme o telefone para usar o WhatsApp."}
+        error={message?.isError ? message.text : null}
+      >
+        {(a11y) => (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Select value={value} onValueChange={(v) => setValue(v === "whatsapp" ? "whatsapp" : "email")}>
+              <SelectTrigger {...a11y}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="email">E-mail</SelectItem>
+                <SelectItem value="whatsapp" disabled={!phoneVerified}>
+                  WhatsApp
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Button type="button" className="w-full sm:w-auto" onClick={save} disabled={pending}>
+              {pending ? "Salvando..." : "Salvar"}
+            </Button>
+          </div>
+        )}
+      </Field>
+      {message && !message.isError && <StatusBanner tone="success" title={message.text} />}
     </div>
   );
 }

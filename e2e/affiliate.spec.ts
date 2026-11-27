@@ -114,11 +114,16 @@ test("referred client buys, commission waits the hold, then converts to credits 
   await page.goto("/portal/afiliacao/saque");
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Valor (R$)").fill(WITHDRAWN.toFixed(2));
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Para onde vai o dinheiro?" })).toBeFocused();
   await page.getByLabel("Tipo da chave PIX").click();
   await page.getByRole("option", { name: "E-mail" }).click();
   await page.getByLabel("Chave PIX", { exact: true }).fill(E2E.client.email);
   await page.getByLabel("A chave PIX está no meu nome").check();
-  await page.getByRole("button", { name: "Solicitar saque" }).click();
+  // The confirm button stays disabled until the double-click guard has passed.
+  const confirm = page.getByRole("button", { name: "Solicitar saque" });
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
   await expect(page.getByText("Saque solicitado.")).toBeVisible();
   expect(await walletOf(affiliate.userId)).toBe(0);
 

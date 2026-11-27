@@ -28,7 +28,7 @@ export default async function PortalNotificationsPage() {
 			<PageHeader title="Notificações" description="Avisos neste aparelho" />
 			<Card>
 				<CardHeader>
-					<CardTitle className="text-xl">Avisos no aparelho</CardTitle>
+					<CardTitle>Avisos no aparelho</CardTitle>
 				</CardHeader>
 				<CardContent>
 					<PushToggle publicKey={publicPushKey()} />
@@ -36,7 +36,7 @@ export default async function PortalNotificationsPage() {
 			</Card>
 			<Card>
 				<CardHeader>
-					<CardTitle className="text-xl">Instalar no aparelho</CardTitle>
+					<CardTitle>Instalar no aparelho</CardTitle>
 				</CardHeader>
 				<CardContent>
 					<InstallGuide />

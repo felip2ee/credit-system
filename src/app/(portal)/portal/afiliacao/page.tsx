@@ -57,7 +57,7 @@ export default async function AffiliatePage() {
       {hasAvailable && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-xl">Usar a comissão</CardTitle>
+            <CardTitle>Usar a comissão</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <ConvertForm available={wallet.available} />
@@ -66,7 +66,7 @@ export default async function AffiliatePage() {
                 <p className="text-muted-foreground">
                   Taxa de saque: {formatCurrency(Number(fee.fixed))} + {fee.percent}%
                 </p>
-                <Button asChild variant="outline" size="lg" className="w-full sm:w-auto">
+                <Button asChild variant="outline" className="w-full sm:w-auto">
                   <Link href="/portal/afiliacao/saque">Sacar por PIX</Link>
                 </Button>
               </>

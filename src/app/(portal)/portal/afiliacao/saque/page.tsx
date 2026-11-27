@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Banknote } from "lucide-react";
+import { Banknote } from "lucide-react";
 
 import { WithdrawalForm } from "@/components/affiliates/withdrawal-form";
-import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ListRow } from "@/components/ui/list-row";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -34,15 +33,11 @@ export default async function AffiliateWithdrawalPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Saque de comissão" />
-      <Link href="/portal/afiliacao" className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
-        <ArrowLeft aria-hidden className="size-5" />
-        Voltar para afiliação
-      </Link>
+      <ScreenHeader className="-mx-4 min-[375px]:-mx-5" title="Saque de comissão" backHref="/portal/afiliacao" backLabel="Voltar para afiliação" />
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Solicitar saque</CardTitle>
-          <p className="text-base text-muted-foreground">
+          <CardTitle>Solicitar saque</CardTitle>
+          <p className="text-sm text-muted-foreground">
             Disponível para saque: {formatCurrency(Number(summary?.wallet.available ?? "0"))}
           </p>
         </CardHeader>
@@ -50,7 +45,7 @@ export default async function AffiliateWithdrawalPage() {
           {withdrawalsEnabled ? (
             <WithdrawalForm fee={fee} />
           ) : (
-            <p className="text-base text-muted-foreground">Saque disponível em breve.</p>
+            <p className="text-sm text-muted-foreground">Saque disponível em breve.</p>
           )}
         </CardContent>
       </Card>
