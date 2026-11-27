@@ -19,6 +19,14 @@ export function amountStepError(amount: string, fee: WithdrawalFee): string | nu
 	return withdrawalPreview(amount, fee).valid ? null : "Informe um valor maior que a taxa de saque.";
 }
 
+// A action devolve só o texto. Estas são as recusas por valor (invalid_amount, net_not_positive, insufficient_funds): voltam à etapa do valor.
+// shortcut: compara o começo do texto da action; trocar por um código de motivo se a action passar a devolvê-lo.
+const AMOUNT_FAILURE_PREFIXES = ["Informe um valor maior que zero", "O valor é menor ou igual à taxa", "Valor maior que o saldo"];
+
+export function isAmountFailure(message: string): boolean {
+	return AMOUNT_FAILURE_PREFIXES.some((prefix) => message.startsWith(prefix));
+}
+
 export interface KeyStepErrors {
 	pixKey?: string;
 	ownKey?: string;

@@ -8,8 +8,8 @@ import type { z } from "zod";
 
 import { confirmPhoneAction, requestPhoneVerificationAction } from "@/actions/account";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { phoneCodeSchema, phoneRequestSchema } from "@/lib/validators/account";
@@ -64,33 +64,37 @@ export function PhoneVerificationForm({ phoneE164, phoneVerified }: PhoneVerific
       </div>
 
       <form onSubmit={phoneForm.handleSubmit(sendCode)} className="space-y-2" noValidate>
-        <Label htmlFor="phone">Celular com DDD</Label>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input id="phone" type="tel" autoComplete="tel" {...phoneForm.register("phone")} />
-          <Button type="submit" className="w-full sm:w-auto" disabled={sending}>
-            {sending ? "Enviando..." : "Enviar código"}
-          </Button>
-        </div>
-        {phoneErrors.phone && <p className="text-base text-destructive">{phoneErrors.phone.message}</p>}
+        <Field id="phone" label="Celular com DDD" error={phoneErrors.phone?.message}>
+          {(a11y) => (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input {...a11y} type="tel" autoComplete="tel" {...phoneForm.register("phone")} />
+              <Button type="submit" className="w-full sm:w-auto" disabled={sending}>
+                {sending ? "Enviando..." : "Enviar código"}
+              </Button>
+            </div>
+          )}
+        </Field>
       </form>
 
       {codeSent && (
         <form onSubmit={codeForm.handleSubmit(confirm)} className="space-y-2" noValidate>
           <p className="text-base text-muted-foreground">Enviamos um código pelo WhatsApp. Ele vale 10 minutos.</p>
-          <Label htmlFor="code">Código</Label>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              id="code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              {...codeForm.register("code")}
-            />
-            <Button type="submit" className="w-full sm:w-auto" disabled={confirming}>
-              {confirming ? "Confirmando..." : "Confirmar"}
-            </Button>
-          </div>
-          {codeErrors.code && <p className="text-base text-destructive">{codeErrors.code.message}</p>}
+          <Field id="code" label="Código" error={codeErrors.code?.message}>
+            {(a11y) => (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  {...a11y}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  {...codeForm.register("code")}
+                />
+                <Button type="submit" className="w-full sm:w-auto" disabled={confirming}>
+                  {confirming ? "Confirmando..." : "Confirmar"}
+                </Button>
+              </div>
+            )}
+          </Field>
         </form>
       )}
 

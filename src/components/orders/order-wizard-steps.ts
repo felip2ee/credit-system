@@ -90,12 +90,7 @@ export function canLeaveStep(step: WizardStepId, state: WizardFormState): boolea
 	}
 }
 
-// Um duplo clique em "Continuar" não pode atravessar a etapa seguinte, nem confirmar o pedido (cobra créditos).
-export const STEP_CLICK_GUARD_MS = 600;
-
-export function isStepSettled(changedAtMs: number, nowMs: number): boolean {
-	return nowMs - changedAtMs >= STEP_CLICK_GUARD_MS;
-}
+export { STEP_CLICK_GUARD_MS, isStepSettled } from "@/lib/ui/step-guard";
 
 // Sair da tela perde o que foi digitado: só pede confirmação se há algo a perder.
 export function hasTypedData(state: WizardFormState): boolean {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { amountStepError, keyStepErrors } from "./withdrawal-steps";
+import { amountStepError, isAmountFailure, keyStepErrors } from "./withdrawal-steps";
 
 const fee = { fixed: "3.00", percent: "1.00" };
 
@@ -14,6 +14,18 @@ describe("amountStepError", () => {
 	});
 	it("aceita valor maior que a taxa", () => {
 		expect(amountStepError("50.00", fee)).toBeNull();
+	});
+});
+
+describe("isAmountFailure", () => {
+	it("reconhece as recusas por valor", () => {
+		expect(isAmountFailure("Valor maior que o saldo disponível. O valor em carência ainda não pode ser usado.")).toBe(true);
+		expect(isAmountFailure("O valor é menor ou igual à taxa de saque. Peça um valor maior.")).toBe(true);
+		expect(isAmountFailure("Informe um valor maior que zero, com até 2 casas decimais.")).toBe(true);
+	});
+	it("deixa as outras na etapa da chave", () => {
+		expect(isAmountFailure("Chave PIX inválida.")).toBe(false);
+		expect(isAmountFailure("Você já tem um saque em aberto. Espere o pagamento ou o cancelamento.")).toBe(false);
 	});
 });
 
