@@ -27,6 +27,9 @@ import {
 const EXIT_HREF = "/superadmin";
 // Sangra até a borda do `main` (p-4 / md:p-6), como o assistente do painel.
 const BLEED = "-mx-4 -mt-4 md:-mx-6 md:-mt-6";
+// Textos de erro devolvidos por `createBureau` em src/actions/bureaus.ts: mude junto com a action.
+const SLUG_ERROR_MARK = "(slug)";
+const EMAIL_IN_USE_ERROR = "Este e-mail já pertence a outro usuário.";
 const SLUG_HELPER =
   "Vira o endereço público /b/slug. Dá para mudar depois na edição do Bureau: o link antigo continua funcionando e leva ao novo.";
 
@@ -47,6 +50,7 @@ export function BureauCreateForm() {
   const [createReady, setCreateReady] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shownStep = useRef(0);
+  const navigating = useRef(false);
 
   const {
     register,
@@ -59,6 +63,9 @@ export function BureauCreateForm() {
   } = useForm<BureauCreateValues>({
     defaultValues: { name: "", slug: "", adminName: "", adminEmail: "", adminPassword: "", confirm: "" },
   });
+
+  // Erro posto à mão não some sozinho: limpa o do campo quando o usuário o edita.
+  const reg = (name: BureauField) => register(name, { onChange: () => clearErrors(name) });
 
   const step = BUREAU_STEPS[stepIndex];
   const isLast = stepIndex === BUREAU_STEPS.length - 1;
@@ -109,13 +116,13 @@ export function BureauCreateForm() {
 
   // O servidor recusa slug e e-mail em uso: leva o erro ao campo, na etapa dele.
   const showServerError = (message: string) => {
-    if (message.includes("(slug)")) {
+    if (message.includes(SLUG_ERROR_MARK)) {
       setStepIndex(0);
       setError("slug", { message });
       setTimeout(() => setFocus("slug"), 0);
       return;
     }
-    if (message === "Este e-mail já pertence a outro usuário.") {
+    if (message === EMAIL_IN_USE_ERROR) {
       setError("adminEmail", { message });
       setFocus("adminEmail");
       return;
@@ -131,6 +138,8 @@ export function BureauCreateForm() {
       setTimeout(() => checkStep(BUREAU_STEPS[firstInvalid]), 0);
       return;
     }
+    clearErrors();
+    // A senha fica na memória do formulário ao voltar e avançar entre etapas; só é limpa depois do envio.
     const { confirm: _confirm, adminPassword, ...rest } = getValues();
     const values = { ...rest, adminPassword: adminPassword || undefined };
     setServerError(null);
@@ -155,13 +164,15 @@ export function BureauCreateForm() {
         setCreatedWithPassword(true);
         return;
       }
+      navigating.current = true;
       router.push(`/superadmin/bureaus/${result.id}`);
     });
   };
 
   const onFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (created) return;
+    // Enquanto envia, e depois de criar (inclusive a navegação em curso), nada é enviado de novo.
+    if (created || isPending || navigating.current) return;
     if (!isLast) return goNext();
     if (!createReady) return;
     submit();
@@ -191,20 +202,20 @@ export function BureauCreateForm() {
           {step.id === "bureau" && (
             <>
               <Field id="name" label="Nome do Bureau" error={err("name")}>
-                {(a11y) => <Input {...a11y} autoComplete="organization" {...register("name")} />}
+                {(a11y) => <Input {...a11y} autoComplete="organization" {...reg("name")} />}
               </Field>
               <Field id="slug" label="Endereço (slug)" helper={SLUG_HELPER} error={err("slug")}>
-                {(a11y) => <Input {...a11y} placeholder="meu-bureau" autoCapitalize="none" {...register("slug")} />}
+                {(a11y) => <Input {...a11y} placeholder="meu-bureau" autoCapitalize="none" {...reg("slug")} />}
               </Field>
             </>
           )}
           {step.id === "admin" && (
             <>
               <Field id="adminName" label="Nome do administrador" error={err("adminName")}>
-                {(a11y) => <Input {...a11y} autoComplete="off" {...register("adminName")} />}
+                {(a11y) => <Input {...a11y} autoComplete="off" {...reg("adminName")} />}
               </Field>
               <Field id="adminEmail" label="E-mail do administrador" error={err("adminEmail")}>
-                {(a11y) => <Input {...a11y} type="email" autoComplete="off" {...register("adminEmail")} />}
+                {(a11y) => <Input {...a11y} type="email" autoComplete="off" {...reg("adminEmail")} />}
               </Field>
               <Field
                 id="adminPassword"
@@ -212,10 +223,10 @@ export function BureauCreateForm() {
                 helper="Em branco: o administrador recebe um convite por e-mail e cria a própria senha. Com senha: ele entra direto e troca a senha no primeiro acesso. Informe a senha a ele por um canal seguro."
                 error={err("adminPassword")}
               >
-                {(a11y) => <PasswordInput {...a11y} {...register("adminPassword")} />}
+                {(a11y) => <PasswordInput {...a11y} {...reg("adminPassword")} />}
               </Field>
               <Field id="confirm" label="Confirmar senha" error={err("confirm")}>
-                {(a11y) => <PasswordInput {...a11y} {...register("confirm")} />}
+                {(a11y) => <PasswordInput {...a11y} {...reg("confirm")} />}
               </Field>
             </>
           )}

@@ -72,6 +72,8 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
         backHref="/superadmin"
         backLabel="Voltar para a lista de Bureaus"
       />
+      {/* O h1 do cabeçalho trunca: o nome completo fica aqui, quebrando linha. */}
+      <p className="break-words text-base font-bold">{bureau.name}</p>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">Endereço público:</span>
         <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="break-all font-medium underline">

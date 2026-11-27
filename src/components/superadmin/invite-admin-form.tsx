@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { adminEmailError, adminNameError } from "./admin-field-errors";
 import { passwordFieldError, type PasswordErrorField } from "./password-error";
 
 export function InviteAdminForm({ bureauId }: { bureauId: string }) {
@@ -18,6 +19,8 @@ export function InviteAdminForm({ bureauId }: { bureauId: string }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<{ field: PasswordErrorField; message: string } | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [sent, setSent] = useState<"email" | "password" | null>(null);
 
   const onSubmit = (e: React.FormEvent) => {
@@ -25,6 +28,14 @@ export function InviteAdminForm({ bureauId }: { bureauId: string }) {
     setError(null);
     setPasswordError(null);
     setSent(null);
+    const nameInvalid = adminNameError(name);
+    const emailInvalid = adminEmailError(email);
+    setNameError(nameInvalid);
+    setEmailError(emailInvalid);
+    if (nameInvalid || emailInvalid) {
+      document.getElementById(nameInvalid ? "invite-name" : "invite-email")?.focus();
+      return;
+    }
     if (password || confirm) {
       const invalid = passwordFieldError(password, confirm);
       if (invalid) {
@@ -44,13 +55,13 @@ export function InviteAdminForm({ bureauId }: { bureauId: string }) {
   };
 
   return (
-    <form onSubmit={onSubmit} className="max-w-xl space-y-4">
+    <form onSubmit={onSubmit} noValidate className="max-w-xl space-y-4">
       <h3 className="text-base font-bold">Convidar ou reenviar convite ao administrador</h3>
-      <Field id="invite-name" label="Nome completo">
-        {(a11y) => <Input {...a11y} required value={name} onChange={(e) => setName(e.target.value)} />}
+      <Field id="invite-name" label="Nome completo" error={nameError}>
+        {(a11y) => <Input {...a11y} value={name} onChange={(e) => setName(e.target.value)} />}
       </Field>
-      <Field id="invite-email" label="E-mail">
-        {(a11y) => <Input {...a11y} required type="email" value={email} onChange={(e) => setEmail(e.target.value)} />}
+      <Field id="invite-email" label="E-mail" error={emailError}>
+        {(a11y) => <Input {...a11y} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />}
       </Field>
       <Field
         id="invite-password"
