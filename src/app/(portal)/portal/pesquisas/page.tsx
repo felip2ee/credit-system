@@ -21,15 +21,26 @@ export default async function ClientOrdersPage() {
 	const orders = await withUserTransaction(session, (client) => listMyOrders(client));
 
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<PageHeader title="Pesquisas" description="Seus pedidos e entregas">
-				<Button asChild variant="cta" glow>
-					<Link href="/portal/pesquisas/nova">Nova pesquisa</Link>
-				</Button>
+				{orders.length > 0 && (
+					<Button asChild variant="cta" glow>
+						<Link href="/portal/pesquisas/nova">Nova pesquisa</Link>
+					</Button>
+				)}
 			</PageHeader>
 			{orders.length === 0 ? (
 				<Card>
-					<EmptyState icon={FolderOpen} title="Você ainda não fez nenhuma pesquisa" description="Faça sua primeira pesquisa em poucos passos." />
+					<EmptyState
+						icon={FolderOpen}
+						title="Você ainda não fez nenhuma pesquisa"
+						description="Primeiro passo: escolha se a pesquisa é de uma pessoa ou de uma empresa. Depois é só preencher os dados e confirmar."
+						action={
+							<Button asChild variant="cta" glow>
+								<Link href="/portal/pesquisas/nova">Fazer minha primeira pesquisa</Link>
+							</Button>
+						}
+					/>
 				</Card>
 			) : (
 				<ClientOrderList orders={orders} />

@@ -27,22 +27,22 @@ export default async function PortalHomePage() {
     affiliate: showAffiliate ? await getMyAffiliateSummary(client) : null,
   }));
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Olá{firstName ? `, ${firstName}` : ""}</h1>
-      <Button asChild variant="cta" size="lg" glow className="w-full">
+    <div className="space-y-5">
+      <h1 className="text-xl font-bold md:text-2xl">Olá{firstName ? `, ${firstName}` : ""}</h1>
+      <Button asChild variant="cta" glow className="w-full">
         <Link href="/portal/pesquisas/nova">
           <FilePlus2 aria-hidden />
           Nova pesquisa
         </Link>
       </Button>
       {orders.length > 0 && (
-        <section className="space-y-3">
+        <section className="space-y-2">
           <SectionHeader title="Suas pesquisas" link={{ href: "/portal/pesquisas", label: "Ver todas" }} />
           <ClientOrderList orders={orders} />
         </section>
       )}
       {affiliate && (
-        <section className="space-y-3">
+        <section className="space-y-2">
           <SectionHeader title="Afiliação" link={{ href: "/portal/afiliacao", label: "Abrir" }} />
           <Card>
             <ul className="divide-y divide-border">
