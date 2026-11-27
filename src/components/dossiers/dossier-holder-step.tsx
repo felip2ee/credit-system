@@ -26,7 +26,8 @@ export function DossierHolderStep({ form, isPf, ownResearch, lookup }: DossierHo
 	return (
 		<div className="space-y-4">
 			<p className="text-base text-muted-foreground">
-				Titular: {isPf ? "pessoa física" : "empresa"}. Ele recebe o pedido de autorização para consultar o SCR por e-mail e celular.
+				Titular: {isPf ? "pessoa física" : "empresa"}. A consulta ao SCR precisa de autorização. Quem ainda não tem autorização válida nem um pedido
+				em aberto recebe um pedido por e-mail.
 			</p>
 			<Field
 				id="subject-document"

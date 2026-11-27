@@ -37,8 +37,8 @@ export function DossierPartnersStep({ form, pricePerPartner }: DossierPartnersSt
 	return (
 		<div className="space-y-4">
 			<p className="text-base text-muted-foreground">
-				Esta etapa é opcional. Cada sócio ou cônjuge custa {formatCurrency(pricePerPartner)} e autoriza a consulta pelo próprio e-mail. Digite o CPF
-				completo: o bureau mascara o CPF no quadro societário.
+				Esta etapa é opcional. Cada sócio ou cônjuge custa {formatCurrency(pricePerPartner)} e precisa autorizar a consulta. Quem ainda não tem
+				autorização válida nem um pedido em aberto recebe um pedido por e-mail. Digite o CPF completo: o bureau mascara o CPF no quadro societário.
 			</p>
 			{fields.map((field, i) => (
 				<div key={field.id} className="space-y-3 rounded-card border border-border bg-muted p-3">

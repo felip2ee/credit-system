@@ -188,7 +188,7 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, hasPartners, p
           </Button>
         </div>
       </Dialog>
-      <RevokeOrderDialog dossierId={order.dossierId} open={revoking} onClose={() => setRevoking(false)} />
+      <RevokeOrderDialog dossierId={order.dossierId} mode={order.mode} open={revoking} onClose={() => setRevoking(false)} />
     </Card>
     </>
   );

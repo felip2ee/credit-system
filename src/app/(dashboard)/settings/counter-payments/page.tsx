@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { CounterPaymentForm } from "@/components/counter-payments/CounterPaymentForm";
 import { CounterPaymentList } from "@/components/counter-payments/CounterPaymentList";
+import { counterSituation } from "@/components/counter-payments/situation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -75,11 +76,7 @@ export default async function CounterPaymentsPage({
       : view.price === null
         ? "Sem liquidação ainda"
         : "Sem cobrança"
-    : remaining === null
-      ? "Sem liquidação ainda"
-      : remaining > 0
-        ? `Falta ${formatCurrency(remaining / 100)}`
-        : "Quitado";
+    : counterSituation(remaining, order?.state ?? null);
 
   return (
     <div className="space-y-6">

@@ -24,6 +24,13 @@ export function canReleaseOrder({ state, mode, aiStatus, hasBuyer }: Pick<OrderN
   return state === "completed" && mode === "counter" && aiStatus !== "pending" && hasBuyer;
 }
 
+// Aviso antes de revogar. No online o pedido revogado não é liberado de novo (nem pelo tick, nem por botão).
+export function revokeEffectText(mode: OrderMode): string {
+  return mode === "online"
+    ? "O cliente perde o acesso à pesquisa e não é avisado. Não dá para voltar atrás por aqui: o sistema não libera o resultado de novo sozinho, e esta tela não permite liberá-lo de novo."
+    : 'O cliente perde o acesso à pesquisa. O pedido volta para "Pronto, aguardando liberação do Bureau" e o cliente não é avisado.';
+}
+
 function paymentText({ mode, canWrite, canRegisterPayment }: OrderNowInput): string {
   if (mode !== "counter") return "Esperando o pagamento do cliente. O pedido segue quando ele for confirmado.";
   const quem =

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { PAYMENT_WINDOW_DAYS, type OrderState, type OrderStateReason } from "@/lib/orders/types";
 
-import { canReleaseOrder, orderNowText } from "./order-now";
+import { canReleaseOrder, orderNowText, revokeEffectText } from "./order-now";
 
 const base = {
   mode: "counter",
@@ -99,6 +99,21 @@ describe("orderNowText", () => {
   it("liberado: nada a fazer; estado desconhecido cai no suporte", () => {
     expect(text("released")).toMatch(/Nada a fazer/);
     expect(text("nope" as OrderState)).toMatch(/Fale com o suporte/);
+  });
+});
+
+describe("revokeEffectText", () => {
+  it("online: revogar não tem volta nesta tela", () => {
+    const t = revokeEffectText("online");
+    expect(t).toMatch(/perde o acesso/);
+    expect(t).toMatch(/não permite liberá-lo de novo/);
+    expect(t).not.toMatch(/aguardando liberação/);
+  });
+
+  it("balcão: o pedido volta a aguardar a liberação do Bureau", () => {
+    const t = revokeEffectText("counter");
+    expect(t).toMatch(/perde o acesso/);
+    expect(t).toMatch(/Pronto, aguardando liberação do Bureau/);
   });
 });
 
