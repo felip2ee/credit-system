@@ -1,332 +1,348 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useForm, type FieldErrors, type FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { z } from "zod";
-import { Plus, Trash2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
-import { lookupCnpj } from "@/actions/holders";
 import { openCounterOrderAction } from "@/actions/orders";
-import { BuyerPicker, type Buyer } from "@/components/dossiers/buyer-picker";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { StatusBanner } from "@/components/ui/status-banner";
-import { countBillablePartners, orderTotalCents } from "@/components/orders/order-rules";
-import type { OrderProductCode } from "@/lib/orders/types";
-import { formatCurrency } from "@/lib/utils";
+import type { Buyer } from "@/components/dossiers/buyer-picker";
 import { isOwnResearch, missingThirdPartyEmail } from "@/components/dossiers/contact-rules";
+import { DossierHolderStep, type CounterOrderFormValues } from "@/components/dossiers/dossier-holder-step";
+import { useCnpjLookup } from "@/components/dossiers/use-cnpj-lookup";
+import { DossierPartnersStep } from "@/components/dossiers/dossier-partners-step";
+import { DossierProductStep, EMPRESARIAL_PRODUCT, type CatalogOption } from "@/components/dossiers/dossier-product-step";
+import { DossierReviewStep } from "@/components/dossiers/dossier-review-step";
+import {
+	canLeaveStep,
+	dossierSteps,
+	hasTypedData,
+	ownResearchContacts,
+	stepForErrors,
+	type DossierFormState,
+	type DossierStepId,
+} from "@/components/dossiers/dossier-wizard-steps";
+import { countBillablePartners, orderTotalCents } from "@/components/orders/order-rules";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { ScreenHeader } from "@/components/ui/screen-header";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
+import { formatCurrency } from "@/lib/utils";
+import type { OrderProductCode } from "@/lib/orders/types";
 import { counterOrderSchema } from "@/lib/validators/order";
 
-type OrderFormValues = z.input<typeof counterOrderSchema>;
-
-export interface CatalogOption {
-  code: string;
-  name: string;
-  // Preço de venda do catálogo, decimal em string. Nunca digitado pelo operador.
-  price: string;
-  // Valor por sócio do catálogo; só vale no Dossiê Empresarial.
-  pricePerPartner: string;
-}
+export type { CatalogOption };
 
 interface DossierFormProps {
-  products: CatalogOption[];
+	products: CatalogOption[];
 }
 
-const EMPRESARIAL_PRODUCT = "dossie_empresarial";
+const EXIT_HREF = "/dossiers";
 const PF_PRODUCT = "dossie_pf";
 
+// Duplo clique: só o primeiro clique age. Teclado (detail 0) e clique simples (detail 1) sempre passam.
+const ignoreRepeatedClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+	if (event.detail > 1) event.preventDefault();
+};
+
+// Sangra até a borda do `main` do painel (p-4, md:p-6) para o cabeçalho fixo ocupar a largura toda.
+const BLEED = "-mx-4 -mt-4 md:-mx-6 md:-mt-6";
+
+// O cabeçalho fixo cobre o topo: o foco de um campo inválido não pode ficar embaixo dele.
+const SECTION_CLASS = "space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20";
+
+// Campos que cada etapa valida ao continuar.
+function stepFields(step: DossierStepId, ownResearch: boolean): FieldPath<CounterOrderFormValues>[] {
+	if (step === "holder") {
+		return ownResearch ? ["subject.document", "subject.name"] : ["subject.document", "subject.name", "contactEmail", "contactPhone"];
+	}
+	if (step === "partners") return ["partners"];
+	return [];
+}
+
 export function DossierForm({ products }: DossierFormProps) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [lookupMsg, setLookupMsg] = useState<string | null>(null);
-  const [buyer, setBuyer] = useState<Buyer | null>(null);
+	const router = useRouter();
+	const [isPending, startTransition] = useTransition();
+	const [serverError, setServerError] = useState<string | null>(null);
+	const [buyer, setBuyer] = useState<Buyer | null>(null);
+	const [stepIndex, setStepIndex] = useState(0);
+	const [leaveOpen, setLeaveOpen] = useState(false);
+	// Produto sem sócios escolhido com sócios já digitados: espera a confirmação para removê-los.
+	const [pendingProduct, setPendingProduct] = useState<string | null>(null);
+	// Depois de um "Continuar" que falhou, os erros da etapa são revalidados a cada digitação.
+	const [attempted, setAttempted] = useState(false);
+	// O pedido só abre depois que a revisão foi mostrada (e passou o tempo de guarda).
+	const [reviewReady, setReviewReady] = useState(false);
+	const titleRef = useRef<HTMLHeadingElement>(null);
+	const shownStep = useRef(0);
+	const submitting = useRef(false);
+	// Depois de mandar o usuário a uma etapa com erro, o foco vai para o primeiro campo inválido dela.
+	const [focusInvalid, setFocusInvalid] = useState(false);
 
-  const {
-    register,
-    handleSubmit,
-    watch,
-    setValue,
-    getValues,
-    setError,
-    control,
-    formState: { errors },
-  } = useForm<OrderFormValues>({
-    resolver: zodResolver(counterOrderSchema),
-    defaultValues: {
-      productCode: (products[0]?.code ?? "") as OrderFormValues["productCode"],
-      buyerProfileId: null,
-      subject: { name: "", document: "" },
-      contactEmail: "",
-      contactPhone: "",
-      partners: [],
-    },
-  });
-  const { fields, append, remove, replace } = useFieldArray({ control, name: "partners" });
+	const form = useForm<CounterOrderFormValues>({
+		resolver: zodResolver(counterOrderSchema),
+		defaultValues: {
+			productCode: (products[0]?.code ?? "") as CounterOrderFormValues["productCode"],
+			buyerProfileId: null,
+			subject: { name: "", document: "" },
+			contactEmail: "",
+			contactPhone: "",
+			partners: [],
+		},
+	});
+	const { handleSubmit, watch, setValue, getValues, setError, trigger, clearErrors, getFieldState } = form;
 
-  const productCode = watch("productCode");
-  const ownResearch = isOwnResearch(watch("subject.document") ?? "", buyer?.document);
-  const partnerCount = countBillablePartners(watch("partners") ?? [], watch("subject.document"));
-  const product = products.find((p) => p.code === productCode);
-  const isEmpresarial = productCode === EMPRESARIAL_PRODUCT;
-  const isPf = productCode === PF_PRODUCT;
-  const total = product
-    ? orderTotalCents({ code: product.code as OrderProductCode, price: product.price, pricePerPartner: product.pricePerPartner }, partnerCount) / 100
-    : 0;
+	const values = watch();
+	const productCode = values.productCode;
+	const ownResearch = isOwnResearch(values.subject.document ?? "", buyer?.document);
+	const product = products.find((p) => p.code === productCode);
+	const isEmpresarial = productCode === EMPRESARIAL_PRODUCT;
+	const partnerCount = countBillablePartners(values.partners ?? [], values.subject.document);
+	const total = product
+		? orderTotalCents({ code: product.code as OrderProductCode, price: product.price, pricePerPartner: product.pricePerPartner }, partnerCount) / 100
+		: 0;
 
-  // Trocar de produto descarta os sócios: só o Dossiê Empresarial os tem.
-  useEffect(() => {
-    if (!isEmpresarial) replace([]);
-  }, [isEmpresarial, replace]);
+	const steps = dossierSteps(productCode);
+	const current = steps[Math.min(stepIndex, steps.length - 1)];
+	const isLast = stepIndex >= steps.length - 1;
+	const lookup = useCnpjLookup(form, current.id === "holder");
 
-  const onLookup = () => {
-    setLookupMsg(null);
-    startTransition(async () => {
-      const result = await lookupCnpj(getValues("subject.document"));
-      if (result.error || !result.data) {
-        setLookupMsg(result.error ?? "Falha na consulta.");
-        return;
-      }
-      setValue("subject.name", result.data.name, { shouldValidate: true });
-      if (result.data.email && !getValues("contactEmail")) setValue("contactEmail", result.data.email);
-      setLookupMsg(`Dados carregados${result.data.situacao ? ` — ${result.data.situacao}` : ""}.`);
-    });
-  };
+	const logicState = (): DossierFormState => {
+		const v = getValues();
+		return {
+			productCode: v.productCode,
+			ownResearch: isOwnResearch(v.subject.document ?? "", buyer?.document),
+			hasBuyer: buyer !== null,
+			subject: { name: v.subject.name ?? "", document: v.subject.document ?? "" },
+			contactEmail: String(v.contactEmail ?? ""),
+			contactPhone: String(v.contactPhone ?? ""),
+			partners: (v.partners ?? []).map((p) => ({ name: p.name ?? "", document: p.document ?? "", email: p.email ?? "" })),
+		};
+	};
 
-  // O schema valida e transforma; a ação valida de novo no servidor com os valores brutos.
-  const onSubmit = () => {
-    setServerError(null);
-    if (missingThirdPartyEmail(ownResearch, String(getValues("contactEmail") ?? ""))) {
-      setError("contactEmail", { message: "Informe o e-mail do titular." });
-      return;
-    }
-    startTransition(async () => {
-      const values = ownResearch ? { ...getValues(), contactEmail: "", contactPhone: "" } : getValues();
-      const res = await openCounterOrderAction({ ...values, buyerProfileId: buyer?.profileId ?? null });
-      if (res.error || !res.id) {
-        setServerError(res.error ?? "Falha ao abrir o pedido.");
-        return;
-      }
-      router.push(`/dossiers/${res.id}`);
-      router.refresh();
-    });
-  };
+	// Ao trocar de etapa o foco vai para o título, para o leitor de tela anunciar onde está. Não na abertura
+	// (o StrictMode roda o efeito duas vezes: comparar com a etapa já mostrada evita o foco falso).
+	useEffect(() => {
+		if (shownStep.current === stepIndex) return;
+		shownStep.current = stepIndex;
+		titleRef.current?.focus();
+	}, [stepIndex]);
 
-  if (products.length === 0) {
-    return (
-      <StatusBanner
-        tone="attention"
-        title="Nenhum produto à venda no catálogo."
-        description="Ative um produto em Configurações > Catálogo."
-      />
-    );
-  }
+	const onReview = current.id === "review";
+	useEffect(() => {
+		if (!onReview) {
+			setReviewReady(false);
+			return;
+		}
+		const timer = setTimeout(() => setReviewReady(true), STEP_CLICK_GUARD_MS);
+		return () => clearTimeout(timer);
+	}, [onReview]);
 
-  return (
-    <Card className="max-w-3xl">
-      <CardHeader>
-        <CardTitle className="text-lg">Pedido de balcão</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
-          {/* Produto e preço do catálogo */}
-          <div className="space-y-3 rounded-md border p-4">
-            <div className="space-y-1">
-              <Label htmlFor="productCode">Produto</Label>
-              <Select
-                value={productCode}
-                onValueChange={(value) => setValue("productCode", value as OrderFormValues["productCode"], { shouldValidate: true })}
-                disabled={isPending}
-              >
-                <SelectTrigger id="productCode">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map((p) => (
-                    <SelectItem key={p.code} value={p.code}>
-                      {p.name} — {formatCurrency(Number(p.price))}
-                      {p.code === EMPRESARIAL_PRODUCT ? ` + ${formatCurrency(Number(p.pricePerPartner))} por sócio ou cônjuge` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.productCode && (
-                <p className="text-sm text-destructive">{errors.productCode.message}</p>
-              )}
-            </div>
-            <p className="text-sm" aria-live="polite">
-              Total: <span className="font-semibold">{formatCurrency(total)}</span>
-            </p>
-          </div>
+	// Pesquisa própria: o contato vem da conta do cliente. Limpar o que foi digitado antes mantém o formulário igual ao payload.
+	useEffect(() => {
+		if (!ownResearch) return;
+		setValue("contactEmail", "");
+		setValue("contactPhone", "");
+	}, [ownResearch, setValue]);
 
-          <BuyerPicker value={buyer} onChange={setBuyer} disabled={isPending} />
+	// Valida os campos da etapa. O schema aceita e-mail vazio; para terceiro a etapa exige o e-mail.
+	const validateStep = async (shouldFocus: boolean) => {
+		await trigger(stepFields(current.id, ownResearch), { shouldFocus });
+		const earlierInvalid = getFieldState("subject.document").invalid || getFieldState("subject.name").invalid;
+		if (current.id === "holder" && !earlierInvalid && missingThirdPartyEmail(ownResearch, String(getValues("contactEmail") ?? ""))) {
+			setError("contactEmail", { message: "Informe o e-mail do titular." }, { shouldFocus });
+		}
+	};
 
-          {/* Titular */}
-          <div className="space-y-4 rounded-md border p-4">
-            <p className="text-sm font-medium">Titular ({isPf ? "pessoa física" : "empresa"})</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="subject-document">{isPf ? "CPF" : "CNPJ"}</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="subject-document"
-                    inputMode="numeric"
-                    placeholder={isPf ? "000.000.000-00" : "00.000.000/0000-00"}
-                    aria-invalid={Boolean(errors.subject?.document)}
-                    disabled={isPending}
-                    {...register("subject.document")}
-                  />
-                  {!isPf && (
-                    <Button type="button" variant="outline" onClick={onLookup} disabled={isPending}>
-                      Consultar CNPJ
-                    </Button>
-                  )}
-                </div>
-                {errors.subject?.document && (
-                  <p className="text-sm text-destructive">{errors.subject.document.message}</p>
-                )}
-                {lookupMsg && (
-                  <p className="text-sm text-muted-foreground" aria-live="polite">
-                    {lookupMsg}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="subject-name">{isPf ? "Nome" : "Razão social"}</Label>
-                <Input
-                  id="subject-name"
-                  aria-invalid={Boolean(errors.subject?.name)}
-                  disabled={isPending}
-                  {...register("subject.name")}
-                />
-                {errors.subject?.name && <p className="text-sm text-destructive">{errors.subject.name.message}</p>}
-              </div>
-              {ownResearch ? (
-                <p className="text-sm text-muted-foreground sm:col-span-2" aria-live="polite">
-                  Os dados de contato vêm da conta do cliente.
-                </p>
-              ) : (
-                <>
-              <div className="space-y-1">
-                <Label htmlFor="contactEmail">E-mail do titular</Label>
-                <Input
-                  id="contactEmail"
-                  type="email"
-                  placeholder="contato@exemplo.com"
-                  aria-invalid={Boolean(errors.contactEmail)}
-                  disabled={isPending}
-                  {...register("contactEmail")}
-                />
-                {errors.contactEmail && <p className="text-sm text-destructive">{errors.contactEmail.message}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="contactPhone">Celular do titular</Label>
-                <Input
-                  id="contactPhone"
-                  type="tel"
-                  placeholder="(11) 99999-9999"
-                  aria-invalid={Boolean(errors.contactPhone)}
-                  disabled={isPending}
-                  {...register("contactPhone")}
-                />
-                {errors.contactPhone && <p className="text-sm text-destructive">{errors.contactPhone.message}</p>}
-              </div>
-                </>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              O titular recebe o pedido de autorização para consultar o SCR por e-mail e celular.
-            </p>
-          </div>
+	const fieldsKey = JSON.stringify([values.subject, values.contactEmail, values.contactPhone, values.partners]);
+	useEffect(() => {
+		if (attempted) void validateStep(false);
+		// Só a digitação dispara: fieldsKey resume os valores.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [attempted, fieldsKey]);
 
-          {/* Sócios (só Dossiê Empresarial) */}
-          {isEmpresarial && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">Sócios (CPF)</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isPending}
-                  onClick={() => append({ document: "", name: "", email: "" })}
-                >
-                  <Plus className="h-4 w-4" />
-                  Adicionar sócio
-                </Button>
-              </div>
-              {fields.map((field, i) => (
-                <div key={field.id} className="grid items-start gap-3 rounded-md border p-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
-                  <div className="space-y-1">
-                    <Label htmlFor={`partner-doc-${i}`}>CPF</Label>
-                    <Input
-                      id={`partner-doc-${i}`}
-                      placeholder="000.000.000-00"
-                      aria-invalid={Boolean(errors.partners?.[i]?.document)}
-                      disabled={isPending}
-                      {...register(`partners.${i}.document`)}
-                    />
-                    {errors.partners?.[i]?.document && (
-                      <p className="text-sm text-destructive">{errors.partners[i]?.document?.message}</p>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor={`partner-name-${i}`}>Nome</Label>
-                    <Input
-                      id={`partner-name-${i}`}
-                      aria-invalid={Boolean(errors.partners?.[i]?.name)}
-                      disabled={isPending}
-                      {...register(`partners.${i}.name`)}
-                    />
-                    {errors.partners?.[i]?.name && (
-                      <p className="text-sm text-destructive">{errors.partners[i]?.name?.message}</p>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor={`partner-email-${i}`}>E-mail do sócio *</Label>
-                    <Input
-                      id={`partner-email-${i}`}
-                      type="email"
-                      aria-invalid={Boolean(errors.partners?.[i]?.email)}
-                      disabled={isPending}
-                      {...register(`partners.${i}.email`)}
-                    />
-                    {errors.partners?.[i]?.email && (
-                      <p className="text-sm text-destructive">{errors.partners[i]?.email?.message}</p>
-                    )}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="mt-6"
-                    onClick={() => remove(i)}
-                    disabled={isPending}
-                    aria-label={`Remover sócio ${i + 1}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-              {errors.partners?.message && <p className="text-sm text-destructive">{errors.partners.message}</p>}
-              <p className="text-sm text-muted-foreground">
-                Digite o CPF completo de cada sócio: o bureau mascara o CPF no quadro societário.
-              </p>
-            </div>
-          )}
+	useEffect(() => {
+		if (!focusInvalid) return;
+		setFocusInvalid(false);
+		void validateStep(true);
+		// Roda uma vez por envio recusado, já na etapa do erro.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [focusInvalid]);
 
-          <div aria-live="polite">{serverError && <p className="text-sm text-destructive">{serverError}</p>}</div>
+	// Nenhum envio falha em silêncio: volta à etapa do erro, revalida a cada digitação e foca o primeiro campo inválido.
+	const sendToStep = (id: DossierStepId) => {
+		const index = steps.findIndex((s) => s.id === id);
+		if (index < 0) return false;
+		setStepIndex(index);
+		setAttempted(true);
+		setFocusInvalid(true);
+		return true;
+	};
 
-          <Button type="submit" disabled={isPending}>
-            {isPending ? "Abrindo pedido..." : "Abrir pedido"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  );
+	const onInvalid = (errors: FieldErrors<CounterOrderFormValues>) => {
+		const target = stepForErrors(errors);
+		if (!target || !sendToStep(target)) setServerError("Revise os dados do pedido e tente novamente.");
+	};
+
+	const requestExit = () => {
+		if (hasTypedData(logicState())) setLeaveOpen(true);
+		else router.push(EXIT_HREF);
+	};
+
+	const goBack = () => {
+		setAttempted(false);
+		if (stepIndex === 0) requestExit();
+		else setStepIndex(stepIndex - 1);
+	};
+
+	const goNext = async () => {
+		if (lookup.pending) return;
+		if (!canLeaveStep(current.id, logicState())) {
+			setAttempted(true);
+			await validateStep(true);
+			return;
+		}
+		setAttempted(false);
+		clearErrors(stepFields(current.id, ownResearch));
+		setServerError(null);
+		setStepIndex(stepIndex + 1);
+	};
+
+	const applyProduct = (code: string) => {
+		setValue("productCode", code as CounterOrderFormValues["productCode"]);
+		// Só o Dossiê Empresarial tem sócios.
+		if (code !== EMPRESARIAL_PRODUCT) setValue("partners", []);
+		setPendingProduct(null);
+	};
+
+	const requestProduct = (code: string) => {
+		if (code === productCode) return;
+		if (code !== EMPRESARIAL_PRODUCT && (getValues("partners") ?? []).length > 0) setPendingProduct(code);
+		else applyProduct(code);
+	};
+
+	const onSubmit = () => {
+		if (submitting.current) return;
+		if (missingThirdPartyEmail(ownResearch, String(getValues("contactEmail") ?? ""))) {
+			setError("contactEmail", { message: "Informe o e-mail do titular." });
+			sendToStep("holder");
+			return;
+		}
+		submitting.current = true;
+		setServerError(null);
+		startTransition(async () => {
+			const raw = getValues();
+			const payload = { ...raw, ...ownResearchContacts(ownResearch, { contactEmail: String(raw.contactEmail ?? ""), contactPhone: String(raw.contactPhone ?? "") }) };
+			const res = await openCounterOrderAction({ ...payload, buyerProfileId: buyer?.profileId ?? null });
+			if (res.error || !res.id) {
+				submitting.current = false;
+				setServerError(res.error ?? "Falha ao abrir o pedido.");
+				return;
+			}
+			router.push(`/dossiers/${res.id}`);
+			router.refresh();
+		});
+	};
+
+	// Enter nas etapas antes da revisão avança; só a revisão abre o pedido.
+	const onFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		if (!isLast) return goNext();
+		// Dinheiro: o botão só habilita depois do tempo de guarda; Enter antes disso não abre o pedido.
+		if (!reviewReady) return;
+		return handleSubmit(onSubmit, onInvalid)(event);
+	};
+
+	if (products.length === 0) {
+		return (
+			<StatusBanner
+				tone="attention"
+				title="Nenhum produto à venda no catálogo."
+				description="Ative um produto em Configurações > Catálogo."
+			/>
+		);
+	}
+
+	return (
+		<div className="space-y-6">
+			<ScreenHeader
+				className={BLEED}
+				title="Pedido de balcão"
+				onBack={goBack}
+				onClose={requestExit}
+				step={{ current: stepIndex + 1, total: steps.length, label: current.label }}
+			/>
+			<form onSubmit={onFormSubmit} noValidate className="mx-auto w-full max-w-2xl space-y-6">
+				<section key={current.id} className={SECTION_CLASS}>
+					<h2 ref={titleRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">
+						<span className="sr-only">
+							Passo {stepIndex + 1} de {steps.length}:{" "}
+						</span>
+						{current.title}
+					</h2>
+					{current.id === "product" && (
+						<DossierProductStep products={products} value={productCode} onChange={requestProduct} buyer={buyer} onBuyerChange={setBuyer} />
+					)}
+					{current.id === "holder" && <DossierHolderStep form={form} isPf={productCode === PF_PRODUCT} ownResearch={ownResearch} lookup={lookup} />}
+					{current.id === "partners" && <DossierPartnersStep form={form} pricePerPartner={Number(product?.pricePerPartner ?? 0)} />}
+					{current.id === "review" && (
+						<DossierReviewStep
+							productName={product?.name ?? ""}
+							buyer={buyer}
+							subjectName={values.subject.name ?? ""}
+							subjectDocument={values.subject.document ?? ""}
+							ownResearch={ownResearch}
+							contactEmail={String(values.contactEmail ?? "")}
+							contactPhone={String(values.contactPhone ?? "")}
+							partnerCount={isEmpresarial ? partnerCount : 0}
+							serverError={serverError}
+						/>
+					)}
+					<p className="text-base text-muted-foreground">
+						<span className="font-bold text-foreground">O que acontece depois: </span>
+						{current.after}
+					</p>
+				</section>
+				<p className="text-base" aria-live="polite">
+					Total: <span className="font-bold">{formatCurrency(total)}</span>
+				</p>
+				{!isLast ? (
+					<Button key="next" type="submit" className="w-full" onClick={ignoreRepeatedClick} disabled={lookup.pending}>
+						Continuar
+					</Button>
+				) : (
+					<Button key="open" type="submit" className="w-full" onClick={ignoreRepeatedClick} disabled={isPending || !reviewReady}>
+						{isPending && <Loader2 aria-hidden className="animate-spin" />}
+						{isPending ? "Abrindo pedido..." : "Abrir pedido"}
+					</Button>
+				)}
+			</form>
+			<Dialog open={leaveOpen} onClose={() => setLeaveOpen(false)} title="Sair sem concluir?" role="alertdialog">
+				<p className="text-base">Os dados digitados serão perdidos.</p>
+				<div className="flex flex-col gap-2 sm:flex-row-reverse">
+					<Button type="button" variant="destructive" onClick={() => router.push(EXIT_HREF)}>
+						Sair
+					</Button>
+					<Button type="button" variant="outline" onClick={() => setLeaveOpen(false)}>
+						Continuar editando
+					</Button>
+				</div>
+			</Dialog>
+			<Dialog open={pendingProduct !== null} onClose={() => setPendingProduct(null)} title="Remover os sócios?" role="alertdialog">
+				<p className="text-base">
+					Este produto não tem sócios. Os {(getValues("partners") ?? []).length} sócios informados serão removidos.
+				</p>
+				<div className="flex flex-col gap-2 sm:flex-row-reverse">
+					<Button type="button" variant="destructive" onClick={() => pendingProduct && applyProduct(pendingProduct)}>
+						Remover e trocar
+					</Button>
+					<Button type="button" variant="outline" onClick={() => setPendingProduct(null)}>
+						Manter o produto
+					</Button>
+				</div>
+			</Dialog>
+		</div>
+	);
 }
