@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { moneySchema } from "./catalog";
+import { idempotencyKeySchema } from "./id";
 
 export const COUNTER_METHODS = ["cash", "pix", "card_machine", "transfer", "other"] as const;
 
@@ -32,6 +33,7 @@ export const registerCounterPaymentSchema = z.object({
 		.nullish()
 		.transform((v) => v || null),
 	receivedAt: receivedAtSchema,
+	idempotencyKey: idempotencyKeySchema,
 });
 
 export const voidCounterPaymentSchema = z.object({

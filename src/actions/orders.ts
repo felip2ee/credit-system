@@ -87,6 +87,7 @@ export async function openCounterOrderAction(values: unknown): Promise<ActionRes
 				buyerProfileId: parsed.data.buyerProfileId,
 			},
 			quote,
+			parsed.data.idempotencyKey ? { idempotencyKey: parsed.data.idempotencyKey } : undefined,
 		);
 		if (!result.ok) return failureOf("openCounterOrderAction", result.reason);
 		revalidatePath("/dossiers");

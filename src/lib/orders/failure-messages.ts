@@ -11,6 +11,7 @@ const SHARED_MESSAGES: Record<string, string> = {
 	no_buyer: "Este pedido não tem cliente comprador. Entregue o PDF pela equipe.",
 	invalid_state: "O pedido mudou de estado. Recarregue a página.",
 	not_found: "Pedido não encontrado.",
+	idempotency_conflict: "Este envio já foi feito com outros dados. Recarregue a página para fazer um novo pedido.",
 };
 
 // Uma só mensagem para todo motivo de cupom que revelaria algo (existência, vigência, limite, produto, fundos do Bureau).

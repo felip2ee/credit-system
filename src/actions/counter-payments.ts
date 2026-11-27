@@ -25,6 +25,7 @@ const FAILURE_MESSAGES: Record<CounterFailure, string> = {
 	online_order: "Este pedido é pago online pelo cliente; não aceita pagamento de balcão.",
 	order_not_payable: "Este pedido não aguarda pagamento (já foi pago, por exemplo por link, ou foi cancelado).",
 	amount_exceeds_due: "O valor é maior que o saldo a pagar deste pedido.",
+	idempotency_conflict: "Este envio já foi feito com outros dados. Recarregue a página para registrar outro pagamento.",
 };
 
 // Só nome e código do erro: sem valores nem dados pessoais.
