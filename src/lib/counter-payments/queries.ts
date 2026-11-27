@@ -5,6 +5,7 @@ import type { PoolClient } from "pg";
 
 import { writeAuditEvent } from "@/lib/audit/write";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
+import { bindIdempotencyKey, claimIdempotencyKey } from "@/lib/idempotency/queries";
 import { refreshOrderState } from "@/lib/orders/queries";
 
 export type CounterMethod = "cash" | "pix" | "card_machine" | "transfer" | "other";
@@ -15,6 +16,8 @@ export type RegisterInput = {
 	amount: string;
 	note: string | null;
 	receivedAt: Date;
+	// Uuid do envio do formulário (063). Repetido devolve o pagamento que já existe, sem lançar outro. Null = sem proteção.
+	idempotencyKey?: string | null;
 };
 
 export type VoidInput = { id: string; reason: string };
@@ -27,11 +30,14 @@ export type CounterFailure =
 	| "invalid_state"
 	| "online_order"
 	| "order_not_payable"
-	| "amount_exceeds_due";
+	| "amount_exceeds_due"
+	| "idempotency_conflict";
 
-export type RegisterResult =
-	| { ok: true; id: string }
-	| { ok: false; reason: "not_found" | "online_order" | "order_not_payable" | "amount_exceeds_due" };
+type RegisterFailure = Extract<
+	CounterFailure,
+	"not_found" | "online_order" | "order_not_payable" | "amount_exceeds_due" | "idempotency_conflict"
+>;
+export type RegisterResult = { ok: true; id: string; duplicate?: true } | { ok: false; reason: RegisterFailure };
 export type VoidResult = { ok: true } | { ok: false; reason: CounterFailure };
 
 export type CounterPayment = {
@@ -63,16 +69,44 @@ export type CounterPaymentsView = {
 
 const FOREIGN_KEY_VIOLATION = "23503";
 
+// Recusa de negócio dentro da transação: lançar desfaz também a chave de idempotência. Devolver sem lançar a confirmaria
+// sem pagamento, e o reenvio viraria "duplicado" de um pagamento que não existe.
+class RegisterAbort extends Error {
+	constructor(readonly reason: RegisterFailure) {
+		super("registerCounterPayment aborted");
+	}
+}
+
 export async function registerCounterPayment(identity: DbIdentity, input: RegisterInput): Promise<RegisterResult> {
+	const { idempotencyKey } = input;
 	try {
-		const outcome = await withUserTransaction<{ id: string } | { reason: "not_found" | "online_order" | "order_not_payable" | "amount_exceeds_due" }>(identity, async (client) => {
+		return await withUserTransaction<RegisterResult>(identity, async (client) => {
+			// A chave vem antes de qualquer conferência: o reenvio de um pagamento que já fechou o pedido (já não aguarda
+			// pagamento) tem de devolver o pagamento, não "pedido não aguarda pagamento".
+			if (idempotencyKey) {
+				const claim = await claimIdempotencyKey(client, {
+					scope: "counter_payment",
+					key: idempotencyKey,
+					payload: {
+						dossierId: input.dossierId,
+						method: input.method,
+						amount: input.amount,
+						note: input.note,
+						receivedAt: input.receivedAt,
+					},
+				});
+				if (claim.status === "duplicate") {
+					if (!claim.sameRequest) throw new RegisterAbort("idempotency_conflict");
+					return { ok: true, id: claim.recordId, duplicate: true };
+				}
+			}
 			// Trava o pedido antes de qualquer leitura ou insert: o webhook do Pix do link trava o mesmo pedido (cobrança,
 			// depois pedido). Sem isto, dinheiro e Pix entrariam juntos e o pedido seria pago duas vezes.
 			const order = await client.query<{ state: string }>(
 				"select state from dossier_orders where dossier_id = $1 for update",
 				[input.dossierId],
 			);
-			if (order.rows.length === 0) return { reason: "not_found" };
+			if (order.rows.length === 0) throw new RegisterAbort("not_found");
 			// Pedido online é pago pela carteira do cliente: pagamento de balcão em cima dele duplicaria a cobrança.
 			// Vale também antes da liquidação existir.
 			const online = await client.query(
@@ -80,8 +114,8 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 				 union all select 1 from order_settlements where order_ref = $1 and mode = 'online'`,
 				[input.dossierId],
 			);
-			if (online.rows.length > 0) return { reason: "online_order" };
-			if (order.rows[0].state !== "awaiting_payment") return { reason: "order_not_payable" };
+			if (online.rows.length > 0) throw new RegisterAbort("online_order");
+			if (order.rows[0].state !== "awaiting_payment") throw new RegisterAbort("order_not_payable");
 			// Mais que o saldo devedor é troco ou erro de digitação. Sem liquidação (sem preço) não há teto.
 			const due = await client.query<{ exceeds: boolean }>(
 				`select $2::numeric > s.price - coalesce((select sum(p.amount) from counter_payments p
@@ -89,13 +123,14 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 				   from order_settlements s where s.order_ref = $1`,
 				[input.dossierId, input.amount],
 			);
-			if (due.rows[0]?.exceeds) return { reason: "amount_exceeds_due" };
+			if (due.rows[0]?.exceeds) throw new RegisterAbort("amount_exceeds_due");
 			const { rows } = await client.query<{ id: string }>(
 				`insert into counter_payments (bureau_id, dossier_id, method, amount, received_at, registered_by, note)
 				 values (app_bureau_id(), $1, $2, $3, $4, app_user_id(), $5)
 				 returning id`,
 				[input.dossierId, input.method, input.amount, input.receivedAt, input.note],
 			);
+			if (idempotencyKey) await bindIdempotencyKey(client, { scope: "counter_payment", key: idempotencyKey, recordId: rows[0].id });
 			await writeAuditEvent(client, {
 				actorId: identity.userId,
 				action: "counter.register",
@@ -105,10 +140,10 @@ export async function registerCounterPayment(identity: DbIdentity, input: Regist
 			});
 			// Pagamento completo move o pedido para a autorização ou para a fila (D18).
 			await refreshOrderState(client, input.dossierId);
-			return { id: rows[0].id };
+			return { ok: true, id: rows[0].id };
 		});
-		return "id" in outcome ? { ok: true, id: outcome.id } : { ok: false, reason: outcome.reason };
 	} catch (error) {
+		if (error instanceof RegisterAbort) return { ok: false, reason: error.reason };
 		// A FK (bureau_id, dossier_id) recusa Dossiê inexistente ou de outro Bureau; a transação já voltou.
 		if (error instanceof Error && "code" in error && error.code === FOREIGN_KEY_VIOLATION) {
 			return { ok: false, reason: "not_found" };

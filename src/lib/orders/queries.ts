@@ -10,13 +10,14 @@ import { previewCoupon } from "@/lib/coupons/queries";
 import { refreshDossierStatus } from "@/lib/dossiers/queries";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { recordHolderEvent } from "@/lib/holders/queries";
+import { bindIdempotencyKey, claimIdempotencyKey } from "@/lib/idempotency/queries";
 import { enqueueNotification } from "@/lib/notifications/queries";
 import { captureOrder, releaseOrder, reserveOrder } from "@/lib/settlement/queries";
 import type { OrderQuote, SettlementFailure } from "@/lib/settlement/types";
 import { MAX_TOPUP_CENTS, MIN_TOPUP_CENTS } from "@/lib/validators/wallet";
 
 import { recordOrderDeclaration } from "./client-ops";
-import { insertOrderPixQuote } from "./order-pix";
+import { insertOrderPixQuote, readOrderPixQuoteCents } from "./order-pix";
 import {
 	LEASE_MINUTES,
 	MAX_EXECUTION_ATTEMPTS,
@@ -79,12 +80,18 @@ export type PlaceOrderFailure =
 	| "declaration_outdated"
 	| "pix_amount_above_limit"
 	| "pix_amount_below_minimum"
-	| "too_many_awaiting_payment";
+	| "too_many_awaiting_payment"
+	| "idempotency_conflict";
 export type PlaceOrderOptions = {
 	declaration?: { version: number; ip: string | null; userAgent: string | null };
 	// Só pedido online. O desconto é calculado aqui, na mesma transação da reserva; o banco confere o preço pago.
 	couponCode?: string;
+	// Uuid do envio do formulário (063). Chave repetida devolve o pedido que já existe, sem reservar saldo de novo.
+	idempotencyKey?: string;
 };
+export type PlaceOrderResult =
+	| { ok: true; dossierId: string; state: OrderState; pixPriceCents?: number; duplicate?: true }
+	| { ok: false; reason: PlaceOrderFailure };
 
 // Carrega o motivo da reserva recusada para fora da transação: lançar desfaz Titular, Dossiê, pedido e autorizações.
 class PlaceOrderAbort extends Error {
@@ -102,6 +109,7 @@ const CODE_VALID_FAILURES: readonly PlaceOrderFailure[] = [
 	"pix_amount_above_limit",
 	"pix_amount_below_minimum",
 	"too_many_awaiting_payment",
+	"idempotency_conflict",
 ];
 
 // Cupom inválido por qualquer motivo (inclusive pedido de balcão, que não usa cupom) é o mesmo motivo: não revela qual.
@@ -129,9 +137,7 @@ export async function placeOrder(
 	input: OpenOrderInput,
 	quote: OrderQuote,
 	options: PlaceOrderOptions = {},
-): Promise<
-	{ ok: true; dossierId: string; state: OrderState; pixPriceCents?: number } | { ok: false; reason: PlaceOrderFailure }
-> {
+): Promise<PlaceOrderResult> {
 	const mode: OrderMode = identity.role === "client" ? "online" : "counter";
 	// Cupom no pedido online: a tentativa é contada antes de avaliar o código (054). No limite ou com erro, recusa sem tocar no pedido.
 	const slot = options.couponCode && mode === "online" ? await beginCouponAttempt(identity) : undefined;
@@ -139,8 +145,33 @@ export async function placeOrder(
 	try {
 		const placed = await withUserTransaction(identity, async (client) => {
 			if (slot) await holdCouponSlot(client, slot);
+			const { idempotencyKey } = options;
+			if (idempotencyKey) {
+				// O corpo comparado é o que o cliente enviou: o preço da cotação vem do servidor e pode mudar entre dois envios.
+				const claim = await claimIdempotencyKey(client, {
+					scope: "order",
+					key: idempotencyKey,
+					payload: { input, couponCode: options.couponCode ?? null, declarationVersion: options.declaration?.version ?? null },
+				});
+				if (claim.status === "duplicate") {
+					if (!claim.sameRequest) throw new PlaceOrderAbort("idempotency_conflict");
+					// Reenvio: devolve o que o primeiro envio devolveu, inclusive o preço do PIX (cotação já gravada). Nada de nova
+					// cotação, reserva ou cobrança: este ramo sai antes de openOrder e de reserveOrder.
+					const state = await readOrderState(client, claim.recordId);
+					if (!state) throw new Error("idempotent order not found");
+					const pixPriceCents = await readOrderPixQuoteCents(client, claim.recordId);
+					return {
+						ok: true as const,
+						dossierId: claim.recordId,
+						state,
+						...(pixPriceCents !== null && { pixPriceCents }),
+						duplicate: true as const,
+					};
+				}
+			}
 			const opened = await openOrder(client, input);
 			if (!opened.ok) throw new PlaceOrderAbort(opened.reason);
+			if (idempotencyKey) await bindIdempotencyKey(client, { scope: "order", key: idempotencyKey, recordId: opened.dossierId });
 			if (options.declaration) {
 				const declared = await recordOrderDeclaration(client, { dossierId: opened.dossierId, ...options.declaration });
 				if (!declared.ok) throw new PlaceOrderAbort(declared.reason === "outdated" ? "declaration_outdated" : "not_found");
@@ -176,7 +207,7 @@ export async function placeOrder(
 		return placed;
 	} catch (error) {
 		if (error instanceof PlaceOrderAbort) {
-			// Só o sucesso e as recusas que não são erro de código (fundos do Bureau, faixa do PIX) devolvem a vaga; o resto conta.
+			// Só o sucesso e as recusas que não são erro de código (fundos do Bureau, faixa do PIX, conflito de chave) devolvem a vaga; o resto conta.
 			if (slot && CODE_VALID_FAILURES.includes(error.reason)) await clearCouponAttempt(identity, slot);
 			return { ok: false, reason: error.reason };
 		}

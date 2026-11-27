@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ORDER_REASON_LABEL } from "@/lib/orders/labels";
 import type { ClientOrderListItem } from "@/lib/orders/client-queries";
-import type { OrderState } from "@/lib/orders/types";
+import type { OrderMode, OrderState } from "@/lib/orders/types";
 import { statusInfo } from "@/lib/ui/status";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -14,8 +14,8 @@ const PRODUCT_LABEL: Record<ClientOrderListItem["productCode"], string> = {
 	dossie_empresarial: "Empresa",
 };
 
-export function OrderStateBadge({ state, reason }: { state: OrderState; reason?: ClientOrderListItem["reason"] }) {
-	const { tone, label } = statusInfo("order", state, "client");
+export function OrderStateBadge({ state, reason, mode }: { state: OrderState; reason?: ClientOrderListItem["reason"]; mode?: OrderMode }) {
+	const { tone, label } = statusInfo("order", state, "client", mode);
 	return (
 		<span className="flex max-w-full shrink-0 flex-col items-start gap-1">
 			<StatusBadge tone={tone} label={label} />
@@ -45,7 +45,7 @@ export function ClientOrderList({ orders }: { orders: ClientOrderListItem[] }) {
 								<span className="block text-sm text-muted-foreground">
 									{PRODUCT_LABEL[o.productCode]} · {o.subjectDocumentMasked} · {formatDate(o.createdAt)}
 								</span>
-								<OrderStateBadge state={o.state} reason={o.reason} />
+								<OrderStateBadge state={o.state} reason={o.reason} mode={o.mode} />
 							</span>
 							<span className="ml-auto shrink-0 whitespace-nowrap text-right text-base font-bold tabular-nums">
 								{o.price === null ? "—" : formatCurrency(Number(o.price))}

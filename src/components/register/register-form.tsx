@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { withReferral } from "@/lib/affiliates/referral-link";
 import { authClient } from "@/lib/auth/client";
 import { STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
 import { registerFormSchema, type RegisterFormValues } from "@/lib/validators/register";
@@ -112,7 +113,7 @@ export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode 
 
   const goBack = () => {
     setServerError(null);
-    if (stepIndex === 0) requestExit(`/b/${slug}/entrar`);
+    if (stepIndex === 0) requestExit(withReferral(`/b/${slug}/entrar`, referralCode));
     else setStepIndex(stepIndex - 1);
   };
 
