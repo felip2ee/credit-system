@@ -145,7 +145,7 @@ export function CounterPaymentForm({ dossierId, holderName, remainingCents }: Co
               {error}
             </p>
           )}
-          <div className="space-y-2 rounded-card bg-muted p-4 text-base sm:col-span-2" aria-live="polite">
+          <div className="space-y-2 rounded-card bg-muted p-4 text-base sm:col-span-2">
             <p>
               Pedido de <strong>{holderName}</strong>. {expected}
             </p>

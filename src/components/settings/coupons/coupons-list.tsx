@@ -6,24 +6,13 @@ import { Ticket } from "lucide-react";
 
 import { setCouponActiveAction } from "@/actions/coupons";
 import { CouponForm } from "@/components/settings/coupons/coupon-form";
-import {
-  limitLabel,
-  PRODUCT_LABELS,
-  type CouponProductCode,
-} from "@/components/settings/coupons/coupon-form-logic";
+import { limitLabel, PRODUCT_LABELS, type CouponProductCode } from "@/components/settings/coupons/coupon-form-logic";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { CouponRow } from "@/lib/coupons/queries";
 import { formatCurrency, formatDateSP } from "@/lib/utils";
 
@@ -34,16 +23,12 @@ function valueLabel(coupon: CouponRow): string {
 
 function productsLabel(coupon: CouponRow): string {
   if (coupon.allProducts) return "Todos";
-  return coupon.productCodes
-    .map((c) => PRODUCT_LABELS[c as CouponProductCode] ?? c)
-    .join(", ");
+  return coupon.productCodes.map((c) => PRODUCT_LABELS[c as CouponProductCode] ?? c).join(", ");
 }
 
 function validityLabel(coupon: CouponRow): string {
   const from = formatDateSP(coupon.validFrom);
-  return coupon.validUntil
-    ? `${from} a ${formatDateSP(coupon.validUntil)}`
-    : `Desde ${from}`;
+  return coupon.validUntil ? `${from} a ${formatDateSP(coupon.validUntil)}` : `Desde ${from}`;
 }
 
 function CouponActions({ coupon }: { coupon: CouponRow }) {
@@ -55,10 +40,7 @@ function CouponActions({ coupon }: { coupon: CouponRow }) {
   const toggle = () =>
     startTransition(async () => {
       setError(null);
-      const res = await setCouponActiveAction({
-        id: coupon.id,
-        active: !coupon.active,
-      });
+      const res = await setCouponActiveAction({ id: coupon.id, active: !coupon.active });
       if (res.error) setError(res.error);
       else router.refresh();
     });
@@ -91,11 +73,7 @@ function CouponActions({ coupon }: { coupon: CouponRow }) {
           {error}
         </p>
       )}
-      <Dialog
-        open={editing}
-        onClose={() => setEditing(false)}
-        title={`Editar cupom ${coupon.code}`}
-      >
+      <Dialog open={editing} onClose={() => setEditing(false)} title={`Editar cupom ${coupon.code}`}>
         <CouponForm coupon={coupon} onDone={() => setEditing(false)} />
       </Dialog>
     </>
@@ -121,9 +99,7 @@ function CouponRowView({ coupon }: { coupon: CouponRow }) {
       </TableCell>
       <TableCell>{validityLabel(coupon)}</TableCell>
       <TableCell>
-        <Badge variant={coupon.active ? "brand" : "muted"}>
-          {coupon.active ? "Ativo" : "Inativo"}
-        </Badge>
+        <Badge variant={coupon.active ? "brand" : "muted"}>{coupon.active ? "Ativo" : "Inativo"}</Badge>
       </TableCell>
       <TableCell>
         <CouponActions coupon={coupon} />
@@ -139,13 +115,10 @@ function CouponCardView({ coupon }: { coupon: CouponRow }) {
         <div className="min-w-0">
           <p className="font-mono font-bold">{coupon.code}</p>
           <p className="text-sm text-muted-foreground">
-            {valueLabel(coupon)} ·{" "}
-            {coupon.kind === "percent" ? "Percentual" : "Valor fixo"}
+            {valueLabel(coupon)} · {coupon.kind === "percent" ? "Percentual" : "Valor fixo"}
           </p>
         </div>
-        <Badge variant={coupon.active ? "brand" : "muted"}>
-          {coupon.active ? "Ativo" : "Inativo"}
-        </Badge>
+        <Badge variant={coupon.active ? "brand" : "muted"}>{coupon.active ? "Ativo" : "Inativo"}</Badge>
       </div>
       <dl className="space-y-1 text-sm">
         <div>
@@ -155,8 +128,7 @@ function CouponCardView({ coupon }: { coupon: CouponRow }) {
         <div className="tabular-nums">
           <dt className="inline text-muted-foreground">Usos / limite: </dt>
           <dd className="inline">
-            {coupon.uses} / {limitLabel(coupon.maxUses)} (por cliente:{" "}
-            {limitLabel(coupon.maxUsesPerClient)})
+            {coupon.uses} / {limitLabel(coupon.maxUses)} (por cliente: {limitLabel(coupon.maxUsesPerClient)})
           </dd>
         </div>
         <div>
@@ -200,34 +172,30 @@ export function CouponsList({ coupons }: { coupons: CouponRow[] }) {
               ))}
             </ul>
             <div className="hidden md:block">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Código</TableHead>
-                    <TableHead>Desconto</TableHead>
-                    <TableHead>Produtos</TableHead>
-                    <TableHead>Usos / limite</TableHead>
-                    <TableHead>Validade</TableHead>
-                    <TableHead>Situação</TableHead>
-                    <TableHead>
-                      <span className="sr-only">Ações</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {coupons.map((coupon) => (
-                    <CouponRowView key={coupon.id} coupon={coupon} />
-                  ))}
-                </TableBody>
-              </Table>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Código</TableHead>
+                <TableHead>Desconto</TableHead>
+                <TableHead>Produtos</TableHead>
+                <TableHead>Usos / limite</TableHead>
+                <TableHead>Validade</TableHead>
+                <TableHead>Situação</TableHead>
+                <TableHead>
+                  <span className="sr-only">Ações</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {coupons.map((coupon) => (
+                <CouponRowView key={coupon.id} coupon={coupon} />
+              ))}
+            </TableBody>
+          </Table>
             </div>
           </>
         )}
-        <Dialog
-          open={creating}
-          onClose={() => setCreating(false)}
-          title="Novo cupom"
-        >
+        <Dialog open={creating} onClose={() => setCreating(false)} title="Novo cupom">
           <CouponForm onDone={() => setCreating(false)} />
         </Dialog>
       </CardContent>

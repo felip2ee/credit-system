@@ -85,6 +85,7 @@ export function CouponForm({ coupon, onDone }: CouponFormProps) {
         {(a11y) => (
           <Input
             {...a11y}
+            autoFocus
             value={draft.code}
             onChange={(e) => set("code", e.target.value)}
             disabled={isPending}

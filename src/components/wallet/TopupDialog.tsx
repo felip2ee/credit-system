@@ -88,7 +88,13 @@ export function TopupDialog({ charges }: TopupDialogProps) {
         ) : (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">Passo final: pagar o Pix</p>
+              {status === "pending" ? (
+                <p className="text-sm text-muted-foreground">Passo final: pagar o Pix</p>
+              ) : (
+                <p role="status" className="font-semibold">
+                  {STATUS_LABEL[status]}
+                </p>
+              )}
               <button
                 ref={closeRef}
                 type="button"
@@ -126,12 +132,9 @@ export function TopupDialog({ charges }: TopupDialogProps) {
                 </p>
               </>
             ) : (
-              <div role="status" className="space-y-1 text-center">
-                <p className="font-semibold">{STATUS_LABEL[status]}</p>
-                {status === "expired" && (
-                  <p className="text-sm text-muted-foreground">Se o PIX for pago depois, o valor ainda será creditado.</p>
-                )}
-              </div>
+              status === "expired" && (
+                <p className="text-sm text-muted-foreground">Se o PIX for pago depois, o valor ainda será creditado.</p>
+              )
             )}
           </div>
         )}
