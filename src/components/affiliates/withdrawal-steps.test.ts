@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { amountStepError, isAmountFailure, keyStepErrors } from "./withdrawal-steps";
+import { amountStepError, isAmountFailure, keyStepErrors, WITHDRAWAL_STEPS, withdrawalFailure } from "./withdrawal-steps";
 
 const fee = { fixed: "3.00", percent: "1.00" };
 
@@ -35,5 +35,30 @@ describe("keyStepErrors", () => {
 	});
 	it("passa com os dois", () => {
 		expect(keyStepErrors("a@b.com", true)).toEqual({});
+	});
+});
+
+describe("withdrawalFailure", () => {
+	it("recusa limpa: diz que nada foi cobrado e manda conferir os dados", () => {
+		expect(withdrawalFailure("Chave PIX inválida.")).toEqual({ money: "not_charged", next: "Confira os dados e tente de novo." });
+		expect(withdrawalFailure("Informe um e-mail válido.").money).toBe("not_charged");
+	});
+	it("saque em aberto: nada cobrado, sem mandar conferir os dados", () => {
+		expect(withdrawalFailure("Você já tem um saque em aberto. Espere o pagamento ou o cancelamento.")).toEqual({ money: "not_charged", next: "" });
+	});
+	it.each(["Falha ao solicitar o saque.", "Não foi possível concluir a operação.", "texto novo da action"])(
+		"falha sem garantia (%s): não fala do dinheiro e manda olhar Seus saques",
+		(message) => {
+			expect(withdrawalFailure(message)).toEqual({
+				money: "none",
+				next: 'Atualize a página e confira "Seus saques" antes de tentar de novo.',
+			});
+		},
+	);
+});
+
+describe("WITHDRAWAL_STEPS", () => {
+	it("não promete aviso de pagamento", () => {
+		expect(WITHDRAWAL_STEPS[1].after).toBe('O pedido entra na fila. Acompanhe o status em "Seus saques".');
 	});
 });

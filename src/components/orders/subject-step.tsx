@@ -22,8 +22,8 @@ export function SubjectStep({ form, isSelf, isEmpresarial, selfDocumentMasked }:
 		return (
 			<p className="text-base text-muted-foreground">
 				{selfDocumentMasked !== null
-					? `A pesquisa é sobre você (${selfDocumentMasked}). Você recebe um pedido de autorização por e-mail.`
-					: "A pesquisa é sobre você. Você recebe um pedido de autorização por e-mail."}
+					? `A pesquisa é sobre você (${selfDocumentMasked}). Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail.`
+					: "A pesquisa é sobre você. Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail."}
 			</p>
 		);
 	}
@@ -31,7 +31,7 @@ export function SubjectStep({ form, isSelf, isEmpresarial, selfDocumentMasked }:
 	return (
 		<div className="space-y-4">
 			<p className="text-base text-muted-foreground">
-				Cada pessoa informada recebe um pedido de autorização por e-mail. A consulta só roda depois da autorização de todas.
+				Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail. A consulta só roda depois da autorização de todas as pessoas pesquisadas.
 			</p>
 			<Field id="subject-document" label={isEmpresarial ? "CNPJ da empresa" : "CPF do responsável"} error={errors.subject?.document?.message}>
 				{(a11y) => <Input {...a11y} inputMode="numeric" autoComplete="off" {...register("subject.document")} />}

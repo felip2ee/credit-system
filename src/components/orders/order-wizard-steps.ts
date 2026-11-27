@@ -37,8 +37,8 @@ export function wizardSteps(productCode: OrderProductCode | null, holderType: Ho
 	const self = isSelfOrder(productCode, holderType);
 	const empresarial = productCode === "dossie_empresarial";
 	const reviewAfter = self
-		? "Você recebe um pedido de autorização por e-mail. A consulta roda quando você autoriza."
-		: "Cada pessoa informada recebe um pedido de autorização por e-mail. A consulta só roda depois da autorização de todas.";
+		? "Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail. A consulta só roda com a sua autorização."
+		: "Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail. A consulta só roda depois da autorização de todas as pessoas pesquisadas.";
 
 	const steps: WizardStep[] = [
 		{
@@ -59,7 +59,7 @@ export function wizardSteps(productCode: OrderProductCode | null, holderType: Ho
 			id: "partners",
 			label: "Sócios",
 			title: "Sócios",
-			after: "Você revisa o pedido e confirma. O valor só sai do saldo quando a consulta roda.",
+			after: "Você revisa o pedido e confirma. O valor fica reservado no seu saldo e só é cobrado quando a consulta roda.",
 		});
 	}
 	steps.push({ id: "review", label: "Revisão", title: "Revisar e confirmar", after: reviewAfter });
