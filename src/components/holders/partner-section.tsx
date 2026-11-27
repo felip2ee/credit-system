@@ -9,7 +9,8 @@ import { Field } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { linkPartnerSchema } from "@/lib/validators/holder";
-import { formatCNPJ, formatCPF } from "@/lib/utils";
+import { formatCPF } from "@/lib/utils";
+import { maskDocument } from "@/lib/mask-document";
 import type { EntityKind } from "@/types/app";
 
 export interface PartnerItem {
@@ -20,6 +21,8 @@ export interface PartnerItem {
   percentage: number | null;
   role: string | null;
 }
+
+const FIELD_IDS = { cpf: "p-cpf", name: "p-name", percentage: "p-pct" } as const;
 
 export function PartnerSection({
   companyId,
@@ -58,6 +61,8 @@ export function PartnerSection({
         if ((key === "cpf" || key === "name" || key === "percentage") && !next[key]) next[key] = issue.message;
       }
       setFieldErrors(next);
+      const first = (["cpf", "name", "percentage"] as const).find((k) => next[k]);
+      if (first) document.getElementById(FIELD_IDS[first])?.focus();
       return;
     }
     setFieldErrors({});
@@ -87,7 +92,7 @@ export function PartnerSection({
                   {p.name}
                 </Link>
                 <span className="ml-2 text-muted-foreground">
-                  {p.type === "PJ" ? formatCNPJ(p.document ?? "") : formatCPF(p.document ?? "")}
+                  {maskDocument(p.type, p.document ?? "")}
                   {p.role ? ` · ${p.role}` : ""}
                   {p.percentage != null ? ` · ${p.percentage}%` : ""}
                 </span>

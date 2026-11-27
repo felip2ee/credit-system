@@ -69,13 +69,13 @@ export function HolderForm({ initial }: HolderFormProps) {
   const setType = (t: EntityKind) => {
     if (isEdit) return;
     setValue("type", t);
-    setValue("document", "");
+    setValue("document", "", { shouldDirty: true });
   };
 
   const onDocumentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted =
       type === "PJ" ? formatCNPJ(e.target.value) : formatCPF(e.target.value);
-    setValue("document", formatted);
+    setValue("document", formatted, { shouldDirty: true });
   };
 
   const handleLookup = () => {
@@ -88,15 +88,15 @@ export function HolderForm({ initial }: HolderFormProps) {
         return;
       }
       const d = result.data;
-      setValue("name", d.name);
-      if (d.email) setValue("email", d.email);
-      if (d.phone) setValue("phone", d.phone);
-      if (d.address) setValue("address", d.address);
-      if (d.address_number) setValue("addressNumber", d.address_number);
-      if (d.neighborhood) setValue("neighborhood", d.neighborhood);
-      if (d.city) setValue("city", d.city);
-      if (d.state) setValue("state", d.state);
-      if (d.zip_code) setValue("zipCode", d.zip_code);
+      setValue("name", d.name, { shouldDirty: true });
+      if (d.email) setValue("email", d.email, { shouldDirty: true });
+      if (d.phone) setValue("phone", d.phone, { shouldDirty: true });
+      if (d.address) setValue("address", d.address, { shouldDirty: true });
+      if (d.address_number) setValue("addressNumber", d.address_number, { shouldDirty: true });
+      if (d.neighborhood) setValue("neighborhood", d.neighborhood, { shouldDirty: true });
+      if (d.city) setValue("city", d.city, { shouldDirty: true });
+      if (d.state) setValue("state", d.state, { shouldDirty: true });
+      if (d.zip_code) setValue("zipCode", d.zip_code, { shouldDirty: true });
       setLookupMsg(`Dados carregados${d.situacao ? ` — ${d.situacao}` : ""}.`);
     });
   };
@@ -120,14 +120,15 @@ export function HolderForm({ initial }: HolderFormProps) {
   const goBack = () => (isDirty && !isPending ? setConfirmLeave(true) : router.push(backHref));
 
   return (
-    <>
+    <div className="md:max-w-3xl">
       <ScreenHeader
         title={isEdit ? "Editar titular" : "Novo titular"}
         onBack={goBack}
         backLabel={isEdit ? "Voltar ao titular" : "Voltar à lista de titulares"}
         className="-mx-4 -mt-4 mb-4 px-1 md:static md:mx-0 md:mt-0 md:mb-6 md:px-0"
       />
-      <form onSubmit={handleSubmit(onSubmit)} className="max-w-3xl space-y-6">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {isEdit && <p className="text-sm text-muted-foreground">Editando: {initial?.name}</p>}
         <div role="group" aria-labelledby="holder-type-label" className="space-y-1.5">
           <Label id="holder-type-label">Tipo de titular</Label>
           <div className="flex gap-2">
@@ -211,6 +212,6 @@ export function HolderForm({ initial }: HolderFormProps) {
           </Button>
         </div>
       </Dialog>
-    </>
+    </div>
   );
 }
