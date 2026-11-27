@@ -134,6 +134,8 @@ export function UserRowActions({
       const result = await perform(current);
       if (result.error) {
         setError(result.error);
+        setPassword("");
+        setConfirm("");
       } else {
         setMessage(COPY[current].done);
         setKind(null);
@@ -196,17 +198,8 @@ export function UserRowActions({
         title={copy?.title ?? ""}
         role={kind === "setPassword" ? "dialog" : "alertdialog"}
         dismissible={!isPending}
-        className="relative [&_h2]:pr-12"
+        className="[&_h2]:pr-12"
       >
-        <button
-          type="button"
-          aria-label="Fechar"
-          onClick={close}
-          disabled={isPending}
-          className="absolute right-2 top-2 inline-flex size-11 items-center justify-center rounded-full text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-        >
-          <X aria-hidden className="size-5" />
-        </button>
         <form onSubmit={submit} className="space-y-4">
           <p className="text-base text-muted-foreground">{copy?.consequence}</p>
           {kind === "setPassword" && (
@@ -237,6 +230,15 @@ export function UserRowActions({
             </Button>
           </div>
         </form>
+        <button
+          type="button"
+          aria-label="Fechar"
+          onClick={close}
+          disabled={isPending}
+          className="absolute right-2 top-2 inline-flex size-11 items-center justify-center rounded-full text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        >
+          <X aria-hidden className="size-5" />
+        </button>
       </Dialog>
 
       {message && <StatusBanner tone="success" title={message} />}
