@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Download } from "lucide-react";
 
-import { PageHeader } from "@/components/layout/page-header";
+import { DetailHeader } from "@/components/dashboard/detail-header";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
 import {
   ConsultationResult,
@@ -64,31 +64,40 @@ export default async function ConsultationDetailPage({
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title={query.document_name ?? docLabel}
-        description={`${query.product ?? "Consulta"} · ${docLabel} · ${formatDate(query.consulted_at ?? query.created_at)}`}
-      >
-        <QueryStatusBadge status={query.status} />
-        {query.status === "completed" && (
+    <div className="space-y-4">
+      <DetailHeader title="Consulta" backHref={`/dossiers/${query.dossier_id}`} backLabel="Voltar para a pesquisa" />
+
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <h2 className="break-words text-xl font-bold">{query.document_name ?? docLabel}</h2>
+          <p className="break-words text-sm text-muted-foreground">
+            {query.product ?? "Consulta"} · {docLabel} · {formatDate(query.consulted_at ?? query.created_at)}
+          </p>
+        </div>
+        <div>
+          <QueryStatusBadge status={query.status} />
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          {query.status === "completed" && (
+            <Button asChild variant="outline">
+              <a href={`/consultations/${query.id}/pdf`} target="_blank" rel="noopener noreferrer">
+                <Download className="h-4 w-4" />
+                Baixar PDF
+              </a>
+            </Button>
+          )}
           <Button asChild variant="outline">
-            <a href={`/consultations/${query.id}/pdf`} target="_blank" rel="noopener noreferrer">
-              <Download className="h-4 w-4" />
-              Baixar PDF
-            </a>
+            <Link href={`/dossiers/${query.dossier_id}`}>Ver pesquisa</Link>
           </Button>
-        )}
-        <Button asChild variant="outline">
-          <Link href={`/dossiers/${query.dossier_id}`}>Ver pesquisa</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link href={`/holders/${query.holder_id}`}>Ver titular</Link>
-        </Button>
-      </PageHeader>
+          <Button asChild variant="outline">
+            <Link href={`/holders/${query.holder_id}`}>Ver titular</Link>
+          </Button>
+        </div>
+      </div>
 
       {query.status === "pending_authorization" && (
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-4 admin:p-4">
             <p className="text-sm text-muted-foreground">
               Consulta aguardando a autorização SCR do titular. Assim que ele autorizar, o pedido segue sozinho.
               Acompanhe o estado em{" "}
@@ -103,7 +112,7 @@ export default async function ConsultationDetailPage({
 
       {query.status === "error" && (
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-4 admin:p-4">
             <p className="text-sm text-destructive">
               {query.error_message ?? "Erro ao processar a consulta."}
             </p>

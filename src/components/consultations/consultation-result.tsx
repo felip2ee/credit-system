@@ -16,7 +16,7 @@ export function ConsultationResult({ view }: { view: ConsultationView }) {
       <Card>
         <CardHeader className="pb-2">
           <CardDescription>Score</CardDescription>
-          <CardTitle className={score.value == null ? "text-xl" : "text-4xl"}>
+          <CardTitle className={score.value == null ? "md:text-xl" : "text-2xl md:text-4xl"}>
             {score.value ?? na}
           </CardTitle>
         </CardHeader>
@@ -38,7 +38,7 @@ export function ConsultationResult({ view }: { view: ConsultationView }) {
           <CardDescription>
             {view.kind === "PJ" ? "Empresa" : "Pessoa"}
           </CardDescription>
-          <CardTitle className="text-2xl">{subject.name}</CardTitle>
+          <CardTitle className="md:text-2xl">{subject.name}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 text-sm text-muted-foreground">
           {subject.tradeName && <p>{subject.tradeName}</p>}
@@ -55,7 +55,7 @@ export function ConsultationResult({ view }: { view: ConsultationView }) {
 
       <Card className="lg:col-span-2">
         <CardHeader>
-          <CardTitle className="text-lg">Restrições</CardTitle>
+          <CardTitle className="md:text-lg">Restrições</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Metric label="Pendências" value={String(view.debts.total)} />
@@ -68,7 +68,7 @@ export function ConsultationResult({ view }: { view: ConsultationView }) {
       {view.messages.length > 0 && (
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-lg">Mensagens do bureau</CardTitle>
+            <CardTitle className="md:text-lg">Mensagens do bureau</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-1 text-sm text-muted-foreground">
@@ -92,7 +92,7 @@ export function ConsultationUnavailable({
 }) {
   return (
     <Card>
-      <CardContent className="space-y-2 p-6">
+      <CardContent className="space-y-2 p-4 md:p-6">
         <p className="text-sm text-muted-foreground">{message}</p>
         <p className="text-sm text-muted-foreground">
           Código da consulta: <span className="font-mono">{consultationId}</span>
@@ -106,7 +106,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold">{value}</p>
+      <p className="font-semibold md:text-lg">{value}</p>
     </div>
   );
 }

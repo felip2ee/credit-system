@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { StackedList } from "@/components/dashboard/stacked-list";
 import { PageHeader } from "@/components/layout/page-header";
 import { ScrHistoryRow, ScrSendHistory } from "@/components/scr/scr-send-history";
 import { NotificationStatusBadge } from "@/components/notifications/NotificationStatusBadge";
@@ -55,13 +56,13 @@ export default async function ScrPage({
         description="Consentimento dos consultados — autogestão Rainha Cred (termo + código por e-mail)"
       />
 
-      <div className="flex gap-1 border-b">
+      <div className="flex gap-1 overflow-x-auto border-b">
         {TABS.map((t) => (
           <Link
             key={t.key}
             href={`/scr?tab=${t.key}`}
             className={cn(
-              "border-b-2 px-4 py-2 text-sm font-medium",
+              "inline-flex min-h-11 items-center border-b-2 px-4 text-sm font-medium",
               tab === t.key
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -74,6 +75,54 @@ export default async function ScrPage({
 
       <Card>
         <CardContent className="p-0">
+          <StackedList>
+            {rows.map((r) => {
+              const waiting = daysSince(r.requested_at);
+              return (
+                <ScrHistoryRow key={r.id} id={r.id} stacked>
+                  <div className="space-y-1">
+                    <p className="break-words text-base font-bold">{r.name ?? "—"}</p>
+                    <p className="break-words text-sm text-muted-foreground">
+                      {r.type} · <span className="font-mono">{fmtDoc(r.type, r.document)}</span>
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <ScrSendHistory status={r.status} />
+                      {tab === "pending" && r.lastNotificationStatus && (
+                        <NotificationStatusBadge status={r.lastNotificationStatus} />
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {tab === "pending" && (
+                        <>
+                          Enviado em {formatDate(r.requested_at)} ·{" "}
+                          <span className={cn(waiting > 3 && "font-bold text-destructive")}>
+                            aguardando {waiting} {waiting === 1 ? "dia" : "dias"}
+                          </span>
+                        </>
+                      )}
+                      {tab === "granted" && (
+                        <>
+                          Aceite em {formatDate(r.authorized_at)} · validade {formatDate(r.expires_at)}
+                        </>
+                      )}
+                      {tab === "history" && (
+                        <>
+                          Enviado em {formatDate(r.requested_at)} · última verificação {formatDate(r.last_checked_at)}
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  {tab === "pending" && (
+                    <div className="mt-2">
+                      <ScrRowActions id={r.id} />
+                    </div>
+                  )}
+                </ScrHistoryRow>
+              );
+            })}
+            {rows.length === 0 && <li className="p-4 text-center text-sm text-muted-foreground">Nenhum registro.</li>}
+          </StackedList>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -168,6 +217,7 @@ export default async function ScrPage({
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

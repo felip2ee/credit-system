@@ -34,7 +34,7 @@ interface Props {
 
 const markdownComponents: Components = {
   h1: ({ children }) => (
-    <h2 className="mt-6 text-lg font-semibold text-foreground">{children}</h2>
+    <h2 className="mt-6 font-semibold text-foreground">{children}</h2>
   ),
   h2: ({ children }) => (
     <h2 className="mt-6 border-b pb-1 text-base font-semibold text-foreground">
@@ -104,7 +104,7 @@ export function ConsultationOpinion({ queryId, report }: Props) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5" /> Parecer de IA
           </CardTitle>
         </CardHeader>
@@ -121,7 +121,7 @@ export function ConsultationOpinion({ queryId, report }: Props) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5" /> Parecer de IA
           </CardTitle>
         </CardHeader>
@@ -147,7 +147,7 @@ export function ConsultationOpinion({ queryId, report }: Props) {
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2 text-lg">
+        <CardTitle className="flex items-center gap-2">
           <Bot className="h-5 w-5" /> Parecer de IA
         </CardTitle>
         <div className="flex flex-wrap items-center gap-2">

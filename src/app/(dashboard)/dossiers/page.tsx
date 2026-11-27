@@ -87,14 +87,14 @@ export default async function DossiersPage({
       <Card>
         <CardContent className="p-0">
           {dossiers.length === 0 ? (
-            <p className="p-6 text-center text-base text-muted-foreground">Nenhuma pesquisa encontrada.</p>
+            <p className="p-4 text-center text-base text-muted-foreground">Nenhuma pesquisa encontrada.</p>
           ) : (
             <ul className="divide-y">
               {dossiers.map((d) => (
                 <li key={d.id}>
                   <details className="group">
                     <summary className="flex cursor-pointer list-none flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 hover:bg-accent sm:items-center">
-                      <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 sm:mt-0" />
+                      <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground motion-safe:transition-transform group-open:rotate-90 sm:mt-0" />
                       <div className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] sm:basis-0">
                         <p className="truncate text-base font-bold">{d.holder_name}</p>
                         <p className="text-sm text-muted-foreground">
@@ -129,7 +129,7 @@ export default async function DossiersPage({
                           </li>
                         ))}
                       </ul>
-                      <Link href={`/dossiers/${d.id}`} className="inline-block text-sm underline">
+                      <Link href={`/dossiers/${d.id}`} className="inline-flex min-h-11 items-center text-sm underline">
                         Abrir pesquisa
                       </Link>
                     </div>

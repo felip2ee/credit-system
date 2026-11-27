@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 
+import { StackedList, StackedRow } from "@/components/dashboard/stacked-list";
 import { HoldersFilters } from "@/components/holders/holders-filters";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,26 @@ export default async function HoldersPage({
 
       <Card>
         <CardContent className="p-0">
+          <StackedList>
+            {holders.map((h) => (
+              <StackedRow
+                key={h.id}
+                href={`/holders/${h.id}`}
+                title={h.name}
+                meta={[
+                  `${h.type === "PJ" ? "Pessoa jurídica" : "Pessoa física"} · ${h.type === "PJ" ? formatCNPJ(h.document) : formatCPF(h.document)}`,
+                  h.city ? `${h.city}${h.state ? "/" + h.state : ""}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                aside={formatDate(h.updated_at)}
+              />
+            ))}
+            {holders.length === 0 && (
+              <li className="p-4 text-center text-sm text-muted-foreground">Nenhum titular encontrado.</li>
+            )}
+          </StackedList>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -93,6 +114,7 @@ export default async function HoldersPage({
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
