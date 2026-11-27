@@ -16,32 +16,39 @@ type Done = "authorized" | "refused";
 export function ScrSelfAuthorizeForm({ token }: { token: string }) {
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
+  // Cada erro do código incrementa o contador: o alerta é remontado (leitor de tela anuncia de novo) e o foco volta ao campo.
+  const [codeErrorTick, setCodeErrorTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Done | null>(null);
   const [expired, setExpired] = useState<string | null>(null);
+  const [answered, setAnswered] = useState<string | null>(null);
   const [confirmingRefuse, setConfirmingRefuse] = useState(false);
   const [isPending, startTransition] = useTransition();
   const codeRef = useRef<HTMLInputElement>(null);
 
-  // Erro do código leva o foco ao campo, para quem usa leitor de tela ou teclado.
   useEffect(() => {
-    if (codeError) codeRef.current?.focus();
-  }, [codeError]);
+    if (codeErrorTick > 0) codeRef.current?.focus();
+  }, [codeErrorTick]);
+
+  const showCodeError = (message: string) => {
+    setCodeError(message);
+    setCodeErrorTick((tick) => tick + 1);
+  };
 
   const submit = (decision: "authorize" | "refuse") => {
     setError(null);
     setCodeError(null);
     if (decision === "authorize" && code.trim().length === 0) {
-      setCodeError("Informe o código de confirmação.");
+      showCodeError("Informe o código de confirmação.");
       return;
     }
     startTransition(async () => {
       const res = await confirmScrSelfAuthorization(token, code, decision);
       if (res.status === "authorized") setDone("authorized");
       else if (res.status === "refused") setDone("refused");
-      else if (res.status === "already") setDone("authorized");
+      else if (res.status === "already") setAnswered(res.message);
       else if (res.status === "expired") setExpired(res.message);
-      else if (res.status === "invalid_code") setCodeError(res.message);
+      else if (res.status === "invalid_code") showCodeError(res.message);
       else setError(res.message);
     });
   };
@@ -57,6 +64,9 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
   if (expired) {
     return <StatusBanner tone="attention" title={expired} />;
   }
+  if (answered) {
+    return <StatusBanner tone="neutral" title={answered} />;
+  }
   if (done === "refused") {
     return <StatusBanner tone="neutral" title="Autorização recusada." description="Nenhuma consulta será realizada." />;
   }
@@ -69,11 +79,11 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
           pesquisa segue. É preciso informar o código recebido por e-mail.
         </p>
         <p>
-          <strong className="text-foreground">Recusar</strong> encerra este pedido: nenhuma consulta será realizada. Não
-          precisa de código. Depois de responder, esta página não aceita outra resposta.
+          <strong className="text-foreground">Recusar</strong> não precisa de código. Nenhuma consulta será realizada com
+          esta recusa. Não é possível mudar a resposta depois.
         </p>
       </div>
-      <Field id="code" label="Código de confirmação" error={codeError}>
+      <Field key={codeErrorTick} id="code" label="Código de confirmação" error={codeError}>
         {(a) => (
           <IconInput
             ref={codeRef}
@@ -104,11 +114,11 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
         role="alertdialog"
       >
         <p className="text-sm text-muted-foreground">
-          Ao recusar, este pedido é encerrado e nenhuma consulta será realizada. Esta página não aceita outra resposta
-          depois disso.
+          Nenhuma consulta será realizada com esta recusa. Não é possível mudar a resposta depois.
         </p>
+        {/* "Voltar" vem primeiro no DOM: a ordem é o que dá o foco inicial seguro ao abrir o diálogo. */}
         <div className="flex justify-end gap-2">
-          <Button autoFocus variant="outline" onClick={() => setConfirmingRefuse(false)}>
+          <Button variant="outline" onClick={() => setConfirmingRefuse(false)}>
             Voltar
           </Button>
           <Button variant="destructive" onClick={refuse}>
