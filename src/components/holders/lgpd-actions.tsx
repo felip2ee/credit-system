@@ -95,7 +95,7 @@ export function LgpdActions({ holderId, clientProfileId, anonymized }: LgpdActio
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">LGPD</CardTitle>
+        <CardTitle>LGPD</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2">
         <Button asChild variant="outline" size="sm">
