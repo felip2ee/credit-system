@@ -89,18 +89,34 @@ export async function authorizeScr(page: Page, request: APIRequestContext, dossi
   }
 }
 
-// Opens an order on /portal/pesquisas/nova (Dossiê Empresarial with 1 partner) and returns the dossier id.
-export async function openOrder(page: Page): Promise<string> {
+// Walks the stepped /portal/pesquisas/nova flow (Dossiê Empresarial with 1 partner) up to the given step (1 to 4).
+export async function openNewOrderAtStep(page: Page, step: 1 | 2 | 3 | 4): Promise<void> {
   const stamp = Date.now();
+  // Each step change moves focus to the step title (h2).
+  const next = async (title: string) => {
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await expect(page.getByRole("heading", { level: 2, name: title })).toBeFocused();
+  };
   await page.goto("/portal/pesquisas/nova");
   await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();
+  if (step === 1) return;
+  await next("Dados");
+  if (step === 2) return;
   await page.getByLabel("CNPJ da empresa").fill(validCnpj());
   await page.getByLabel("Razão social").fill("e2e Empresa Portal");
   await page.getByLabel("E-mail do responsável").fill(`e2e-resp-${stamp}@example.test`);
+  await next("Sócios");
+  if (step === 3) return;
   await page.getByRole("button", { name: "Adicionar sócio" }).click();
   await page.getByLabel("Nome do sócio 1").fill("e2e Sócio Portal");
   await page.getByLabel("CPF do sócio 1").fill(validCpf());
   await page.getByLabel("E-mail do sócio 1").fill(`e2e-partner-${stamp}@example.test`);
+  await next("Revisar e confirmar");
+}
+
+// Opens an order on /portal/pesquisas/nova (Dossiê Empresarial with 1 partner) and returns the dossier id.
+export async function openOrder(page: Page): Promise<string> {
+  await openNewOrderAtStep(page, 4);
   // The declaration is mandatory: the confirm button stays disabled until the buyer accepts it.
   const confirm = page.getByRole("button", { name: "Confirmar pedido" });
   await expect(confirm).toBeDisabled();

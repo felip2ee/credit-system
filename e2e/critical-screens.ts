@@ -1,6 +1,6 @@
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
-import { CLIENT_STATE, dbQuery, E2E, openOrder, resetRateLimit, runTick, STAFF_STATE, SUPERADMIN_STATE, TICK_POLL_TIMEOUT_MS } from "./fixtures";
+import { CLIENT_STATE, dbQuery, E2E, openNewOrderAtStep, openOrder, resetRateLimit, runTick, STAFF_STATE, SUPERADMIN_STATE, TICK_POLL_TIMEOUT_MS } from "./fixtures";
 
 // The 10 critical client screens and the first screen of each panel (spec "Telas críticas do cliente").
 // Shared by a11y.spec.ts and mobile.spec.ts.
@@ -36,7 +36,10 @@ export const SCREENS: Screen[] = [
   },
   { name: "portal: termos", auth: "client", open: goto(() => "/portal/termos") },
   { name: "portal: início", auth: "client", open: goto(() => "/portal") },
-  { name: "portal: nova pesquisa", auth: "client", open: goto(() => "/portal/pesquisas/nova") },
+  { name: "portal: nova pesquisa, passo 1 (escolha)", auth: "client", open: (page) => openNewOrderAtStep(page, 1) },
+  { name: "portal: nova pesquisa, passo 2 (dados)", auth: "client", open: (page) => openNewOrderAtStep(page, 2) },
+  { name: "portal: nova pesquisa, passo 3 (sócios)", auth: "client", open: (page) => openNewOrderAtStep(page, 3) },
+  { name: "portal: nova pesquisa, passo 4 (revisão)", auth: "client", open: (page) => openNewOrderAtStep(page, 4) },
   { name: "portal: lista de pesquisas", auth: "client", open: goto(() => "/portal/pesquisas") },
   { name: "portal: andamento do pedido", auth: "client", open: goto((ids) => `/portal/pesquisas/${ids.dossierId}`) },
   { name: "portal: créditos (PIX)", auth: "client", open: goto(() => "/portal/credits") },
