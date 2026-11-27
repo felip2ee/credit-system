@@ -31,8 +31,8 @@ class StackVarMessages(unittest.TestCase):
         self.assertIn("CARD_FEE_TABLE: ${CARD_FEE_TABLE:-1:2.99:49,6:2.99:49,12:2.99:49}", text)
         self.assertIn("PIX_FEE_CENTS: ${PIX_FEE_CENTS:?", text)
 
-    def test_brand_theme_is_optional_with_atual_default(self):
-        self.assertIn("BRAND_THEME: ${BRAND_THEME:-atual}", STACK.read_text(encoding="utf-8"))
+    def test_stack_does_not_pass_brand_theme(self):
+        self.assertNotIn("BRAND_THEME", STACK.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

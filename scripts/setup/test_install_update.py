@@ -95,7 +95,7 @@ class PlanEnvTests(unittest.TestCase):
         text = det.set_env_value("A=1\r\nB=2\r\n", "B", "3")
         self.assertEqual(det.set_env_value(text, "C", "4"), "A=1\r\nB=3\r\nC=4\r\n")
 
-    def test_brand_theme_is_optional_and_update_keeps_the_operator_value(self):
+    def test_leftover_brand_theme_is_ignored_and_kept_by_update(self):
         self.assertNotIn("BRAND_THEME", upd.REQUIRED_ENV)
         self.assertNotIn("BRAND_THEME", upd.NEW_VARS)
         text = "APP_DOMAIN=a.b.co\nBRAND_THEME=classico\nPIX_FEE_CENTS=199\n"

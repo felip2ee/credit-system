@@ -3,275 +3,17 @@
 @tailwind utilities;
 
 @layer base {
-  /* Identidade Rainha Cred: verde escuro de fundo + amarelo forte de destaque; branco só em texto corrido.
-     Valores em hex espelhados em APP_COLORS (src/lib/brand/tokens.ts). Um único vermelho, só para erro e ação destrutiva. */
+  /* Identidade clássica: página creme, cartões brancos, texto verde escuro; dourado só em fundo de botão e faixa escura.
+     Valores em hex espelhados em BRAND_COLORS e THEME_COLORS (src/lib/brand/tokens.ts). Um único vermelho, só para erro e ação destrutiva. */
   :root {
     --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     --duration-fast: 150ms;
     --duration-base: 250ms;
-    --background: 167 77% 8%;              /* #05261F, fundo dominante */
-    --foreground: 0 0% 100%;               /* #FFFFFF, texto corrido */
-    --card: 165 68% 14%;                   /* #0B3A2E, superfície elevada (cartão, tabela, campo) */
-    --card-foreground: 0 0% 100%;
-    --popover: 165 68% 14%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 46 100% 50%;                /* #FFC400, amarelo: botão, link, foco, número */
-    --primary-foreground: 167 77% 8%;      /* #05261F */
-    --cta: 46 100% 50%;                    /* #FFC400, igual ao primary */
-    --cta-foreground: 167 77% 8%;
-    --cta-hover: 45 100% 44%;              /* #E0A800 */
-    --primary-hover: 45 100% 44%;          /* #E0A800, hover do botão primário */
-    --secondary: 165 68% 14%;              /* #0B3A2E */
-    --secondary-foreground: 0 0% 100%;
-    --muted: 165 68% 14%;                  /* #0B3A2E */
-    --muted-foreground: 156 22% 77%;       /* #B9D2C8, 10:1 no fundo, 7,9:1 no cartão */
-    --accent: 165 56% 18%;                 /* #14473A, hover e item ativo */
-    --accent-foreground: 0 0% 100%;
-    --destructive: 4 100% 72%;             /* #FF7A70, único fora da paleta: erro e destrutivo */
-    --destructive-foreground: 167 77% 8%;  /* #05261F, 6,3:1 */
-    --border: 162 49% 24%;                 /* #1F5A48, borda plana de cartão (decorativa) */
-    --input: 160 24% 48%;                  /* #5E9985, borda de controle >= 3:1 */
-    --ring: 46 100% 50%;                   /* #FFC400 */
-    --link: 46 100% 50%;                   /* #FFC400, texto/borda amarelos (.theme-admin troca na página clara) */
-    --surface: 165 68% 14%;                /* #0B3A2E, seção alternada */
-    --brand-soft: 165 56% 18%;             /* #14473A, tag positiva e item ativo */
-    --brand-soft-foreground: 0 0% 100%;
-    --ink: 165 68% 14%;                    /* #0B3A2E, botão escuro */
-    --brand-deep: 167 77% 8%;              /* #05261F */
-    --brand-gold: 46 100% 50%;             /* #FFC400 (nome antigo, aponta ao amarelo) */
-    --brand-gold-light: 45 100% 44%;       /* #E0A800 (nome antigo, aponta ao hover) */
-    --brand-cream: 165 56% 18%;            /* #14473A (nome antigo, aponta ao verde claro) */
-    --money-in-bg: 165 56% 18%;            /* #14473A, tag de entrada */
-    --money-in-fg: 46 100% 50%;            /* #FFC400 */
-    --money-out-bg: 0 45% 16%;             /* #3D1717, tag de gasto */
-    --money-out-fg: 5 100% 78%;            /* #FF9A90 */
-    --money-void-bg: 165 56% 18%;          /* #14473A, tag de cancelado */
-    --money-void-fg: 156 22% 77%;          /* #B9D2C8 */
     --radius: 0.75rem;                     /* 12 px: cartão (lg); md 10, sm 8 */
-    --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.35);
-    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.4);
-    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.5);
-    --shadow-glow: 0 4px 14px rgba(255, 196, 0, 0.35);
-    --sidebar: 167 77% 8%;                 /* #05261F */
-    --sidebar-foreground: 0 0% 100%;
-    --sidebar-primary: 46 100% 50%;        /* #FFC400, item ativo */
-    --sidebar-primary-foreground: 167 77% 8%;
-    --sidebar-accent: 165 68% 14%;         /* #0B3A2E */
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 162 49% 24%;         /* #1F5A48 */
-    --sidebar-ring: 46 100% 50%;
-    --chart-1: 46 100% 50%;                /* #FFC400 */
-    --chart-2: 156 22% 77%;                /* #B9D2C8 */
-    --chart-3: 45 100% 44%;                /* #E0A800 */
-    --chart-4: 160 24% 48%;                /* #5E9985 */
-    --chart-5: 0 0% 100%;
   }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  html {
-    font-size: 16px;
-  }
-  h1,
-  h2,
-  h3 {
-    @apply font-heading;
-  }
-  html {
-    color-scheme: dark;
-  }
-  body {
-    @apply bg-background text-foreground;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-  :focus-visible {
-    outline: 3px solid hsl(var(--ring));
-    outline-offset: 2px;
-  }
-  /* Portal do cliente e páginas públicas: base 18 px. */
-  .area-portal {
-    font-size: 1.125rem;
-  }
-}
-
-/* Painel do Bureau e Superadmin (.theme-admin): página CLARA, cartões BRANCOS, destaques VERDES.
-   Fora dos destaques valem as variáveis claras abaixo: bg-card é branco (#FFFFFF), borda #D5E3DC, texto verde escuro.
-   Destaque escuro (hero, menu lateral, no máximo um por tela): <Card variant="dark"> ou a classe .card-dark; também
-   bg-sidebar, bg-ink, bg-secondary e .on-dark. Eles re-declaram as variáveis escuras de :root,
-   então texto, campos, bordas, anel e gráficos dentro deles ficam como no tema escuro. Escala compacta (só de md para cima): variante
-   `admin:` do Tailwind (tailwind.config.ts). Hex de referência em ADMIN_COLORS (src/lib/brand/tokens.ts). */
-@layer base {
+  /* Página clara: raiz e painel (.theme-admin). */
+  :root,
   .theme-admin {
-    color-scheme: light;
-    color: hsl(var(--foreground));
-    --background: 150 14% 97%;             /* #F7F9F8, fundo da página */
-    --foreground: 167 77% 8%;              /* #05261F */
-    --card: 0 0% 100%;                     /* #FFFFFF, cartão padrão */
-    --card-foreground: 167 77% 8%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 167 77% 8%;
-    --muted: 150 27% 91%;                  /* #E3EFE9, campo de busca, quadradinho de ícone e linha em caixa */
-    --muted-foreground: 159 19% 30%;       /* #3D5A50, 7,2:1 na página, 8,1:1 no cartão */
-    --accent: 150 27% 91%;                 /* #E3EFE9, hover de linha, pílula e botão de contorno */
-    --accent-foreground: 167 77% 8%;
-    --border: 150 20% 86%;                 /* #D5E3DC, borda fina de cartão (decorativa) */
-    --input: 157 25% 39%;                  /* #4A7C69, borda de campo, 4,5:1 */
-    --ring: 167 77% 8%;                    /* #05261F, anel de foco sobre o claro */
-    --destructive: 4 76% 40%;              /* #B42318, erro sobre o claro */
-    --destructive-foreground: 0 0% 100%;
-    --surface: 150 27% 91%;                /* #E3EFE9, seção e estado vazio */
-    --brand-soft: 150 27% 91%;             /* #E3EFE9, quadradinho de ícone, tag positiva e item ativo */
-    --brand-soft-foreground: 167 77% 8%;
-    --link: 167 77% 8%;                    /* texto/borda "primary" sobre o claro (amarelo não tem contraste) */
-    --shadow-low: 0 1px 3px rgba(5, 38, 31, 0.12);
-    --shadow-mid: 0 4px 12px rgba(5, 38, 31, 0.16);
-    --shadow-high: 0 8px 24px rgba(5, 38, 31, 0.2);
-    /* Gráficos sobre branco: verdes e âmbar escuro (amarelo #FFC400 não lê sobre branco). Todos >= 3:1 em #FFFFFF. */
-    --chart-1: 165 68% 14%;                /* #0B3A2E */
-    --chart-2: 155 44% 33%;                /* #2F7A5F */
-    --chart-3: 43 100% 30%;                /* #9A7200 */
-    --chart-4: 157 25% 39%;                /* #4A7C69 */
-    --chart-5: 159 19% 30%;                /* #3D5A50 */
-    /* Estados sobre o claro: tons claros de STATE_COLORS (tokens.ts). Fora do admin valem os escuros de APP_STATE_COLORS. */
-    --st-success-bg: #E3EFE9; --st-success-fg: #0A3329; --st-success-border: #B9D3C6;
-    --st-waiting-bg: #FCEFC7; --st-waiting-fg: #5C4200; --st-waiting-border: #9A7200;
-    --st-progress-bg: #E4EEF3; --st-progress-fg: #17384A; --st-progress-border: #3B6E8A;
-    --st-attention-bg: #FFE6D0; --st-attention-fg: #7A3300; --st-attention-border: #B45309;
-    --st-danger-bg: #FDE4E1; --st-danger-fg: #8A1C14; --st-danger-border: #C53030;
-    --st-neutral-bg: #ECEFEE; --st-neutral-fg: #2F3F3E; --st-neutral-border: #6B7F7E;
-  }
-  /* Destaque escuro: mesmas variáveis do :root. :where mantém especificidade baixa (utilitários de cor vencem). */
-  .theme-admin :where(.card-dark, .bg-sidebar, .bg-ink, .bg-secondary, .on-dark) {
-    color-scheme: dark;
-    color: hsl(var(--card-foreground));
-    --background: 167 77% 8%;
-    --foreground: 0 0% 100%;
-    --card: 165 68% 14%;
-    --card-foreground: 0 0% 100%;
-    --popover: 165 68% 14%;
-    --popover-foreground: 0 0% 100%;
-    --muted: 165 68% 14%;
-    --muted-foreground: 156 22% 77%;
-    --accent: 165 56% 18%;
-    --accent-foreground: 0 0% 100%;
-    --border: 162 49% 24%;
-    --input: 160 24% 48%;
-    --ring: 46 100% 50%;
-    --destructive: 4 100% 72%;
-    --destructive-foreground: 167 77% 8%;
-    --link: 46 100% 50%;
-    --shadow-low: 0 1px 3px rgba(0, 0, 0, 0.35);
-    --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.4);
-    --shadow-high: 0 8px 24px rgba(0, 0, 0, 0.5);
-    --chart-1: 46 100% 50%;
-    --chart-2: 156 22% 77%;
-    --chart-3: 45 100% 44%;
-    --chart-4: 160 24% 48%;
-    --chart-5: 0 0% 100%;
-  }
-}
-
-@layer utilities {
-  /* Amarelo como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
-  .theme-admin .text-primary {
-    color: hsl(var(--link));
-  }
-  .theme-admin .border-primary {
-    border-color: hsl(var(--link));
-  }
-}
-
-/* Landing pública do Bureau (/b/[slug]): "Editorial claro". Tokens em hex só em .landing; não altera o tema global. */
-@layer base {
-  .landing {
-    --landing-green: #05261f;        /* verde escuro: topo, hero, cartão empresarial, textos sobre claro */
-    --landing-green-alt: #0b3a2e;    /* faixa do diferencial */
-    --landing-yellow: #ffc400;       /* só sobre verde escuro (texto) ou como fundo de botão e faixa */
-    --landing-yellow-hover: #ffd433; /* hover do botão amarelo */
-    --landing-offwhite: #f7f9f8;     /* fundo da página */
-    --landing-white: #ffffff;        /* cartões */
-    --landing-muted: #3d5a50;        /* texto secundário sobre claro */
-    --landing-soft: #d9e6e1;         /* texto secundário sobre verde escuro */
-    --landing-border: #d5e3dc;       /* borda decorativa dos cartões */
-    --landing-mint: #e3efe9;         /* quadradinho de ícone e barras skeleton */
-    --landing-serif: var(--font-landing-serif), Georgia, "Times New Roman", serif;
-    --landing-sans: var(--font-landing-sans), system-ui, sans-serif;
-    font-family: var(--landing-sans);
-    background: var(--landing-offwhite);
-    color: var(--landing-green);
-  }
-  /* Anel de duas cores: o contorno verde lê sobre claro, o halo amarelo lê sobre verde escuro. */
-  .landing :focus-visible {
-    outline: 3px solid var(--landing-green);
-    outline-offset: 2px;
-    box-shadow: 0 0 0 6px var(--landing-yellow);
-  }
-}
-
-@layer utilities {
-  .lp-serif {
-    font-family: var(--landing-serif);
-  }
-}
-
-@layer utilities {
-  /* Amarelo como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
-  .theme-admin .text-primary {
-    color: hsl(var(--link));
-  }
-  .theme-admin .border-primary {
-    border-color: hsl(var(--link));
-  }
-}
-
-/* Landing pública do Bureau (/b/[slug]): mesma paleta do app. Tokens em hex mantidos em .landing. */
-@layer base {
-  .landing {
-    --landing-green: #05261f;        /* fundo dominante (= brand-deep) */
-    --landing-green-alt: #0b3a2e;    /* verde alternado, mesmo matiz */
-    --landing-yellow: #ffc400;       /* amarelo forte: títulos, bordas, ícones, preços, botões */
-    --landing-yellow-hover: #e0a800; /* hover do botão */
-    --landing-text: #ffffff;         /* só texto corrido */
-  }
-  .landing :focus-visible {
-    outline-color: var(--landing-yellow);
-  }
-}
-
-@layer utilities {
-  /* Margem de tela: 16 px abaixo de 375 px, 20 px a partir daí. */
-  .px-screen {
-    padding-inline: 1rem;
-  }
-  @media (min-width: 375px) {
-    .px-screen {
-      padding-inline: 1.25rem;
-    }
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* Tema "clássico" (BRAND_THEME=classico, atributo data-brand-theme no <html>): identidade antiga, creme + dourado + verde profundo.
-   Só cores. Hex de referência em CLASSIC_COLORS (src/lib/brand/tokens.ts). Todo token novo do tema atual precisa de par aqui.
-   Os blocos ficam depois dos do tema atual e têm especificidade maior, então vencem sem !important. */
-@layer base {
-  /* Página clara: raiz e painel (.theme-admin). Cartões brancos, texto verde escuro, dourado só em fundo de botão e faixa escura. */
-  html[data-brand-theme="classico"],
-  html[data-brand-theme="classico"] .theme-admin {
     color-scheme: light;
     --background: 40 53% 97%;              /* #FBF8F2 */
     --foreground: 166 45% 13%;             /* #123029 */
@@ -337,8 +79,47 @@
     --st-danger-bg: #FDE4E1; --st-danger-fg: #8A1C14; --st-danger-border: #C53030;
     --st-neutral-bg: #ECEFEE; --st-neutral-fg: #2F3F3E; --st-neutral-border: #6B7F7E;
   }
-  /* No tema atual .bg-secondary é verde escuro (bloco escuro). No clássico é creme: volta às variáveis claras. */
-  html[data-brand-theme="classico"] .theme-admin .bg-secondary {
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    font-size: 16px;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-heading;
+  }
+  body {
+    @apply bg-background text-foreground;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 3px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  /* Portal do cliente e páginas públicas: base 18 px. */
+  .area-portal {
+    font-size: 1.125rem;
+  }
+}
+
+/* Painel do Bureau e Superadmin (.theme-admin): mesma página clara do tema, cartões BRANCOS.
+   Destaque escuro (hero, menu lateral, no máximo um por tela): <Card variant="dark"> ou a classe .card-dark; também
+   bg-sidebar, bg-ink e .on-dark. Eles re-declaram as variáveis escuras, então texto, campos, bordas, anel e gráficos
+   dentro deles ficam sobre verde profundo, com dourado como destaque. Vale também fora do painel. .bg-secondary é creme:
+   volta às variáveis claras, mesmo dentro de um bloco escuro. Escala compacta (só de md para cima): variante
+   `admin:` do Tailwind (tailwind.config.ts). Hex de referência em BRAND_COLORS e THEME_COLORS (src/lib/brand/tokens.ts). */
+@layer base {
+  /* :where: um bloco escuro no mesmo elemento mantém a cor de texto dele. */
+  :where(.theme-admin) {
+    color: hsl(var(--foreground));
+  }
+  .theme-admin .bg-secondary {
     color-scheme: light;
     color: hsl(var(--foreground));
     --background: 40 53% 97%;
@@ -366,8 +147,8 @@
     --chart-4: 157 25% 39%;
     --chart-5: 166 23% 26%;
   }
-  /* Blocos de verde profundo (menu lateral, hero, botão escuro): dourado como destaque, texto creme/branco. Vale também fora do painel. */
-  html[data-brand-theme="classico"] :where(.card-dark, .bg-sidebar, .bg-ink, .on-dark) {
+  /* Blocos de verde profundo (menu lateral, hero, botão escuro): dourado como destaque, texto creme/branco. :where mantém especificidade zero (utilitários de cor vencem). */
+  :where(.card-dark, .bg-sidebar, .bg-ink, .on-dark) {
     color-scheme: dark;
     color: hsl(var(--card-foreground));
     --background: 167 77% 8%;              /* #05261F */
@@ -398,17 +179,88 @@
     --chart-4: 158 17% 57%;
     --chart-5: 0 0% 100%;
   }
-  /* Landing pública: verde profundo mantém; amarelo vira dourado; claros viram creme. */
-  html[data-brand-theme="classico"] .landing {
-    --landing-green: #05261f;
-    --landing-green-alt: #0a3329;
-    --landing-yellow: #cfa968;
-    --landing-yellow-hover: #e6c891;
-    --landing-offwhite: #fbf8f2;
-    --landing-white: #ffffff;
-    --landing-muted: #33514a;
-    --landing-soft: #e3dccd;
-    --landing-border: #e3dccd;
-    --landing-mint: #f4ead7;
+}
+
+@layer utilities {
+  /* Amarelo como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
+  .theme-admin .text-primary {
+    color: hsl(var(--link));
+  }
+  .theme-admin .border-primary {
+    border-color: hsl(var(--link));
+  }
+}
+
+/* Landing pública do Bureau (/b/[slug]): "Editorial claro", em creme + dourado + verde profundo. Tokens em hex só em .landing; o ouro só vale sobre verde escuro (texto) ou como fundo de botão e faixa.
+   Hex de referência em THEME_COLORS.landing (src/lib/brand/tokens.ts). */
+@layer base {
+  .landing {
+    --landing-green: #05261f;        /* verde escuro: topo, hero, cartão empresarial, textos sobre claro */
+    --landing-green-alt: #0a3329;    /* faixa do diferencial */
+    --landing-yellow: #cfa968;       /* dourado: só sobre verde escuro (texto) ou como fundo de botão e faixa */
+    --landing-yellow-hover: #e6c891; /* hover do botão dourado */
+    --landing-offwhite: #fbf8f2;     /* fundo da página */
+    --landing-white: #ffffff;        /* cartões */
+    --landing-muted: #33514a;        /* texto secundário sobre claro */
+    --landing-soft: #e3dccd;         /* texto secundário sobre verde escuro */
+    --landing-border: #e3dccd;       /* borda decorativa dos cartões */
+    --landing-mint: #f4ead7;         /* quadradinho de ícone e barras skeleton */
+    --landing-text: #ffffff;         /* só texto corrido */
+    --landing-serif: var(--font-landing-serif), Georgia, "Times New Roman", serif;
+    --landing-sans: var(--font-landing-sans), system-ui, sans-serif;
+    font-family: var(--landing-sans);
+    background: var(--landing-offwhite);
+    color: var(--landing-green);
+  }
+  /* Anel de duas cores: o contorno verde lê sobre claro, o halo amarelo lê sobre verde escuro. */
+  .landing :focus-visible {
+    outline: 3px solid var(--landing-green);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 6px var(--landing-yellow);
+  }
+}
+
+@layer utilities {
+  .lp-serif {
+    font-family: var(--landing-serif);
+  }
+}
+
+@layer utilities {
+  /* Amarelo como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
+  .theme-admin .text-primary {
+    color: hsl(var(--link));
+  }
+  .theme-admin .border-primary {
+    border-color: hsl(var(--link));
+  }
+}
+
+@layer base {
+  .landing :focus-visible {
+    outline-color: var(--landing-yellow);
+  }
+}
+
+@layer utilities {
+  /* Margem de tela: 16 px abaixo de 375 px, 20 px a partir daí. */
+  .px-screen {
+    padding-inline: 1rem;
+  }
+  @media (min-width: 375px) {
+    .px-screen {
+      padding-inline: 1.25rem;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

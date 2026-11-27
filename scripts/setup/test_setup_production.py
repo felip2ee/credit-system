@@ -167,11 +167,10 @@ class Building(unittest.TestCase):
         self.assertIn("PIX_FEE_CENTS=250\n", sp.render_env(answers(PIX_FEE_CENTS="250")))
         self.assertIn("PIX_FEE_CENTS=199\n", sp.render_credentials(answers(), {n: "x" for n in sp.SECRET_NAMES}))
 
-    def test_brand_theme_is_optional_and_defaults_to_atual(self):
-        self.assertIn("BRAND_THEME", sp.ENV_KEYS)
+    def test_brand_theme_is_gone(self):
+        self.assertNotIn("BRAND_THEME", sp.ENV_KEYS)
         self.assertNotIn("BRAND_THEME", {q[0] for q in sp.QUESTIONS})
-        self.assertIn("BRAND_THEME=atual\n", sp.render_env(answers()))
-        self.assertIn("BRAND_THEME=classico\n", sp.render_env(answers(BRAND_THEME="classico")))
+        self.assertNotIn("BRAND_THEME", sp.render_env(answers()))
 
     def test_env_keys_have_whatsapp_settings(self):
         for key in ("WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION"):

@@ -38,15 +38,13 @@ ENV_KEYS = [
     "WHATSAPP_DRIVER", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_GRAPH_VERSION",
     "WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_SUBJECT",
     "CARD_FEE_TABLE", "CARD_MIN_INSTALLMENT_CENTS", "PIX_FEE_CENTS",
-    "BRAND_THEME",
     "ASAAS_DRIVER", "ASAAS_API_BASE_URL", "ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN",
 ]
 # Segredos que vivem no .env.production (a stack os lê do ambiente do deploy): nunca vão para o arquivo de credenciais.
 ENV_SECRET_KEYS = ("ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN")
 
 # Chaves que o instalador não pergunta e preenche com um padrão (vazio = o app de produção recusa o Pix).
-# BRAND_THEME: opcional (atual | classico); o operador troca à mão no .env.production (docs/operations/deploy.md).
-ENV_DEFAULTS = {"PIX_FEE_CENTS": "199", "BRAND_THEME": "atual"}
+ENV_DEFAULTS = {"PIX_FEE_CENTS": "199"}
 
 SECRET_NAMES = [
     "postgres_password", "schema_owner_password", "app_runtime_password",
