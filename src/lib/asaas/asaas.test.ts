@@ -37,6 +37,7 @@ import {
 	buildFakePaymentEvent,
 	createFakeAsaasClient,
 	deleteFakeCustomer,
+	getFakeChargeSplit,
 	getFakeCustomer,
 	resetFakeCustomers,
 	resetFakeInvoices,
@@ -105,6 +106,39 @@ describe("createAsaasClient", () => {
 		await expect(createAsaasClient(settings, fetchMock).createPixCharge(input)).rejects.toThrow(
 			"Resposta inválida do Asaas em POST /v3/payments",
 		);
+	});
+});
+
+describe("split na criação da cobrança", () => {
+	const split = [{ walletId: "wallet-a", percentualValue: 10 }, { walletId: "wallet-b", fixedValue: 1.5 }];
+
+	it.each([
+		["Pix", (client: ReturnType<typeof createAsaasClient>, s?: typeof split) => client.createPixCharge({ ...input, split: s })],
+		["cartão", (client: ReturnType<typeof createAsaasClient>, s?: typeof split) => client.createCardCharge({ ...cardInput, split: s })],
+	])("%s: envia split quando informado e omite quando vazio", async (_name, create) => {
+		const reply = () =>
+			vi.fn().mockImplementation(async (url: string) =>
+				jsonResponse(String(url).endsWith("pixQrCode") ? { encodedImage: "QUJD", payload: "000201pix" } : cardReply),
+			);
+		const withSplit = reply();
+		await create(createAsaasClient(settings, withSplit), split);
+		expect(JSON.parse(withSplit.mock.calls[0][1].body).split).toEqual(split);
+
+		for (const empty of [undefined, []]) {
+			const without = reply();
+			await create(createAsaasClient(settings, without), empty);
+			expect(JSON.parse(without.mock.calls[0][1].body)).not.toHaveProperty("split");
+		}
+	});
+
+	it("o fake registra o split recebido por cobrança", async () => {
+		const fake = createFakeAsaasClient();
+		const { asaasPaymentId } = await fake.createPixCharge({ ...input, externalReference: "ref-split", split });
+		expect(getFakeChargeSplit(asaasPaymentId)).toEqual(split);
+		const card = await fake.createCardCharge({ ...cardInput, externalReference: "ref-split-card", split });
+		expect(getFakeChargeSplit(card.asaasPaymentId)).toEqual(split);
+		const plain = await fake.createPixCharge({ ...input, externalReference: "ref-no-split" });
+		expect(getFakeChargeSplit(plain.asaasPaymentId)).toBeUndefined();
 	});
 });
 

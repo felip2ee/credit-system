@@ -9,6 +9,7 @@ export { AsaasHttpError, AsaasOutcomeUnknownError, CardDeclinedError } from "./c
 export type {
 	AsaasClient,
 	AsaasCustomerInput,
+	AsaasSplitItem,
 	CardChargeInput,
 	CardChargeResult,
 	PixChargeInput,

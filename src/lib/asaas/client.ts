@@ -35,6 +35,7 @@ import { z } from "zod";
 
 import type {
 	AsaasClient,
+	AsaasSplitItem,
 	AsaasCustomerInput,
 	CardChargeInput,
 	CardChargeResult,
@@ -50,6 +51,16 @@ export const ASAAS_WEBHOOK_TOKEN_HEADER = "asaas-access-token";
 export const ASAAS_EVENT_PAYMENT_RECEIVED = "PAYMENT_RECEIVED";
 export const ASAAS_EVENT_PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED";
 export const ASAAS_EVENT_PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
+// Split (docs.asaas.com, webhook de cobranças, conferido em 2026-11-26): não existe PAYMENT_SPLIT_REFUSED. A recusa chega
+// em payment.split[].status (REFUSED ou CANCELLED); o `id` do item é o splitId. Estorno e chargeback devolvem o repasse
+// (status REFUNDED do item). Não conferido: qual evento traz o item REFUSED (prova real: item (post-deploy)).
+export const ASAAS_EVENT_PAYMENT_SPLIT_DONE = "PAYMENT_SPLIT_DONE";
+export const ASAAS_EVENT_PAYMENT_SPLIT_CANCELLED = "PAYMENT_SPLIT_CANCELLED";
+export const ASAAS_EVENT_PAYMENT_SPLIT_DIVERGENCE_BLOCK = "PAYMENT_SPLIT_DIVERGENCE_BLOCK";
+export const ASAAS_EVENT_PAYMENT_SPLIT_DIVERGENCE_BLOCK_FINISHED = "PAYMENT_SPLIT_DIVERGENCE_BLOCK_FINISHED";
+export const ASAAS_EVENT_PAYMENT_CHARGEBACK_REQUESTED = "PAYMENT_CHARGEBACK_REQUESTED";
+export const ASAAS_EVENT_PAYMENT_CHARGEBACK_DISPUTE = "PAYMENT_CHARGEBACK_DISPUTE";
+export const ASAAS_EVENT_PAYMENT_AWAITING_CHARGEBACK_REVERSAL = "PAYMENT_AWAITING_CHARGEBACK_REVERSAL";
 export const ASAAS_INVOICE_EVENT_PREFIX = "INVOICE_";
 export const ASAAS_EVENT_INVOICE_AUTHORIZED = "INVOICE_AUTHORIZED";
 export const ASAAS_EVENT_INVOICE_ERROR = "INVOICE_ERROR";
@@ -123,6 +134,9 @@ const qrSchema = z.object({ encodedImage: z.string().min(1), payload: z.string()
 // Centavos inteiros para reais com 2 casas, sem acumular erro de ponto flutuante.
 const centsToReais = (cents: number): number => Number((cents / 100).toFixed(2));
 
+// Sem split (ausente ou vazio) o corpo fica como era.
+const splitField = (split?: AsaasSplitItem[]) => (split?.length ? { split } : {});
+
 function todayInSaoPaulo(): string {
 	return new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
@@ -185,6 +199,7 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 				dueDate: todayInSaoPaulo(),
 				externalReference: input.externalReference,
 				description: input.description,
+				...splitField(input.split),
 			});
 			const qr = await call(
 				"GET",
@@ -278,6 +293,7 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 					creditCard: input.card,
 					creditCardHolderInfo: input.holder,
 					remoteIp: input.remoteIp,
+					...splitField(input.split),
 				});
 			} catch (error) {
 				if (error instanceof AsaasHttpError && error.status === 400) throw new CardDeclinedError();

@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
 	requestInvoiceForPayment: vi.fn(),
 	repairInvoiceForPayment: vi.fn(),
 	applyInvoiceEvent: vi.fn(),
+	applyChargeSplitEvent: vi.fn(),
 	revalidatePath: vi.fn(),
 }));
 
@@ -18,6 +19,10 @@ vi.mock("@/lib/config", () => ({
 	readWebhookDatabaseUrl: state.readWebhookDatabaseUrl,
 }));
 vi.mock("@/lib/wallet/pix-charges", () => ({ applyAsaasPayment: state.applyAsaasPayment }));
+vi.mock("@/lib/asaas/split-events", async () => {
+	const actual = await vi.importActual<typeof import("@/lib/asaas/split-events")>("@/lib/asaas/split-events");
+	return { ...actual, applyChargeSplitEvent: state.applyChargeSplitEvent };
+});
 // invoice.ts real só para o parseInvoiceEvent; as dependências com banco e Asaas saem de cena.
 vi.mock("@/lib/nfse/queries", () => ({}));
 vi.mock("@/lib/asaas", () => ({}));
@@ -60,6 +65,7 @@ beforeEach(() => {
 	state.requestInvoiceForPayment.mockResolvedValue("pending");
 	state.repairInvoiceForPayment.mockResolvedValue("not_requested");
 	state.applyInvoiceEvent.mockResolvedValue("issued");
+	state.applyChargeSplitEvent.mockResolvedValue("updated");
 });
 
 describe("POST /api/webhooks/asaas auth", () => {
@@ -367,5 +373,45 @@ describe("POST /api/webhooks/asaas invoice scheduling after the credit", () => {
 
 		expect((await call(body)).status).toBe(500);
 		expect(state.requestInvoiceForPayment).not.toHaveBeenCalled();
+	});
+});
+
+describe("POST /api/webhooks/asaas split events", () => {
+	const split = [{ id: "spl_1", walletId: "w-1", status: "DONE" }];
+
+	it("PAYMENT_SPLIT_DONE updates the splits and never reaches apply_asaas_payment", async () => {
+		const response = await call({ id: "evt_s", event: "PAYMENT_SPLIT_DONE", payment: { id: "pay_1", split } });
+
+		expect(response.status).toBe(200);
+		expect(state.applyChargeSplitEvent).toHaveBeenCalledWith({ eventId: "evt_s", asaasPaymentId: "pay_1", splits: split });
+		expect(state.applyAsaasPayment).not.toHaveBeenCalled();
+	});
+
+	it("a chargeback updates the splits and still goes to apply_asaas_payment", async () => {
+		const response = await call({ id: "evt_c", event: "PAYMENT_CHARGEBACK_REQUESTED", payment: { id: "pay_1", split } });
+
+		expect(response.status).toBe(200);
+		expect(state.applyChargeSplitEvent).toHaveBeenCalledOnce();
+		expect(state.applyAsaasPayment).toHaveBeenCalledOnce();
+	});
+
+	it("a payment event does not touch the splits", async () => {
+		await call({ ...body, payment: { ...body.payment, split } });
+
+		expect(state.applyChargeSplitEvent).not.toHaveBeenCalled();
+	});
+
+	it("a malformed split array is ignored with 200", async () => {
+		const response = await call({ id: "evt_b", event: "PAYMENT_SPLIT_DONE", payment: { id: "pay_1", split: "x" } });
+
+		expect(response.status).toBe(200);
+		expect(state.applyChargeSplitEvent).not.toHaveBeenCalled();
+	});
+
+	it("returns 500 when the split update fails, so Asaas resends", async () => {
+		state.applyChargeSplitEvent.mockRejectedValueOnce(new Error("db down"));
+		const response = await call({ id: "evt_f", event: "PAYMENT_SPLIT_DONE", payment: { id: "pay_1", split } });
+
+		expect(response.status).toBe(500);
 	});
 });

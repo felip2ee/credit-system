@@ -6,7 +6,7 @@ import {
 	ASAAS_EVENT_PAYMENT_RECEIVED,
 	CardDeclinedError,
 } from "./client";
-import type { AsaasClient, AsaasCustomerInput, ExistingInvoice } from "./types";
+import type { AsaasClient, AsaasSplitItem, AsaasCustomerInput, ExistingInvoice } from "./types";
 
 // Notas agendadas, por pagamento (ou `installment:<id>` no parcelamento): o fake responde à consulta de notas como o Asaas (estado do processo, só para testes).
 const scheduledInvoices = new Map<string, ExistingInvoice[]>();
@@ -35,14 +35,22 @@ const isDeleted = (id: string): boolean => fakeCustomers.get(id)?.deleted === tr
 const cancelledPayments = new Set<string>();
 export const resetFakeCancelledPayments = (): void => cancelledPayments.clear();
 export const getFakeCancelledPayments = (): string[] => Array.from(cancelledPayments);
+// Split recebido por cobrança (id do pagamento). Estado do processo, só para testes.
+const chargeSplits = new Map<string, AsaasSplitItem[]>();
+export const resetFakeChargeSplits = (): void => chargeSplits.clear();
+export const getFakeChargeSplit = (asaasPaymentId: string): AsaasSplitItem[] | undefined => chargeSplits.get(asaasPaymentId);
+const recordSplit = (asaasPaymentId: string, split?: AsaasSplitItem[]): void => {
+	if (split?.length) chargeSplits.set(asaasPaymentId, split);
+};
 // Número de teste que o fake recusa, como o Asaas faria com um cartão não autorizado.
 export const FAKE_DECLINED_CARD_LAST4 = "0002";
 
 // Ids derivados da externalReference: o mesmo pedido gera o mesmo resultado.
 export function createFakeAsaasClient(): AsaasClient {
 	return {
-		async createPixCharge({ externalReference, customerId }) {
+		async createPixCharge({ externalReference, customerId, split }) {
 			if (isDeleted(customerId)) throw new AsaasHttpError(400, "POST /v3/payments");
+			recordSplit(`pay_fake_${externalReference}`, split);
 			return {
 				asaasPaymentId: `pay_fake_${externalReference}`,
 				pixPayload: `00020126fake-pix-${externalReference}`,
@@ -73,11 +81,12 @@ export function createFakeAsaasClient(): AsaasClient {
 		async cancelPixCharge(asaasPaymentId) {
 			cancelledPayments.add(asaasPaymentId);
 		},
-		async createCardCharge({ externalReference, installments, card, customerId }) {
+		async createCardCharge({ externalReference, installments, card, customerId, split }) {
 			// O Asaas também responde 400 para cliente apagado: o cliente não distingue isto de uma recusa.
 			if (isDeleted(customerId)) throw new CardDeclinedError();
 			const last4 = card.number.replace(/\D/g, "").slice(-4);
 			if (last4 === FAKE_DECLINED_CARD_LAST4) throw new CardDeclinedError();
+			recordSplit(`pay_fake_${externalReference}`, split);
 			return {
 				asaasPaymentId: `pay_fake_${externalReference}`,
 				asaasInstallmentId: installments >= 2 ? `ins_fake_${externalReference}` : null,

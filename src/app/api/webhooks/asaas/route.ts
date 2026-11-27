@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { ASAAS_INVOICE_EVENT_PREFIX, ASAAS_WEBHOOK_TOKEN_HEADER } from "@/lib/asaas/client";
+import { applyChargeSplitEvent, parseSplitItems, SPLIT_ONLY_EVENTS, SPLIT_REFUND_EVENTS } from "@/lib/asaas/split-events";
 import { readAsaasConfig, readWebhookDatabaseUrl } from "@/lib/config";
 import {
 	applyInvoiceEvent,
@@ -103,6 +104,27 @@ async function handleInvoiceEvent(raw: unknown): Promise<Response> {
 	}
 }
 
+// Split (067): evento de split, estorno ou chargeback com payment.split atualiza charge_splits. Retorna a resposta só
+// quando o evento é apenas de split; estorno e chargeback seguem para apply_asaas_payment. 500 faz o Asaas reenviar.
+async function handleSplitEvent(event: z.infer<typeof eventSchema>, raw: unknown): Promise<Response | null> {
+	const splitOnly = SPLIT_ONLY_EVENTS.has(event.event);
+	if (!splitOnly && !SPLIT_REFUND_EVENTS.has(event.event)) return null;
+	const splits = parseSplitItems(raw);
+	if (splits === null) return splitOnly ? respond(200) : null;
+	try {
+		const result = await applyChargeSplitEvent({
+			eventId: event.id ?? `${event.event}:${event.payment.id}`,
+			asaasPaymentId: event.payment.id,
+			splits,
+		});
+		if (result === "unknown_charge") console.warn("[asaas-webhook] split de cobrança desconhecida", { asaasPaymentId: event.payment.id });
+	} catch (error) {
+		logApplyFailure(error);
+		return respond(500);
+	}
+	return splitOnly ? respond(200) : null;
+}
+
 export async function POST(request: Request): Promise<Response> {
 	let expectedToken: string;
 	try {
@@ -129,6 +151,9 @@ export async function POST(request: Request): Promise<Response> {
 		console.warn("[asaas-webhook] evento sem payment.id ignorado");
 		return respond(200);
 	}
+
+	const splitResponse = await handleSplitEvent(parsed.data, raw);
+	if (splitResponse) return splitResponse;
 
 	let result: Awaited<ReturnType<typeof applyAsaasPayment>>;
 	try {
