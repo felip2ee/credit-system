@@ -17,7 +17,7 @@ const PRODUCT_LABEL: Record<ClientOrderListItem["productCode"], string> = {
 export function OrderStateBadge({ state, reason }: { state: OrderState; reason?: ClientOrderListItem["reason"] }) {
 	const { tone, label } = statusInfo("order", state, "client");
 	return (
-		<span className="flex shrink-0 flex-col items-start gap-1">
+		<span className="flex max-w-full shrink-0 flex-col items-start gap-1">
 			<StatusBadge tone={tone} label={label} />
 			{reason && (state === "failed" || state === "cancelled") && (
 				<span className="text-base text-muted-foreground">{ORDER_REASON_LABEL[reason]}</span>

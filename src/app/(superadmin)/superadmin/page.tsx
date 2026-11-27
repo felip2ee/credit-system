@@ -58,7 +58,8 @@ export default async function SuperadminPage() {
           value={String(total((b) => b.consultations30d))}
           hint={`${total((b) => b.consultationCount)} consultas no total`}
         />
-        <div className="grid grid-cols-2 gap-4 lg:col-span-2">
+        {/* Colunas de no mínimo 7rem: com fonte ampliada os cartões passam a uma coluna em vez de estourar a largura. */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-4 lg:col-span-2 lg:grid-cols-2">
           {stats.map((st) => (
             <Stat key={st.label} label={st.label} value={String(st.value)} hint={st.hint} icon={st.icon} />
           ))}

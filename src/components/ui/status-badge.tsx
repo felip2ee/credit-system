@@ -7,7 +7,7 @@ export function StatusBadge({ tone, label, className }: { tone: StateTone; label
   return (
     <span
       style={toneStyle(tone)}
-      className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-bold admin:px-2.5 admin:py-0.5 admin:text-xs", className)}
+      className={cn("inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-bold admin:px-2.5 admin:py-0.5 admin:text-xs", className)}
     >
       <Icon aria-hidden className={cn("size-4 shrink-0", tone === "progress" && "motion-safe:animate-spin")} />
       {label}

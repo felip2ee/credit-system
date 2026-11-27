@@ -237,7 +237,7 @@ export function CouponForm({ coupon, onDone }: CouponFormProps) {
         </p>
       )}
 
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button type="submit" className="min-h-11" disabled={isPending}>
           {isPending ? "Salvando..." : "Salvar"}
         </Button>

@@ -75,7 +75,7 @@ export function PayableRetentionForm({ initialDays }: { initialDays: number }) {
           O prazo passa de {initialDays} para {parsedDays} dias e vale também para os valores que já estão retidos: o que
           já passou do novo prazo pode entrar em um repasse na data de corte permitida.
         </p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" autoFocus onClick={() => setConfirming(false)} disabled={isPending}>
             Voltar
           </Button>

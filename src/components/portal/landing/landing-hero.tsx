@@ -32,7 +32,7 @@ export function LandingHeader({ href }: { href: string }) {
 function ReportPreview() {
   return (
     <div className="rounded-3xl bg-[var(--landing-white)] p-6 text-[var(--landing-green)] shadow-[0_30px_60px_rgba(0,0,0,0.35)] lg:p-7">
-      <div className="mb-[22px] flex items-center justify-between gap-3">
+      <div className="mb-[22px] flex flex-wrap items-center justify-between gap-3">
         <p className="lp-serif text-xl font-bold">Seu dossiê</p>
         <span className="rounded-full bg-[var(--landing-green)] px-3 py-1.5 text-xs font-semibold text-[var(--landing-yellow)]">PDF + plataforma</span>
       </div>

@@ -117,7 +117,7 @@ export function ScrSelfAuthorizeForm({ token }: { token: string }) {
           Nenhuma consulta será realizada com esta recusa. Não é possível mudar a resposta depois.
         </p>
         {/* "Voltar" vem primeiro no DOM: a ordem é o que dá o foco inicial seguro ao abrir o diálogo. */}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" onClick={() => setConfirmingRefuse(false)}>
             Voltar
           </Button>

@@ -102,7 +102,7 @@ export default async function DossiersPage({
                           {d.members.length === 1 ? "consulta" : "consultas"} · {formatDate(d.created_at)}
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0">
+                      <div className="flex max-w-full flex-wrap items-center gap-2 pl-7 sm:pl-0">
                         {d.kind === "PJ_FULL" && d.report_status === "completed" && (
                           <AptitudeBadge status={d.aptitude_status} />
                         )}
@@ -120,7 +120,7 @@ export default async function DossiersPage({
                             <Link href={`/consultations/${m.id}`} className="min-w-0 flex-1 truncate hover:underline">
                               {m.document_name ?? "—"}
                             </Link>
-                            <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+                            <span className="break-all font-mono sm:whitespace-nowrap text-sm text-muted-foreground">
                               {maskDocument(m.type, m.document)}
                             </span>
                             <span className="justify-self-start">

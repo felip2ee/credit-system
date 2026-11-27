@@ -87,7 +87,7 @@ export function WalletAdjustForm({ bureauId, bureauName }: WalletAdjustFormProps
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 disabled={isPending}
-                className="w-40"
+                className="w-40 max-w-full"
               />
             )}
           </Field>
@@ -130,7 +130,7 @@ export function WalletAdjustForm({ bureauId, bureauName }: WalletAdjustFormProps
           </div>
         </dl>
         <p className="text-sm">O saldo muda na hora e o ajuste fica no extrato.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" size="sm" variant="outline" autoFocus onClick={() => setConfirming(false)} disabled={isPending}>
             Voltar
           </Button>

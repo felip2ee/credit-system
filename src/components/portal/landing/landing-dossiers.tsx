@@ -66,7 +66,7 @@ function Includes({ items, checkClass }: { items: string[]; checkClass: string }
         {items.map((line) => (
           <li key={line} className="flex gap-3">
             <Check aria-hidden strokeWidth={2.4} className={`mt-0.5 size-5 shrink-0 ${checkClass}`} />
-            <span className="min-w-0">{line}</span>
+            <span className="min-w-0 break-words">{line}</span>
           </li>
         ))}
       </ul>

@@ -4,9 +4,13 @@ import { cn } from "@/lib/utils";
 
 const Table = React.forwardRef<
   HTMLTableElement,
-  React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
+  React.HTMLAttributes<HTMLTableElement> & { scrollLabel?: string }
+>(({ className, scrollLabel, ...props }, ref) => (
+  // scrollLabel: a região rolável vira foco de teclado (WCAG 2.1.1) quando a tabela é mais larga que a tela.
+  <div
+    className="relative w-full overflow-auto"
+    {...(scrollLabel ? { role: "region", "aria-label": scrollLabel, tabIndex: 0 } : {})}
+  >
     <table
       ref={ref}
       className={cn("w-full caption-bottom text-sm", className)}

@@ -14,8 +14,9 @@ test.beforeAll(async ({ browser }) => {
   ids = await ensureOrder(browser);
 });
 
+// Sem `isMobile` nos testes de rolagem: no modo celular o viewport de layout cresce junto com o conteúdo e esconde o estouro.
 const overflow = (page: Page) =>
-  page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+  page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
 
 // Visible controls smaller than 44 x 44. Exception: a link inside running text (its parent holds other text).
 function smallTargets(page: Page) {
@@ -48,11 +49,11 @@ function smallTargets(page: Page) {
 
 for (const screen of SCREENS) {
   test(`360x740: ${screen.name}`, async ({ browser }) => {
-    const { context, page } = await newPage(browser, screen.auth, { viewport: PHONE, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const { context, page } = await newPage(browser, screen.auth, { viewport: PHONE, deviceScaleFactor: 2, hasTouch: true });
     try {
       await screen.open(page, ids);
-      const { scrollWidth, innerWidth } = await overflow(page);
-      expect(scrollWidth, "no horizontal scroll").toBeLessThanOrEqual(innerWidth);
+      const { scrollWidth, clientWidth } = await overflow(page);
+      expect(scrollWidth, "no horizontal scroll").toBeLessThanOrEqual(clientWidth);
       expect(await smallTargets(page), `touch targets under ${MIN_TARGET}x${MIN_TARGET}`).toEqual([]);
     } finally {
       await context.close();
@@ -60,12 +61,12 @@ for (const screen of SCREENS) {
   });
 
   test(`360x740 with 200% font: ${screen.name}`, async ({ browser }) => {
-    const { context, page } = await newPage(browser, screen.auth, { viewport: PHONE, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const { context, page } = await newPage(browser, screen.auth, { viewport: PHONE, deviceScaleFactor: 2, hasTouch: true });
     try {
       await screen.open(page, ids);
       await page.addStyleTag({ content: "html{font-size:200%}" });
-      const { scrollWidth, innerWidth } = await overflow(page);
-      expect(scrollWidth, "no horizontal scroll at 200% font").toBeLessThanOrEqual(innerWidth);
+      const { scrollWidth, clientWidth } = await overflow(page);
+      expect(scrollWidth, "no horizontal scroll at 200% font").toBeLessThanOrEqual(clientWidth);
     } finally {
       await context.close();
     }

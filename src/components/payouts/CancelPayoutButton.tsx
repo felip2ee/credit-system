@@ -63,7 +63,7 @@ export function CancelPayoutButton({
         {error && (
           <StatusBanner tone="danger" title={error} />
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button
             size="sm"
             variant="outline"

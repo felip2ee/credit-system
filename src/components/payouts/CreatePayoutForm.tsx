@@ -112,7 +112,7 @@ export function CreatePayoutForm({ bureaus, latestDate }: CreatePayoutFormProps)
                 }}
                 max={latestDate}
                 disabled={isPending}
-                className="w-44"
+                className="w-44 max-w-full"
               />
             )}
           </Field>
@@ -154,7 +154,7 @@ export function CreatePayoutForm({ bureaus, latestDate }: CreatePayoutFormProps)
         <p className="text-sm">
           O valor exato é calculado ao criar. O repasse fica em aberto até você marcar como pago ou cancelar.
         </p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" size="sm" variant="outline" autoFocus onClick={() => setConfirming(false)} disabled={isPending}>
             Voltar
           </Button>

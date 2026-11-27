@@ -153,7 +153,7 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
           </div>
         </dl>
         <p className="text-sm">Esta ação não pode ser desfeita.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" size="sm" variant="outline" autoFocus onClick={() => setConfirmingPay(false)} disabled={isPending}>
             Voltar
           </Button>
@@ -172,7 +172,7 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
         className="max-h-[92vh] overflow-y-auto"
       >
         <p className="text-sm">O valor volta ao saldo da afiliada.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" size="sm" variant="outline" autoFocus onClick={() => setConfirmingCancel(false)} disabled={isPending}>
             Voltar
           </Button>

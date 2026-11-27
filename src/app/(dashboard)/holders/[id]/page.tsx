@@ -202,7 +202,7 @@ export default async function HolderDetailPage({ params }: { params: { id: strin
           {clientBalance && <ClientBalanceCard holderId={holder.id} {...clientBalance} />}
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
               <CardTitle>
                 Pesquisas {dossiers.length > 0 && `(${dossiers.length})`}
               </CardTitle>

@@ -4,8 +4,10 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
+// shrink-0 + max-w-full: o botão não encolhe ao lado de um campo, mas o texto quebra quando o contêiner é mais estreito (fonte ampliada).
+// Por isso a altura é mínima (min-h) e não fixa.
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-[15px] font-semibold admin:text-sm ring-offset-background transition-[transform,background-color,box-shadow] duration-fast ease-out motion-safe:active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-[18px] admin:[&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 shrink-0 max-w-full text-center rounded-full text-[15px] font-semibold admin:text-sm ring-offset-background transition-[transform,background-color,box-shadow] duration-fast ease-out motion-safe:active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-[18px] admin:[&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -29,10 +31,10 @@ const buttonVariants = cva(
         onBrand: "bg-primary text-primary-foreground hover:bg-primary-hover",
       },
       size: {
-        default: "h-11 px-5 py-2 admin:h-10 admin:px-4",
-        sm: "h-11 px-4 text-sm md:h-9 md:px-3.5 admin:h-9 admin:px-3.5",
-        lg: "h-12 px-6 text-base admin:h-11 admin:px-6",
-        icon: "h-11 w-11 md:h-10 md:w-10 admin:h-10 admin:w-10",
+        default: "min-h-11 px-5 py-2 admin:min-h-10 admin:px-4",
+        sm: "min-h-11 px-4 text-sm md:min-h-9 md:px-3.5 admin:min-h-9 admin:px-3.5",
+        lg: "min-h-12 px-6 text-base admin:min-h-11 admin:px-6",
+        icon: "min-h-11 w-11 md:min-h-10 md:w-10 admin:min-h-10 admin:w-10",
       },
     },
     defaultVariants: {

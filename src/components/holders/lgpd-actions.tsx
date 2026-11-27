@@ -69,7 +69,7 @@ function AnonymizeDialog({ open, onClose, title, warning, submitLabel, run }: An
             {error}
           </p>
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
             Voltar
           </Button>

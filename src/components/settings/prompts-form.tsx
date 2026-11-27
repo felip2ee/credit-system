@@ -132,7 +132,7 @@ export function PromptsForm({ prompts }: { prompts: AiPromptEntry[] }) {
         <p className="text-sm text-muted-foreground">
           Os 3 prompts (PF, PJ e Empresa) passam a valer para todos os Bureaus nos próximos pareceres da IA.
         </p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" autoFocus onClick={() => setConfirming(false)} disabled={isPending}>
             Voltar
           </Button>

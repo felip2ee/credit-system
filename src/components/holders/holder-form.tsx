@@ -131,7 +131,7 @@ export function HolderForm({ initial }: HolderFormProps) {
         {isEdit && <p className="text-sm text-muted-foreground">Editando: {initial?.name}</p>}
         <div role="group" aria-labelledby="holder-type-label" className="space-y-1.5">
           <Label id="holder-type-label">Tipo de titular</Label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {(["PF", "PJ"] as const).map((t) => (
               <Button
                 key={t}
@@ -203,7 +203,7 @@ export function HolderForm({ initial }: HolderFormProps) {
 
       <Dialog open={confirmLeave} onClose={() => setConfirmLeave(false)} title="Sair sem salvar?" role="alertdialog">
         <p className="text-sm text-muted-foreground">Os dados digitados serão perdidos.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => setConfirmLeave(false)}>
             Continuar editando
           </Button>

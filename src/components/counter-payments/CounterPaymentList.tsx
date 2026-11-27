@@ -180,7 +180,7 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
                     </p>
                   )}
                 </div>
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={cancel} disabled={isPending}>
                     Cancelar
                   </Button>

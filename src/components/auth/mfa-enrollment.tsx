@@ -74,7 +74,7 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
           <p className="text-base">Escaneie o QR code no seu app autenticador.</p>
         </div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={qrCode} alt="QR code TOTP" className="h-44 w-44" />
+        <img src={qrCode} alt="QR code TOTP" className="aspect-square w-44 max-w-full" />
         <StatusBanner
           tone="attention"
           title="Guarde estes códigos de recuperação agora."

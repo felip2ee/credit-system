@@ -11,7 +11,7 @@ export function WalletBalance({ wallet, children }: { wallet: WalletBalanceData;
           <h2 className="text-base">Saldo pré-pago</h2>
           {children}
         </div>
-        <p className="text-3xl font-bold md:text-4xl leading-tight tabular-nums">{formatCurrency(Number(wallet.available))}</p>
+        <p className="text-3xl font-bold md:text-4xl leading-tight tabular-nums [overflow-wrap:anywhere]">{formatCurrency(Number(wallet.available))}</p>
         <p className="text-base">Dinheiro que você colocou na carteira. Pode ser usado agora em novos pedidos.</p>
       </Card>
       {reserved > 0 && (

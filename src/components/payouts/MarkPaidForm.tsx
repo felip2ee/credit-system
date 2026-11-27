@@ -116,7 +116,7 @@ export function MarkPaidForm({
           </div>
         </dl>
         <p className="text-sm">Esta ação não pode ser desfeita.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button
             type="button"
             size="sm"

@@ -117,7 +117,7 @@ export function TopupDialog({ charges }: TopupDialogProps) {
                 <p className="text-base">O que acontece depois: pague este Pix no app do seu banco. O saldo da carteira sobe sozinho quando o pagamento for confirmado.</p>
                 {charge.qrImageBase64 && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={`data:image/png;base64,${charge.qrImageBase64}`} alt="QR Code do PIX" className="mx-auto h-48 w-48" />
+                  <img src={`data:image/png;base64,${charge.qrImageBase64}`} alt="QR Code do PIX" className="mx-auto aspect-square w-48 max-w-full" />
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="topup-code">PIX copia e cola</Label>

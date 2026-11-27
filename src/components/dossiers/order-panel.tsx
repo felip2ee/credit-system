@@ -179,7 +179,7 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, hasPartners, p
         <p className="text-sm text-muted-foreground">
           {`O pedido será cancelado e os links de autorização já enviados deixam de valer.${cancelRefund} Esta ação não pode ser desfeita.`}
         </p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" onClick={() => setConfirmingCancel(false)} disabled={isPending}>
             Voltar
           </Button>

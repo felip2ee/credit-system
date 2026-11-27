@@ -175,6 +175,7 @@ Primeiras telas dos painéis: `/` (Bureau) e `/superadmin`.
 
 - `e2e/a11y.spec.ts`: axe (WCAG 2.1 A e AA) nas telas acima. Falha com violação de `color-contrast`, `label`, `button-name` ou `link-name`. As outras violações ficam no anexo `axe-violations.json` do teste.
 - `e2e/mobile.spec.ts`: 360 × 740, sem rolagem horizontal (também com `html{font-size:200%}`), alvos de toque de pelo menos 44 × 44, e a gaveta "Menu" do Bureau.
+- `e2e/reflow.spec.ts`: reflow (WCAG 1.4.10) em 36 páginas de todos os papéis, a 360 px com fonte a 100% e 200%, e três diálogos a 200%. Mede `scrollWidth` contra `clientWidth` sem `isMobile` (no modo celular o viewport de layout cresce e esconde o estouro). Páginas em `e2e/reflow-routes.ts`.
 - Exceções de alvo: link dentro de texto corrido; elemento de 1 px só para leitor de tela; campo oculto do Radix (`aria-hidden`); `Checkbox`, cuja área de 44 px vem do `::after`.
 - Lista das telas: `e2e/critical-screens.ts`. Acrescente aqui toda tela nova crítica.
 - Comandos: `npm run build`, depois `npm run test:e2e`. Detalhes de ambiente: `docs/quality.md` e README.

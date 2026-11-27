@@ -25,7 +25,7 @@ const authorOf = (row: ClientLedgerEntry, authors: Record<string, string>): stri
 export function ClientBalanceCard({ holderId, wallet, rows, authors, bureauAvailable, maxDebit }: ClientBalanceCardProps) {
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-lg">Saldo do cliente</CardTitle>
         {bureauAvailable !== null && (
           <AdjustBalanceDialog holderId={holderId} bureauAvailable={bureauAvailable} maxDebit={maxDebit} />
@@ -45,7 +45,7 @@ export function ClientBalanceCard({ holderId, wallet, rows, authors, bureauAvail
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nenhum lançamento ainda.</p>
         ) : (
-          <Table>
+          <Table scrollLabel="Lançamentos do saldo do cliente">
             <TableHeader>
               <TableRow>
                 <TableHead>Data</TableHead>
