@@ -38,6 +38,7 @@ export const permissions = [
   "coupons:write",
   "partner:manage",
   "bureau_wallet:manage",
+  "bureau_referral:manage",
 ] as const;
 
 export type Permission = (typeof permissions)[number];
@@ -76,6 +77,7 @@ export const rolePermissions = {
     "affiliates:manage",
     "partner:manage",
     "bureau_wallet:manage",
+    "bureau_referral:manage",
     "affiliate_payout:manage",
   ],
   bureau_admin: [

@@ -7,13 +7,15 @@ import { AdminCredentialsForm } from "@/components/superadmin/admin-credentials-
 import { InviteAdminForm } from "@/components/superadmin/invite-admin-form";
 import { SupportStartForm } from "@/components/superadmin/support-start-form";
 import { BureauCommissionPanel } from "@/components/superadmin/bureau-commission-panel";
+import { BureauReferralCard } from "@/components/superadmin/bureau-referral-card";
 import { BureauWalletForm } from "@/components/superadmin/bureau-wallet-form";
 import { BureauProductBlocksPanel } from "@/components/superadmin/bureau-product-blocks-panel";
 import { getBureauDefaultPct } from "@/lib/affiliates/rates";
 import { getEffectiveCommission } from "@/lib/catalog/queries";
 import { listBureauCommissionRates, listBureauProductBlocks } from "@/lib/commission/queries";
 import { getRequiredSession } from "@/lib/auth/session";
-import { getBureau, listBureauMetrics } from "@/lib/bureaus/queries";
+import { getBureau, listBureauMetrics, listBureauNames } from "@/lib/bureaus/queries";
+import { getBureauReferrer } from "@/lib/bureaus/referrals";
 import { getBureauWalletId } from "@/lib/partners/queries";
 import { CopyLinkButton } from "@/components/superadmin/copy-link-button";
 import { config } from "@/lib/config";
@@ -46,6 +48,16 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
 
   const walletIdManage = hasPermission(session, "bureau_wallet:manage") && !session.supportSessionId;
   const bureauWalletId = walletIdManage ? await getBureauWalletId(session, bureau.id) : null;
+
+  const referralManage = hasPermission(session, "bureau_referral:manage") && !session.supportSessionId;
+  const referral = referralManage
+    ? {
+        current: await getBureauReferrer(session, bureau.id),
+        candidates: Array.from(await listBureauNames(session), ([id, name]) => ({ id, name }))
+          .filter((c) => c.id !== bureau.id)
+          .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+      }
+    : null;
 
   const wallet = hasPermission(session, "wallet:read")
     ? await withUserTransaction(session, async (client) => ({
@@ -101,6 +113,12 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Split do Asaas</h2>
           <BureauWalletForm bureauId={bureau.id} initialWalletId={bureauWalletId} canWrite />
+        </section>
+      )}
+      {referral && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold">Bureau indicador</h2>
+          <BureauReferralCard bureauId={bureau.id} current={referral.current} candidates={referral.candidates} canWrite />
         </section>
       )}
       {wallet?.balance && (
