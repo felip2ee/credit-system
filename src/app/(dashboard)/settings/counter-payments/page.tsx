@@ -88,29 +88,29 @@ export default async function CounterPaymentsPage({
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <p className="text-sm text-muted-foreground">{online ? "Pago pelo app (saldo do cliente)" : "Pago no balcão"}</p>
-            <p className="text-2xl font-semibold">
+            <p className="font-semibold">
               {online ? money(view.paidOnline) : formatCurrency(Number(view.paidTotal))}
             </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Preço da liquidação</p>
-            <p className="text-2xl font-semibold">{money(view.price)}</p>
+            <p className="font-semibold">{money(view.price)}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Repasse à plataforma</p>
-            <p className="text-2xl font-semibold">{money(view.cost)}</p>
+            <p className="font-semibold">{money(view.cost)}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Parte do Bureau</p>
-            <p className="text-2xl font-semibold">{money(view.bureauShare)}</p>
+            <p className="font-semibold">{money(view.bureauShare)}</p>
           </div>
           <div className="sm:col-span-2 lg:col-span-4">
             <p className="text-sm text-muted-foreground">Situação</p>
-            <p className="text-lg">{situation}</p>
+            <p>{situation}</p>
           </div>
         </CardContent>
       </Card>
-      {canWrite && !online && <CounterPaymentForm dossierId={dossierId} />}
+      {canWrite && !online && <CounterPaymentForm dossierId={dossierId} holderName={detail.dossier.holder_name} remainingCents={remaining} />}
       {!online && <CounterPaymentList key={payments[0]?.id ?? "empty"} payments={payments} canWrite={canWrite} />}
     </div>
   );
