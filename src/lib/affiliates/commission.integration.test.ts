@@ -25,7 +25,28 @@ const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const app = new Pool({ connectionString: TEST_DATABASE_URL, max: 4 });
 const hook = new Pool({ connectionString: TEST_DATABASE_WEBHOOK_URL, max: 2 });
 
+// Tira a configuração de comissão que estes testes deixaram nos bureaus semeados (a soma <= 100 olha todos os bureaus).
+// Gatilhos append-only ficam de fora, como em cash-in.integration.test.ts.
+const seededBureauIds: string[] = [];
+
 afterAll(async () => {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		await client.query("set local session_replication_role = replica");
+		await client.query("delete from bureau_commission_rates where bureau_id = any($1)", [seededBureauIds]);
+		await client.query(
+			"delete from bureau_referrals where referred_bureau_id = any($1) or referrer_bureau_id = any($1)",
+			[seededBureauIds],
+		);
+		await client.query("delete from bureau_affiliate_settings where bureau_id = any($1)", [seededBureauIds]);
+		await client.query("commit");
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
 	await Promise.all([owner.end(), app.end(), hook.end()]);
 });
 
@@ -94,6 +115,7 @@ async function scenario(
 	o: { pct?: string; linked?: boolean; verified?: boolean; funds?: string } = {},
 ): Promise<Scenario> {
 	const t = await seedTenant(owner, label);
+	seededBureauIds.push(t.bureau.id);
 	const affiliate = await seedClientProfile(owner, t.bureau.id);
 	// O cliente do seed tem Titular próprio: reserve_order exige o Dossiê do pedido sobre ele.
 	const buyer = t.client;
