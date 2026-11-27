@@ -1,5 +1,8 @@
 import type { NfseConfig } from "@/lib/config";
 
+// Divisão do pagamento no Asaas (POST /v3/payments, campo `split`): carteira de destino e percentual ou valor fixo (reais).
+export type AsaasSplitItem = { walletId: string; percentualValue?: number; fixedValue?: number };
+
 export type PixChargeInput = {
 	// Cliente Asaas do pagador (cus_...).
 	customerId: string;
@@ -8,6 +11,7 @@ export type PixChargeInput = {
 	// Referência nossa, devolvida pelo Asaas; não é a chave de busca do webhook.
 	externalReference: string;
 	description: string;
+	split?: AsaasSplitItem[];
 };
 
 // asaasPaymentId fica no servidor: nunca vai ao navegador.
@@ -38,6 +42,7 @@ export type CardChargeInput = {
 	card: { holderName: string; number: string; expiryMonth: string; expiryYear: string; ccv: string };
 	holder: { name: string; email: string; cpfCnpj: string; postalCode: string; addressNumber: string; phone: string };
 	remoteIp: string;
+	split?: AsaasSplitItem[];
 };
 
 export type CardChargeResult = {

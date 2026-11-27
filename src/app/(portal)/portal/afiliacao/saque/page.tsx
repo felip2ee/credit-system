@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Banknote } from "lucide-react";
 
 import { WithdrawalForm } from "@/components/affiliates/withdrawal-form";
@@ -8,6 +8,7 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ListRow } from "@/components/ui/list-row";
 import { SectionHeader } from "@/components/ui/section-header";
+import { isAffiliateEnabled } from "@/lib/affiliates/enabled";
 import { getMyAffiliateSummary } from "@/lib/affiliates/queries";
 import { listMyWithdrawals, readWithdrawalFee } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
@@ -22,6 +23,8 @@ export const metadata = { title: "Saque de comissão" };
 export default async function AffiliateWithdrawalPage() {
   const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
   if (!hasPermission(session, "affiliates:read")) redirect("/portal");
+  // Seção desligada pelo Bureau (padrão): a rota não existe para o cliente.
+  if (!(await isAffiliateEnabled(session))) notFound();
 
   const withdrawalsEnabled = readAffiliateWithdrawalsEnabled(process.env);
   // A taxa vem da função SQL de saque: o cliente não lê settings (RLS), e a mesma leitura cobra o pedido.

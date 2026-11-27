@@ -24,6 +24,10 @@ describe("buildSaleRow", () => {
 		expect(row).toMatchObject({ status: "paid", paid: "100.00", cost: "70.00", bureauShare: "30.00", holderName: "Maria" });
 	});
 
+	it("online order of the cash-in commission flow shows no per-order share", () => {
+		expect(buildSaleRow({ ...online, cash_in: true, cost: "0.00" })).toMatchObject({ status: "paid", cost: "0.00", bureauShare: "0.00" });
+	});
+
 	it("counter partial payment is awaiting and has no share", () => {
 		const row = buildSaleRow({ ...online, mode: "counter", settlement_status: "reserved", fully_paid: false, paid: "40.00" });
 		expect(row).toMatchObject({ status: "awaiting", paid: "40.00", bureauShare: "0.00" });
@@ -104,6 +108,11 @@ describe("buildTotals", () => {
 			group({ mode: "counter", fully_paid: true, paid_sum: "100.00", capped_paid_sum: "100.00", cost_sum: "70.00" }),
 		]);
 		expect(totals).toEqual({ paid: "140.00", cost: "140.00", bureauShare: "30.00" });
+	});
+
+	it("a cash-in commission order has no per-order share; the cash-in share is added to the total", () => {
+		const totals = buildTotals([group({ cash_in: true, paid_sum: "100.00", capped_paid_sum: "100.00", cost_sum: "0.00" })], 1234);
+		expect(totals).toEqual({ paid: "100.00", cost: "0.00", bureauShare: "12.34" });
 	});
 
 	it("is zero for an empty period", () => {

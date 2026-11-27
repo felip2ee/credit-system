@@ -16,6 +16,21 @@ interface CommissionTablesProps {
   commissions: AffiliateCommissionRow[];
 }
 
+function commissionDetails(c: AffiliateCommissionRow): string {
+  const base = c.baseValue === null ? "" : `${c.fromRecharge ? "recarga" : "pedido"} ${formatCurrency(Number(c.baseValue))}`;
+  // O valor da linha asaas é estimado: o Asaas aplica a % sobre o valor líquido.
+  const estimate = c.paidBy === "asaas" ? "comissão aproximada" : "";
+  return [c.productName, formatDateSP(c.createdAt), base, estimate].filter(Boolean).join(" · ");
+}
+
+function commissionBadge(c: AffiliateCommissionRow) {
+  if (c.paidBy === "asaas") {
+    const { tone, label } = statusInfo("asaasCommission", c.status, "client");
+    return { tone, label };
+  }
+  return { tone: statusInfo("commission", c.status, "client").tone, label: commissionStatusLabel(c.status, c.releaseAt) };
+}
+
 export function CommissionTables({ referrals, commissions }: CommissionTablesProps) {
   return (
     <>
@@ -31,8 +46,8 @@ export function CommissionTables({ referrals, commissions }: CommissionTablesPro
                   <ListRow
                     icon={Users}
                     title={r.name}
-                    subtitle={`Cadastro em ${formatDateSP(r.createdAt)} · total gasto`}
-                    value={formatCurrency(Number(r.totalSpent))}
+                    subtitle={`Cadastro em ${formatDateSP(r.createdAt)}${Number(r.recharged) > 0 ? " · recargas com comissão" : ""}`}
+                    value={Number(r.recharged) > 0 ? formatCurrency(Number(r.recharged)) : undefined}
                   />
                 </li>
               ))}
@@ -44,7 +59,7 @@ export function CommissionTables({ referrals, commissions }: CommissionTablesPro
         <SectionHeader title="Comissões" />
         <Card>
           {commissions.length === 0 ? (
-            <EmptyState icon={Coins} title="Você ainda não tem comissões" description="Elas aparecem quando um indicado fizer um pedido." />
+            <EmptyState icon={Coins} title="Você ainda não tem comissões" description="Elas aparecem quando um indicado fizer uma recarga." />
           ) : (
             <ul className="divide-y divide-border">
               {commissions.map((c, index) => (
@@ -55,12 +70,13 @@ export function CommissionTables({ referrals, commissions }: CommissionTablesPro
                     subtitle={
                       <span className="block space-y-1">
                         <span className="block">
-                          {c.productName} · {formatDateSP(c.createdAt)} · pedido {formatCurrency(Number(c.orderValue))}
+                          {commissionDetails(c)}
                         </span>
-                        <StatusBadge tone={statusInfo("commission", c.status, "client").tone} label={commissionStatusLabel(c.status, c.releaseAt)} />
+                        <StatusBadge {...commissionBadge(c)} />
                       </span>
                     }
                     value={formatCurrency(Number(c.amount))}
+                    wrap
                   />
                 </li>
               ))}

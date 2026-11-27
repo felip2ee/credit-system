@@ -13,8 +13,7 @@ import {
 import {
 	ageBureauPayableEntries,
 	seedClientWalletTopup,
-	seedOrderCatalog,
-	seedOrderDossier,
+	seedLegacyOnlineOrder,
 	seedPayableEntry,
 	seedPixCharge,
 	seedSuperadmin,
@@ -733,17 +732,11 @@ describe("reconciliation", () => {
 			amount: "100.00",
 			createdBy: t.bureauAdmin.userId,
 		});
-		// Acréscimo real, pelo fluxo de liquidação: preço 80, custo 50 -> 30.
-		const orderRef = randomUUID();
-		await seedOrderDossier(owner, { orderRef, bureauId: t.bureau.id, clientProfileId: t.client.userId });
-		await committed(ctxOf(t.client), async (c) => {
-			const quote = await seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: "80.00", cost: "50.00" });
-			await c.query(
-				"select * from reserve_order($1, 'online', $2, '80.00', '50.00', $3::jsonb)",
-				[orderRef, t.client.userId, JSON.stringify(quote)],
-			);
-			await c.query("select * from capture_order($1)", [orderRef]);
+		// Acréscimo real, pelo fluxo de liquidação, de um pedido reservado antes da 077: preço 80, custo 50 -> 30.
+		const orderRef = await seedLegacyOnlineOrder(owner, {
+			bureauId: t.bureau.id, clientProfileId: t.client.userId, price: "80.00", cost: "50.00",
 		});
+		await committed(ctxOf(t.client), (c) => c.query("select * from capture_order($1)", [orderRef]));
 		await seedEntry(t.bureau.id, "accrual", "70.00", "2026-01-10T00:00:00Z");
 		await seedEntry(t.bureau.id, "reversal", "20.00", "2026-01-12T00:00:00Z");
 		// O acréscimo real nasceu agora: sem envelhecer, a retenção o deixaria fora do repasse.

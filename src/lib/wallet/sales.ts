@@ -1,6 +1,8 @@
 // Vendas da Carteira: uma linha por pedido, separadas em online e balcão. Recebe o PoolClient da transação do chamador
 // (withUserTransaction); o RLS limita à equipe do Bureau. O custo vem só de order_settlement_cost (018): a coluna
 // order_settlements.cost não é legível pelo app_runtime. Mostra o nome do titular do pedido, nunca o CPF/CNPJ.
+// Pedido online novo (commission_on_cash_in, 077) não tem parte do Bureau por pedido: ela nasce na entrada de dinheiro
+// (charge_splits). Por isso a linha mostra 0,00 e o total da aba online soma a parte do Bureau das cobranças pagas.
 import type { PoolClient } from "pg";
 
 import { derivePaymentState, type PaymentState } from "@/lib/counter-payments/overview";
@@ -44,6 +46,7 @@ export type RawSale = {
 	state: string;
 	settlement_status: SettlementStatus | null;
 	has_settlement: boolean;
+	cash_in?: boolean | null;
 	fully_paid: boolean;
 	paid: string;
 	price: string | null;
@@ -55,6 +58,7 @@ export type RawTotalsGroup = {
 	state: string;
 	settlement_status: SettlementStatus | null;
 	has_settlement: boolean;
+	cash_in?: boolean | null;
 	fully_paid: boolean;
 	paid_sum: string;
 	// Soma do pago de cada pedido limitado ao preço: base da parte do Bureau (pagamento a mais não é lucro).
@@ -101,23 +105,23 @@ export function buildSaleRow(r: RawSale): SaleRow {
 		mode: r.mode,
 		paid: r.paid,
 		cost,
-		bureauShare: status === "paid" ? fromCents(shareBase - toCents(cost)) : "0.00",
+		bureauShare: status === "paid" && !r.cash_in ? fromCents(shareBase - toCents(cost)) : "0.00",
 		status,
 	};
 }
 
 // Cancelado e devolvido ficam fora; pedido ainda aguardando soma o que já entrou, mas não tem parte do Bureau.
-export function buildTotals(groups: RawTotalsGroup[]): SaleTotals {
+export function buildTotals(groups: RawTotalsGroup[], cashInShareCents = 0): SaleTotals {
 	let paid = 0;
 	let cost = 0;
-	let share = 0;
+	let share = cashInShareCents;
 	for (const g of groups) {
 		const status = statusOf(g);
 		if (status === "cancelled" || status === "refunded") continue;
 		if (g.missing_cost > 0) throw new Error(COST_UNAVAILABLE);
 		paid += toCents(g.paid_sum);
 		cost += toCents(g.cost_sum);
-		if (status === "paid") share += toCents(g.capped_paid_sum) - toCents(g.cost_sum);
+		if (status === "paid" && !g.cash_in) share += toCents(g.capped_paid_sum) - toCents(g.cost_sum);
 	}
 	return { paid: fromCents(paid), cost: fromCents(cost), bureauShare: fromCents(share) };
 }
@@ -155,7 +159,7 @@ export async function listSales(client: PoolClient, args: SalesArgs): Promise<Sa
 	const page = await client.query<RawSale>(
 		`select o.dossier_id as order_ref, o.subject_name, coalesce(p.name, o.product_code) as product_name,
 		        o.created_at, o.created_at::text as cursor_at, o.mode, o.state, s.status as settlement_status,
-		        s.id is not null as has_settlement,
+		        s.id is not null as has_settlement, s.commission_on_cash_in as cash_in,
 		        (s.id is not null and coalesce(pp.paid, 0) >= s.price) as fully_paid,
 		        (${PAID_SQL})::text as paid, s.price::text as price, c.cost::text as cost
 		 ${FROM_SQL}
@@ -167,21 +171,36 @@ export async function listSales(client: PoolClient, args: SalesArgs): Promise<Sa
 
 	const groups = await client.query<RawTotalsGroup>(
 		`select o.mode, o.state, s.status as settlement_status, s.id is not null as has_settlement,
+		        s.commission_on_cash_in as cash_in,
 		        (s.id is not null and coalesce(pp.paid, 0) >= s.price) as fully_paid,
 		        coalesce(sum(${PAID_SQL}), 0)::text as paid_sum,
 		        coalesce(sum(least(${PAID_SQL}, s.price)), 0)::text as capped_paid_sum, coalesce(sum(c.cost), 0)::text as cost_sum,
 		        (count(*) filter (where s.id is not null and c.cost is null))::int as missing_cost
 		 ${FROM_SQL}
-		 group by 1, 2, 3, 4, 5`,
+		 group by 1, 2, 3, 4, 5, 6`,
 		base,
 	);
+
+	// A parte do Bureau nas entradas pagas do período (split do Asaas ou lançamento a repassar). Só a aba online:
+	// o balcão não passa por cobrança Asaas. O Pix de link paga pedido de balcão e fica fora.
+	const cashIn =
+		args.mode === "online"
+			? await client.query<{ cents: string }>(
+					`select coalesce(sum(cs.amount_cents), 0)::text as cents
+					   from charge_splits cs join pix_charges pc on pc.id = cs.pix_charge_id
+					  where cs.bureau_id = app_bureau_id() and cs.beneficiary_kind = 'bureau'
+					    and cs.status in ('pending', 'done') and pc.status = 'paid' and pc.payment_link_id is null
+					    and pc.created_at >= $1 and pc.created_at < $2`,
+					[args.range.start, args.range.end],
+				)
+			: null;
 
 	const hasMore = page.rows.length > limit;
 	const rows = page.rows.slice(0, limit);
 	const last = rows[rows.length - 1];
 	return {
 		rows: rows.map(buildSaleRow),
-		totals: buildTotals(groups.rows),
+		totals: buildTotals(groups.rows, Number(cashIn?.rows[0].cents ?? 0)),
 		nextCursor: hasMore && last ? `${last.cursor_at}|${last.order_ref}` : null,
 	};
 }

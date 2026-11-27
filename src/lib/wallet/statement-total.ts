@@ -43,7 +43,9 @@ const MAX_LIMIT = 100;
 const CURSOR_FORMAT = new RegExp(`^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z)\\|(${UUID_PATTERN})$`, "i");
 
 const PAYABLE_BRANCH = `union all
-		   select id, 'payable', kind, amount::text, null, created_at
+		   select id, 'payable',
+		          case when kind = 'accrual' and order_ref is null and pix_charge_id is not null then 'accrual_cash_in' else kind end,
+		          amount::text, null, created_at
 		     from bureau_payable_entries where bureau_id = $1`;
 
 const TEXTS: Record<StatementSource, Record<string, StatementText>> = {

@@ -374,6 +374,23 @@ describe("anonymizeClientAccount", () => {
 		});
 	});
 
+	it("client account anonymize erases the affiliate walletId and queues no notice", async () => {
+		const tenant = await seedTenant(owner, "lgpd-wallet");
+		const affiliate = await seedClientProfile(owner, tenant.bureau.id);
+		await owner.query("update affiliate_wallets set payout_method = 'asaas', asaas_wallet_id = $2 where profile_id = $1", [
+			affiliate.userId,
+			randomUUID(),
+		]);
+		const notices = () => count("select count(*) as n from notifications where reference = $1", [`affiliate_payout:${affiliate.userId}`]);
+		const before = await notices();
+
+		expect(await anonymizeClientAccount(adminOf(tenant), { profileId: affiliate.userId, reason: REASON })).toEqual({ ok: true });
+
+		const { rows } = await owner.query("select payout_method, asaas_wallet_id from affiliate_wallets where profile_id = $1", [affiliate.userId]);
+		expect(rows[0]).toEqual({ payout_method: "pix", asaas_wallet_id: null });
+		expect(await notices()).toBe(before);
+	});
+
 	it("client account anonymize keeps the holders of the client", async () => {
 		const tenant = await seedTenant(owner, "lgpd-chold");
 

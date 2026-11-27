@@ -22,6 +22,11 @@ export function formatCNPJ(value: string): string {
     .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
 }
 
+// "2.00" -> "2,00%" (vírgula decimal pt-BR).
+export function formatPercent(value: number | string): string {
+  return `${new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))}%`;
+}
+
 export function formatCurrency(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return new Intl.NumberFormat("pt-BR", {

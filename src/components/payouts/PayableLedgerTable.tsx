@@ -18,6 +18,9 @@ const KIND_LABEL: Record<PayableEntry["kind"], string> = {
   coupon_refund: "Devolução de cobertura de cupom",
 };
 
+// Acréscimo da entrada de dinheiro (077): a parte do Bureau num pagamento recebido, sem pedido.
+const CASH_IN_ACCRUAL_LABEL = "Sua parte de um pagamento recebido";
+
 const shortRef = (ref: string) => ref.slice(0, 8);
 
 function formatSigned(amount: string): string {
@@ -75,7 +78,7 @@ export function PayableLedgerTable({ bureauId, initialRows, initialCursor }: Pay
                 <TableRow key={row.id}>
                   <TableCell>{dateFormat.format(new Date(row.createdAt))}</TableCell>
                   <TableCell>
-                    {KIND_LABEL[row.kind]}
+                    {row.kind === "accrual" && !row.orderRef && row.pixChargeId ? CASH_IN_ACCRUAL_LABEL : KIND_LABEL[row.kind]}
                     {row.orderRef && <span className="block text-xs text-muted-foreground">Pedido {shortRef(row.orderRef)}</span>}
                   </TableCell>
                   <TableCell className="whitespace-nowrap font-semibold tabular-nums">{formatSigned(row.amount)}</TableCell>
