@@ -109,9 +109,12 @@ const UNKNOWN: StatusInfo = {
 
 // Fonte única de rótulo, tom e orientação. Status sem entrada vira "Situação desconhecida" (nunca o código).
 // A equipe vê o mesmo vocabulário, sem o próximo passo dirigido ao cliente.
-export function statusInfo(domain: StatusDomain, status: string, audience: "client" | "staff"): StatusInfo {
+// Pedido online concluído: o tick libera sozinho, o Bureau não libera nada (só o balcão espera o Bureau).
+const ONLINE_COMPLETED: Entry = ["progress", "Pronto, liberando o resultado", "A consulta terminou. O sistema libera o resultado automaticamente."];
+
+export function statusInfo(domain: StatusDomain, status: string, audience: "client" | "staff", mode?: "online" | "counter"): StatusInfo {
 	const rows = TABLE[domain];
 	if (!rows || !Object.hasOwn(rows, status)) return UNKNOWN;
-	const [tone, label, explanation, nextStep] = rows[status];
+	const [tone, label, explanation, nextStep] = domain === "order" && status === "completed" && mode === "online" ? ONLINE_COMPLETED : rows[status];
 	return { tone, label, explanation, nextStep: audience === "client" ? (nextStep ?? null) : null };
 }

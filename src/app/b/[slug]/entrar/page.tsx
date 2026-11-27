@@ -6,6 +6,7 @@ import { LoginForm } from "@/components/auth/login-form";
 import { PublicShell } from "@/components/portal/public-shell";
 import { Button } from "@/components/ui/button";
 import { ScreenHeader } from "@/components/ui/screen-header";
+import { withReferral } from "@/lib/affiliates/referral-link";
 import { resolveBureauSlug } from "@/lib/bureaus/public";
 
 // Reads the DB without cookies/headers: without this Next may cache a 404 for a new slug or a stale bureau name.
@@ -22,7 +23,7 @@ export default async function PublicBureauEntryPage({
   searchParams,
 }: {
   params: { slug: string };
-  searchParams: { next?: string | string[] };
+  searchParams: { next?: string | string[]; ref?: string | string[] };
 }) {
   const resolved = await resolveBureauSlug(params.slug);
   if (resolved.kind === "redirect") {
@@ -47,7 +48,7 @@ export default async function PublicBureauEntryPage({
         <div className="space-y-3 border-t pt-6">
           <p className="text-center text-muted-foreground">Ainda não tem conta?</p>
           <Button asChild variant="outline" className="w-full">
-            <Link href={`/b/${bureau.slug}/cadastro`}>Criar conta</Link>
+            <Link href={withReferral(`/b/${bureau.slug}/cadastro`, searchParams.ref)}>Criar conta</Link>
           </Button>
         </div>
         <p className="text-center text-sm text-muted-foreground">
