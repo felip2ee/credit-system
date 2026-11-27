@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { StackedList, StackedRow } from "@/components/dashboard/stacked-list";
 import { PageHeader } from "@/components/layout/page-header";
 import { formatBRL } from "@/components/superadmin/money";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,31 @@ export default async function ProductsPage() {
         )}
       </PageHeader>
       <Card className="overflow-hidden">
+      <StackedList>
+        {products.map((p) => (
+          <StackedRow
+            key={p.id}
+            href={`/superadmin/products/${p.id}`}
+            title={p.name}
+            meta={[
+              `Código ${p.code}`,
+              `Versão vigente v${p.version}`,
+              `Custo interno ${formatBRL(p.baseCost)}`,
+              p.salePrice === null ? null : `Preço de venda ${formatBRL(p.salePrice)}`,
+              p.code === "dossie_empresarial" ? `Preço por sócio ${formatBRL(p.salePricePerPartner)}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            status={
+              <>
+                <Badge variant={p.active ? "success" : "muted"}>{p.active ? "Ativo" : "Inativo"}</Badge>
+                {p.salePrice === null && <Badge variant="muted">Não à venda</Badge>}
+              </>
+            }
+          />
+        ))}
+      </StackedList>
+      <div className="hidden md:block">
       <Table>
         <TableHeader>
           <TableRow>
@@ -72,6 +98,7 @@ export default async function ProductsPage() {
           ))}
         </TableBody>
       </Table>
+      </div>
       </Card>
     </div>
   );
