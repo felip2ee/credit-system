@@ -5,7 +5,7 @@ export interface NavItem {
   label: string;
   // Sem permissão = visível para todos os papéis do painel.
   permission?: Permission;
-  // Título do grupo na navegação. Sem grupo = lista única, sem título (superadmin).
+  // Título do grupo na navegação. Itens sem grupo ficam juntos numa lista única, sem título.
   group?: string;
 }
 
@@ -65,7 +65,7 @@ export const SUPERADMIN_NAV_ITEMS: readonly NavItem[] = [
   { href: "/superadmin/nfse", label: "NFS-e", group: "Operação" },
   { href: "/superadmin/notifications", label: "Notificações", group: "Operação" },
   { href: "/superadmin/products", label: "Produtos", group: "Catálogo" },
-  { href: "/superadmin/settings", label: "Visão geral", group: "Configurações" },
+  { href: "/superadmin/settings", label: "Todas as configurações", group: "Configurações" },
   { href: "/superadmin/settings/comissao", label: "Comissão dos Bureaus", group: "Configurações" },
   { href: "/superadmin/settings/repasses", label: "Prazo dos repasses", group: "Configurações" },
   { href: "/superadmin/settings/afiliados", label: "Afiliados", group: "Configurações" },

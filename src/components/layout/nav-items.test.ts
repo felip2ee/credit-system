@@ -39,7 +39,7 @@ describe("SUPERADMIN_NAV_ITEMS", () => {
     expect(groupNavItems(SUPERADMIN_NAV_ITEMS).map((g) => [g.title, g.items.map((i) => i.label)])).toEqual([
       ["Operação", ["Bureaus", "Saques", "Repasses", "NFS-e", "Notificações"]],
       ["Catálogo", ["Produtos"]],
-      ["Configurações", ["Visão geral", "Comissão dos Bureaus", "Prazo dos repasses", "Afiliados", "Termo SCR", "Prompts da IA"]],
+      ["Configurações", ["Todas as configurações", "Comissão dos Bureaus", "Prazo dos repasses", "Afiliados", "Termo SCR", "Prompts da IA"]],
     ]);
   });
 });
@@ -127,7 +127,7 @@ describe("isNavActive em todas as rotas do superadmin", () => {
     ["/superadmin/products", "Produtos"],
     ["/superadmin/products/new", "Produtos"],
     ["/superadmin/products/abc", "Produtos"],
-    ["/superadmin/settings", "Visão geral"],
+    ["/superadmin/settings", "Todas as configurações"],
     ["/superadmin/settings/comissao", "Comissão dos Bureaus"],
     ["/superadmin/settings/repasses", "Prazo dos repasses"],
     ["/superadmin/settings/afiliados", "Afiliados"],

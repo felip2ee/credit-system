@@ -42,7 +42,7 @@ export function SuperadminNav() {
             <ul aria-labelledby={group.title ? `${navId}-${group.title}` : undefined} className="space-y-0.5">
               {group.items.map((item) => {
                 const active = isNavActive(pathname, item.href);
-                const Icon = ICONS[item.href];
+                const Icon = ICONS[item.href] ?? Settings;
                 return (
                   <li key={item.href}>
                     <Link

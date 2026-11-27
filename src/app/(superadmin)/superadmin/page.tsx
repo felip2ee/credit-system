@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Building2, FileSearch, UserRound, Users } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { Stat } from "@/components/dashboard/stat";
 import { BalanceCard } from "@/components/ui/balance-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,10 +38,10 @@ export default async function SuperadminPage() {
 
   const total = (pick: (b: (typeof bureaus)[number]) => number) => bureaus.reduce((sum, b) => sum + pick(b), 0);
   const stats = [
-    { label: "Bureaus ativos", value: bureaus.filter((b) => b.status === "active").length },
-    { label: "Equipe", value: total((b) => b.staffCount) },
-    { label: "Titulares", value: total((b) => b.holderCount) },
-    { label: "Dossiês", value: total((b) => b.dossierCount) },
+    { label: "Bureaus ativos", value: bureaus.filter((b) => b.status === "active").length, hint: `${bureaus.length} cadastrados`, icon: Building2 },
+    { label: "Equipe", value: total((b) => b.staffCount), hint: "Soma de todos os Bureaus", icon: Users },
+    { label: "Titulares", value: total((b) => b.holderCount), hint: "Soma de todos os Bureaus", icon: UserRound },
+    { label: "Dossiês", value: total((b) => b.dossierCount), hint: "Soma de todos os Bureaus", icon: FileSearch },
   ];
 
   return (
@@ -58,10 +60,7 @@ export default async function SuperadminPage() {
         />
         <div className="grid grid-cols-2 gap-4 lg:col-span-2">
           {stats.map((st) => (
-            <Card key={st.label} className="flex flex-col justify-center p-4">
-              <p className="text-2xl font-bold tabular-nums">{st.value}</p>
-              <p className="text-base text-muted-foreground">{st.label}</p>
-            </Card>
+            <Stat key={st.label} label={st.label} value={String(st.value)} hint={st.hint} icon={st.icon} />
           ))}
         </div>
       </div>
@@ -72,7 +71,7 @@ export default async function SuperadminPage() {
         {bureaus.map((b) => (
           <li key={b.bureauId} className="space-y-4 rounded-card border border-border bg-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Link className="inline-flex min-h-11 items-center text-base font-bold hover:underline" href={`/superadmin/bureaus/${b.bureauId}`}>
+              <Link className="inline-flex min-h-11 items-center font-bold hover:underline" href={`/superadmin/bureaus/${b.bureauId}`}>
                 {b.name}
               </Link>
               <BureauStatus status={b.status} />
@@ -90,7 +89,7 @@ export default async function SuperadminPage() {
                 ["Consultas (30d)", b.consultations30d],
               ].map(([label, value]) => (
                 <div key={label}>
-                  <dd className="text-2xl font-bold tabular-nums">{value}</dd>
+                  <dd className="font-bold tabular-nums">{value}</dd>
                   <dt className="text-sm text-muted-foreground">{label}</dt>
                 </div>
               ))}
