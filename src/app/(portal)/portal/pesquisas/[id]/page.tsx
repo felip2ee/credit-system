@@ -74,7 +74,7 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 				<CardContent className="space-y-4 pt-4">
 					{steps && <Stepper steps={steps} />}
 					<div className="flex flex-wrap items-center justify-between gap-3">
-						<OrderStateBadge state={order.state} />
+						<OrderStateBadge state={order.state} mode={order.mode} />
 						{order.price !== null && <p className="text-muted-foreground">
 							Valor: <span className="font-bold tabular-nums">{formatCurrency(Number(order.price))}</span>
 						</p>}

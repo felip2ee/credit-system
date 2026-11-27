@@ -106,7 +106,7 @@ export default async function DossiersPage({
                         {d.kind === "PJ_FULL" && d.report_status === "completed" && (
                           <AptitudeBadge status={d.aptitude_status} />
                         )}
-                        {d.order_state && <OrderStateBadge state={d.order_state} />}
+                        {d.order_state && <OrderStateBadge state={d.order_state} mode={d.order_mode ?? undefined} />}
                         <DossierStatusBadge status={d.status} />
                       </div>
                     </summary>

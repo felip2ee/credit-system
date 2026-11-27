@@ -104,7 +104,7 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, hasPartners, p
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           Pedido
-          <OrderStateBadge state={state} />
+          <OrderStateBadge state={state} mode={order.mode} />
           {order.reason && <span className="text-sm font-normal text-muted-foreground">{ORDER_REASON_LABEL[order.reason]}</span>}
         </CardTitle>
       </CardHeader>
