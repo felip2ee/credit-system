@@ -83,8 +83,8 @@ function PixSection({ pix }: { pix: LinkPixResult | null }) {
       <form method="get" className="space-y-3 text-center">
         <input type="hidden" name="pix" value="1" />
         <p className="text-sm text-muted-foreground">
-          Ao tocar em “Pagar com Pix”, geramos um código Pix para este valor. O código vale por 30 minutos. Esta página
-          não confirma o pagamento sozinha.
+          Ao tocar em “Pagar com Pix”, geramos um código Pix para este valor. Ele fica nesta página por 30 minutos;
+          depois, atualize a página para gerar outro. Esta página não confirma o pagamento sozinha.
         </p>
         <Button type="submit">Pagar com Pix</Button>
       </form>
@@ -106,8 +106,8 @@ function PixSection({ pix }: { pix: LinkPixResult | null }) {
         />
         <CopyPixButton code={pix.pixPayload} />
         <p className="text-sm text-muted-foreground">
-          Pague no app do seu banco. Este código vale até {formatDateTime(pix.expiresAt)} e esta página não confirma o
-          pagamento sozinha.
+          Pague no app do seu banco. Se passar de {formatDateTime(pix.expiresAt)}, atualize esta página para gerar um
+          novo código. Ela não confirma o pagamento sozinha.
         </p>
       </CardContent>
     </Card>
