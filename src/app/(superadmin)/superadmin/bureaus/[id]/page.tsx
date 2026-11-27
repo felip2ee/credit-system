@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { z } from "zod";
 
-import { PageHeader } from "@/components/layout/page-header";
+import { ScreenHeader } from "@/components/ui/screen-header";
+import { BureauSection, BureauSectionNav } from "@/components/superadmin/bureau-sections";
 import { BureauEditForm } from "@/components/superadmin/bureau-edit-form";
 import { AdminCredentialsForm } from "@/components/superadmin/admin-credentials-form";
 import { InviteAdminForm } from "@/components/superadmin/invite-admin-form";
@@ -55,26 +56,55 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
   const affiliateCount = (await listBureauMetrics(session)).find((m) => m.bureauId === bureau.id)?.affiliateCount;
   const publicUrl = `${config.betterAuthUrl.replace(/\/$/, "")}/b/${bureau.slug}`;
 
+  const sections = [
+    { id: "dados", label: "Dados" },
+    { id: "administrador", label: "Administrador" },
+    { id: "suporte", label: "Suporte" },
+    ...(commission ? [{ id: "comissao", label: "Comissão e produtos" }] : []),
+    ...(wallet?.balance ? [{ id: "carteira", label: "Carteira" }] : []),
+  ];
+
   return (
     <div className="space-y-6">
-      <PageHeader title={bureau.name}>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Endereço público:</span>
-          <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="break-all font-medium underline">
-            {publicUrl}
-          </a>
-          <CopyLinkButton url={publicUrl} />
-          {affiliateCount !== undefined && <span className="text-muted-foreground">Afiliados: {affiliateCount}</span>}
+      <ScreenHeader
+        className="-mx-4 -mt-4 md:-mx-6 md:-mt-6 md:static"
+        title={bureau.name}
+        backHref="/superadmin"
+        backLabel="Voltar para a lista de Bureaus"
+      />
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted-foreground">Endereço público:</span>
+        <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="break-all font-medium underline">
+          {publicUrl}
+        </a>
+        <CopyLinkButton url={publicUrl} />
+        {affiliateCount !== undefined && <span className="text-muted-foreground">Afiliados: {affiliateCount}</span>}
+      </div>
+      <BureauSectionNav sections={sections} />
+
+      <BureauSection id="dados" label="Dados" description="Nome, endereço público e situação do Bureau.">
+        <BureauEditForm bureau={bureau} />
+      </BureauSection>
+
+      <BureauSection
+        id="administrador"
+        label="Administrador"
+        description="Convide o administrador do Bureau ou defina a senha dele."
+      >
+        <InviteAdminForm bureauId={bureau.id} />
+        <div className="border-t border-border pt-4">
+          <AdminCredentialsForm bureauId={bureau.id} />
         </div>
-      </PageHeader>
-      <BureauEditForm bureau={bureau} />
-      <InviteAdminForm bureauId={bureau.id} />
-      <AdminCredentialsForm bureauId={bureau.id} />
-      <SupportStartForm bureauId={bureau.id} />
+      </BureauSection>
+
+      <BureauSection id="suporte" label="Suporte" description="Entre no Bureau para ajudar, com motivo e registro na auditoria.">
+        <SupportStartForm bureauId={bureau.id} />
+      </BureauSection>
+
       {commission && (
-        <>
-          <section className="space-y-3">
-            <h2 className="text-lg font-semibold">Comissão</h2>
+        <BureauSection id="comissao" label="Comissão e produtos">
+          <div className="space-y-3">
+            <h3 className="text-base font-bold">Comissão</h3>
             <p className="text-sm text-muted-foreground">
               O Bureau recebe uma % do preço bruto de cada venda. Sem override, vale a % global.
             </p>
@@ -85,16 +115,16 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
               affiliatePct={commission.affiliatePct}
               canWrite={canManage && hasPermission(session, "affiliates:manage")}
             />
-          </section>
-          <section className="space-y-3">
-            <h2 className="text-lg font-semibold">Produtos bloqueados</h2>
+          </div>
+          <div className="space-y-3 border-t border-border pt-4">
+            <h3 className="text-base font-bold">Produtos bloqueados</h3>
             <BureauProductBlocksPanel bureauId={bureau.id} rows={commission.blocks} canWrite={canManage} />
-          </section>
-        </>
+          </div>
+        </BureauSection>
       )}
+
       {wallet?.balance && (
-        <section className="space-y-3">
-          <h2 className="text-lg font-semibold">Carteira</h2>
+        <BureauSection id="carteira" label="Carteira">
           {wallet.shortfalls.length > 0 && (
             <StatusBanner
               tone="attention"
@@ -117,7 +147,7 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
           <LedgerTable
             key={wallet.ledger.rows[0]?.id ?? "empty"}
             bureauId={bureau.id} initialRows={wallet.ledger.rows} initialCursor={wallet.ledger.nextCursor} />
-        </section>
+        </BureauSection>
       )}
     </div>
   );
