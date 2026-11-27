@@ -93,9 +93,12 @@ export async function authorizeScr(page: Page, request: APIRequestContext, dossi
 export async function openNewOrderAtStep(page: Page, step: 1 | 2 | 3 | 4): Promise<void> {
   const stamp = Date.now();
   // Each step change moves focus to the step title (h2).
+  // The form ignores a click on "Continuar" right after a step change (double-click guard): retry until the next step shows.
   const next = async (title: string) => {
-    await page.getByRole("button", { name: "Continuar" }).click();
-    await expect(page.getByRole("heading", { level: 2, name: title })).toBeFocused();
+    await expect(async () => {
+      await page.getByRole("button", { name: "Continuar" }).click();
+      await expect(page.getByRole("heading", { level: 2, name: title })).toBeFocused({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
   };
   await page.goto("/portal/pesquisas/nova");
   await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();

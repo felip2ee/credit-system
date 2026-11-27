@@ -87,7 +87,8 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const [reviewReady, setReviewReady] = useState(false);
 	const titleRef = useRef<HTMLHeadingElement>(null);
 	const shownStep = useRef(0);
-	const stepChangedAt = useRef(Date.now());
+	// 0: a primeira etapa já nasce liberada; o guarda vale só depois de uma troca de etapa.
+	const stepChangedAt = useRef(0);
 	const firstCode = products[0]?.code ?? "dossie_pf";
 
 	const form = useForm<OrderFormValues>({
