@@ -65,7 +65,7 @@ export default async function SuperadminNotificationsPage({
 
       {canWrite ? (
         <section className="space-y-3" aria-labelledby="test-heading">
-          <h2 id="test-heading" className="text-lg font-medium">
+          <h2 id="test-heading" className="font-medium">
             Enviar teste
           </h2>
           <TestNotificationForm />
@@ -77,7 +77,7 @@ export default async function SuperadminNotificationsPage({
       )}
 
       <section className="space-y-3" aria-labelledby="log-heading">
-        <h2 id="log-heading" className="text-lg font-medium">
+        <h2 id="log-heading" className="font-medium">
           Log
         </h2>
         <form method="get" className="flex flex-wrap items-end gap-3" aria-label="Filtrar log">
@@ -86,7 +86,7 @@ export default async function SuperadminNotificationsPage({
               Estado
             </label>
             <Select name="status" defaultValue={status ?? ALL}>
-              <SelectTrigger id="f-status" className="w-56">
+              <SelectTrigger id="f-status" className="w-full sm:w-56">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -104,7 +104,7 @@ export default async function SuperadminNotificationsPage({
               Canal
             </label>
             <Select name="channel" defaultValue={channel ?? ALL}>
-              <SelectTrigger id="f-channel" className="w-56">
+              <SelectTrigger id="f-channel" className="w-full sm:w-56">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -145,7 +145,7 @@ export default async function SuperadminNotificationsPage({
 
       {canWrite && (
         <section className="space-y-3" aria-labelledby="tpl-heading">
-          <h2 id="tpl-heading" className="text-lg font-medium">
+          <h2 id="tpl-heading" className="font-medium">
             Templates ativos
           </h2>
           <TemplateList templates={templates.filter((t) => t.status === "active")} />
