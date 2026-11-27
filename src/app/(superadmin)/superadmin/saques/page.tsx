@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { StackedList, StackedRow } from "@/components/dashboard/stacked-list";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -34,6 +35,28 @@ export default async function WithdrawalQueuePage() {
         <p className="text-sm text-muted-foreground">Nenhum saque em aberto.</p>
       ) : (
         <Card className="overflow-hidden">
+        <StackedList>
+          {queue.map((w) => (
+            <StackedRow
+              key={w.id}
+              title={w.holderName}
+              meta={[
+                bureauNames.get(w.bureauId) ?? "—",
+                `Pedido em ${formatDateTime(w.createdAt)}`,
+                `Valor ${formatCurrency(Number(w.amount))} · Taxa ${formatCurrency(Number(w.fee))}`,
+                `Chave PIX ${w.pixKeyMasked}`,
+              ].join(" · ")}
+              aside={formatCurrency(Number(w.net))}
+            >
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/superadmin/saques/${w.id}`} aria-label={`Abrir saque de ${w.holderName}`}>
+                  Abrir
+                </Link>
+              </Button>
+            </StackedRow>
+          ))}
+        </StackedList>
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -68,6 +91,7 @@ export default async function WithdrawalQueuePage() {
             ))}
           </TableBody>
         </Table>
+        </div>
         </Card>
       )}
     </div>

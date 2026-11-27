@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { retryNfseAction } from "@/actions/nfse";
+import { StackedList, StackedRow } from "@/components/dashboard/stacked-list";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -49,6 +50,19 @@ export function NfseFailuresTable({ rows, canRetry }: { rows: NfseFailureView[];
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">Nenhuma nota fiscal com falha.</p>;
   return (
     <Card className="overflow-hidden">
+    <StackedList>
+      {rows.map((row) => (
+        <StackedRow
+          key={row.chargeId}
+          title={`Cobrança ${row.chargeId.slice(0, 8)}`}
+          meta={`${row.bureauName} · ${row.attempts} ${row.attempts === 1 ? "tentativa" : "tentativas"} · Última atualização ${formatDateTime(row.updatedAt ?? row.createdAt)}`}
+          aside={formatCurrency(Number(row.amount))}
+        >
+          {canRetry && <RetryButton chargeId={row.chargeId} label={`${row.chargeId.slice(0, 8)} (${row.bureauName})`} />}
+        </StackedRow>
+      ))}
+    </StackedList>
+    <div className="hidden md:block">
     <Table>
       <TableHeader>
         <TableRow>
@@ -77,6 +91,7 @@ export function NfseFailuresTable({ rows, canRetry }: { rows: NfseFailureView[];
         ))}
       </TableBody>
     </Table>
+    </div>
     </Card>
   );
 }
