@@ -1,4 +1,4 @@
-// Chave de idempotência (063) contra um Postgres real, sob RLS: pedido online, pedido de balcão e pagamento de balcão.
+// Chave de idempotência (088) contra um Postgres real, sob RLS: pedido online, pedido de balcão e pagamento de balcão.
 // Cada teste usa um Bureau novo. Contagens pelo pool do dono (sem RLS).
 import { randomUUID } from "node:crypto";
 
@@ -37,7 +37,7 @@ import { quoteOrder } from "@/lib/catalog/quote";
 import { registerCounterPayment, type RegisterInput } from "@/lib/counter-payments/queries";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
-import { placeOrder, type PlaceOrderOptions } from "@/lib/orders/queries";
+import { MAX_AWAITING_PAYMENT_ORDERS, placeOrder, type PlaceOrderOptions } from "@/lib/orders/queries";
 import type { OpenOrderInput } from "@/lib/orders/types";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
@@ -321,6 +321,34 @@ describe("placeOrder online that waits for the Pix, with an idempotency key", ()
 		expect(await place(t, key)).toMatchObject({ ok: true, state: "awaiting_payment", pixPriceCents: 5000 });
 		expect(await keyCount(t, "order")).toBe(1);
 		expect(await quotes(t)).toBe(1);
+	});
+
+	it.each(["cancelled", "ready"] as const)("the duplicate of an order that left awaiting_payment (%s) carries no Pix price", async (next) => {
+		const t = await newTenant(`idem pix left ${next}`, { bureau: "200.00" });
+		const key = randomUUID();
+		const first = await place(t, key);
+		if (!first.ok) throw new Error(`first failed: ${first.reason}`);
+		await owner.query("update dossier_orders set state = $2 where dossier_id = $1", [first.dossierId, next]);
+
+		const second = await place(t, key);
+
+		expect(second).toEqual({ ok: true, dossierId: first.dossierId, state: next, duplicate: true });
+		expect(await quotes(t)).toBe(1);
+	});
+
+	it("different keys in parallel: the awaiting-payment cap holds and a refused submit keeps no key", async () => {
+		const t = await newTenant("idem pix cap", { bureau: "200.00" });
+
+		const results = await Promise.all(Array.from({ length: 6 }, () => place(t, randomUUID())));
+
+		const placed = results.filter((r) => r.ok);
+		expect(placed.length).toBeGreaterThan(0);
+		expect(placed.length).toBeLessThanOrEqual(MAX_AWAITING_PAYMENT_ORDERS);
+		for (const r of results.filter((r) => !r.ok)) expect(r).toEqual({ ok: false, reason: "too_many_awaiting_payment" });
+		expect(await count("select count(*) as n from dossier_orders where bureau_id = $1 and state = 'awaiting_payment'", [t.bureau.id])).toBe(placed.length);
+		expect(await orderCount(t)).toBe(placed.length);
+		expect(await quotes(t)).toBe(placed.length);
+		expect(await keyCount(t, "order")).toBe(placed.length);
 	});
 
 	it("the same key with another body is refused and does not return the Pix order", async () => {

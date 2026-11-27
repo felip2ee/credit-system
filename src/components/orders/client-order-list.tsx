@@ -14,8 +14,8 @@ const PRODUCT_LABEL: Record<ClientOrderListItem["productCode"], string> = {
 	dossie_empresarial: "Empresa",
 };
 
-export function OrderStateBadge({ state, reason, mode }: { state: OrderState; reason?: ClientOrderListItem["reason"]; mode?: OrderMode }) {
-	const { tone, label } = statusInfo("order", state, "client", mode);
+export function OrderStateBadge({ state, reason, mode, revoked }: { state: OrderState; reason?: ClientOrderListItem["reason"]; mode?: OrderMode; revoked?: boolean }) {
+	const { tone, label } = statusInfo("order", state, "client", mode, revoked);
 	return (
 		<span className="flex max-w-full shrink-0 flex-col items-start gap-1">
 			<StatusBadge tone={tone} label={label} />
@@ -45,7 +45,7 @@ export function ClientOrderList({ orders }: { orders: ClientOrderListItem[] }) {
 								<span className="block text-sm text-muted-foreground">
 									{PRODUCT_LABEL[o.productCode]} · {o.subjectDocumentMasked} · {formatDate(o.createdAt)}
 								</span>
-								<OrderStateBadge state={o.state} reason={o.reason} mode={o.mode} />
+								<OrderStateBadge state={o.state} reason={o.reason} mode={o.mode} revoked={o.revokedAt !== null} />
 							</span>
 							<span className="ml-auto shrink-0 whitespace-nowrap text-right text-base font-bold tabular-nums">
 								{o.price === null ? "—" : formatCurrency(Number(o.price))}

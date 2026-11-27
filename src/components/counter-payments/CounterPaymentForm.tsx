@@ -50,7 +50,7 @@ export function CounterPaymentForm({ dossierId, holderName, remainingCents, orde
   const [isPending, startTransition] = useTransition();
   // Barreira síncrona: dois cliques seguidos entram antes de isPending virar true.
   const sending = useRef(false);
-  // Um uuid por pagamento (063): reenvio da mesma tela não lança o valor duas vezes. Novo pagamento, nova chave.
+  // Um uuid por pagamento (088): reenvio da mesma tela não lança o valor duas vezes. Novo pagamento, nova chave.
   const idempotencyKey = useRef<string | null>(null);
 
   const amountError = amount === "" ? null : moneyError(amount);

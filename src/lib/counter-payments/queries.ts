@@ -16,7 +16,7 @@ export type RegisterInput = {
 	amount: string;
 	note: string | null;
 	receivedAt: Date;
-	// Uuid do envio do formulário (063). Repetido devolve o pagamento que já existe, sem lançar outro. Null = sem proteção.
+	// Uuid do envio do formulário (088). Repetido devolve o pagamento que já existe, sem lançar outro. Null = sem proteção.
 	idempotencyKey?: string | null;
 };
 

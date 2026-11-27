@@ -65,6 +65,7 @@ describe("statusInfo", () => {
 		});
 		expect(statusInfo("order", "completed", "client", "counter").label).toBe("Pronto, aguardando liberação do Bureau");
 		expect(statusInfo("order", "completed", "client", "online")).toMatchObject({ label: "Pronto, liberando o resultado", tone: "progress" });
+		expect(statusInfo("order", "completed", "client", "online", true).label).toBe("Pronto, aguardando liberação do Bureau");
 		expect(statusInfo("order", "released", "client", "online").label).toBe("Pronto para ver");
 		expect(statusInfo("order", "released", "client")).toMatchObject({ label: "Pronto para ver", tone: "success" });
 		expect(statusInfo("scr", "authorized", "client").label).toBe("Autorizado");

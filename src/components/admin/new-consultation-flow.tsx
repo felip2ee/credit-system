@@ -69,7 +69,7 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shownStep = useRef(0);
   const submitting = useRef(false);
-  // Um uuid por consulta (063): o servidor devolve a consulta já aberta em vez de abrir outra e cobrar de novo.
+  // Um uuid por consulta (088): o servidor devolve a consulta já aberta em vez de abrir outra e cobrar de novo.
   const idempotencyKey = useRef<string | null>(null);
 
   const options = products.filter((p) => p.code === PRODUCT_BY_TYPE[client.type]);

@@ -78,7 +78,7 @@ export function DossierForm({ products }: DossierFormProps) {
 	const titleRef = useRef<HTMLHeadingElement>(null);
 	const shownStep = useRef(0);
 	const submitting = useRef(false);
-	// Um uuid por pedido (063): o servidor devolve o pedido já aberto em vez de abrir outro e reservar saldo de novo.
+	// Um uuid por pedido (088): o servidor devolve o pedido já aberto em vez de abrir outro e reservar saldo de novo.
 	const idempotencyKey = useRef<string | null>(null);
 	// Depois de mandar o usuário a uma etapa com erro, o foco vai para o primeiro campo inválido dela.
 	const [focusInvalid, setFocusInvalid] = useState(false);

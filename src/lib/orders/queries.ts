@@ -86,7 +86,7 @@ export type PlaceOrderOptions = {
 	declaration?: { version: number; ip: string | null; userAgent: string | null };
 	// Só pedido online. O desconto é calculado aqui, na mesma transação da reserva; o banco confere o preço pago.
 	couponCode?: string;
-	// Uuid do envio do formulário (063). Chave repetida devolve o pedido que já existe, sem reservar saldo de novo.
+	// Uuid do envio do formulário (088). Chave repetida devolve o pedido que já existe, sem reservar saldo de novo.
 	idempotencyKey?: string;
 };
 export type PlaceOrderResult =
@@ -159,7 +159,8 @@ export async function placeOrder(
 					// cotação, reserva ou cobrança: este ramo sai antes de openOrder e de reserveOrder.
 					const state = await readOrderState(client, claim.recordId);
 					if (!state) throw new Error("idempotent order not found");
-					const pixPriceCents = await readOrderPixQuoteCents(client, claim.recordId);
+					// Só em awaiting_payment: pedido já pago ou cancelado não leva o reenvio para a tela do PIX.
+					const pixPriceCents = state === "awaiting_payment" ? await readOrderPixQuoteCents(client, claim.recordId) : null;
 					return {
 						ok: true as const,
 						dossierId: claim.recordId,

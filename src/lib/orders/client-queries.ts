@@ -22,6 +22,8 @@ export type ClientOrderListItem = {
 	price: string | null;
 	createdAt: Date;
 	releasedAt: Date | null;
+	// Entrega revogada: o pedido volta a completed e o tick não o libera de novo.
+	revokedAt: Date | null;
 };
 
 type OrderRow = {
@@ -36,10 +38,11 @@ type OrderRow = {
 	price: string | null;
 	created_at: Date;
 	released_at: Date | null;
+	revoked_at: Date | null;
 };
 
 const ORDER_COLUMNS = `o.dossier_id, o.mode, o.product_code, o.self_research, o.subject_name, o.subject_document_masked, o.state,
-	o.state_reason, s.price::text as price, o.created_at, o.released_at`;
+	o.state_reason, s.price::text as price, o.created_at, o.released_at, o.revoked_at`;
 
 const toItem = (r: OrderRow): ClientOrderListItem => ({
 	dossierId: r.dossier_id,
@@ -53,6 +56,7 @@ const toItem = (r: OrderRow): ClientOrderListItem => ({
 	price: r.price,
 	createdAt: r.created_at,
 	releasedAt: r.released_at,
+	revokedAt: r.revoked_at,
 });
 
 // Tipo do Titular da conta do cliente (o mais antigo). Define se o Dossiê Pessoa Física pesquisa outra pessoa.

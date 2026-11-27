@@ -66,6 +66,7 @@ export interface DossierListItem {
 	// Nulo nos Dossiês anteriores ao pedido de pesquisa.
 	order_state: OrderState | null;
 	order_mode: OrderMode | null;
+	order_revoked: boolean | null;
 	members: Pick<
 		DossierMember,
 		"id" | "type" | "document" | "document_name" | "status"
@@ -85,6 +86,7 @@ export async function listDossiers(
 			`select d.id, d.kind::text, d.status::text, d.report_status, d.aptitude_status,
               d.created_at::text, h.id as holder_id, h.name as holder_name,
               h.document as holder_document, o.state::text as order_state, o.mode::text as order_mode,
+              o.revoked_at is not null as order_revoked,
               coalesce(jsonb_agg(jsonb_build_object(
                 'id', c.id, 'type', c.type, 'document', c.document,
                 'document_name', c.document_name, 'status', c.status::text)
@@ -96,7 +98,7 @@ export async function listDossiers(
         where ($1::dossier_kind is null or d.kind = $1::dossier_kind)
           and ($2 = '' or h.name ilike '%' || $2 || '%'
                or ($3 <> '' and h.document_digits like '%' || $3 || '%'))
-        group by d.id, h.id, o.state, o.mode
+        group by d.id, h.id, o.state, o.mode, o.revoked_at
         order by d.created_at desc
         limit ${LIST_LIMIT}`,
 			[filters.kind ?? null, term, digits],
@@ -116,7 +118,7 @@ export interface DossierReportView {
 }
 
 export interface DossierDetail {
-	dossier: Omit<DossierListItem, "members" | "order_state" | "order_mode"> & {
+	dossier: Omit<DossierListItem, "members" | "order_state" | "order_mode" | "order_revoked"> & {
 		product: string;
 		started_at: string | null;
 		completed_at: string | null;

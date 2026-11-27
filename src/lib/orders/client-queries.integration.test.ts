@@ -170,6 +170,7 @@ describe("listMyOrders", () => {
 			price: "50.00",
 			createdAt: expect.any(Date),
 			releasedAt: null,
+			revokedAt: null,
 		});
 		expect(list[0]).toMatchObject({ subjectName: "Maria Souza", price: "50.00" });
 		expect(JSON.stringify(list)).not.toContain("cost");
