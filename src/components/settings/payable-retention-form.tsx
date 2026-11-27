@@ -53,7 +53,7 @@ export function PayableRetentionForm({ initialDays }: { initialDays: number }) {
           <Field
             id="retention-days"
             label="Dias de retenção"
-            helper="De 0 a 3650 dias. Com 0, o valor fica liberado na hora. Com 30, cada venda só entra no repasse 30 dias depois de capturada. A mudança vale também para os valores que já estão retidos."
+            helper="De 0 a 3650 dias. Com 0, o valor entra no repasse com data de corte até ontem. Com 30, cada venda só entra no repasse 30 dias depois de capturada. A mudança vale também para os valores que já estão retidos."
             error={error}
           >
             {(a11y) => <Input {...a11y} inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} disabled={isPending} />}
@@ -73,7 +73,7 @@ export function PayableRetentionForm({ initialDays }: { initialDays: number }) {
       >
         <p className="text-sm text-muted-foreground">
           O prazo passa de {initialDays} para {parsedDays} dias e vale também para os valores que já estão retidos: o que
-          já passou do novo prazo fica liberado para repasse na hora.
+          já passou do novo prazo pode entrar em um repasse na data de corte permitida.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" autoFocus onClick={() => setConfirming(false)} disabled={isPending}>

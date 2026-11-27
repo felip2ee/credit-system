@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "Confirmar e-mail",
   robots: { index: false },
+  referrer: "no-referrer" as const,
 };
 
 export default function ConfirmEmailPage({
