@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { LogOut, Menu, X } from "lucide-react";
 
-import { isNavActive, visibleNavItems, type NavItem } from "@/components/layout/nav-items";
+import { groupNavItems, isNavActive, visibleNavItems, type NavItem } from "@/components/layout/nav-items";
 import { Button } from "@/components/ui/button";
 import { BRAND_NAME } from "@/lib/brand/brand";
 import type { Permission } from "@/lib/db/permissions";
@@ -28,6 +28,7 @@ interface MobileNavProps {
 // Gaveta sobre o <dialog> nativo: showModal() prende o foco, fecha com Esc e devolve o foco ao botão.
 export function MobileNav({ items, permissions = [], signOutAction }: MobileNavProps) {
   const pathname = usePathname();
+  const navId = useId();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
   const visible = mobileNavItems(items, permissions);
@@ -77,23 +78,38 @@ export function MobileNav({ items, permissions = [], signOutAction }: MobileNavP
             <X aria-hidden />
           </Button>
         </div>
-        <nav aria-label="Principal" className="space-y-2 p-3">
-          {visible.map((item) => {
-            const active = isNavActive(pathname, item.href);
+        <nav aria-label="Principal" className="space-y-4 p-3">
+          {groupNavItems(visible).map((group) => {
+            const titleId = group.title ? `${navId}-${group.title}` : undefined;
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex min-h-11 items-center rounded-full px-3.5 py-2 text-sm font-bold",
-                  active
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              <div key={group.title ?? "todos"}>
+                {group.title && (
+                  <h2 id={titleId} className="px-3.5 pb-1 text-xs font-bold uppercase tracking-wide">
+                    {group.title}
+                  </h2>
                 )}
-              >
-                {item.label}
-              </Link>
+                <ul aria-labelledby={titleId} className="space-y-2">
+                  {group.items.map((item) => {
+                    const active = isNavActive(pathname, item.href);
+                    return (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
+                          aria-current={active ? "page" : undefined}
+                          className={cn(
+                            "flex min-h-11 items-center rounded-full px-3.5 py-2 text-sm font-bold",
+                            active
+                              ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                          )}
+                        >
+                          {item.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             );
           })}
         </nav>
