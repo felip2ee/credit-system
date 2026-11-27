@@ -1,9 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { CLIENT_STATE, dbAs, dbQuery, E2E, E2E_AFFILIATE_PCT, openOrder, resetRateLimit, runTick, SUPERADMIN_STATE, validCpf } from "./fixtures";
+import { CLIENT_STATE, dbAs, dbQuery, E2E, E2E_AFFILIATE_PCT, resetRateLimit, SUPERADMIN_STATE, validCpf } from "./fixtures";
 
-// Gross price of the e2e order (1 partner): 20 + 5 = 25. Commission = 40% of it = 10, paid from the platform share
-// (25 - 30% Bureau = 17.50), so the cap does not apply.
+// Commission is created on cash-in (apply_asaas_payment), not on order capture: 40% of a R$ 25 top-up = R$ 10.
 const COMMISSION = ((20 + 5) * E2E_AFFILIATE_PCT) / 100;
 const CONVERTED = 4;
 const WITHDRAWN = COMMISSION - CONVERTED;
@@ -39,7 +38,7 @@ async function registerThroughLink(page: Page, link: string, email: string) {
 
 test.use({ storageState: CLIENT_STATE, permissions: ["clipboard-read", "clipboard-write"] });
 
-test("referred client buys, commission waits the hold, then converts to credits and is paid out by the superadmin", async ({
+test("referred client's top-up charge pays the commission at once, then A converts to credits and is paid out by the superadmin", async ({
   page,
   browser,
 }) => {
@@ -67,38 +66,32 @@ test("referred client buys, commission waits the hold, then converts to credits 
     );
     expect(referrals).toHaveLength(1);
 
-    // Comprar exige créditos; a comissão exige celular confirmado. O teste grava os dois direto.
-    const [staff] = await dbQuery<{ id: string }>("select id from profiles where email = $1", [E2E.staff.email]);
-    await dbQuery("select * from client_wallet_post_entry($1, 'topup', 100, $2, 'seed', null, $3)", [referred.userId, `seed-${Date.now()}`, staff.id]);
-    await dbAs({ userId: referred.userId, role: "client", bureauId: referred.bureauId }, async (query) => {
-      await query("set local session_replication_role = replica");
-      await query("update profiles set phone_verified_at = now() where id = $1", [referred.userId]);
+    // B tops up through a charge. The checkout writes the split plan when it creates the charge; the run seeds the
+    // same rows (charge + affiliate line paid by Pix) and sends the webhook the fake driver would send.
+    const paymentId = `pay_e2e_${Date.now()}`;
+    const [charge] = await dbQuery<{ id: string }>(
+      `insert into pix_charges (bureau_id, asaas_payment_id, amount, status, pix_payload, expires_at, requested_by, client_profile_id)
+       values ($1, $2, 25, 'pending', 'pix-e2e', now() + interval '30 minutes', $3, $3) returning id`,
+      [referred.bureauId, paymentId, referred.userId],
+    );
+    await dbQuery(
+      `insert into charge_splits (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, pct, amount_cents)
+       values ($1, $2, 'affiliate', $3, 'pix', $4, $5)`,
+      [charge.id, referred.bureauId, affiliate.userId, E2E_AFFILIATE_PCT, COMMISSION * 100],
+    );
+    const webhook = await referredPage.request.post("/api/webhooks/asaas", {
+      headers: { "asaas-access-token": process.env.ASAAS_WEBHOOK_TOKEN ?? "" },
+      data: { id: `evt_${paymentId}`, event: "PAYMENT_RECEIVED", payment: { id: paymentId, value: 25 } },
     });
-    const dossierId = await openOrder(referredPage);
-
-    // The worker captures an order when its research ends: the run calls the same SQL function as the buyer.
-    await dbAs(referred, async (query) => {
-      const [captured] = await query("select ok, reason from capture_order($1)", [dossierId]);
-      expect(captured).toMatchObject({ ok: true });
-    });
+    expect(webhook.status()).toBe(200);
   } finally {
     await referredContext.close();
   }
 
-  // A sees the commission in the hold.
+  // Cash-in commission: A sees it at once (hold is 0 days by default) and it sits in the available balance.
   await page.goto("/portal/afiliacao");
-  await expect(page.getByText("Em carência").first()).toBeVisible();
   await expect(page.getByText(/R\$\s*10,00/).first()).toBeVisible();
-  expect(await walletOf(affiliate.userId)).toBe(0);
-
-  // The hold ends: the run moves release_at to the past and calls the tick.
-  await dbQuery("update affiliate_commissions set release_at = now() - interval '1 day' where affiliate_profile_id = $1", [affiliate.userId]);
-  await expect
-    .poll(async () => {
-      await runTick(page.request);
-      return walletOf(affiliate.userId);
-    }, { message: "tick releases the commission", timeout: 90_000, intervals: [1_000] })
-    .toBe(COMMISSION);
+  expect(await walletOf(affiliate.userId)).toBe(COMMISSION);
 
   // A converts part to credits.
   const creditsBefore = await creditsOf(affiliate.userId);
