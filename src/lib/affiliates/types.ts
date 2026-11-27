@@ -13,3 +13,9 @@ export type AffiliateCommissionRow = {
 };
 
 export type AffiliateReferralRow = { name: string; createdAt: string; totalSpent: string };
+
+export type PayoutMethod = "asaas" | "pix";
+
+export type BeneficiaryKind = "partner" | "bureau" | "bureau_referrer" | "affiliate";
+
+export type ChargeSplitStatus = "pending" | "done" | "refused" | "refunded" | "reversal_failed";
