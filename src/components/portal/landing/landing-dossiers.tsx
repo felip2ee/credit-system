@@ -99,7 +99,7 @@ export function LandingDossiers({
           <p>Por isso, desenvolvemos duas modalidades de análise.</p>
         </div>
         <div className="flex flex-col gap-8 lg:flex-row lg:gap-7">
-          <article className="min-w-0 rounded-3xl border border-[var(--landing-border)] bg-[var(--landing-white)] p-6 lg:flex-1 lg:p-9">
+          <article className="min-w-0 motion-safe:transition-transform motion-safe:duration-base motion-safe:ease-out motion-safe:hover:-translate-y-0.5 rounded-3xl border border-[var(--landing-border)] bg-[var(--landing-white)] p-6 lg:flex-1 lg:p-9">
             <h3 className="mb-4 text-[13px] font-bold uppercase tracking-[0.14em] text-[var(--landing-muted)]">Dossiê Pessoa Física</h3>
             {pfPrice !== undefined && (
               <div className="mb-6">
@@ -115,7 +115,7 @@ export function LandingDossiers({
               Quero o Dossiê PF
             </Link>
           </article>
-          <article className="relative min-w-0 rounded-3xl bg-[var(--landing-green)] p-6 text-white lg:flex-1 lg:p-9">
+          <article className="relative min-w-0 motion-safe:transition-transform motion-safe:duration-base motion-safe:ease-out motion-safe:hover:-translate-y-0.5 rounded-3xl bg-[var(--landing-green)] p-6 text-white lg:flex-1 lg:p-9">
             <span className="absolute -top-3.5 right-8 rounded-full bg-[var(--landing-yellow)] px-4 py-2 text-xs font-bold tracking-[0.08em] text-[var(--landing-green)]">
               CNPJ + SÓCIOS
             </span>

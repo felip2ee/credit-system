@@ -62,7 +62,7 @@ export function LandingHero({ href }: { href: string }) {
   return (
     <section className={`${SECTION_X} bg-[var(--landing-green)] pb-16 pt-10 text-white lg:pb-24`}>
       <div className={`${CONTAINER} flex flex-col gap-10 lg:flex-row lg:items-center lg:gap-14`}>
-        <div className="min-w-0 lg:flex-[1_1_520px]">
+        <div className="min-w-0 motion-safe:animate-fade-in lg:flex-[1_1_520px]">
           <p className={`${EYEBROW} mb-[18px]`}>Dossiê de crédito · CPF e CNPJ</p>
           <h1 className="lp-serif mb-6 break-words text-[36px] font-bold leading-[1.1] lg:text-[58px] lg:leading-[1.06]">
             Conheça o que está impedindo seu acesso ao crédito.{" "}
@@ -84,7 +84,7 @@ export function LandingHero({ href }: { href: string }) {
             QUERO CONHECER MEU DOSSIÊ
           </Link>
         </div>
-        <div className="min-w-0 lg:max-w-[460px] lg:flex-[1_1_380px]">
+        <div className="min-w-0 motion-safe:animate-slide-in-right lg:max-w-[460px] lg:flex-[1_1_380px]">
           <ReportPreview />
         </div>
       </div>
