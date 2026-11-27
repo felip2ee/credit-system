@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useForm, type FieldPath } from "react-hook-form";
+import { useForm, type FieldErrors, type FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 
@@ -10,6 +10,7 @@ import { openCounterOrderAction } from "@/actions/orders";
 import type { Buyer } from "@/components/dossiers/buyer-picker";
 import { isOwnResearch, missingThirdPartyEmail } from "@/components/dossiers/contact-rules";
 import { DossierHolderStep, type CounterOrderFormValues } from "@/components/dossiers/dossier-holder-step";
+import { useCnpjLookup } from "@/components/dossiers/use-cnpj-lookup";
 import { DossierPartnersStep } from "@/components/dossiers/dossier-partners-step";
 import { DossierProductStep, EMPRESARIAL_PRODUCT, type CatalogOption } from "@/components/dossiers/dossier-product-step";
 import { DossierReviewStep } from "@/components/dossiers/dossier-review-step";
@@ -17,8 +18,8 @@ import {
 	canLeaveStep,
 	dossierSteps,
 	hasTypedData,
-	isStepSettled,
-	STEP_CLICK_GUARD_MS,
+	ownResearchContacts,
+	stepForErrors,
 	type DossierFormState,
 	type DossierStepId,
 } from "@/components/dossiers/dossier-wizard-steps";
@@ -27,6 +28,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
+import { formatCurrency } from "@/lib/utils";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { counterOrderSchema } from "@/lib/validators/order";
 
@@ -74,8 +77,9 @@ export function DossierForm({ products }: DossierFormProps) {
 	const [reviewReady, setReviewReady] = useState(false);
 	const titleRef = useRef<HTMLHeadingElement>(null);
 	const shownStep = useRef(0);
-	const stepChangedAt = useRef(0);
 	const submitting = useRef(false);
+	// Depois de mandar o usuário a uma etapa com erro, o foco vai para o primeiro campo inválido dela.
+	const [focusInvalid, setFocusInvalid] = useState(false);
 
 	const form = useForm<CounterOrderFormValues>({
 		resolver: zodResolver(counterOrderSchema),
@@ -103,6 +107,7 @@ export function DossierForm({ products }: DossierFormProps) {
 	const steps = dossierSteps(productCode);
 	const current = steps[Math.min(stepIndex, steps.length - 1)];
 	const isLast = stepIndex >= steps.length - 1;
+	const lookup = useCnpjLookup(form, current.id === "holder");
 
 	const logicState = (): DossierFormState => {
 		const v = getValues();
@@ -122,7 +127,6 @@ export function DossierForm({ products }: DossierFormProps) {
 	useEffect(() => {
 		if (shownStep.current === stepIndex) return;
 		shownStep.current = stepIndex;
-		stepChangedAt.current = Date.now();
 		titleRef.current?.focus();
 	}, [stepIndex]);
 
@@ -135,6 +139,13 @@ export function DossierForm({ products }: DossierFormProps) {
 		const timer = setTimeout(() => setReviewReady(true), STEP_CLICK_GUARD_MS);
 		return () => clearTimeout(timer);
 	}, [onReview]);
+
+	// Pesquisa própria: o contato vem da conta do cliente. Limpar o que foi digitado antes mantém o formulário igual ao payload.
+	useEffect(() => {
+		if (!ownResearch) return;
+		setValue("contactEmail", "");
+		setValue("contactPhone", "");
+	}, [ownResearch, setValue]);
 
 	// Valida os campos da etapa. O schema aceita e-mail vazio; para terceiro a etapa exige o e-mail.
 	const validateStep = async (shouldFocus: boolean) => {
@@ -152,6 +163,29 @@ export function DossierForm({ products }: DossierFormProps) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [attempted, fieldsKey]);
 
+	useEffect(() => {
+		if (!focusInvalid) return;
+		setFocusInvalid(false);
+		void validateStep(true);
+		// Roda uma vez por envio recusado, já na etapa do erro.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [focusInvalid]);
+
+	// Nenhum envio falha em silêncio: volta à etapa do erro, revalida a cada digitação e foca o primeiro campo inválido.
+	const sendToStep = (id: DossierStepId) => {
+		const index = steps.findIndex((s) => s.id === id);
+		if (index < 0) return false;
+		setStepIndex(index);
+		setAttempted(true);
+		setFocusInvalid(true);
+		return true;
+	};
+
+	const onInvalid = (errors: FieldErrors<CounterOrderFormValues>) => {
+		const target = stepForErrors(errors);
+		if (!target || !sendToStep(target)) setServerError("Revise os dados do pedido e tente novamente.");
+	};
+
 	const requestExit = () => {
 		if (hasTypedData(logicState())) setLeaveOpen(true);
 		else router.push(EXIT_HREF);
@@ -164,6 +198,7 @@ export function DossierForm({ products }: DossierFormProps) {
 	};
 
 	const goNext = async () => {
+		if (lookup.pending) return;
 		if (!canLeaveStep(current.id, logicState())) {
 			setAttempted(true);
 			await validateStep(true);
@@ -190,11 +225,16 @@ export function DossierForm({ products }: DossierFormProps) {
 
 	const onSubmit = () => {
 		if (submitting.current) return;
+		if (missingThirdPartyEmail(ownResearch, String(getValues("contactEmail") ?? ""))) {
+			setError("contactEmail", { message: "Informe o e-mail do titular." });
+			sendToStep("holder");
+			return;
+		}
 		submitting.current = true;
 		setServerError(null);
 		startTransition(async () => {
 			const raw = getValues();
-			const payload = ownResearch ? { ...raw, contactEmail: "", contactPhone: "" } : raw;
+			const payload = { ...raw, ...ownResearchContacts(ownResearch, { contactEmail: String(raw.contactEmail ?? ""), contactPhone: String(raw.contactPhone ?? "") }) };
 			const res = await openCounterOrderAction({ ...payload, buyerProfileId: buyer?.profileId ?? null });
 			if (res.error || !res.id) {
 				submitting.current = false;
@@ -210,9 +250,9 @@ export function DossierForm({ products }: DossierFormProps) {
 	const onFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (!isLast) return goNext();
-		// Dinheiro: um clique que ainda faz parte do duplo clique da etapa anterior não abre o pedido.
-		if (!reviewReady || !isStepSettled(stepChangedAt.current, Date.now())) return;
-		return handleSubmit(onSubmit)(event);
+		// Dinheiro: o botão só habilita depois do tempo de guarda; Enter antes disso não abre o pedido.
+		if (!reviewReady) return;
+		return handleSubmit(onSubmit, onInvalid)(event);
 	};
 
 	if (products.length === 0) {
@@ -245,7 +285,7 @@ export function DossierForm({ products }: DossierFormProps) {
 					{current.id === "product" && (
 						<DossierProductStep products={products} value={productCode} onChange={requestProduct} buyer={buyer} onBuyerChange={setBuyer} />
 					)}
-					{current.id === "holder" && <DossierHolderStep form={form} isPf={productCode === PF_PRODUCT} ownResearch={ownResearch} />}
+					{current.id === "holder" && <DossierHolderStep form={form} isPf={productCode === PF_PRODUCT} ownResearch={ownResearch} lookup={lookup} />}
 					{current.id === "partners" && <DossierPartnersStep form={form} pricePerPartner={Number(product?.pricePerPartner ?? 0)} />}
 					{current.id === "review" && (
 						<DossierReviewStep
@@ -257,7 +297,6 @@ export function DossierForm({ products }: DossierFormProps) {
 							contactEmail={String(values.contactEmail ?? "")}
 							contactPhone={String(values.contactPhone ?? "")}
 							partnerCount={isEmpresarial ? partnerCount : 0}
-							total={total}
 							serverError={serverError}
 						/>
 					)}
@@ -266,8 +305,11 @@ export function DossierForm({ products }: DossierFormProps) {
 						{current.after}
 					</p>
 				</section>
+				<p className="text-base" aria-live="polite">
+					Total: <span className="font-bold">{formatCurrency(total)}</span>
+				</p>
 				{!isLast ? (
-					<Button key="next" type="submit" className="w-full" onClick={ignoreRepeatedClick}>
+					<Button key="next" type="submit" className="w-full" onClick={ignoreRepeatedClick} disabled={lookup.pending}>
 						Continuar
 					</Button>
 				) : (

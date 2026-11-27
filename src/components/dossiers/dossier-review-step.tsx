@@ -1,6 +1,5 @@
 import type { Buyer } from "@/components/dossiers/buyer-picker";
 import { maskDocument } from "@/components/admin/share-link";
-import { formatCurrency } from "@/lib/utils";
 
 interface DossierReviewStepProps {
 	productName: string;
@@ -12,7 +11,6 @@ interface DossierReviewStepProps {
 	contactPhone: string;
 	// Sócios que o servidor cobra (CPF completo e distinto).
 	partnerCount: number;
-	total: number;
 	serverError: string | null;
 }
 
@@ -25,7 +23,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 	);
 }
 
-// Etapa "Revisar e abrir pedido": resumo sem documento completo e o valor.
+// Etapa "Revisar e abrir pedido": resumo sem documento completo (o total fica no rodapé).
 export function DossierReviewStep({
 	productName,
 	buyer,
@@ -35,7 +33,6 @@ export function DossierReviewStep({
 	contactEmail,
 	contactPhone,
 	partnerCount,
-	total,
 	serverError,
 }: DossierReviewStepProps) {
 	const contact = ownResearch ? "Contato da conta do cliente" : [contactEmail.trim(), contactPhone.trim()].filter(Boolean).join(" · ");
@@ -49,9 +46,6 @@ export function DossierReviewStep({
 				<Row label="Contato">{contact}</Row>
 				{partnerCount > 0 && <Row label="Sócios">{partnerCount}</Row>}
 			</dl>
-			<p className="text-base" aria-live="polite">
-				Total: <span className="font-bold">{formatCurrency(total)}</span>
-			</p>
 			<div aria-live="polite">
 				{serverError && (
 					<p role="alert" className="text-sm font-bold text-destructive">

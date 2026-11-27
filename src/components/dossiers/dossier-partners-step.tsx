@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useFieldArray, type UseFormReturn } from "react-hook-form";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -22,6 +23,16 @@ export function DossierPartnersStep({ form, pricePerPartner }: DossierPartnersSt
 	} = form;
 	const { fields, append, remove } = useFieldArray({ control, name: "partners" });
 	const atLimit = fields.length >= MAX_PARTNERS;
+	const addRef = useRef<HTMLButtonElement>(null);
+	const [focusIndex, setFocusIndex] = useState<number | null>(null);
+
+	// O botão "Remover" some com a linha: o foco vai para a linha seguinte (ou a anterior) e, sem linhas, para "Adicionar sócio".
+	useEffect(() => {
+		if (focusIndex === null) return;
+		if (fields.length === 0) addRef.current?.focus();
+		else document.getElementById(`partner-doc-${Math.min(focusIndex, fields.length - 1)}`)?.focus();
+		setFocusIndex(null);
+	}, [focusIndex, fields.length]);
 
 	return (
 		<div className="space-y-4">
@@ -40,7 +51,10 @@ export function DossierPartnersStep({ form, pricePerPartner }: DossierPartnersSt
 					<Field id={`partner-email-${i}`} label={`E-mail do sócio ${i + 1}`} error={errors.partners?.[i]?.email?.message}>
 						{(a11y) => <Input {...a11y} type="email" autoComplete="off" {...register(`partners.${i}.email`)} />}
 					</Field>
-					<Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => remove(i)} aria-label={`Remover sócio ${i + 1}`}>
+					<Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => {
+						remove(i);
+						setFocusIndex(i);
+					}} aria-label={`Remover sócio ${i + 1}`}>
 						<Trash2 aria-hidden />
 						Remover
 					</Button>
@@ -52,6 +66,7 @@ export function DossierPartnersStep({ form, pricePerPartner }: DossierPartnersSt
 				</p>
 			)}
 			<Button
+				ref={addRef}
 				type="button"
 				variant="outline"
 				className="w-full sm:w-auto"

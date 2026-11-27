@@ -99,4 +99,23 @@ export function hasTypedData(state: DossierFormState): boolean {
 	);
 }
 
-export { STEP_CLICK_GUARD_MS, isStepSettled } from "@/lib/ui/step-guard";
+// O contato do pedido de pesquisa própria vem da conta do cliente: o que foi digitado antes é descartado.
+export function ownResearchContacts<T extends { contactEmail: string; contactPhone: string }>(ownResearch: boolean, contact: T): Pick<T, "contactEmail" | "contactPhone"> {
+	return ownResearch ? { contactEmail: "", contactPhone: "" } : { contactEmail: contact.contactEmail, contactPhone: contact.contactPhone };
+}
+
+interface ErrorKeys {
+	productCode?: unknown;
+	subject?: unknown;
+	contactEmail?: unknown;
+	contactPhone?: unknown;
+	partners?: unknown;
+}
+
+// Primeiro passo com erro, para devolver o usuário a ele se o envio final falhar na validação.
+export function stepForErrors(errors: ErrorKeys): DossierStepId | null {
+	if (errors.productCode) return "product";
+	if (errors.subject || errors.contactEmail || errors.contactPhone) return "holder";
+	if (errors.partners) return "partners";
+	return null;
+}

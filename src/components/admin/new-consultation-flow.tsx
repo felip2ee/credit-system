@@ -10,7 +10,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { StatusBanner } from "@/components/ui/status-banner";
-import { isStepSettled, STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
+import { STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
 import { formatCurrency } from "@/lib/utils";
 
 import { ClientStep, clientErrors, focusFirstInvalid, type ClientErrors, type ConsultationClient } from "./client-step";
@@ -67,7 +67,6 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
   const [isPending, startTransition] = useTransition();
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shownStep = useRef(0);
-  const stepChangedAt = useRef(0);
   const submitting = useRef(false);
 
   const options = products.filter((p) => p.code === PRODUCT_BY_TYPE[client.type]);
@@ -80,7 +79,6 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
   useEffect(() => {
     if (shownStep.current === step) return;
     shownStep.current = step;
-    stepChangedAt.current = Date.now();
     titleRef.current?.focus();
   }, [step]);
 
@@ -125,8 +123,8 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
 
   const open = () => {
     if (!product || submitting.current) return;
-    // Dinheiro: um clique que ainda faz parte do duplo clique do passo anterior não abre a consulta.
-    if (!confirmReady || !isStepSettled(stepChangedAt.current, Date.now())) return;
+    // Dinheiro: o botão só habilita depois do tempo de guarda.
+    if (!confirmReady) return;
     submitting.current = true;
     setError(null);
     startTransition(async () => {
@@ -177,7 +175,7 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
         step={{ current: step + 1, total: STEPS.length, label: current.label }}
       />
 
-      <section key={step} className="mx-auto w-full max-w-2xl space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20">
+      <section key={step} className="mx-auto w-full max-w-2xl space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20 [&_input]:scroll-mb-28 [&_button]:scroll-mb-28">
         <h2 ref={titleRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">
           <span className="sr-only">
             Passo {step + 1} de {STEPS.length}:{" "}

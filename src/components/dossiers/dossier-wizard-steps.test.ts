@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canLeaveStep, dossierSteps, hasTypedData, type DossierFormState } from "@/components/dossiers/dossier-wizard-steps";
+import { canLeaveStep, dossierSteps, hasTypedData, ownResearchContacts, stepForErrors, type DossierFormState } from "@/components/dossiers/dossier-wizard-steps";
 
 const VALID_CPF = "529.982.247-25";
 const VALID_CNPJ = "11.222.333/0001-81";
@@ -93,5 +93,32 @@ describe("hasTypedData", () => {
 		expect(hasTypedData(state({ contactPhone: "1" }))).toBe(true);
 		expect(hasTypedData(state({ partners: [partner] }))).toBe(true);
 		expect(hasTypedData(state({ hasBuyer: true }))).toBe(true);
+	});
+});
+
+describe("ownResearchContacts", () => {
+	const contact = { contactEmail: "abc", contactPhone: "11999999999" };
+
+	it("pesquisa própria zera e-mail e celular, como o servidor espera", () => {
+		expect(ownResearchContacts(true, contact)).toEqual({ contactEmail: "", contactPhone: "" });
+	});
+
+	it("terceiro mantém o contato digitado", () => {
+		expect(ownResearchContacts(false, contact)).toEqual(contact);
+	});
+});
+
+describe("stepForErrors", () => {
+	it("leva ao primeiro passo que tem erro, na ordem do assistente", () => {
+		expect(stepForErrors({ productCode: {}, subject: {} })).toBe("product");
+		expect(stepForErrors({ subject: {} })).toBe("holder");
+		expect(stepForErrors({ contactEmail: {} })).toBe("holder");
+		expect(stepForErrors({ contactPhone: {} })).toBe("holder");
+		expect(stepForErrors({ partners: {} })).toBe("partners");
+		expect(stepForErrors({ subject: {}, partners: {} })).toBe("holder");
+	});
+
+	it("sem erro conhecido devolve null", () => {
+		expect(stepForErrors({})).toBeNull();
 	});
 });
