@@ -8,6 +8,7 @@ export type StatusDomain =
 	| "member"
 	| "withdrawal"
 	| "commission"
+	| "asaasCommission"
 	| "walletEntry"
 	| "payment";
 
@@ -80,6 +81,17 @@ const TABLE: Record<StatusDomain, Record<string, Entry>> = {
 		pending: ["waiting", "A liberar", "A comissão ainda está no prazo de liberação."],
 		released: ["success", "Liberada", "A comissão está no seu saldo."],
 		reversed: ["neutral", "Desfeita", "A comissão foi desfeita."],
+	},
+	asaasCommission: {
+		pending: ["waiting", "Aguardando o Asaas", "O Asaas ainda não confirmou o repasse."],
+		done: ["success", "Pago na conta Asaas", "A comissão foi paga na sua conta Asaas."],
+		refused: ["attention", "Recusado pelo Asaas", "O Asaas não fez o repasse desta comissão."],
+		refunded: ["neutral", "Recarga estornada", "A recarga foi devolvida. A comissão foi desfeita."],
+		reversal_failed: [
+			"attention",
+			"Recarga estornada, reversão pendente",
+			"A recarga foi devolvida e o Asaas ainda não desfez o repasse.",
+		],
 	},
 	payment: {
 		paid: ["success", "Pago", "O pagamento foi recebido."],

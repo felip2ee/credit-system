@@ -1,4 +1,6 @@
-// Valor a repassar ao Bureau (M3b). Só leitura: os lançamentos nascem em capture_order (015_client_wallet_settlement.sql).
+// Valor a repassar ao Bureau (M3b). Só leitura. Os acréscimos nascem de duas formas: no pedido reservado antes da 077, em
+// capture_order (order_ref); depois dela, na confirmação do pagamento, pelo split da entrada de dinheiro (pix_charge_id, sem
+// order_ref; record_cash_in_commission, 074). Estorno e cupom seguem como antes.
 // Os valores têm sinal: acréscimo (+), estorno (−) e repasse pago (−). O saldo é a soma. Sem view: soma direta.
 // A RLS deixa o operator ler a tabela; quem barra o operator é a permissão payout:read na Server Action.
 import type { PoolClient } from "pg";
@@ -9,7 +11,9 @@ export type PayableEntry = {
 	id: string;
 	kind: "accrual" | "reversal" | "payout" | "coupon_cost" | "coupon_refund";
 	amount: string;
+	// Acréscimo antigo: o pedido. Acréscimo da entrada de dinheiro: nulo (veja pixChargeId).
 	orderRef: string | null;
+	pixChargeId: string | null;
 	createdAt: Date;
 };
 
@@ -97,6 +101,7 @@ type EntryRow = {
 	kind: PayableEntry["kind"];
 	amount: string;
 	order_ref: string | null;
+	pix_charge_id: string | null;
 	created_at: Date;
 	created_at_utc: string;
 };
@@ -115,7 +120,7 @@ export async function listPayableEntries(
 	const limit = Math.min(Math.max(Math.trunc(requested), 1), MAX_LIMIT);
 
 	const { rows } = await client.query<EntryRow>(
-		`select id, kind, amount, order_ref, created_at,
+		`select id, kind, amount, order_ref, pix_charge_id, created_at,
 		        to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as created_at_utc
 		   from bureau_payable_entries
 		  where bureau_id = $1
@@ -127,7 +132,14 @@ export async function listPayableEntries(
 	const page = rows.slice(0, limit);
 	const last = page[page.length - 1];
 	return {
-		rows: page.map((r) => ({ id: r.id, kind: r.kind, amount: r.amount, orderRef: r.order_ref, createdAt: r.created_at })),
+		rows: page.map((r) => ({
+			id: r.id,
+			kind: r.kind,
+			amount: r.amount,
+			orderRef: r.order_ref,
+			pixChargeId: r.pix_charge_id,
+			createdAt: r.created_at,
+		})),
 		nextCursor: rows.length > limit ? `${last.created_at_utc}_${last.id}` : null,
 	};
 }

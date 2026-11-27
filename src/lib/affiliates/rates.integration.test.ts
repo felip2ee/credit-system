@@ -28,7 +28,7 @@ vi.mock("next/headers", () => ({
 
 import { pool } from "@/lib/db/pool";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedClientProfile, seedSuperadmin, seedTenant, type SeededTenant, type SeedIdentity, type SeedSuperadmin } from "@/test/seed";
+import { seedClientProfile, seedPixCharge, seedSuperadmin, seedTenant, type SeededTenant, type SeedIdentity, type SeedSuperadmin } from "@/test/seed";
 
 import { affiliateLink, getBureauDefaultPct, listBureauAffiliates, setBureauDefaultPct } from "./rates";
 
@@ -153,9 +153,33 @@ describe("listBureauAffiliates", () => {
 		);
 		const list = await listBureauAffiliates(A.bureauAdmin);
 		const mine = list.find((a) => a.profileId === A.client.userId);
-		expect(mine).toMatchObject({ referrals: 1, totalCommission: "4.00" });
+		expect(mine).toMatchObject({ referrals: 1, totalCommission: "4.00", payoutMethod: "pix", walletIdMasked: null });
 		expect(mine?.name).toBeTruthy();
 		expect(list.find((a) => a.profileId === second.userId)).toMatchObject({ referrals: 0, totalCommission: "0.00" });
 		expect(list.every((a) => a.profileId !== B.client.userId)).toBe(true);
+	});
+
+	it("adds commissions paid by Asaas split (pending/done) to the total, in cents; refused/refunded stay out", async () => {
+		const T = await seedTenant(owner, "Rates Asaas total");
+		const referred = await seedClientProfile(owner, T.bureau.id);
+		const splitRow = async (cents: number, status: string) => {
+			const c = await seedPixCharge(owner, { bureauId: T.bureau.id, requestedBy: referred.userId, amount: "100.00", status: "paid", clientProfileId: referred.userId });
+			await owner.query(
+				`insert into charge_splits (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, asaas_wallet_id, pct, amount_cents, status)
+				 values ($1, $2, 'affiliate', $3, 'asaas', 'wallet-x', 10, $4, $5)`,
+				[c.id, T.bureau.id, T.client.userId, cents, status],
+			);
+		};
+		await owner.query(
+			`insert into affiliate_commissions (order_ref, bureau_id, affiliate_profile_id, referred_profile_id, pct, margin, amount, release_at)
+			 values ($1, $2, $3, $4, 10, 50, 5, now())`,
+			[randomUUID(), T.bureau.id, T.client.userId, referred.userId],
+		);
+		await splitRow(1000, "done");
+		await splitRow(333, "pending");
+		await splitRow(700, "refused");
+		await splitRow(900, "refunded");
+		const mine = (await listBureauAffiliates(T.bureauAdmin)).find((a) => a.profileId === T.client.userId);
+		expect(mine?.totalCommission).toBe("18.33");
 	});
 });

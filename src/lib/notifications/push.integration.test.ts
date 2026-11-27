@@ -35,9 +35,8 @@ import { TEST_DATABASE_DISPATCH_URL, TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL 
 import {
 	seedClientProfile,
 	seedClientWalletTopup,
-	seedOrderCatalog,
+	seedLegacyOnlineOrder,
 	seedOrderDossier,
-	seedOrderDossierForSession,
 	seedTenant,
 	type SeedIdentity,
 	type SeededTenant,
@@ -391,14 +390,17 @@ describe("evento 2: consulta pronta", () => {
 
 type SettleRow = { ok: boolean; reason: string | null; status: string | null };
 
-async function reserveOrder(c: PoolClient, o: { orderRef: string; clientId: string; price: string; cost: string }) {
-	await seedOrderDossierForSession(owner, c, { orderRef: o.orderRef, clientProfileId: o.clientId });
-	const quote = await seedOrderCatalog(owner, c, { ...o, productCode: "dossie_pf" });
-	return c
-		.query<SettleRow>("select * from reserve_order($1, 'online', $2, $3, $4, $5::jsonb)", [
-			o.orderRef, o.clientId, o.price, o.cost, JSON.stringify(quote),
-		])
-		.then((r) => r.rows[0]);
+// Só o pedido reservado antes da 077 gera comissão do afiliado na captura (o push da comissão nasce dela): grava a reserva
+// no formato antigo (Bureau 40%, custo 600,00 sobre 1000,00). Devolve o mesmo formato de reserve_order.
+async function reserveOrder(_c: PoolClient, o: { orderRef: string; clientId: string; price: string; cost: string }) {
+	await seedLegacyOnlineOrder(owner, {
+		bureauId: (await owner.query<{ bureau_id: string }>("select bureau_id from profiles where id = $1", [o.clientId])).rows[0].bureau_id,
+		clientProfileId: o.clientId,
+		price: o.price,
+		commissionPct: "40",
+		orderRef: o.orderRef,
+	});
+	return { ok: true, reason: null, status: "reserved" } as SettleRow;
 }
 const captureOrder = (c: PoolClient, ref: string) =>
 	c.query<SettleRow>("select * from capture_order($1)", [ref]).then((r) => r.rows[0]);

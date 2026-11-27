@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { AccountMenu } from "@/components/portal/account-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getClientAccountStatus } from "@/lib/account/queries";
+import { isAffiliateSectionOpen } from "@/lib/affiliates/enabled";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
@@ -23,7 +24,7 @@ export default async function ClientProfilePage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Conta" description="Seus dados, telefone, avisos e segurança" />
-      <AccountMenu showAffiliates={hasPermission(session, "affiliates:read")} />
+      <AccountMenu showAffiliates={await isAffiliateSectionOpen(session)} />
       <Card>
         <CardHeader>
           <CardTitle>Dados da conta</CardTitle>

@@ -114,6 +114,66 @@ async function withTempDatabase(fn) {
 	}
 }
 
+// Fotografia das funções do schema public: definição, dono e grants. O mesmo conjunto em banco novo e em banco já migrado.
+async function functionSnapshot(url) {
+	const client = new pg.Client({ connectionString: url });
+	await client.connect();
+	try {
+		const { rows } = await client.query(`
+			select p.oid::regprocedure::text as signature, pg_get_functiondef(p.oid) as def,
+			       p.proowner::regrole::text as owner, coalesce(p.proacl::text, '') as acl
+			  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+			 where n.nspname = 'public' and p.prokind = 'f'
+			 order by 1`);
+		return rows;
+	} finally {
+		await client.end();
+	}
+}
+
+function migrateUpTo(url, directory) {
+	return new Promise((resolveRun, reject) => {
+		const child = spawn(process.execPath, ["scripts/db/migrate.mjs"], {
+			env: { PATH: process.env.PATH, DATABASE_OWNER_URL: url, MIGRATIONS_DIR: directory },
+		});
+		let stderr = "";
+		child.stderr.on("data", (chunk) => (stderr += chunk));
+		child.on("close", (code) => (code === 0 ? resolveRun() : reject(new Error(`migrate exited ${code}: ${stderr}`))));
+	});
+}
+
+test("apply_asaas_payment (087) is the same on a fresh database and on one migrated to 069 first", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "credit-system-upto-069-"));
+	try {
+		const all = await loadMigrations();
+		for (const { version, sql } of all.filter(({ version }) => version.slice(0, 3) <= "069")) {
+			await writeFile(join(directory, version), sql);
+		}
+		let fresh;
+		await withTempDatabase(async (freshUrl) => {
+			await migrate(freshUrl);
+			fresh = await functionSnapshot(freshUrl);
+		});
+		await withTempDatabase(async (stagedUrl) => {
+			await migrateUpTo(stagedUrl, directory);
+			await migrate(stagedUrl);
+			const staged = await functionSnapshot(stagedUrl);
+			assert.deepEqual(staged, fresh);
+			const fn = staged.find((f) => f.signature.startsWith("apply_asaas_payment("));
+			assert.ok(fn, "apply_asaas_payment not found");
+			// Os dois corpos juntos: Pix de pedido (065-067) e cash-in, split e reversão (075-082).
+			for (const part of ["apply_order_pix_charge", "cancel_order_after_pix_refund", "record_cash_in_commission", "reverse_cash_in_commission", "apply_payment_link_charge"]) {
+				assert.match(fn.def, new RegExp(part));
+			}
+			assert.match(fn.def, /v_result in \('order_paid', 'order_reserve_failed', 'order_not_payable'\)/);
+			assert.equal(fn.owner, "auth_profile_lookup");
+			assert.equal(fn.acl, "{auth_profile_lookup=X/auth_profile_lookup,app_webhook=X/auth_profile_lookup}");
+		});
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("--check exits 0 when current", async () => {
 	await withTempDatabase(async (ownerUrl) => {
 		await migrate(ownerUrl);

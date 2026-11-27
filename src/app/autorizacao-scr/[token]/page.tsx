@@ -35,7 +35,7 @@ export default async function ScrAuthorizationPage({
       <div className="space-y-6">
         <h1 className="text-center font-bold">Autorização de consulta SCR</h1>
         <Card>
-          <CardContent className="space-y-4 pt-4 leading-relaxed">
+          <CardContent className="space-y-4 break-words pt-4 leading-relaxed">
             {paragraphs.map((p, i) => (
               <p key={i}>{p}</p>
             ))}

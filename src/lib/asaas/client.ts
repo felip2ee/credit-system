@@ -17,7 +17,9 @@
 // - o filtro `installment` de GET /v3/invoices (usado contra a nota duplicada do parcelamento) e o corpo de
 //   GET /v3/customers/{id} para um cliente apagado (tratamos 404 e deleted=true como "não existe");
 // - a ordem da lista de clientes (ordenamos por dateCreated) e se a lista já exclui apagados (filtramos deleted);
-// - se HTTP 400 no cartão é só recusa (dados inválidos também dariam 400; tratamos todo 400 como recusa);
+// - se HTTP 400 no cartão é só recusa (dados inválidos também dariam 400; tratamos como recusa todo 400 que não seja
+//   do split, veja isSplitRejection);
+// - o código e a descrição do 400 quando o walletId do split não existe;
 // - como o Asaas arredonda a parcela e onde põe o resto; o formato do webhook de parcelamento;
 // - se a conta está habilitada para cartão pela API e se notificationDisabled evita e-mail ao pagador;
 // - se a nota por `installment` é aceita pela prefeitura.
@@ -35,6 +37,7 @@ import { z } from "zod";
 
 import type {
 	AsaasClient,
+	AsaasSplitItem,
 	AsaasCustomerInput,
 	CardChargeInput,
 	CardChargeResult,
@@ -50,6 +53,16 @@ export const ASAAS_WEBHOOK_TOKEN_HEADER = "asaas-access-token";
 export const ASAAS_EVENT_PAYMENT_RECEIVED = "PAYMENT_RECEIVED";
 export const ASAAS_EVENT_PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED";
 export const ASAAS_EVENT_PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
+// Split (docs.asaas.com, webhook de cobranças, conferido em 2026-11-26): não existe PAYMENT_SPLIT_REFUSED. A recusa chega
+// em payment.split[].status (REFUSED ou CANCELLED); o `id` do item é o splitId. Estorno e chargeback devolvem o repasse
+// (status REFUNDED do item). Não conferido: qual evento traz o item REFUSED (prova real: item (post-deploy)).
+export const ASAAS_EVENT_PAYMENT_SPLIT_DONE = "PAYMENT_SPLIT_DONE";
+export const ASAAS_EVENT_PAYMENT_SPLIT_CANCELLED = "PAYMENT_SPLIT_CANCELLED";
+export const ASAAS_EVENT_PAYMENT_SPLIT_DIVERGENCE_BLOCK = "PAYMENT_SPLIT_DIVERGENCE_BLOCK";
+export const ASAAS_EVENT_PAYMENT_SPLIT_DIVERGENCE_BLOCK_FINISHED = "PAYMENT_SPLIT_DIVERGENCE_BLOCK_FINISHED";
+export const ASAAS_EVENT_PAYMENT_CHARGEBACK_REQUESTED = "PAYMENT_CHARGEBACK_REQUESTED";
+export const ASAAS_EVENT_PAYMENT_CHARGEBACK_DISPUTE = "PAYMENT_CHARGEBACK_DISPUTE";
+export const ASAAS_EVENT_PAYMENT_AWAITING_CHARGEBACK_REVERSAL = "PAYMENT_AWAITING_CHARGEBACK_REVERSAL";
 export const ASAAS_INVOICE_EVENT_PREFIX = "INVOICE_";
 export const ASAAS_EVENT_INVOICE_AUTHORIZED = "INVOICE_AUTHORIZED";
 export const ASAAS_EVENT_INVOICE_ERROR = "INVOICE_ERROR";
@@ -85,7 +98,36 @@ export class AsaasHttpError extends Error {
 	}
 }
 
+// HTTP 400 por causa do split (walletId desconhecido ou da própria conta, split desligado): a cobrança não foi criada.
+export class AsaasSplitRejectedError extends AsaasHttpError {
+	constructor(label: string) {
+		super(400, label);
+		this.name = "AsaasSplitRejectedError";
+	}
+}
+
 export type AsaasClientSettings = { apiKey: string; baseUrl: string };
+
+// Os códigos de erro do split não são documentados (docs.asaas.com, 2026-11-26: corpo { errors: [{ code, description }] };
+// só `invalid_action` para split desligado). Por isso: TODOS os erros precisam citar split, walletId ou carteira, e nenhum
+// pode ser do cartão. Na dúvida, o 400 segue como antes. Prova real: item (post-deploy).
+const splitErrorSchema = z.object({
+	errors: z.array(z.object({ code: z.string().nullish(), description: z.string().nullish() })).min(1),
+});
+const SPLIT_TERMS = /split|wallet|carteira/i;
+const CARD_CODE = /card/i;
+
+function isSplitRejection(body: unknown): boolean {
+	const parsed = splitErrorSchema.safeParse(body);
+	return (
+		parsed.success &&
+		parsed.data.errors.every(
+			({ code, description }) => !CARD_CODE.test(code ?? "") && SPLIT_TERMS.test(`${code ?? ""} ${description ?? ""}`),
+		)
+	);
+}
+
+const sentSplit = (body: unknown): boolean => typeof body === "object" && body !== null && "split" in body;
 
 const paymentSchema = z.object({ id: z.string().min(1) });
 const invoiceSchema = z.object({ id: z.string().min(1) });
@@ -123,6 +165,9 @@ const qrSchema = z.object({ encodedImage: z.string().min(1), payload: z.string()
 // Centavos inteiros para reais com 2 casas, sem acumular erro de ponto flutuante.
 const centsToReais = (cents: number): number => Number((cents / 100).toFixed(2));
 
+// Sem split (ausente ou vazio) o corpo fica como era.
+const splitField = (split?: AsaasSplitItem[]) => (split?.length ? { split } : {});
+
 function todayInSaoPaulo(): string {
 	return new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
@@ -152,6 +197,10 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 		// 408 e 429 são transitórios: tratados como 5xx (resultado desconhecido, tentável de novo), não como erro definitivo.
 		if (response.status >= 500 || response.status === 408 || response.status === 429)
 			throw new AsaasOutcomeUnknownError(`Asaas respondeu ${response.status} em ${label}`);
+		// O corpo do 400 só é lido para classificar: não vai para erro nem log.
+		if (response.status === 400 && sentSplit(body) && isSplitRejection(await response.json().catch(() => null))) {
+			throw new AsaasSplitRejectedError(label);
+		}
 		if (!response.ok) throw new AsaasHttpError(response.status, label);
 		const parsed = schema.safeParse(await response.json().catch(() => null));
 		if (!parsed.success) throw new AsaasOutcomeUnknownError(`Resposta inválida do Asaas em ${label}`);
@@ -185,6 +234,7 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 				dueDate: todayInSaoPaulo(),
 				externalReference: input.externalReference,
 				description: input.description,
+				...splitField(input.split),
 			});
 			const qr = await call(
 				"GET",
@@ -278,9 +328,13 @@ export function createAsaasClient(settings: AsaasClientSettings, fetchImpl: type
 					creditCard: input.card,
 					creditCardHolderInfo: input.holder,
 					remoteIp: input.remoteIp,
+					...splitField(input.split),
 				});
 			} catch (error) {
-				if (error instanceof AsaasHttpError && error.status === 400) throw new CardDeclinedError();
+				// Erro do split não é recusa do cartão: sobe como está, para quem chama tentar sem split.
+				if (error instanceof AsaasHttpError && error.status === 400 && !(error instanceof AsaasSplitRejectedError)) {
+					throw new CardDeclinedError();
+				}
 				throw error;
 			}
 			const returnedLast4 = payment.creditCard?.creditCardNumber ?? "";

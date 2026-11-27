@@ -417,7 +417,7 @@ describe("order PIX webhook", () => {
 		expect(result).toMatchObject({ ok: true, status: "released", clawedBack: true });
 	});
 
-	it("affiliate commission on capture is unchanged", async () => {
+	it("capture of an online order creates no affiliate commission (077), by balance or by PIX", async () => {
 		// Dois Bureaus iguais com indicado e afiliado: um paga com saldo, o outro por PIX.
 		async function paired(label: string, viaPix: boolean) {
 			const t = await newTenant(label);
@@ -445,18 +445,15 @@ describe("order PIX webhook", () => {
 				dossierId = placed.dossierId;
 			}
 			expect(await withUserTransaction(t.bureauAdmin, (c) => captureOrder(c, dossierId))).toMatchObject({ ok: true, status: "captured" });
-			return (
-				await owner.query<{ pct: string; margin: string; amount: string; status: string }>(
-					"select pct, margin, amount, status from affiliate_commissions where order_ref = $1",
-					[dossierId],
-				)
-			).rows;
+			return (await owner.query("select 1 from affiliate_commissions where order_ref = $1", [dossierId])).rows;
 		}
 
 		const byBalance = await paired("opw aff balance", false);
 		const byPix = await paired("opw aff pix", true);
 
-		expect(byBalance).toHaveLength(1);
-		expect(byPix).toEqual(byBalance);
+		// 077: o pedido online reservado depois dela não gera comissão na captura. A do PIX do pedido nasce na entrada
+		// (087, order-pix-cash-in.integration.test.ts); aqui a cobrança é gravada sem plano de split.
+		expect(byBalance).toEqual([]);
+		expect(byPix).toEqual([]);
 	});
 });

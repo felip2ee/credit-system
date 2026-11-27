@@ -11,6 +11,7 @@ const SECTIONS = [
   { href: "/superadmin/settings/prompts", title: "Prompts da IA", description: "System prompts dos analisadores de crédito" },
   { href: "/superadmin/settings/repasses", title: "Prazo dos repasses", description: "Quantos dias o valor a receber fica retido antes do repasse" },
   { href: "/superadmin/settings/scr", title: "Termo SCR", description: "Termo de consentimento da autogestão de SCR" },
+  { href: "/superadmin/settings/socios", title: "Sócios", description: "walletId e % de cada sócio no split de toda cobrança" },
 ];
 
 export default function SuperadminSettingsPage() {

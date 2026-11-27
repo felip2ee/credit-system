@@ -990,7 +990,7 @@ describe("total por número de sócios (Dossiê Empresarial)", () => {
 		const id = await placeOnline(t, companyWith([partner(), partner()]));
 		expect(await clientWallet(t)).toEqual({ available: "840.00", reserved: "160.00" });
 		const [settlement] = await rows("select price, cost from order_settlements where order_ref = $1", [id]);
-		expect(settlement).toEqual({ price: "160.00", cost: "96.00" });
+		expect(settlement).toEqual({ price: "160.00", cost: "0.00" });
 		const [stored] = await rows<{ quote: { lines: { part: string; quantity: number; priceCents: number }[] } }>(
 			"select quote from order_settlements where order_ref = $1",
 			[id],

@@ -269,13 +269,13 @@ const ZERO: TickResult = {
 };
 
 describe("runOrdersTick", () => {
-	it("online order end to end debits P from the client and accrues P minus C", async () => {
+	it("online order end to end debits P from the client and accrues nothing at capture (commission comes from the cash-in split)", async () => {
 		const t = await newTenant("tick e2e");
 		const id = await place(buyerOf(t), t, thirdInput());
 		// Sem nenhuma opção de IA no pedido: o parecer entra pendente e o tick o gera.
 		expect((await orderOf(id)).ai_status).toBe("pending");
 		const [settlement] = await rows("select price::text, cost::text from order_settlements where order_ref = $1", [id]);
-		expect(settlement).toEqual({ price: "50.00", cost: "1.00" });
+		expect(settlement).toEqual({ price: "50.00", cost: "0.00" });
 		expect(await clientWallet(t)).toEqual({ available: "150.00", reserved: "50.00" });
 
 		// Tick 1: emite o pedido de autorização SCR por e-mail.
@@ -297,9 +297,7 @@ describe("runOrdersTick", () => {
 		expect(await orderOf(id)).toEqual({ state: "released", state_reason: null, ai_status: "done" });
 		expect(await clientWallet(t)).toEqual({ available: "150.00", reserved: "0.00" });
 		expect(await bureauWallet(t)).toEqual({ available: "200.00", reserved: "0.00" });
-		expect(await rows("select kind, amount::text from bureau_payable_entries where bureau_id = $1", [t.bureau.id])).toEqual([
-			{ kind: "accrual", amount: "49.00" },
-		]);
+		expect(await rows("select kind, amount::text from bureau_payable_entries where bureau_id = $1", [t.bureau.id])).toEqual([]);
 		expect(await rows("select channel, status from notifications where reference = $1", [`order:${id}`])).toEqual([
 			{ channel: "email", status: "pending" },
 		]);

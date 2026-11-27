@@ -7,6 +7,8 @@ import type { PoolClient } from "pg";
 import { AsaasOutcomeUnknownError, CardDeclinedError, getAsaasClient } from "@/lib/asaas";
 import { toCents } from "@/lib/catalog/money";
 import { readCardFeeConfig, readPiiKeyring, readPixFeeConfig, type PiiKeyring } from "@/lib/config";
+import { SplitOver100Error } from "@/lib/commission/queries";
+import { buildSplitPlan, markSplitRefused, type SplitPlan } from "@/lib/commission/split-plan";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { maskPayerDocument } from "@/lib/mask-document";
 import { isNfseConfigured } from "@/lib/nfse/invoice";
@@ -14,6 +16,7 @@ import { PiiDecryptError } from "@/lib/pii/crypto";
 import { claimAsaasCustomer, clearAsaasCustomer, markPayerSynced } from "@/lib/payers/queries";
 import { asaasPhone, isDefiniteAsaasRejection, resolveAsaasCustomer } from "@/lib/payers/resolve";
 import { BlockedError, otherPayer, ownerPayer, type PayerSource } from "./payer-source";
+import { createWithSplitFallback } from "./split-fallback";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { getClientWallet } from "@/lib/wallet/client-queries";
 import { CardFeeError, computeCardCharge } from "@/lib/wallet/card-fees";
@@ -173,7 +176,9 @@ async function enforceLimits(
 	if (pending > MAX_PENDING_PIX_CHARGES) throw new BlockedError(TOO_MANY_PENDING);
 }
 
-type Reserved = { chargeId: string; expiresAt: Date; reused: boolean; source: PayerSource };
+// split: o plano gravado na criação (charge_splits pending); vazio na cobrança reusada (já foi enviado ao Asaas).
+const NO_SPLIT: SplitPlan = { asaasSplit: [], asaasSplitWithoutAffiliate: [], pixLines: [], accrualLines: [] };
+type Reserved = { chargeId: string; expiresAt: Date; reused: boolean; source: PayerSource; split: SplitPlan };
 
 async function reserve(
 	session: DbIdentity,
@@ -207,8 +212,11 @@ async function reserve(
 			requestIp: plan ? remoteIp || null : null,
 		});
 		if (!reserved.ok) throw new BlockedError(reserved.reason === "invalid_amount" ? BAD_AMOUNT : REFERENCE_TAKEN);
-		if (!reserved.reused) await enforceLimits(client, session, scope, input.method, remoteIp);
-		return { chargeId: reserved.id, expiresAt: reserved.expiresAt, reused: reserved.reused, source };
+		if (reserved.reused) return { chargeId: reserved.id, expiresAt: reserved.expiresAt, reused: true, source, split: NO_SPLIT };
+		await enforceLimits(client, session, scope, input.method, remoteIp);
+		// Plano de split na mesma transação da reserva: soma acima de 100% lança SplitOver100Error e desfaz a linha.
+		const split = await buildSplitPlan(client, reserved.id);
+		return { chargeId: reserved.id, expiresAt: reserved.expiresAt, reused: false, source, split };
 	});
 }
 
@@ -288,6 +296,12 @@ async function recoverGoneCustomer(
 	}
 }
 
+// Cria a cobrança no Asaas; se ele recusar o split, tenta sem o afiliado e, no fim, sem split.
+const chargeWithSplit = <T>(session: DbIdentity, reserved: Reserved, create: (split: SplitPlan["asaasSplit"]) => Promise<T>) =>
+	createWithSplitFallback(reserved.chargeId, reserved.split, create, (refusal) =>
+		withUserTransaction(session, (client) => markSplitRefused(client, reserved.chargeId, refusal)),
+	);
+
 // Cobrança criada no Asaas e não ligada à linha: o webhook a acha pela referência externa. Só ids, para a conciliação.
 function logUnbound(chargeId: string, asaasPaymentId: string, externalReference: string): void {
 	console.error("[checkout] COBRANÇA sem ligação no banco: o webhook a acha pela referência externa", {
@@ -343,13 +357,16 @@ async function createPix(
 ): Promise<CheckoutResult> {
 	let charge;
 	try {
-		charge = await getAsaasClient().createPixCharge({
-			customerId,
-			// O Asaas cobra recarga + taxa; o saldo só sobe pela recarga (pix_charges.amount).
-			amount: centsToReais(pix.totalCents),
-			externalReference: input.idempotencyKey,
-			description: meta.description,
-		});
+		charge = await chargeWithSplit(session, reserved, (split) =>
+			getAsaasClient().createPixCharge({
+				customerId,
+				// O Asaas cobra recarga + taxa; o saldo só sobe pela recarga (pix_charges.amount).
+				amount: centsToReais(pix.totalCents),
+				externalReference: input.idempotencyKey,
+				description: meta.description,
+				split,
+			}),
+		);
 	} catch (error) {
 		logFailure("asaas", error);
 		const recovery = retried ? null : await recoverGoneCustomer(session, reserved, customerId, error);
@@ -398,34 +415,38 @@ async function createCard(
 	const { payer } = reserved.source;
 	const { card } = input;
 	const phone = asaasPhone(payer.phone);
-	if (!card || !phone || !payer.postalCode || !payer.addressNumber) throw new BlockedError(MISSING_FIELDS);
+	const { postalCode, addressNumber } = payer;
+	if (!card || !phone || !postalCode || !addressNumber) throw new BlockedError(MISSING_FIELDS);
 
 	let charge;
 	try {
-		charge = await getAsaasClient().createCardCharge({
-			customerId,
-			externalReference: input.idempotencyKey,
-			description: meta.description,
-			totalCents: plan.totalCents,
-			installments: input.installments ?? 1,
-			installmentCents: plan.installmentCents[0],
-			card: {
-				holderName: card.holderName,
-				number: card.number,
-				expiryMonth: card.expiryMonth,
-				expiryYear: card.expiryYear,
-				ccv: card.cvv,
-			},
-			holder: {
-				name: payer.name,
-				email: payer.email,
-				cpfCnpj: payer.cpfCnpj,
-				postalCode: payer.postalCode,
-				addressNumber: payer.addressNumber,
-				phone,
-			},
-			remoteIp: meta.remoteIp,
-		});
+		charge = await chargeWithSplit(session, reserved, (split) =>
+			getAsaasClient().createCardCharge({
+				customerId,
+				externalReference: input.idempotencyKey,
+				description: meta.description,
+				totalCents: plan.totalCents,
+				installments: input.installments ?? 1,
+				installmentCents: plan.installmentCents[0],
+				card: {
+					holderName: card.holderName,
+					number: card.number,
+					expiryMonth: card.expiryMonth,
+					expiryYear: card.expiryYear,
+					ccv: card.cvv,
+				},
+				holder: {
+					name: payer.name,
+					email: payer.email,
+					cpfCnpj: payer.cpfCnpj,
+					postalCode,
+					addressNumber,
+					phone,
+				},
+				remoteIp: meta.remoteIp,
+				split,
+			}),
+		);
 	} catch (error) {
 		logFailure("asaas", error);
 		// Cliente apagado no Asaas também volta como 400: confere antes de chamar de recusa do cartão.
@@ -499,6 +520,11 @@ export async function runCheckout(
 			: await createPix(session, scope, input, reserved, summaryOf(input, charged), customerId, meta);
 	} catch (error) {
 		if (error instanceof BlockedError) return { error: error.message };
+		// Camadas do split passam de 100%: a cobrança não nasce (a transação da reserva desfez a linha).
+		if (error instanceof SplitOver100Error) {
+			logFailure("split acima de 100%", error);
+			return { error: UNAVAILABLE };
+		}
 		if (error instanceof PiiDecryptError) {
 			logFailure("pii", error);
 			return { error: UNAVAILABLE };
