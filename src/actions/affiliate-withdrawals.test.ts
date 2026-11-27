@@ -11,6 +11,7 @@ const s = vi.hoisted(() => ({
 	store: vi.fn(),
 	discard: vi.fn(),
 	withdrawalsEnabled: vi.fn(),
+	affiliateEnabled: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -22,6 +23,7 @@ vi.mock("@/lib/auth/session", () => ({
 	getRequiredSession: s.session,
 	SessionAccessError: class SessionAccessError extends Error {},
 }));
+vi.mock("@/lib/affiliates/enabled", () => ({ isAffiliateEnabled: s.affiliateEnabled }));
 vi.mock("@/lib/affiliates/withdrawals", () => ({
 	requestWithdrawal: s.requestWithdrawal,
 	convertCommission: s.convertCommission,
@@ -69,6 +71,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	s.withdrawalsEnabled.mockReturnValue(true);
 	s.session.mockResolvedValue(client);
+	s.affiliateEnabled.mockResolvedValue(true);
 	s.requestWithdrawal.mockResolvedValue({ ok: true, withdrawalId });
 	s.convertCommission.mockResolvedValue({ ok: true });
 	s.markWithdrawalPaid.mockResolvedValue({ ok: true, replayed: false });
@@ -94,6 +97,15 @@ describe("requestWithdrawalAction", () => {
 		expect(result).toEqual({ error: "O saque ainda não está disponível." });
 		expect(s.session).not.toHaveBeenCalled();
 		expect(s.requestWithdrawal).not.toHaveBeenCalled();
+	});
+
+	it("refuses withdrawal and conversion while the bureau has the affiliate section off", async () => {
+		s.affiliateEnabled.mockResolvedValue(false);
+
+		expect(await requestWithdrawalAction(valid)).toEqual({ error: "A afiliação não está disponível neste momento." });
+		expect(await convertCommissionAction({ amount: "10.00" })).toEqual({ error: "A afiliação não está disponível neste momento." });
+		expect(s.requestWithdrawal).not.toHaveBeenCalled();
+		expect(s.convertCommission).not.toHaveBeenCalled();
 	});
 
 	it("keeps conversion working while withdrawals are disabled", async () => {

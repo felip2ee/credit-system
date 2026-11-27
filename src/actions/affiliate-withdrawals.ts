@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { isAffiliateEnabled } from "@/lib/affiliates/enabled";
 import {
 	cancelWithdrawal,
 	convertCommission,
@@ -38,6 +39,7 @@ const SUPPORT_ACTIVE = "Encerre a sessão de suporte para gerenciar saques.";
 const SESSION_CHECK_FAILED = "Não foi possível verificar sua sessão. Tente novamente.";
 const RECEIPT_REQUIRED = "Anexe o comprovante do pagamento.";
 const WITHDRAWALS_DISABLED = "O saque ainda não está disponível.";
+const AFFILIATE_DISABLED = "A afiliação não está disponível neste momento.";
 const GENERIC_FAILURE = "Não foi possível concluir a operação.";
 const MAX_REASON_LENGTH = 500;
 
@@ -160,6 +162,13 @@ async function affiliateClient(step: string): Promise<{ session: RequiredSession
 	if ("error" in current) return current;
 	const { session } = current;
 	if (session.role !== "client" || !hasPermission(session, "affiliates:read")) return { error: NOT_ALLOWED_CLIENT };
+	// Seção desligada pelo Bureau: a ação recusa, não só a tela.
+	try {
+		if (!(await isAffiliateEnabled(session))) return { error: AFFILIATE_DISABLED };
+	} catch (error) {
+		logFailure(step, error);
+		return { error: SESSION_CHECK_FAILED };
+	}
 	return { session };
 }
 

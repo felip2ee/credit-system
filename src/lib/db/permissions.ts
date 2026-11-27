@@ -33,6 +33,7 @@ export const permissions = [
   "affiliates:read",
   "affiliates:manage",
   "affiliate_payout:manage",
+  "affiliate_settings:manage",
   "withdrawals:manage",
   "coupons:read",
   "coupons:write",
@@ -79,6 +80,7 @@ export const rolePermissions = {
     "bureau_wallet:manage",
     "bureau_referral:manage",
     "affiliate_payout:manage",
+    "affiliate_settings:manage",
   ],
   bureau_admin: [
     ...operatorPermissions,
@@ -91,6 +93,7 @@ export const rolePermissions = {
     "lgpd:manage",
     "affiliates:read",
     "affiliate_payout:manage",
+    "affiliate_settings:manage",
     "credits:adjust",
     "coupons:read",
     "coupons:write",

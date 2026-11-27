@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { isAffiliateEnabled } from "@/lib/affiliates/enabled";
 import { setPayoutMethod } from "@/lib/affiliates/payout-settings";
 import { getRequiredSession, SessionAccessError } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
@@ -14,6 +15,7 @@ export interface AffiliatePayoutResult {
 }
 
 const NOT_ALLOWED = "Você não tem permissão para alterar este pagamento.";
+const AFFILIATE_DISABLED = "A afiliação não está disponível neste momento.";
 
 // Sem profileId, o afiliado muda o próprio modo. Com profileId, o dono do bureau (ou o superadmin) muda em nome dele.
 const profileIdSchema = z.string().uuid("Afiliado inválido.").optional();
@@ -37,6 +39,8 @@ export async function setPayoutMethodAction(values: unknown): Promise<AffiliateP
 
 	const profileId = profile.data ?? session.userId;
 	try {
+		// Seção desligada pelo Bureau: recusa também o dono em nome do afiliado. O superadmin (sem Bureau) escolhe o alvo.
+		if (session.role !== "superadmin" && !(await isAffiliateEnabled(session))) return { error: AFFILIATE_DISABLED };
 		const result = await setPayoutMethod(session, {
 			owner: { profileId },
 			method: checked.data.method,

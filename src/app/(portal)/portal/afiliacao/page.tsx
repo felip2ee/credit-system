@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AffiliateLinkCard } from "@/components/affiliates/affiliate-link-card";
 import { HowItWorks } from "@/components/affiliates/how-it-works";
@@ -10,6 +10,7 @@ import { BalanceCard } from "@/components/ui/balance-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { isAffiliateEnabled } from "@/lib/affiliates/enabled";
 import { affiliateLink } from "@/lib/affiliates/rates";
 import { getMyAffiliateSummary } from "@/lib/affiliates/queries";
 import { readWithdrawalFee } from "@/lib/affiliates/withdrawals";
@@ -24,6 +25,8 @@ export const metadata = { title: "Afiliação" };
 export default async function AffiliatePage() {
   const session = await getRequiredSession().catch((err) => redirect(sessionErrorPath(err)));
   if (!hasPermission(session, "affiliates:read")) redirect("/portal");
+  // Seção desligada pelo Bureau (padrão): a rota não existe para o cliente.
+  if (!(await isAffiliateEnabled(session))) notFound();
 
   const data = await withUserTransaction(session, async (client) => {
     const summary = await getMyAffiliateSummary(client);

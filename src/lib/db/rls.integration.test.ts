@@ -2542,7 +2542,8 @@ describe("affiliates (026)", () => {
 				const rates = await client.query("update affiliate_rates set pct = 12 where bureau_id = $1", [bureauId]);
 				return { rates: rates.rowCount, settings: settings.rows[0]?.default_pct };
 			});
-		expect(await write(ctxOf(T.bureauAdmin), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
+		// 075: o bureau_admin escreve a linha (interruptor), mas o gatilho barra a mudança de default_pct.
+		await expect(write(ctxOf(T.bureauAdmin), T.bureau.id)).rejects.toMatchObject({ code: "42501" });
 		expect(await write(ctxOf(T.operator), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
 		expect(await write(ctxOf(foreign.bureauAdmin), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
 		expect(await write(ctxOf(sa), T.bureau.id)).toEqual({ rates: 0, settings: "7.00" });
