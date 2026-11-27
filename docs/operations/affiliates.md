@@ -7,7 +7,7 @@ Runbook do split na entrada de dinheiro, dos dois modos de recebimento, do estor
 1. No Asaas de produção, habilite o split: **Integrações > Segurança**. Sem isso, o Asaas recusa o `split` das cobranças.
 2. Teste um `walletId` real no sandbox antes de usar em produção. O cliente Asaas deste projeto não foi conferido em sandbox (veja o comentário em `src/lib/asaas/client.ts`). Confirme que a cobrança com split chega ao beneficiário e que o evento de split volta ao webhook.
 3. Cadastre os sócios em `/superadmin/settings/socios` (`walletId` e %). Cadastre o `walletId` de cada Bureau em `/superadmin/bureaus/<id>`.
-4. Aplique as migrações até a 086 (`npm run db:migrate`).
+4. Aplique as migrações até a 087 (`npm run db:migrate`).
 
 ## 1. Como o split funciona
 
@@ -15,7 +15,7 @@ Toda cobrança Asaas criada pelo sistema leva um `split`. O split divide o valor
 
 **Base de cálculo diferente por modo:** o Asaas aplica as % sobre o valor líquido (sem a taxa dele). O sistema calcula o valor de `charge_splits`, a comissão em modo Pix e o accrual do Bureau sobre o valor bruto da cobrança. Por isso uma parte em modo Pix ou accrual é maior do que a mesma % paga pelo split do Asaas, e o valor mostrado para uma linha `asaas` é uma estimativa.
 
-- **Cobranças com split:** Pix e cartão do checkout (`src/lib/payments/checkout.ts`) e Pix de link (`src/lib/payment-links/pix.ts`).
+- **Cobranças com split:** Pix e cartão da recarga e Pix do pedido (`src/lib/payments/checkout.ts`) e Pix de link (`src/lib/payment-links/pix.ts`).
 - **Quem recebe:**
 
 | Beneficiário | % vem de | Sem `walletId` ou em modo Pix |
@@ -32,6 +32,8 @@ Toda cobrança Asaas criada pelo sistema leva um `split`. O split divide o valor
   - Soma acima de 100% recusa a cobrança (`split_over_100`).
 - **Plano gravado:** o plano fica em `charge_splits`, com status `pending`. Mudar `walletId` ou o modo depois da criação não muda a cobrança já criada.
 - **Pedido online novo:** a captura do pedido não cria comissão (migração 077). Pedido reservado antes da 077 mantém a regra antiga.
+- **Pix do pedido (087):** a cobrança do pedido (`pix_charges.order_id`) tem plano de split como a recarga do cliente: sócios, Bureau, indicador e afiliado de link. O webhook (`apply_asaas_payment` -> `apply_order_pix_charge`) lança a comissão da entrada (`record_cash_in_commission`) em todo resultado em que o dinheiro entrou: `order_paid` (venda), `order_reserve_failed` e `order_not_payable` (o valor vira saldo do cliente; o saldo não paga comissão de novo na captura, 077). Um evento repetido (`duplicate`) não lança de novo. A base é o preço da cobrança (`amount`), nunca a taxa do Pix. Pagamento abaixo do total (`amount_mismatch`) não lança comissão.
+- **Cupom no Pix do pedido (decisão pendente):** o plano calcula sobre o valor cobrado, já com o desconto. A regra "contas sobre o preço bruto, desconto só da parte do Bureau" ainda não está no código.
 
 ## 2. Os dois modos de recebimento
 
@@ -79,6 +81,7 @@ Cada linha que saiu do split (migração 086, `charge_split_mark_refused`):
 
 ## 4. Estorno e chargeback
 
+- **Pedido pago por Pix (087):** estorno ou chargeback cancela o pedido que ainda não executa (`payment_refunded`, 066/067) e reverte a comissão do afiliado Pix e o accrual do Bureau e do indicador (`reverse_cash_in_commission`). Cada linha do split só reverte uma vez: o estorno repetido, ou o chargeback depois do estorno, responde `duplicate` e não lança nada. O mesmo vale para os resultados `order_reserve_failed` e `order_not_payable` (o valor creditado como saldo sai pelo estorno).
 - **Modo conta Asaas:** o Asaas reverte o split sozinho, de forma assíncrona. A linha segue o item de `payment.split[]` (migração 083):
 
 | Item no evento | Linha |
