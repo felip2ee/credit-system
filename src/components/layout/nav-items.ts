@@ -29,6 +29,7 @@ export const SUPERADMIN_NAV_ITEMS: readonly NavItem[] = [
   { href: "/superadmin/products", label: "Produtos" },
   { href: "/superadmin/payouts", label: "Repasses" },
   { href: "/superadmin/saques", label: "Saques" },
+  { href: "/superadmin/splits", label: "Split da entrada" },
   { href: "/superadmin/nfse", label: "NFS-e" },
   { href: "/superadmin/notifications", label: "Notificações" },
   { href: "/superadmin/settings/prompts", label: "Prompts da IA" },
