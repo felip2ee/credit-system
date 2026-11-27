@@ -1,23 +1,25 @@
 // Como o afiliado de link recebe a comissão: conta Asaas (split na entrada) ou chave Pix (saldo + saque). O afiliado muda o
 // próprio modo; o bureau_admin do bureau dele e o superadmin fora de suporte mudam em nome dele. A RLS (066) decide quem
 // escreve; aqui só a regra de negócio e a auditoria na mesma transação. walletId só mascarado fora do banco.
+// O aviso ao afiliado e a recusa de walletId de sócio ou bureau são triggers (079): valem para qualquer escrita.
 // Trocar de modo vale só para cobranças criadas depois: o plano de split de cada cobrança guarda o modo do momento.
+import { maskWalletId } from "@/lib/asaas/wallet-mask";
 import { writeAuditEvent } from "@/lib/audit/write";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { setPayoutMethodSchema } from "@/lib/validators/affiliate-payout";
 
 import type { PayoutMethod } from "./types";
 
+export { maskWalletId };
+
 export type PayoutSettings = { method: PayoutMethod; walletIdMasked: string | null };
 
 type SettingsRow = { bureau_id: string; payout_method: PayoutMethod; asaas_wallet_id: string | null };
 
-// 8 primeiros e 4 últimos caracteres: dá para o usuário conferir, não para reconstruir o ID.
-export function maskWalletId(walletId: string): string {
-	return `${walletId.slice(0, 8)}…${walletId.slice(-4)}`;
-}
-
 const NOT_ALLOWED = "Você não tem permissão para alterar este pagamento.";
+const WALLET_RESERVED = "Este walletId não pode ser usado. Informe o walletId da conta do afiliado.";
+// Trigger da 079: walletId igual ao de um sócio ou bureau.
+const WALLET_RESERVED_ERROR = "affiliate_wallet_reserved";
 
 export async function getPayoutSettings(identity: DbIdentity, profileId: string): Promise<PayoutSettings | null> {
 	return withUserTransaction(identity, async (client) => {
@@ -76,9 +78,13 @@ export async function setPayoutMethod(
 				from: prev.payout_method,
 				to: method,
 				on_behalf: userId !== input.owner.profileId,
+				wallet_before: prev.asaas_wallet_id ? maskWalletId(prev.asaas_wallet_id) : null,
 				wallet_masked: nextWallet ? maskWalletId(nextWallet) : null,
 			},
 		});
 		return { error: null };
+	}).catch((error: unknown) => {
+		if (error instanceof Error && error.message === WALLET_RESERVED_ERROR) return { error: WALLET_RESERVED };
+		throw error;
 	});
 }

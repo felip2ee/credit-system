@@ -1,5 +1,6 @@
 import {
 	AsaasHttpError,
+	AsaasSplitRejectedError,
 	ASAAS_EVENT_INVOICE_AUTHORIZED,
 	ASAAS_EVENT_INVOICE_CANCELED,
 	ASAAS_EVENT_INVOICE_ERROR,
@@ -42,6 +43,11 @@ export const getFakeChargeSplit = (asaasPaymentId: string): AsaasSplitItem[] | u
 const recordSplit = (asaasPaymentId: string, split?: AsaasSplitItem[]): void => {
 	if (split?.length) chargeSplits.set(asaasPaymentId, split);
 };
+// walletId de teste que o fake não conhece: a cobrança com ele no split dá o 400 de split, como no Asaas.
+export const FAKE_UNKNOWN_WALLET_ID = "00000000-0000-4000-8000-00000000dead";
+const assertKnownWallets = (split?: AsaasSplitItem[]): void => {
+	if (split?.some((item) => item.walletId === FAKE_UNKNOWN_WALLET_ID)) throw new AsaasSplitRejectedError("POST /v3/payments");
+};
 // Número de teste que o fake recusa, como o Asaas faria com um cartão não autorizado.
 export const FAKE_DECLINED_CARD_LAST4 = "0002";
 
@@ -50,6 +56,7 @@ export function createFakeAsaasClient(): AsaasClient {
 	return {
 		async createPixCharge({ externalReference, customerId, split }) {
 			if (isDeleted(customerId)) throw new AsaasHttpError(400, "POST /v3/payments");
+			assertKnownWallets(split);
 			recordSplit(`pay_fake_${externalReference}`, split);
 			return {
 				asaasPaymentId: `pay_fake_${externalReference}`,
@@ -84,6 +91,8 @@ export function createFakeAsaasClient(): AsaasClient {
 		async createCardCharge({ externalReference, installments, card, customerId, split }) {
 			// O Asaas também responde 400 para cliente apagado: o cliente não distingue isto de uma recusa.
 			if (isDeleted(customerId)) throw new CardDeclinedError();
+			// O split é validado antes de o emissor ser consultado.
+			assertKnownWallets(split);
 			const last4 = card.number.replace(/\D/g, "").slice(-4);
 			if (last4 === FAKE_DECLINED_CARD_LAST4) throw new CardDeclinedError();
 			recordSplit(`pay_fake_${externalReference}`, split);

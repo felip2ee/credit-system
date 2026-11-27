@@ -30,8 +30,19 @@ const METHOD: Record<SplitReportRow["payoutMethod"], string> = {
 	accrual: "A repassar",
 };
 
-// Recusado e reversão falha pedem ação do operador: a linha ganha fundo, além do selo com texto.
-const ALERT_STATUSES: ReadonlySet<ChargeSplitStatus> = new Set<ChargeSplitStatus>(["refused", "reversal_failed"]);
+// Recusado e reversão falha (ou pendente) pedem ação do operador: a linha ganha fundo, além do selo com texto.
+const ALERT_TONES: ReadonlySet<StateTone> = new Set<StateTone>(["attention", "danger"]);
+
+const PERCENT_FORMAT: Intl.NumberFormatOptions = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+
+// "done" não quer dizer pago em todo caso: accrual só lançou o valor a repassar, e um split do Asaas em cobrança estornada
+// ainda espera a reversão (078).
+function statusView(r: SplitReportRow): { tone: StateTone; label: string } {
+	if (r.status !== "done") return STATUS[r.status];
+	if (r.payoutMethod === "accrual") return { tone: "waiting", label: METHOD.accrual };
+	if (r.payoutMethod === "asaas" && r.chargeRefunded) return { tone: "attention", label: "Reversão pendente" };
+	return STATUS.done;
+}
 
 interface SplitReportTableProps {
 	rows: SplitReportRow[];
@@ -62,9 +73,10 @@ export function SplitReportTable({ rows, showBureau = false }: SplitReportTableP
 				</TableHeader>
 				<TableBody>
 					{rows.map((r) => {
-						const alert = ALERT_STATUSES.has(r.status);
+						const status = statusView(r);
+						const alert = ALERT_TONES.has(status.tone);
 						return (
-							<TableRow key={r.id} style={alert ? { backgroundColor: toneStyle(STATUS[r.status].tone).backgroundColor } : undefined}>
+							<TableRow key={r.id} style={alert ? { backgroundColor: toneStyle(status.tone).backgroundColor } : undefined}>
 								<TableCell className="whitespace-nowrap">{formatDateSP(r.createdAt)}</TableCell>
 								{showBureau && <TableCell>{r.bureauName}</TableCell>}
 								<TableCell className="font-mono text-xs" title={r.pixChargeId}>
@@ -79,10 +91,10 @@ export function SplitReportTable({ rows, showBureau = false }: SplitReportTableP
 								</TableCell>
 								<TableCell className="text-right whitespace-nowrap">
 									{formatCurrency(r.amountCents / 100)}
-									<span className="block text-xs text-muted-foreground">{Number(r.pct).toLocaleString("pt-BR")}%</span>
+									<span className="block text-xs text-muted-foreground">{Number(r.pct).toLocaleString("pt-BR", PERCENT_FORMAT)}%</span>
 								</TableCell>
 								<TableCell>
-									<StatusBadge tone={STATUS[r.status].tone} label={STATUS[r.status].label} />
+									<StatusBadge tone={status.tone} label={status.label} />
 								</TableCell>
 							</TableRow>
 						);

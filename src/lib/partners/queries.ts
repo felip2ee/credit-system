@@ -2,20 +2,18 @@
 // escreve (RLS); a equipe do bureau lê o walletId do próprio bureau. Toda escrita grava auditoria na mesma transação,
 // com o walletId mascarado. Evento da plataforma (bureau_id nulo): o ramo do superadmin em audit_logs_insert só aceita
 // bureau alvo para ações listadas na política; o bureau vai em target_id e na metadata. Nenhum PoolClient sai daqui.
+import { maskWalletId } from "@/lib/asaas/wallet-mask";
 import { writeAuditEvent } from "@/lib/audit/write";
 import { assertSplitWithin100, lockCommissionSplit, SplitOver100Error } from "@/lib/commission/queries";
 import { platformWriteIdentity, withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import type { BureauWalletInput, PartnerInput } from "@/lib/validators/partners";
 
 const FOREIGN_KEY_VIOLATION = "23503";
-const WALLET_VISIBLE_SUFFIX = 4;
+
+export { maskWalletId };
 
 export type Partner = { id: string; name: string; asaasWalletId: string; pct: string; active: boolean };
 export type PartnerWriteResult = { error: string | null; id?: string };
-
-export function maskWalletId(walletId: string): string {
-	return `***${walletId.slice(-WALLET_VISIBLE_SUFFIX)}`;
-}
 
 export async function listPartners(identity: DbIdentity): Promise<Partner[]> {
 	const { rows } = await withUserTransaction(identity, (client) =>
@@ -31,6 +29,10 @@ export async function upsertPartner(identity: DbIdentity, input: PartnerInput): 
 	try {
 		return await withUserTransaction(platformWriteIdentity(identity), async (client) => {
 			await lockCommissionSplit(client);
+			const previous = input.id
+				? await client.query<{ asaas_wallet_id: string }>("select asaas_wallet_id from platform_partners where id = $1", [input.id])
+				: null;
+			const before = previous?.rows[0]?.asaas_wallet_id;
 			const { rows } = input.id
 				? await client.query<{ id: string }>(
 						`update platform_partners set name = $2, asaas_wallet_id = $3, pct = $4, active = $5
@@ -53,6 +55,7 @@ export async function upsertPartner(identity: DbIdentity, input: PartnerInput): 
 				metadata: {
 					created: !input.id,
 					name: input.name,
+					wallet_before: before ? maskWalletId(before) : null,
 					wallet: maskWalletId(input.asaasWalletId),
 					pct: input.pct,
 					active: input.active,

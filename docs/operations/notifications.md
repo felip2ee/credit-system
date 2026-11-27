@@ -55,6 +55,8 @@ Limites conhecidos: a latência do SMTP e o lease de 2 minutos com backoff em ca
 
 **Templates do M6 (migration 022):** `scr_authorization` (WhatsApp v1, `pt_BR`, parâmetros `clientName`, `authorizedName`, `code`, `url`) e `research_released` (e-mail v1 e WhatsApp v1, parâmetros `clientName`, `url`). (post-deploy) A Meta aprova `scr_authorization` e `research_released` no WhatsApp (`pt_BR`, categoria Utility). O aviso de liberação e o pedido de autorização usam esses nomes. Veja [orders.md](orders.md).
 
+**Template da migration 079:** `affiliate_payout_changed` (só e-mail v1, parâmetros `clientName`, `actor`, `method`, `wallet`). Um trigger enfileira o aviso na mesma transação quando o modo de recebimento ou o walletId do afiliado muda. O walletId vai mascarado (4 últimos). A anonimização LGPD não avisa.
+
 **Fora do escopo:** template de **marketing**. O M4 envia só mensagens transacionais pedidas pelo próprio fluxo.
 
 ## 5. Rodar o worker em dev

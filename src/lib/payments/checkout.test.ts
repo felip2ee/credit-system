@@ -54,6 +54,7 @@ vi.mock("@/lib/asaas", async () => {
 		getAsaasClient: () => s.asaas,
 		AsaasHttpError: actual.AsaasHttpError,
 		AsaasOutcomeUnknownError: actual.AsaasOutcomeUnknownError,
+		AsaasSplitRejectedError: actual.AsaasSplitRejectedError,
 		CardDeclinedError: actual.CardDeclinedError,
 	};
 });

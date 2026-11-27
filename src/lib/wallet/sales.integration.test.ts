@@ -176,6 +176,23 @@ describe("listSales", () => {
 			);
 		}
 
+		// Pix de link paga pedido de balcão: a parte do Bureau não entra na aba online.
+		const linked = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.client.userId, status: "paid" });
+		const client = await owner.connect();
+		try {
+			await client.query("begin");
+			await client.query("set local session_replication_role = replica");
+			await client.query("update pix_charges set payment_link_id = gen_random_uuid() where id = $1", [linked.id]);
+			await client.query("commit");
+		} finally {
+			client.release();
+		}
+		await owner.query(
+			`insert into charge_splits (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, pct, amount_cents, status)
+			 values ($1, $2, 'bureau', $2, 'accrual', 10, 5000, 'done')`,
+			[linked.id, tenant.bureau.id],
+		);
+
 		const online = await withUserTransaction(admin, (c) => listSales(c, { mode: "online", range: WIDE }));
 		expect(online.totals).toEqual({ paid: "0.00", cost: "0.00", bureauShare: "12.34" });
 		const counter = await withUserTransaction(admin, (c) => listSales(c, { mode: "counter", range: WIDE }));

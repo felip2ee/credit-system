@@ -182,14 +182,14 @@ export async function listSales(client: PoolClient, args: SalesArgs): Promise<Sa
 	);
 
 	// A parte do Bureau nas entradas pagas do período (split do Asaas ou lançamento a repassar). Só a aba online:
-	// o balcão não passa por cobrança Asaas.
+	// o balcão não passa por cobrança Asaas. O Pix de link paga pedido de balcão e fica fora.
 	const cashIn =
 		args.mode === "online"
 			? await client.query<{ cents: string }>(
 					`select coalesce(sum(cs.amount_cents), 0)::text as cents
 					   from charge_splits cs join pix_charges pc on pc.id = cs.pix_charge_id
 					  where cs.bureau_id = app_bureau_id() and cs.beneficiary_kind = 'bureau'
-					    and cs.status in ('pending', 'done') and pc.status = 'paid'
+					    and cs.status in ('pending', 'done') and pc.status = 'paid' and pc.payment_link_id is null
 					    and pc.created_at >= $1 and pc.created_at < $2`,
 					[args.range.start, args.range.end],
 				)

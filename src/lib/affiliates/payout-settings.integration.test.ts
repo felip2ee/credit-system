@@ -126,6 +126,90 @@ describe("setPayoutMethod", () => {
 		expect((await stored(target.userId)).payout_method).toBe("asaas");
 	});
 
+	const notices = async (profileId: string) =>
+		(
+			await owner.query<{ recipient: string; email: string; params: Record<string, string>; email_text: string; bureau_id: string }>(
+				`select n.recipient, p.email, n.params, t.email_text, n.bureau_id
+				   from notifications n
+				   join notification_templates t on t.id = n.template_id
+				   join profiles p on p.id = $1::uuid
+				  where t.key = 'affiliate_payout_changed' and n.reference = 'affiliate_payout:' || $1::text
+				  order by n.created_at`,
+				[profileId],
+			)
+		).rows;
+
+	it("queues an e-mail to the affiliate for each change, with the masked walletId and who changed it", async () => {
+		const affiliate = await seedClientProfile(owner, A.bureau.id);
+		const target = { profileId: affiliate.userId };
+		const [first, second] = [randomUUID(), randomUUID()];
+
+		await setPayoutMethod(affiliate, { owner: target, method: "asaas", asaasWalletId: first });
+		await setPayoutMethod(A.bureauAdmin, { owner: target, method: "asaas", asaasWalletId: second });
+		await setPayoutMethod(SA, { owner: target, method: "pix" });
+		// Salvar o mesmo valor não é mudança: sem aviso.
+		await setPayoutMethod(affiliate, { owner: target, method: "pix", asaasWalletId: second });
+
+		const sent = await notices(affiliate.userId);
+		expect(sent.map((n) => [n.params.actor, n.params.method, n.params.wallet])).toEqual([
+			["você", "Conta Asaas", maskWalletId(first)],
+			["a equipe do bureau", "Conta Asaas", maskWalletId(second)],
+			["a equipe do bureau", "Chave Pix", maskWalletId(second)],
+		]);
+		for (const n of sent) {
+			expect(n.recipient).toBe(n.email.toLowerCase());
+			expect(n.bureau_id).toBe(A.bureau.id);
+			expect(JSON.stringify(n.params)).not.toContain(first);
+			expect(JSON.stringify(n.params)).not.toContain(second);
+		}
+		expect(sent[0].email_text).toMatch(/não esperava esta mudança, fale com o seu bureau/);
+
+		const audit = await owner.query<{ metadata: { wallet_before: string | null; wallet_masked: string | null } }>(
+			"select metadata from audit_logs where action = 'affiliate.payout_method' and record_id = $1 order by created_at",
+			[affiliate.userId],
+		);
+		expect(audit.rows.slice(0, 2).map((r) => [r.metadata.wallet_before, r.metadata.wallet_masked])).toEqual([
+			[null, maskWalletId(first)],
+			[maskWalletId(first), maskWalletId(second)],
+		]);
+	});
+
+	it("queues nothing when the change is refused or rolled back", async () => {
+		const affiliate = await seedClientProfile(owner, A.bureau.id);
+		await setPayoutMethod(B.bureauAdmin, { owner: { profileId: affiliate.userId }, method: "asaas", asaasWalletId: randomUUID() });
+		await expect(
+			withUserTransaction(affiliate, async (c) => {
+				await c.query("update affiliate_wallets set asaas_wallet_id = $2 where profile_id = $1", [affiliate.userId, randomUUID()]);
+				throw new Error("rollback");
+			}),
+		).rejects.toThrow("rollback");
+		expect(await notices(affiliate.userId)).toEqual([]);
+	});
+
+	it("refuses the walletId of a partner or of a bureau, with a generic message", async () => {
+		const affiliate = await seedClientProfile(owner, A.bureau.id);
+		const [partnerWallet, bureauWallet] = [randomUUID(), randomUUID()];
+		await owner.query("insert into platform_partners (name, asaas_wallet_id, pct, active) values ('Sócio Colisão', $1, 0.01, false)", [partnerWallet]);
+		await owner.query("insert into bureau_asaas_wallets (bureau_id, asaas_wallet_id) values ($1, $2)", [B.bureau.id, bureauWallet]);
+		try {
+			for (const taken of [partnerWallet, bureauWallet.toUpperCase()]) {
+				for (const identity of [affiliate, A.bureauAdmin]) {
+					const res = await setPayoutMethod(identity, { owner: { profileId: affiliate.userId }, method: "asaas", asaasWalletId: taken });
+					expect(res.error).toBe("Este walletId não pode ser usado. Informe o walletId da conta do afiliado.");
+				}
+			}
+			expect(await stored(affiliate.userId)).toEqual({ payout_method: "pix", asaas_wallet_id: null });
+			expect(await notices(affiliate.userId)).toEqual([]);
+		} finally {
+			await owner.query("delete from platform_partners where asaas_wallet_id = $1", [partnerWallet]);
+			await owner.query("delete from bureau_asaas_wallets where bureau_id = $1", [B.bureau.id]);
+		}
+	});
+
+	it("masks the walletId with the last 4 characters only", () => {
+		expect(maskWalletId("11111111-2222-3333-4444-555555556789")).toBe("***6789");
+	});
+
 	it("never lets the runtime role change the balance columns", async () => {
 		await expect(
 			withUserTransaction(A.client, (c) => c.query("update affiliate_wallets set available = 999 where profile_id = $1", [A.client.userId])),

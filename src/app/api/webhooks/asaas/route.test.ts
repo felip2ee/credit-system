@@ -383,7 +383,12 @@ describe("POST /api/webhooks/asaas split events", () => {
 		const response = await call({ id: "evt_s", event: "PAYMENT_SPLIT_DONE", payment: { id: "pay_1", split } });
 
 		expect(response.status).toBe(200);
-		expect(state.applyChargeSplitEvent).toHaveBeenCalledWith({ eventId: "evt_s", asaasPaymentId: "pay_1", splits: split });
+		expect(state.applyChargeSplitEvent).toHaveBeenCalledWith({
+			eventId: "evt_s",
+			eventType: "PAYMENT_SPLIT_DONE",
+			asaasPaymentId: "pay_1",
+			splits: split,
+		});
 		expect(state.applyAsaasPayment).not.toHaveBeenCalled();
 	});
 
@@ -413,5 +418,24 @@ describe("POST /api/webhooks/asaas split events", () => {
 		const response = await call({ id: "evt_f", event: "PAYMENT_SPLIT_DONE", payment: { id: "pay_1", split } });
 
 		expect(response.status).toBe(500);
+	});
+
+	it("an unbound charge of this system answers 500 on a split-only event, so Asaas resends", async () => {
+		state.applyChargeSplitEvent.mockResolvedValueOnce("unbound_charge");
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const payment = { id: "pay_1", split, installment: "ins_1", externalReference: "ref_1" };
+
+		expect((await call({ id: "evt_u", event: "PAYMENT_SPLIT_DONE", payment })).status).toBe(500);
+		expect(state.applyChargeSplitEvent).toHaveBeenCalledWith(
+			expect.objectContaining({ asaasInstallmentId: "ins_1", externalReference: "ref_1" }),
+		);
+	});
+
+	it("an unbound charge on a refund event still goes to apply_asaas_payment, which binds it", async () => {
+		state.applyChargeSplitEvent.mockResolvedValueOnce("unbound_charge");
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		expect((await call({ id: "evt_v", event: "PAYMENT_REFUNDED", payment: { id: "pay_1", split } })).status).toBe(200);
+		expect(state.applyAsaasPayment).toHaveBeenCalledOnce();
 	});
 });

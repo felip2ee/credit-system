@@ -8,6 +8,7 @@ interface DialogProps {
   open: boolean;
   onClose: () => void;
   title: string;
+  description?: string;
   // "alertdialog" para confirmações destrutivas.
   role?: "dialog" | "alertdialog";
   // false enquanto uma ação está em andamento: bloqueia Escape.
@@ -22,6 +23,7 @@ export function Dialog({
   open,
   onClose,
   title,
+  description,
   role = "dialog",
   dismissible = true,
   className,
@@ -29,6 +31,8 @@ export function Dialog({
 }: DialogProps) {
   const ref = React.useRef<HTMLDialogElement>(null);
   const titleId = React.useId();
+  const descriptionId = React.useId();
+  const openerRef = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
     const el = ref.current;
@@ -36,9 +40,16 @@ export function Dialog({
     if (open && !el.open) {
       // Navegador sem <dialog>.showModal (Safari antigo): não quebra, devolve o controle ao pai.
       if (typeof el.showModal !== "function") onClose();
-      else el.showModal();
+      else {
+        openerRef.current = document.activeElement as HTMLElement | null;
+        el.showModal();
+      }
     }
-    if (!open && el.open) el.close();
+    if (!open && el.open) {
+      el.close();
+      // O conteúdo já desmontou: o navegador pode não devolver o foco sozinho.
+      if (!document.activeElement || document.activeElement === document.body) openerRef.current?.focus();
+    }
     // onClose fora das deps: só `open` deve ressincronizar o DOM.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -48,6 +59,7 @@ export function Dialog({
       ref={ref}
       role={role}
       aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
       onCancel={(e) => {
         e.preventDefault();
         if (dismissible) onClose();
@@ -69,6 +81,11 @@ export function Dialog({
           <h2 id={titleId} className="text-xl font-bold">
             {title}
           </h2>
+          {description && (
+            <p id={descriptionId} className="text-muted-foreground">
+              {description}
+            </p>
+          )}
           {children}
         </div>
       )}

@@ -2424,6 +2424,7 @@ describe("affiliates (026)", () => {
 	const PUBLIC_FUNCTIONS = [
 		"affiliate_my_referrals()",
 		"affiliate_my_commissions()",
+		"affiliate_my_asaas_commissions()",
 		"register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text, text)",
 	];
 	const INTERNAL_FUNCTIONS = [
@@ -2602,6 +2603,50 @@ describe("affiliates (026)", () => {
 		for (const actor of [referred, stranger, T.bureauAdmin, T.operator, foreign.client, sa]) {
 			expect(await rows(ctxOf(actor), "affiliate_my_referrals")).toBe(0);
 			expect(await rows(ctxOf(actor), "affiliate_my_commissions")).toBe(0);
+		}
+	});
+
+	it("affiliate_my_asaas_commissions returns only the own affiliate lines, with no walletId, and follows the switch", async () => {
+		const chargeId = randomUUID();
+		await owner.query("insert into client_wallets (bureau_id, client_profile_id) values ($1, $2) on conflict do nothing", [T.bureau.id, referred.userId]);
+		await owner.query(
+			`insert into pix_charges (id, bureau_id, client_profile_id, requested_by, asaas_payment_id, amount, status, pix_payload, expires_at)
+			 values ($1, $2, $3, $3, $4, 100, 'paid', 'payload', now())`,
+			[chargeId, T.bureau.id, referred.userId, `pay_rls_${chargeId}`],
+		);
+		// Minha linha, a de outro afiliado, a de um sócio e uma linha minha em modo Pix (já vem de affiliate_commissions).
+		const lines: [kind: string, beneficiary: string, method: string][] = [
+			["affiliate", affiliate.userId, "asaas"],
+			["affiliate", stranger.userId, "asaas"],
+			["partner", randomUUID(), "asaas"],
+			["bureau_referrer", affiliate.userId, "asaas"],
+		];
+		for (const [kind, beneficiary, method] of lines) {
+			await owner.query(
+				`insert into charge_splits (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, asaas_wallet_id, pct, amount_cents, status)
+				 values ($1, $2, $3, $4, $5, 'wallet-rls-secret', 10, 1000, 'done')`,
+				[chargeId, T.bureau.id, kind, beneficiary, method],
+			);
+		}
+		const rows = (actor: Actor) =>
+			withDbContext(app, actor, async (client) => (await client.query("select * from affiliate_my_asaas_commissions()")).rows);
+		const setSwitch = (enabled: boolean) =>
+			owner.query("update bureau_affiliate_settings set affiliate_enabled = $2 where bureau_id = $1", [T.bureau.id, enabled]);
+
+		expect(await rows(ctxOf(affiliate))).toEqual([]);
+		await setSwitch(true);
+		try {
+			const own = await rows(ctxOf(affiliate));
+			expect(own).toHaveLength(1);
+			expect(Object.keys(own[0]).sort()).toEqual(["amount", "base_value", "created_at", "referred_at", "referred_name", "status"]);
+			expect(own[0]).toMatchObject({ amount: "10.00", base_value: "100.00", status: "done" });
+			expect(await rows(ctxOf(stranger))).toHaveLength(1);
+			for (const actor of [referred, T.bureauAdmin, T.operator, foreign.client, sa]) expect(await rows(ctxOf(actor))).toEqual([]);
+			// Mesmo usuário com o contexto de outro Bureau: nada.
+			expect(await rows({ ...ctxOf(affiliate), bureauId: foreign.bureau.id })).toEqual([]);
+			expect(await count(ctxOf(affiliate), "charge_splits")).toBe(0);
+		} finally {
+			await setSwitch(false);
 		}
 	});
 });

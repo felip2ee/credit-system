@@ -10,6 +10,7 @@ import { BureauCommissionPanel } from "@/components/superadmin/bureau-commission
 import { BureauReferralCard } from "@/components/superadmin/bureau-referral-card";
 import { BureauWalletForm } from "@/components/superadmin/bureau-wallet-form";
 import { BureauProductBlocksPanel } from "@/components/superadmin/bureau-product-blocks-panel";
+import { maskWalletId } from "@/lib/affiliates/payout-settings";
 import { getBureauDefaultPct } from "@/lib/affiliates/rates";
 import { getEffectiveCommission } from "@/lib/catalog/queries";
 import { listBureauCommissionRates, listBureauProductBlocks } from "@/lib/commission/queries";
@@ -112,7 +113,12 @@ export default async function BureauDetailPage({ params }: { params: { id: strin
       {walletIdManage && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Split do Asaas</h2>
-          <BureauWalletForm bureauId={bureau.id} initialWalletId={bureauWalletId} canWrite />
+          <BureauWalletForm
+            bureauId={bureau.id}
+            // Só mascarado no cliente: o walletId inteiro não sai do servidor.
+            walletIdMasked={bureauWalletId ? maskWalletId(bureauWalletId) : null}
+            canWrite
+          />
         </section>
       )}
       {referral && (

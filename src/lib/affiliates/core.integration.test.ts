@@ -287,8 +287,8 @@ describe("getMyAffiliateSummary", () => {
 		expect(summary).toMatchObject({
 			code: affiliate.code,
 			wallet: { pending: "10.00", available: "0.00" },
-			referrals: [{ name: "Maria Teste", totalSpent: "0" }],
-			commissions: [{ referredName: "Maria Teste", amount: "10.00", status: "pending", orderValue: "0.00", productName: "" }],
+			referrals: [{ name: "Maria Teste", recharged: "0.00" }],
+			commissions: [{ referredName: "Maria Teste", amount: "10.00", status: "pending", baseValue: null, fromRecharge: false, productName: "" }],
 		});
 		expect(JSON.stringify(summary)).not.toContain(affiliate.digits);
 

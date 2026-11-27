@@ -76,3 +76,7 @@ export const buildSplitPlan = (client: PoolClient, chargeId: string): Promise<Sp
 // Link de pagamento (sem sessão): depois de payment_link_charge_reserve e antes de chamar o Asaas.
 export const buildLinkSplitPlan = (db: Queryable, chargeId: string): Promise<SplitPlan> =>
 	plan(db, "payment_link_charge_split", chargeId);
+
+// Asaas recusou o split e a cobrança segue sem ele (079): as linhas asaas pendentes viram `refused`.
+export const markSplitRefused = (db: Queryable, chargeId: string) =>
+	db.query("select public.charge_split_mark_refused($1)", [chargeId]);

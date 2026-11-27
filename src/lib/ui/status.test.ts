@@ -24,6 +24,7 @@ const VALUES: Record<StatusDomain, string[]> = {
 	member: ["pending", "authorized", "refused", "expired"],
 	withdrawal: ["open", "paid", "cancelled"],
 	commission: ["pending", "released", "reversed"],
+	asaasCommission: ["pending", "done", "refused", "refunded", "reversal_failed"],
 	payment: ["paid", "awaiting", "cancelled", "refunded"],
 	walletEntry: [
 		"topup",

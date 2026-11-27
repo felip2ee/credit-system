@@ -8,7 +8,7 @@ import { AsaasOutcomeUnknownError, CardDeclinedError, getAsaasClient } from "@/l
 import { toCents } from "@/lib/catalog/money";
 import { readCardFeeConfig, readPiiKeyring, readPixFeeConfig, type PiiKeyring } from "@/lib/config";
 import { SplitOver100Error } from "@/lib/commission/queries";
-import { buildSplitPlan, type SplitPlan } from "@/lib/commission/split-plan";
+import { buildSplitPlan, markSplitRefused, type SplitPlan } from "@/lib/commission/split-plan";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { maskPayerDocument } from "@/lib/mask-document";
 import { isNfseConfigured } from "@/lib/nfse/invoice";
@@ -16,6 +16,7 @@ import { PiiDecryptError } from "@/lib/pii/crypto";
 import { claimAsaasCustomer, clearAsaasCustomer, markPayerSynced } from "@/lib/payers/queries";
 import { asaasPhone, isDefiniteAsaasRejection, resolveAsaasCustomer } from "@/lib/payers/resolve";
 import { BlockedError, otherPayer, ownerPayer, type PayerSource } from "./payer-source";
+import { createWithSplitFallback } from "./split-fallback";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { getClientWallet } from "@/lib/wallet/client-queries";
 import { CardFeeError, computeCardCharge } from "@/lib/wallet/card-fees";
@@ -294,6 +295,12 @@ async function recoverGoneCustomer(
 	}
 }
 
+// Cria a cobrança no Asaas; se ele recusar o split, tenta uma vez sem ele.
+const chargeWithSplit = <T>(session: DbIdentity, reserved: Reserved, create: (split: SplitPlan["asaasSplit"]) => Promise<T>) =>
+	createWithSplitFallback(reserved.chargeId, reserved.split.asaasSplit, create, () =>
+		withUserTransaction(session, (client) => markSplitRefused(client, reserved.chargeId)),
+	);
+
 // Cobrança criada no Asaas e não ligada à linha: o webhook a acha pela referência externa. Só ids, para a conciliação.
 function logUnbound(chargeId: string, asaasPaymentId: string, externalReference: string): void {
 	console.error("[checkout] COBRANÇA sem ligação no banco: o webhook a acha pela referência externa", {
@@ -340,14 +347,16 @@ async function createPix(
 ): Promise<CheckoutResult> {
 	let charge;
 	try {
-		charge = await getAsaasClient().createPixCharge({
-			customerId,
-			// O Asaas cobra recarga + taxa; o saldo só sobe pela recarga (pix_charges.amount).
-			amount: centsToReais(pix.totalCents),
-			externalReference: input.idempotencyKey,
-			description: meta.description,
-			split: reserved.split.asaasSplit,
-		});
+		charge = await chargeWithSplit(session, reserved, (split) =>
+			getAsaasClient().createPixCharge({
+				customerId,
+				// O Asaas cobra recarga + taxa; o saldo só sobe pela recarga (pix_charges.amount).
+				amount: centsToReais(pix.totalCents),
+				externalReference: input.idempotencyKey,
+				description: meta.description,
+				split,
+			}),
+		);
 	} catch (error) {
 		logFailure("asaas", error);
 		const recovery = retried ? null : await recoverGoneCustomer(session, reserved, customerId, error);
@@ -396,35 +405,38 @@ async function createCard(
 	const { payer } = reserved.source;
 	const { card } = input;
 	const phone = asaasPhone(payer.phone);
-	if (!card || !phone || !payer.postalCode || !payer.addressNumber) throw new BlockedError(MISSING_FIELDS);
+	const { postalCode, addressNumber } = payer;
+	if (!card || !phone || !postalCode || !addressNumber) throw new BlockedError(MISSING_FIELDS);
 
 	let charge;
 	try {
-		charge = await getAsaasClient().createCardCharge({
-			customerId,
-			externalReference: input.idempotencyKey,
-			description: meta.description,
-			totalCents: plan.totalCents,
-			installments: input.installments ?? 1,
-			installmentCents: plan.installmentCents[0],
-			card: {
-				holderName: card.holderName,
-				number: card.number,
-				expiryMonth: card.expiryMonth,
-				expiryYear: card.expiryYear,
-				ccv: card.cvv,
-			},
-			holder: {
-				name: payer.name,
-				email: payer.email,
-				cpfCnpj: payer.cpfCnpj,
-				postalCode: payer.postalCode,
-				addressNumber: payer.addressNumber,
-				phone,
-			},
-			remoteIp: meta.remoteIp,
-			split: reserved.split.asaasSplit,
-		});
+		charge = await chargeWithSplit(session, reserved, (split) =>
+			getAsaasClient().createCardCharge({
+				customerId,
+				externalReference: input.idempotencyKey,
+				description: meta.description,
+				totalCents: plan.totalCents,
+				installments: input.installments ?? 1,
+				installmentCents: plan.installmentCents[0],
+				card: {
+					holderName: card.holderName,
+					number: card.number,
+					expiryMonth: card.expiryMonth,
+					expiryYear: card.expiryYear,
+					ccv: card.cvv,
+				},
+				holder: {
+					name: payer.name,
+					email: payer.email,
+					cpfCnpj: payer.cpfCnpj,
+					postalCode,
+					addressNumber,
+					phone,
+				},
+				remoteIp: meta.remoteIp,
+				split,
+			}),
+		);
 	} catch (error) {
 		logFailure("asaas", error);
 		// Cliente apagado no Asaas também volta como 400: confere antes de chamar de recusa do cartão.

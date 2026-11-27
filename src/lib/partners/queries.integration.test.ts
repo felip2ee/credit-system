@@ -37,7 +37,25 @@ const WALLET_A = "11111111-2222-3333-4444-555555555555";
 const WALLET_B = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 let SA: SeedSuperadmin;
 
+// upsertPartner soma a configuração de todos os bureaus (assertSplitWithin100): apaga as sobras das suítes anteriores.
+// Seguro porque os arquivos rodam um por vez (fileParallelism: false). replica: bureau_commission_rates é append-only.
 beforeAll(async () => {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		await client.query("set local session_replication_role = replica");
+		await client.query("delete from bureau_commission_rates");
+		await client.query("delete from bureau_referrals");
+		await client.query("delete from bureau_affiliate_settings");
+		await client.query("delete from settings where key = 'bureau_commission_pct'");
+		await client.query("delete from platform_partners");
+		await client.query("commit");
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
 	SA = await seedSuperadmin(owner);
 });
 

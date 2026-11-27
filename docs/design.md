@@ -123,7 +123,7 @@ Primitivos em `src/components/ui/` (Radix + `cva` + `cn()`). Não crie botão, c
 - Cartões de produto mostram nome e descrição completos (sem corte); o bloco "O que você recebe" é um `<details>` com seta (chevron) que gira ao abrir.
 - Saldo e atalhos: `BalanceCard` (valor grande com `tabular-nums`, `hideable` mostra o olho; `displayBalance` em `balance.ts`), `QuickActions` + `QuickAction` (tile de 56 px com ícone, rótulo embaixo, `active` para a ação principal, link ou botão), `ListRow` (ícone circular cinza, título, subtítulo, valor à direita), `SectionHeader` (título e link).
 - Estado: `StatusBadge`, `Badge` (pílula; `variant="brand"` para tag positiva), `StatusBanner`, `EmptyState`, `Skeleton`, `Stepper` (círculos, "Agora:"), toast (`Toaster`, `role="status"`).
-- Telas de sistema: `LoadingScreen`, `ErrorScreen`, e `loading.tsx`, `error.tsx`, `not-found.tsx`, `global-error.tsx` em `src/app/`.
+- Telas de sistema: `LoadingScreen`, `ErrorScreen`, e `error.tsx`, `not-found.tsx`, `global-error.tsx` em `src/app/`. O `loading.tsx` fica em cada área (`(auth)`, `(dashboard)`, `(portal)`, `(portal-onboarding)`, `(superadmin)`, `admin`, `autorizacao-scr`, `b`, `cadastro`, `pagar`), nunca na raiz de `src/app/`.
 - Layout: `PageHeader` (quebra linha no celular), `MobileNav` (gaveta "Menu" nos painéis, em `src/components/layout/`), `BottomNav` e `PortalHeader` (portal, em `src/components/portal/`).
 - Dados: `Table`.
 

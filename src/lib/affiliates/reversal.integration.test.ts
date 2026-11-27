@@ -469,3 +469,149 @@ describe("estorno em modo asaas", () => {
 		expect(await splitStatus(id)).toEqual([["partner", "pending"]]);
 	});
 });
+
+// Correções 078: o Asaas reverte o split de forma assíncrona; a cobrança estornada nunca vira 'refused'; parcelas e
+// cobrança ainda sem o id do pagamento não perdem o evento de split.
+describe("status do split no estorno (078)", () => {
+	const item = (status: string, id = "split_x") => [{ id, walletId: WALLET(1), status }];
+	const splitEvent = (chargeId: string, event: string, status: string) => chargeEvent(chargeId, { event, split: item(status) });
+	const actions = async (chargeId: string) =>
+		(await owner.query<{ action: string }>("select action from audit_logs where table_name = 'charge_splits' and metadata ->> 'pix_charge_id' = $1 order by created_at", [chargeId])).rows.map((r) => r.action);
+
+	async function paidPartnerCharge(name: string) {
+		const t = await seedTenant(owner, name);
+		await setBureauPct(t, 0);
+		await addPartner(10, WALLET(1));
+		const id = await checkoutClientPix(t);
+		await pay(id);
+		return { t, id };
+	}
+
+	it.each(["REFUNDED", "CANCELLED"])("reversal_failed vira refunded quando um evento posterior traz %s", async (later) => {
+		const { id } = await paidPartnerCharge("Reversal Async");
+		await splitEvent(id, "PAYMENT_SPLIT_DONE", "DONE");
+		await splitEvent(id, ASAAS_EVENT_PAYMENT_REFUNDED, "DONE");
+		expect(await splitStatus(id)).toEqual([["partner", "reversal_failed"]]);
+
+		await splitEvent(id, "PAYMENT_SPLIT_CANCELLED", later);
+
+		expect(await splitStatus(id)).toEqual([["partner", "refunded"]]);
+		expect(await actions(id)).toEqual(["charge_split.done", "charge_split.reversal_failed", "charge_split.refunded"]);
+	});
+
+	it("pedido de chargeback com item DONE não declara falha; o REFUNDED posterior estorna", async () => {
+		const { id } = await paidPartnerCharge("Reversal CB Async");
+
+		await splitEvent(id, ASAAS_EVENT_PAYMENT_CHARGEBACK_REQUESTED, "DONE");
+		expect(await splitStatus(id)).toEqual([["partner", "done"]]);
+
+		await splitEvent(id, ASAAS_EVENT_PAYMENT_REFUNDED, "REFUNDED");
+		expect(await splitStatus(id)).toEqual([["partner", "refunded"]]);
+		expect(await actions(id)).not.toContain("charge_split.reversal_failed");
+	});
+
+	it.each(["CANCELLED", "REFUSED"])("item %s no próprio evento de estorno vira refunded", async (status) => {
+		const { id } = await paidPartnerCharge("Reversal Cancel Event");
+
+		await splitEvent(id, ASAAS_EVENT_PAYMENT_REFUNDED, status);
+
+		expect(await splitStatus(id)).toEqual([["partner", "refunded"]]);
+		expect(await actions(id)).toEqual(["charge_split.refunded"]);
+	});
+
+	it("CANCELLED depois do estorno vira refunded", async () => {
+		const { id } = await paidPartnerCharge("Reversal Cancel After");
+		await refund(id, { split: item("PENDING") });
+
+		await splitEvent(id, "PAYMENT_SPLIT_CANCELLED", "CANCELLED");
+
+		expect(await splitStatus(id)).toEqual([["partner", "refunded"]]);
+	});
+
+	it("CANCELLED antes do estorno: a linha recusada vira refunded quando a cobrança é estornada", async () => {
+		const { id } = await paidPartnerCharge("Reversal Cancel Before");
+		await splitEvent(id, "PAYMENT_SPLIT_CANCELLED", "CANCELLED");
+		expect(await splitStatus(id)).toEqual([["partner", "refused"]]);
+
+		await refund(id);
+
+		expect(await splitStatus(id)).toEqual([["partner", "refunded"]]);
+		expect(await actions(id)).toEqual(["charge_split.refused", "charge_split.refunded"]);
+	});
+
+	it("Pix de link estornado (status segue paid): CANCELLED posterior vira refunded", async () => {
+		const t = await seedTenant(owner, "Reversal Link Cancel");
+		await setBureauPct(t, 0);
+		await addPartner(10, WALLET(1));
+		const orderId = randomUUID();
+		await seedOrderDossier(owner, { orderRef: orderId, bureauId: t.bureau.id, clientProfileId: null, members: 1 });
+		await owner.query("insert into order_settlements (order_ref, bureau_id, mode, price, cost) values ($1, $2, 'counter', 300, 120)", [orderId, t.bureau.id]);
+		await owner.query("update dossier_orders set state = 'awaiting_payment' where dossier_id = $1", [orderId]);
+		const link = await createPaymentLink(t.bureauAdmin, orderId);
+		if (!link.ok) throw new Error("expected link");
+		const resolved = await resolvePaymentLink(link.token);
+		if (!resolved.ok) throw new Error("expected resolved link");
+		await getOrCreateLinkPixCharge(resolved.link.id);
+		const id = (await owner.query<{ id: string }>("select id from pix_charges where payment_link_id = $1", [resolved.link.id])).rows[0].id;
+		await pay(id);
+		await refund(id);
+
+		await splitEvent(id, "PAYMENT_SPLIT_CANCELLED", "CANCELLED");
+
+		expect(await splitStatus(id)).toEqual([["partner", "refunded"]]);
+	});
+
+	it("parcela 2 do cartão atualiza a linha pelo asaas_installment_id, no split e no estorno", async () => {
+		const t = await seedTenant(owner, "Reversal Installments");
+		await setBureauPct(t, 0);
+		await addPartner(10, WALLET(1));
+		const id = await checkoutClientPix(t, "900.00");
+		const installment = `ins_${randomUUID()}`;
+		await owner.query("update pix_charges set billing_type = 'CREDIT_CARD', installments = 3, asaas_installment_id = $2, total_charged = null, pix_payload = null where id = $1", [id, installment]);
+		const { rows } = await owner.query("select asaas_payment_id from pix_charges where id = $1", [id]);
+		const send = (paymentId: string, event: string, split: unknown[]) => {
+			const body = buildFakePaymentEvent({ eventId: randomUUID(), asaasPaymentId: paymentId, value: 300, event, installment });
+			return webhook({ ...body, payment: { ...body.payment, split } });
+		};
+		await send(rows[0].asaas_payment_id, "PAYMENT_CONFIRMED", []);
+		await send(rows[0].asaas_payment_id, "PAYMENT_SPLIT_DONE", item("PENDING", "spl_1"));
+		const second = `pay_${randomUUID()}`;
+
+		await send(second, "PAYMENT_SPLIT_DONE", item("DONE", "spl_2"));
+		expect(await splitStatus(id)).toEqual([["partner", "done"]]);
+
+		await send(second, ASAAS_EVENT_PAYMENT_REFUNDED, item("DONE", "spl_2"));
+		expect(await splitStatus(id)).toEqual([["partner", "reversal_failed"]]);
+
+		await send(second, "PAYMENT_SPLIT_CANCELLED", item("REFUNDED", "spl_2"));
+		expect(await splitStatus(id)).toEqual([["partner", "refunded"]]);
+		// O id gravado é o da primeira parcela.
+		expect((await owner.query("select asaas_split_id from charge_splits where pix_charge_id = $1", [id])).rows[0].asaas_split_id).toBe("spl_1");
+	});
+
+	it("evento de split antes de gravar o id do pagamento pede reenvio; cobrança de fora do sistema responde 200", async () => {
+		const t = await seedTenant(owner, "Reversal Unbound");
+		await setBureauPct(t, 0);
+		await addPartner(10, WALLET(1));
+		const id = await checkoutClientPix(t);
+		const { rows } = await owner.query<{ asaas_payment_id: string; external_reference: string }>("select asaas_payment_id, external_reference from pix_charges where id = $1", [id]);
+		const { asaas_payment_id: paymentId, external_reference: reference } = rows[0];
+		const send = (externalReference?: string, asaasPaymentId = paymentId) => {
+			const body = buildFakePaymentEvent({ eventId: randomUUID(), asaasPaymentId, value: 1000, event: "PAYMENT_SPLIT_DONE", externalReference });
+			return webhook({ ...body, payment: { ...body.payment, split: item("DONE") } });
+		};
+		// Bind ainda não gravado.
+		await owner.query("update pix_charges set asaas_payment_id = null, pix_payload = null where id = $1", [id]);
+
+		expect((await send(reference)).status).toBe(500);
+		expect((await send(randomUUID())).status).toBe(200);
+		expect((await send("pedido-de-outro-sistema")).status).toBe(200);
+		expect((await send()).status).toBe(200);
+
+		// Gravado o id, o reenvio aplica. Outro pagamento com a mesma referência não pede reenvio (Pix não troca de id).
+		await owner.query("update pix_charges set asaas_payment_id = $2 where id = $1", [id, paymentId]);
+		expect((await send(reference)).status).toBe(200);
+		expect(await splitStatus(id)).toEqual([["partner", "done"]]);
+		expect((await send(reference, `pay_${randomUUID()}`)).status).toBe(200);
+	});
+});

@@ -58,6 +58,7 @@ import {
 } from "@/test/seed";
 
 import { recordCashInCommission } from "./cash-in";
+import { getMyAffiliateSummary } from "./queries";
 import { setBureauDefaultPct } from "./rates";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
@@ -450,6 +451,11 @@ describe("confirmação do pagamento", () => {
 		const accrual = await owner.query("select bureau_id, kind, amount from bureau_payable_entries where pix_charge_id = $1", [id]);
 		expect(accrual.rows).toEqual([{ bureau_id: t.bureau.id, kind: "accrual", amount: "200.00" }]);
 		expect((await splitRows(id)).map((r) => r.status)).toEqual(["done", "done"]);
+		// O portal do afiliado mostra o valor da recarga (não há pedido), lido pela RLS dele.
+		expect(await withUserTransaction(affiliate, getMyAffiliateSummary)).toMatchObject({
+			referrals: [{ recharged: "1000.00" }],
+			commissions: [{ amount: "100.00", baseValue: "1000.00", fromRecharge: true }],
+		});
 
 		expect(await recordCashInCommission({ pixChargeId: id })).toBe(0);
 		expect(Number((await owner.query("select count(*)::int as n from affiliate_ledger_entries where profile_id = $1", [affiliate.userId])).rows[0].n)).toBe(2);
@@ -500,6 +506,77 @@ describe("confirmação do pagamento", () => {
 			expect(Number((await owner.query(`select count(*)::int as n from ${table} where bureau_id = $1`, [t.bureau.id])).rows[0].n)).toBe(0);
 		}
 		expect(Number((await owner.query("select count(*)::int as n from bureau_payable_entries where bureau_id = $1", [t.bureau.id])).rows[0].n)).toBe(0);
+	});
+});
+
+describe("portal do afiliado em modo conta Asaas", () => {
+	const summaryOf = (affiliate: Parameters<typeof withUserTransaction>[0]) => withUserTransaction(affiliate, getMyAffiliateSummary);
+	const setSplit = (chargeId: string, status: string) =>
+		owner.query("update charge_splits set status = $2 where pix_charge_id = $1 and beneficiary_kind = 'affiliate'", [chargeId, status]);
+	async function recharge(t: SeededTenant) {
+		const { res } = await checkoutPix(t, "client");
+		return (res as { id: string }).id;
+	}
+
+	it("mostra a recarga paga pelo split: pendente até o Asaas confirmar e sem a cobrança não paga", async () => {
+		const t = await seedTenant(owner, "Cash In Asaas Portal");
+		// walletId novo: um bureau de outro teste não pode já o usar.
+		const wallet = randomUUID();
+		const affiliate = await withAffiliate(t, { pct: 10, asaasWallet: wallet });
+		const id = await recharge(t);
+
+		expect(await summaryOf(affiliate)).toMatchObject({ referrals: [{ recharged: "0.00" }], commissions: [] });
+
+		await pay(id);
+		expect(await summaryOf(affiliate)).toMatchObject({
+			referrals: [{ recharged: "1000.00" }],
+			commissions: [{ paidBy: "asaas", status: "pending", amount: "100.00", baseValue: "1000.00", fromRecharge: true }],
+		});
+
+		await setSplit(id, "done");
+		const done = await summaryOf(affiliate);
+		expect(done).toMatchObject({ referrals: [{ recharged: "1000.00" }], commissions: [{ paidBy: "asaas", status: "done" }] });
+		expect(done?.commissions).toHaveLength(1);
+		expect(JSON.stringify(done)).not.toContain(wallet);
+	});
+
+	it("recusado e estornado aparecem com o estado real e saem do total; estorno sem reversão não vira repassado", async () => {
+		const t = await seedTenant(owner, "Cash In Asaas Status");
+		const affiliate = await withAffiliate(t, { pct: 10, asaasWallet: randomUUID() });
+		const id = await recharge(t);
+		await pay(id);
+
+		for (const status of ["refused", "refunded", "reversal_failed"]) {
+			await setSplit(id, status);
+			expect(await summaryOf(affiliate)).toMatchObject({ referrals: [{ recharged: "0.00" }], commissions: [{ status }] });
+		}
+
+		// Chargeback: a linha fica done até o Asaas reverter.
+		await setSplit(id, "done");
+		await owner.query("update pix_charges set status = 'refunded' where id = $1", [id]);
+		expect(await summaryOf(affiliate)).toMatchObject({ referrals: [{ recharged: "0.00" }], commissions: [{ status: "reversal_failed" }] });
+		await setSplit(id, "pending");
+		expect(await summaryOf(affiliate)).toMatchObject({ commissions: [{ status: "refunded" }] });
+	});
+
+	it("afiliado que trocou de modo vê cada recarga uma vez", async () => {
+		const t = await seedTenant(owner, "Cash In Asaas Switch");
+		const affiliate = await withAffiliate(t, { pct: 10 });
+		const first = await recharge(t);
+		await pay(first);
+		await owner.query("update affiliate_wallets set payout_method = 'asaas', asaas_wallet_id = $2 where profile_id = $1", [affiliate.userId, randomUUID()]);
+		const second = await recharge(t);
+		await pay(second);
+		await setSplit(second, "done");
+
+		const summary = await summaryOf(affiliate);
+
+		expect(summary?.referrals).toMatchObject([{ recharged: "2000.00" }]);
+		expect(summary?.commissions).toMatchObject([
+			{ paidBy: "asaas", status: "done", baseValue: "1000.00" },
+			{ paidBy: "wallet", status: "released", baseValue: "1000.00" },
+		]);
+		expect(summary?.commissions).toHaveLength(2);
 	});
 });
 

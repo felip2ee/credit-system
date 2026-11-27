@@ -5,8 +5,9 @@
 import QRCode from "qrcode";
 
 import { getAsaasClient } from "@/lib/asaas";
-import { buildLinkSplitPlan } from "@/lib/commission/split-plan";
+import { buildLinkSplitPlan, markSplitRefused } from "@/lib/commission/split-plan";
 import { pool } from "@/lib/db/pool";
+import { createWithSplitFallback } from "@/lib/payments/split-fallback";
 
 export type LinkPixCharge = { pixPayload: string; qrDataUrl: string; expiresAt: Date; amount: string };
 
@@ -112,13 +113,19 @@ export async function getOrCreateLinkPixCharge(linkId: string): Promise<LinkPixR
 					externalReference: customerReference,
 				})
 			).asaasCustomerId;
-		const pix = await asaas.createPixCharge({
-			customerId,
-			amount,
-			externalReference,
-			description: "Consulta - pagamento por link",
-			split: split.asaasSplit,
-		});
+		const pix = await createWithSplitFallback(
+			chargeId,
+			split.asaasSplit,
+			(items) =>
+				asaas.createPixCharge({
+					customerId,
+					amount,
+					externalReference,
+					description: "Consulta - pagamento por link",
+					split: items,
+				}),
+			() => markSplitRefused(pool, chargeId),
+		);
 		const bound = await pool
 			.query<{ bound: boolean }>("select payment_link_charge_bind($1, $2, $3) as bound", [
 				chargeId,

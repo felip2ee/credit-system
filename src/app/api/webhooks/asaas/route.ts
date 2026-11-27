@@ -24,6 +24,7 @@ const eventSchema = z.object({
 		id: z.string().trim().min(1).max(200),
 		// Parcelamento do cartão. Valor fora do formato não derruba o evento.
 		installment: z.string().trim().min(1).max(200).optional().catch(undefined),
+		externalReference: z.string().trim().min(1).max(200).optional().catch(undefined),
 	}),
 });
 
@@ -104,7 +105,7 @@ async function handleInvoiceEvent(raw: unknown): Promise<Response> {
 	}
 }
 
-// Split (067): evento de split, estorno ou chargeback com payment.split atualiza charge_splits. Retorna a resposta só
+// Split (067, 078): evento de split, estorno ou chargeback com payment.split atualiza charge_splits. Retorna a resposta só
 // quando o evento é apenas de split; estorno e chargeback seguem para apply_asaas_payment. 500 faz o Asaas reenviar.
 async function handleSplitEvent(event: z.infer<typeof eventSchema>, raw: unknown): Promise<Response | null> {
 	const splitOnly = SPLIT_ONLY_EVENTS.has(event.event);
@@ -114,10 +115,18 @@ async function handleSplitEvent(event: z.infer<typeof eventSchema>, raw: unknown
 	try {
 		const result = await applyChargeSplitEvent({
 			eventId: event.id ?? `${event.event}:${event.payment.id}`,
+			eventType: event.event,
 			asaasPaymentId: event.payment.id,
+			asaasInstallmentId: event.payment.installment,
+			externalReference: event.payment.externalReference,
 			splits,
 		});
 		if (result === "unknown_charge") console.warn("[asaas-webhook] split de cobrança desconhecida", { asaasPaymentId: event.payment.id });
+		if (result === "unbound_charge") {
+			console.warn("[asaas-webhook] split de cobrança ainda sem o id do pagamento", { asaasPaymentId: event.payment.id });
+			// Só o evento de split se perde com um 200; estorno e chargeback seguem e apply_asaas_payment liga a cobrança.
+			if (splitOnly) return respond(500);
+		}
 	} catch (error) {
 		logApplyFailure(error);
 		return respond(500);

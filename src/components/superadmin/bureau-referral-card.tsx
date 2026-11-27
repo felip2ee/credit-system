@@ -62,7 +62,7 @@ export function BureauReferralCard({
 				</div>
 			) : canWrite ? (
 				<form onSubmit={save} className="space-y-3" noValidate>
-					<Field id="referrer-bureau" label="Bureau indicador" helper="O indicador recebe a % abaixo em cada entrada deste bureau.">
+					<Field id="referrer-bureau" label="Quem indica este bureau" helper="O indicador recebe a % abaixo em cada entrada deste bureau.">
 						{(a11y) => (
 							<Select value={referrerId} onValueChange={setReferrerId} disabled={isPending}>
 								<SelectTrigger {...a11y}>

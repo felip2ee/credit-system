@@ -53,10 +53,13 @@ export function PayoutMethodCards({ current, profileId, subject = "você" }: Pay
 
 	return (
 		<form onSubmit={submit} className="space-y-6" noValidate>
+			<p id={`${uid}-group`} className="text-base font-bold">
+				Como receber a comissão
+			</p>
 			<RadioGroup
 				value={method}
 				onValueChange={(v) => setMethod(v as PayoutMethod)}
-				aria-label="Como receber a comissão"
+				aria-labelledby={`${uid}-group`}
 				className="grid gap-4 md:grid-cols-2"
 				disabled={isPending}
 			>

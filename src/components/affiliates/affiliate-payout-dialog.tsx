@@ -24,7 +24,13 @@ export function AffiliatePayoutDialog({ profileId, name, current }: AffiliatePay
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         Configurar<span className="sr-only"> pagamento de {name}</span>
       </Button>
-      <Dialog open={open} onClose={() => setOpen(false)} title={`Pagamento de ${name}`} className="max-w-4xl">
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`Pagamento de ${name}`}
+        description={`Escolha como ${name} recebe a comissão e salve.`}
+        className="max-w-4xl"
+      >
         <PayoutMethodCards current={current} profileId={profileId} subject={name} />
       </Dialog>
     </>

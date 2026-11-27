@@ -21,7 +21,9 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-semibold">{defaultPct}%</p>
+          <p className="text-2xl font-semibold">
+            {Number(defaultPct).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}%
+          </p>
         </CardContent>
       </Card>
       {affiliates.length === 0 ? (

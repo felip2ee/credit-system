@@ -7,11 +7,13 @@ Runbook do split na entrada de dinheiro, dos dois modos de recebimento, do estor
 1. No Asaas de produção, habilite o split: **Integrações > Segurança**. Sem isso, o Asaas recusa o `split` das cobranças.
 2. Teste um `walletId` real no sandbox antes de usar em produção. O cliente Asaas deste projeto não foi conferido em sandbox (veja o comentário em `src/lib/asaas/client.ts`). Confirme que a cobrança com split chega ao beneficiário e que o evento de split volta ao webhook.
 3. Cadastre os sócios em `/superadmin/settings/socios` (`walletId` e %). Cadastre o `walletId` de cada Bureau em `/superadmin/bureaus/<id>`.
-4. Aplique as migrações até a 077 (`npm run db:migrate`).
+4. Aplique as migrações até a 079 (`npm run db:migrate`).
 
 ## 1. Como o split funciona
 
 Toda cobrança Asaas criada pelo sistema leva um `split`. O split divide o valor líquido da cobrança entre os beneficiários. A plataforma fica com a sobra, na conta raiz do Asaas.
+
+**Base de cálculo diferente por modo:** o Asaas aplica as % sobre o valor líquido (sem a taxa dele). O sistema calcula o valor de `charge_splits`, a comissão em modo Pix e o accrual do Bureau sobre o valor bruto da cobrança. Por isso uma parte em modo Pix ou accrual é maior do que a mesma % paga pelo split do Asaas, e o valor mostrado para uma linha `asaas` é uma estimativa.
 
 - **Cobranças com split:** Pix e cartão do checkout (`src/lib/payments/checkout.ts`) e Pix de link (`src/lib/payment-links/pix.ts`).
 - **Quem recebe:**
@@ -38,6 +40,11 @@ O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indic
 - **Conta Asaas (`asaas`):** o Asaas paga o beneficiário no split, no recebimento. Conforme a spec, a taxa do Asaas sai da parte do beneficiário.
 - **Chave Pix (`pix`):** o sistema grava o saldo na confirmação do pagamento (ledger `cash_in`). A carência é `affiliate_cash_in_hold_days` (padrão 0 dia). O saldo sai pela fila de saques (seção 6). Só o afiliado de link tem este modo. O Bureau indicador recebe por `walletId` ou por accrual.
 
+- **Painel do afiliado (`/portal/afiliacao`):** mostra as comissões dos dois modos, cada cobrança uma vez. A linha `asaas` vem de `affiliate_my_asaas_commissions()` (migração 080): "Pago na conta Asaas" só com status `done`; os outros status aparecem como estão. O valor é aproximado. Recarga recusada ou estornada não entra no total do indicado.
+- **Troca de `walletId` ou de modo:** o afiliado recebe um e-mail, e a auditoria guarda o `walletId` antigo e o novo, mascarados. Não há reautenticação, prazo de espera nem aprovação.
+- **`walletId` reservado:** o afiliado não pode salvar o `walletId` de um sócio ou de um Bureau.
+- **Split recusado na criação:** se o Asaas responde que o split ou a `walletId` é inválido, o sistema cria a cobrança uma vez sem split. As linhas em modo Asaas dessa cobrança ficam `refused`. Uma `walletId` ruim recusa todas as linhas Asaas da cobrança. O formato do erro do Asaas não foi conferido em sandbox.
+
 ## 3. Ligar e desligar o afiliado de link
 
 - O admin do Bureau liga ou desliga em `/afiliados` (cartão de afiliados). O padrão é desligado.
@@ -46,17 +53,31 @@ O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indic
 
 ## 4. Estorno e chargeback
 
-- **Modo conta Asaas:** o Asaas reverte o split sozinho. A linha vira `refunded`.
+- **Modo conta Asaas:** o Asaas reverte o split sozinho, de forma assíncrona. A linha segue o item de `payment.split[]` (migração 078):
+
+| Item no evento | Linha |
+|---|---|
+| `REFUNDED` ou `CANCELLED` | `refunded` |
+| `REFUSED` em cobrança estornada | `refunded` |
+| `DONE` em `PAYMENT_REFUNDED` | `reversal_failed`. Um evento posterior com `REFUNDED` ou `CANCELLED` muda para `refunded` |
+| `DONE` em `PAYMENT_CHARGEBACK_REQUESTED` | Fica `done`. O painel mostra "Reversão pendente" |
+
+- Em cobrança estornada a linha nunca fica `refused`: uma linha já recusada vira `refunded`.
+- O sistema não tem prazo automático para a reversão pendente (runbook na seção 5).
+- **Estorno parcial (`PAYMENT_PARTIALLY_REFUNDED`):** o sistema não reverte comissão, accrual nem saldo. O evento fica gravado como `partial_refund_ignored`. A decisão de negócio está pendente.
+- **Cartão parcelado:** as parcelas 2 em diante casam pelo parcelamento (`asaas_installment_id`) e pelo `walletId`. Há uma linha por beneficiário: a recusa de uma parcela depois de `done` não aparece.
+- **Evento de split antes de o sistema gravar o id do pagamento:** o webhook responde 500 só se `externalReference` é de uma cobrança deste sistema, e o Asaas reenvia. Se a fila de webhooks do Asaas parar, confira no log `split de cobrança ainda sem o id do pagamento`, reative a fila no Asaas e confirme o id em `pix_charges`.
 - **Modo Pix:** o sistema lança a reversão no livro-razão (`commission_clawback`, migrações 073 e 074, `src/lib/affiliates/reversal.ts`).
   - O saldo do afiliado pode ficar negativo. O que falta é abatido das próximas comissões.
   - Com saldo menor ou igual a zero, saque e conversão são recusados (`insufficient_funds`).
 - **Bureau sem `walletId`:** a reversão entra como lançamento `reversal`, ligado ao accrual.
 - **Status de `charge_splits`:** `pending`, `done`, `refused`, `refunded` ou `reversal_failed`.
-- **Relatórios:** `/afiliados` (Bureau) e `/superadmin/splits` (superadmin). O relatório por cliente mostra estorno, chargeback e comissão já paga sobre cobrança estornada.
+- **Relatórios:** `/afiliados` (Bureau) e `/superadmin/splits` (superadmin). O relatório por cliente mostra estorno, chargeback e comissão já paga sobre cobrança estornada. Os repasses e o total dos sócios contam só cobrança paga ou estornada.
+- **Rótulo "A repassar":** accrual do Bureau sem `walletId`. O valor ainda não saiu. O rótulo não muda depois do repasse manual: confira o repasse na tela de repasses.
 
-## 5. Runbook: split recusado ou `reversal_failed`
+## 5. Runbook: split recusado, reversão pendente ou `reversal_failed`
 
-O Asaas não tem o evento `PAYMENT_SPLIT_REFUSED`. A recusa chega como item de `payment.split[]` com status `REFUSED` ou `CANCELLED`. O sistema grava `refused` (migração 067, `src/lib/asaas/split-events.ts`).
+O Asaas não tem o evento `PAYMENT_SPLIT_REFUSED`. A recusa chega como item de `payment.split[]` com status `REFUSED` ou `CANCELLED`. Em cobrança não estornada, o sistema grava `refused` (migrações 067 e 078, `src/lib/asaas/split-events.ts`).
 
 **Split recusado (`refused`):**
 
@@ -64,12 +85,15 @@ O Asaas não tem o evento `PAYMENT_SPLIT_REFUSED`. A recusa chega como item de `
 2. Veja a cobrança, o beneficiário (mascarado) e o valor.
 3. No Asaas, confira o `walletId` do beneficiário e o motivo da recusa.
 4. Corrija o cadastro (`/superadmin/settings/socios` ou `walletId` do Bureau). A correção vale para as próximas cobranças. A cobrança recusada não muda.
-5. O sistema não refaz o repasse. `refused` é estado final. Decida com o financeiro como pagar o valor fora do sistema, e registre o pagamento.
+5. O sistema não refaz o repasse. Antes de pagar, confirme no Asaas que a cobrança não foi estornada, nem tem chargeback. Cobrança estornada não paga comissão: a linha vira `refunded` quando o sistema recebe o evento.
+6. Com a cobrança paga e não estornada, decida com o financeiro como pagar o valor fora do sistema, e registre o pagamento.
 
-**Reversão falhou (`reversal_failed`):** o pagamento foi estornado, mas o Asaas não reverteu o repasse já feito. O beneficiário ficou com dinheiro que deveria voltar.
+**Reversão pendente:** chargeback pedido e repasse ainda `done`. Aparece em `/superadmin/splits`, no filtro "Repassado", com o selo "Reversão pendente". Confira no Asaas. Se o Asaas reverteu, o próximo evento muda a linha. Se não reverteu, trate como reversão falhou. Estas linhas não entram na coluna de prejuízo por reversão falha. Pix de link com chargeback mostra o mesmo selo.
+
+**Reversão falhou (`reversal_failed`):** o pagamento foi estornado e o evento ainda trazia o repasse como feito. O Asaas reverte de forma assíncrona: a linha pode virar `refunded` depois.
 
 1. Abra `/superadmin/splits` e filtre por "Reversão falhou".
-2. Confirme o valor no Asaas.
+2. Confirme o status e o valor no Asaas. Se o Asaas já reverteu, não cobre o beneficiário.
 3. Decida com o financeiro como recuperar o valor. O sistema não cobra sozinho.
 4. O valor aparece como prejuízo do cliente no relatório. O evento de auditoria é `charge_split.reversal_failed`.
 

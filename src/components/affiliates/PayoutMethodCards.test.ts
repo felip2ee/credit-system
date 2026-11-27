@@ -15,6 +15,8 @@ describe("PayoutMethodCards", () => {
 	it("shows both cards as a labelled radio group with the official store links", () => {
 		const html = render({ current: { method: "pix", walletIdMasked: null } });
 		expect(html).toContain('role="radiogroup"');
+		expect(html).toContain("aria-labelledby=");
+		expect(html).toContain("Como receber a comissão</p>");
 		expect(html).toContain("Conta Asaas");
 		expect(html).toContain("Chave Pix");
 		expect(html).toContain(ASAAS_APP_STORE_LINKS.android);

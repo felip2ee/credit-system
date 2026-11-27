@@ -180,7 +180,7 @@ describe("listBureauSplits", () => {
 		expect(rows.map((r) => r.beneficiaryKind)).not.toContain("partner");
 		expect(rows.every((r) => r.bureauId === A.bureau.id)).toBe(true);
 		const refused = rows.find((r) => r.status === "refused");
-		expect(refused).toMatchObject({ amountCents: 300, walletMasked: "00000000…00a1", beneficiaryKind: "affiliate" });
+		expect(refused).toMatchObject({ amountCents: 300, walletMasked: "***00a1", beneficiaryKind: "affiliate" });
 		expect(JSON.stringify(rows)).not.toContain(WALLET);
 		const failed = rows.find((r) => r.status === "reversal_failed");
 		expect(failed).toMatchObject({ pixChargeId: refundedFailedCharge, amountCents: 2000, beneficiaryKind: "bureau" });
@@ -208,6 +208,40 @@ describe("listBureauSplits", () => {
 
 	it("bureau_admin não lê o total dos sócios (RLS)", async () => {
 		expect(await getPartnerSplitTotal(A.bureauAdmin, WIDE)).toBe(0);
+	});
+});
+
+describe("status da cobrança no painel (078)", () => {
+	it("ignora repasse de cobrança que não foi paga e marca a estornada", async () => {
+		const pending = await seedPixCharge(owner, { bureauId: A.bureau.id, requestedBy: clientA2.userId, status: "pending", clientProfileId: clientA2.userId });
+		const expired = await seedPixCharge(owner, { bureauId: A.bureau.id, requestedBy: clientA2.userId, status: "expired", clientProfileId: clientA2.userId });
+		const before = await getPartnerSplitTotal(SA, WIDE);
+		for (const c of [pending, expired]) await split(A, c.id, { kind: "partner", id: partnerId, cents: 777, status: "pending" });
+		await split(A, pending.id, { kind: "bureau", id: A.bureau.id, cents: 888, status: "pending" });
+
+		expect(await getPartnerSplitTotal(SA, WIDE)).toBe(before);
+		for (const identity of [SA, A.bureauAdmin]) {
+			const ids = (await listBureauSplits(identity, WIDE)).map((r) => r.pixChargeId);
+			expect(ids).not.toContain(pending.id);
+			expect(ids).not.toContain(expired.id);
+		}
+		const rows = await listBureauSplits(A.bureauAdmin, WIDE);
+		expect(rows.find((r) => r.pixChargeId === refundedFailedCharge)?.chargeRefunded).toBe(true);
+		expect(rows.find((r) => r.status === "pending")?.chargeRefunded).toBe(false);
+	});
+
+	it("estorno citado em outra parcela casa pela cobrança parcelada (asaas_installment_id)", async () => {
+		const t = await seedTenant(owner, "Painel Split Parcelas");
+		const c = await seedPixCharge(owner, { bureauId: t.bureau.id, requestedBy: t.client.userId, amount: "90.00", status: "refunded", clientProfileId: t.client.userId });
+		const installment = `ins_${randomUUID()}`;
+		await owner.query("update pix_charges set billing_type = 'CREDIT_CARD', installments = 3, asaas_installment_id = $2, pix_payload = null where id = $1", [c.id, installment]);
+		await owner.query(
+			`insert into asaas_webhook_events (bureau_id, event_id, event_type, asaas_payment_id, payload, result)
+			 values ($1, $2, 'PAYMENT_CHARGEBACK_REQUESTED', 'pay_parcela_2', $3::jsonb, 'refunded')`,
+			[t.bureau.id, randomUUID(), JSON.stringify({ payment: { installment } })],
+		);
+
+		expect(await listClientLosses(t.bureauAdmin, WIDE)).toMatchObject([{ totalPaidCents: 9000, chargebackCount: 1, chargebackCents: 9000, refundCount: 0 }]);
 	});
 });
 

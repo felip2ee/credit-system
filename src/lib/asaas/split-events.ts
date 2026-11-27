@@ -34,7 +34,8 @@ const splitItemsSchema = z.array(
 	}),
 );
 
-export type ChargeSplitEventResult = "unknown_charge" | "updated" | "unchanged";
+// unbound_charge: cobrança deste sistema que ainda não gravou o id do pagamento (078): o reenvio do Asaas a encontra.
+export type ChargeSplitEventResult = "unknown_charge" | "unbound_charge" | "updated" | "unchanged";
 
 // payment.split do corpo; null quando falta ou tem outro formato (o evento não derruba o webhook).
 export function parseSplitItems(raw: unknown): z.infer<typeof splitItemsSchema> | null {
@@ -43,15 +44,25 @@ export function parseSplitItems(raw: unknown): z.infer<typeof splitItemsSchema> 
 	return parsed.success ? parsed.data : null;
 }
 
-// Webhook sem sessão (role app_webhook): a função SECURITY DEFINER é a única porta de escrita em charge_splits (067).
+// Webhook sem sessão (role app_webhook): a função SECURITY DEFINER é a única porta de escrita em charge_splits (067, 078).
 export async function applyChargeSplitEvent(event: {
 	eventId: string;
+	eventType: string;
 	asaasPaymentId: string;
+	asaasInstallmentId?: string;
+	externalReference?: string;
 	splits: z.infer<typeof splitItemsSchema>;
 }): Promise<ChargeSplitEventResult> {
 	const { rows } = await getWebhookPool().query<{ result: ChargeSplitEventResult }>(
-		"select public.apply_charge_split_event($1, $2, $3::jsonb) as result",
-		[event.eventId, event.asaasPaymentId, JSON.stringify(event.splits)],
+		"select public.apply_charge_split_event($1, $2, $3::jsonb, $4, $5, $6) as result",
+		[
+			event.eventId,
+			event.asaasPaymentId,
+			JSON.stringify(event.splits),
+			event.eventType,
+			event.asaasInstallmentId ?? null,
+			event.externalReference ?? null,
+		],
 	);
 	return rows[0].result;
 }

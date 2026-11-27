@@ -4,9 +4,9 @@
 // asaas_webhook_events (event_type, só colunas sem payload): a cobrança é chargeback se um PAYMENT_CHARGEBACK_REQUESTED
 // terminou em result = 'refunded'; é estorno se algum evento terminou em 'refunded' e não foi chargeback. Estorno antes do
 // pagamento fica 'ignored' (nunca houve dinheiro) e não entra. O período filtra por pix_charges.created_at (o pagamento
-// não grava data própria).
-// shortcut: cobrança em cartão parcelado tem um id de pagamento por parcela; o evento de chargeback só casa a parcela que
-// o Asaas citou. Trocar por asaas_installment_id se o chargeback de cartão ficar relevante.
+// não grava data própria). Cartão parcelado tem um id de pagamento por parcela: o evento casa pelo id ou pelo
+// parcelamento (installment_id, 078).
+// Repasses e total dos sócios contam só cobrança paga ou estornada (o plano nasce com a cobrança, ainda sem dinheiro).
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
 import { maskWalletId } from "./payout-settings";
@@ -35,6 +35,8 @@ export type SplitReportRow = {
 	pct: string;
 	amountCents: number;
 	status: ChargeSplitStatus;
+	// O dinheiro da cobrança voltou (inclusive Pix de link, que continua paid no banco).
+	chargeRefunded: boolean;
 };
 
 export type ClientLossRow = {
@@ -67,6 +69,7 @@ type SplitDbRow = {
 	pct: string;
 	amount_cents: string;
 	status: ChargeSplitStatus;
+	charge_state: "paid" | "refunded";
 };
 
 type LossDbRow = {
@@ -114,13 +117,15 @@ export async function listBureauSplits(
 		const { rows } = await client.query<SplitDbRow>(
 			`select cs.id, cs.pix_charge_id, cs.bureau_id, b.name as bureau_name, cs.created_at, cs.beneficiary_kind,
 			        case cs.beneficiary_kind when 'partner' then pp.name when 'affiliate' then pr.full_name else bn.name end as beneficiary_name,
-			        cs.payout_method, cs.asaas_wallet_id, cs.pct::text, cs.amount_cents::text, cs.status
+			        cs.payout_method, cs.asaas_wallet_id, cs.pct::text, cs.amount_cents::text, cs.status, st.charge_state
 			   from charge_splits cs
+			   cross join lateral (select charge_split_charge_state(cs.pix_charge_id) as charge_state) st
 			   join bureaus b on b.id = cs.bureau_id
 			   left join platform_partners pp on cs.beneficiary_kind = 'partner' and pp.id = cs.beneficiary_id
 			   left join profiles pr on cs.beneficiary_kind = 'affiliate' and pr.id = cs.beneficiary_id
 			   left join bureaus bn on cs.beneficiary_kind in ('bureau', 'bureau_referrer') and bn.id = cs.beneficiary_id
 			  where cs.created_at >= $1 and cs.created_at < $2 and ($3::text is null or cs.status = $3)
+			    and st.charge_state in ('paid', 'refunded')
 			  order by cs.created_at desc, cs.id
 			  limit ${MAX_SPLIT_ROWS}`,
 			[args.from, args.to, args.status ?? null],
@@ -138,6 +143,7 @@ export async function listBureauSplits(
 			pct: r.pct,
 			amountCents: Number(r.amount_cents),
 			status: r.status,
+			chargeRefunded: r.charge_state === "refunded",
 		}));
 	});
 }
@@ -150,7 +156,8 @@ export async function getPartnerSplitTotal(identity: DbIdentity, args: ReportRan
 			`select coalesce(sum(amount_cents), 0)::text as cents
 			   from charge_splits
 			  where beneficiary_kind = 'partner' and status in ('pending', 'done', 'reversal_failed')
-			    and created_at >= $1 and created_at < $2`,
+			    and created_at >= $1 and created_at < $2
+			    and charge_split_charge_state(pix_charge_id) in ('paid', 'refunded')`,
 			[args.from, args.to],
 		);
 		return Number(rows[0].cents);
@@ -165,11 +172,11 @@ export async function listClientLosses(identity: DbIdentity, args: ReportRange):
 			`with ch as (
 			   select pc.id, pc.client_profile_id, round(pc.amount * 100)::bigint as cents, pc.status,
 			          exists (select 1 from asaas_webhook_events e
-			                   where e.asaas_payment_id = pc.asaas_payment_id and e.bureau_id = pc.bureau_id
-			                     and e.result = 'refunded' and e.event_type = $3) as chargeback,
+			                   where (e.asaas_payment_id = pc.asaas_payment_id or e.installment_id = pc.asaas_installment_id)
+			                     and e.bureau_id = pc.bureau_id and e.result = 'refunded' and e.event_type = $3) as chargeback,
 			          exists (select 1 from asaas_webhook_events e
-			                   where e.asaas_payment_id = pc.asaas_payment_id and e.bureau_id = pc.bureau_id
-			                     and e.result = 'refunded') as reversed
+			                   where (e.asaas_payment_id = pc.asaas_payment_id or e.installment_id = pc.asaas_installment_id)
+			                     and e.bureau_id = pc.bureau_id and e.result = 'refunded') as reversed
 			     from pix_charges pc
 			    where pc.client_profile_id is not null and pc.bureau_id = app_bureau_id()
 			      and pc.created_at >= $1 and pc.created_at < $2 and pc.status in ('paid', 'refunded')
