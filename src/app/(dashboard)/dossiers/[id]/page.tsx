@@ -90,6 +90,7 @@ export default async function DossierDetailPage({
           order={order}
           canWrite={canWrite && !session.supportSessionId}
           canRegisterPayment={hasPermission(session, "counter:write")}
+          hasPartners={members.length > 1}
           pendingContacts={ordered
             .filter((m) => m.status === "pending_authorization")
             .map((m) => ({

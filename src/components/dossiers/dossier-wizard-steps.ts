@@ -1,7 +1,7 @@
 // Lógica pura do assistente "Pedido de balcão": quais etapas existem, quando dá para sair de uma etapa e quando sair pede confirmação.
 import { z } from "zod";
 
-import type { OrderProductCode } from "@/lib/orders/types";
+import { PAYMENT_WINDOW_DAYS, type OrderProductCode } from "@/lib/orders/types";
 import { counterOrderSchema, MAX_PARTNERS, partnerSchema } from "@/lib/validators/order";
 
 export type DossierStepId = "product" | "holder" | "partners" | "review";
@@ -29,8 +29,7 @@ export interface DossierFormState {
 	partners: { name: string; document: string; email: string }[];
 }
 
-const REVIEW_AFTER =
-	"O pedido fica aguardando pagamento. O pagamento é registrado em separado. O titular e os sócios recebem o pedido de autorização, e a consulta só roda depois do pagamento e da autorização de todos.";
+const REVIEW_AFTER = `O pedido fica aguardando pagamento, registrado em separado. Sem o pagamento completo em ${PAYMENT_WINDOW_DAYS} dias após a abertura, ele é cancelado. A autorização só é solicitada depois do pagamento, e a consulta só roda com a autorização de todos.`;
 
 export function dossierSteps(productCode: OrderProductCode): DossierStep[] {
 	const empresarial = productCode === "dossie_empresarial";

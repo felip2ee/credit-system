@@ -147,7 +147,7 @@ export function HolderForm({ initial }: HolderFormProps) {
           </div>
           <p className="text-sm text-muted-foreground">
             {isEdit
-              ? "O tipo e o documento não mudam depois do cadastro. Para corrigir, cadastre um novo titular."
+              ? "Esta tela não permite alterar o tipo e o documento. Para corrigir, cadastre um novo titular."
               : "Pessoa física é uma pessoa com CPF. Pessoa jurídica é uma empresa com CNPJ."}
           </p>
         </div>
