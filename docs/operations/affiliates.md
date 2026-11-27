@@ -1,34 +1,89 @@
-# Programa de afiliados
+# Programa de afiliados e split
 
-Runbook da carência, da fila de saques e do pagamento. Regras do produto: [PRODUCT.md](../../PRODUCT.md). Spec: [2026-10-24-programa-de-afiliados-design.md](../superpowers/specs/2026-10-24-programa-de-afiliados-design.md).
+Runbook do split na entrada de dinheiro, dos dois modos de recebimento, do estorno, da fila de saques e do pagamento. Regras do produto: [PRODUCT.md](../../PRODUCT.md). Regra principal: [spec 2026-11-26](../superpowers/specs/2026-11-26-afiliado-bureaus-design.md). Plano: [split na entrada](../superpowers/plans/2026-11-26-afiliado-bureaus-1-split-na-entrada.md) e [telas do afiliado](../superpowers/plans/2026-11-26-afiliado-bureaus-2-telas-afiliado.md). A spec de 2026-10-24 ([link](../superpowers/specs/2026-10-24-programa-de-afiliados-design.md)) ainda vale para saque, conversão e anonimização. Não vale mais para a comissão na captura.
+
+## 0. Antes de ligar o split
+
+1. No Asaas de produção, habilite o split: **Integrações > Segurança**. Sem isso, o Asaas recusa o `split` das cobranças.
+2. Teste um `walletId` real no sandbox antes de usar em produção. O cliente Asaas deste projeto não foi conferido em sandbox (veja o comentário em `src/lib/asaas/client.ts`). Confirme que a cobrança com split chega ao beneficiário e que o evento de split volta ao webhook.
+3. Cadastre os sócios em `/superadmin/settings/socios` (`walletId` e %). Cadastre o `walletId` de cada Bureau em `/superadmin/bureaus/<id>`.
+4. Aplique as migrações até a 076 (`npm run db:migrate`).
+
+## 1. Como o split funciona
+
+Toda cobrança Asaas criada pelo sistema leva um `split`. O split divide o valor líquido da cobrança entre os beneficiários. A plataforma fica com a sobra, na conta raiz do Asaas.
+
+- **Cobranças com split:** Pix e cartão do checkout (`src/lib/payments/checkout.ts`) e Pix de link (`src/lib/payment-links/pix.ts`).
+- **Quem recebe:**
+
+| Beneficiário | % vem de | Sem `walletId` ou em modo Pix |
+|---|---|---|
+| Sócio (`platform_partners`) | Cadastro do superadmin | Sempre `walletId` |
+| Bureau dono do cliente | % do Bureau (`bureau_commission_rates`, ou a % global) | Sem `walletId`: accrual em `bureau_payable_entries` (repasse manual) |
+| Bureau indicador (`bureau_referrals`) | % da indicação (padrão 5%, definida pelo superadmin na página do Bureau) | Sem `walletId`: accrual |
+| Afiliado de link | % do afiliado, ou a padrão do Bureau | Modo Pix: saldo no livro-razão (seção 2) |
+
+- **Regras de cobrança:**
+  - Recarga do próprio Bureau: só sócios recebem.
+  - Crédito manual e consumo de saldo: não geram split nem comissão.
+  - Afiliado de link entra só se o Bureau liga o recurso (seção 3) e se o indicado tem celular verificado.
+  - Soma acima de 100% recusa a cobrança (`split_over_100`).
+- **Plano gravado:** o plano fica em `charge_splits`, com status `pending`. Mudar `walletId` ou o modo depois da criação não muda a cobrança já criada.
+- **Pedido online novo:** a captura do pedido não cria comissão (migração 072). Pedido reservado antes da 072 mantém a regra antiga.
+
+## 2. Os dois modos de recebimento
+
+O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indicador usa o mesmo campo, no cadastro feito pelo superadmin.
+
+- **Conta Asaas (`asaas`):** o Asaas paga o beneficiário no split, no recebimento. Conforme a spec, a taxa do Asaas sai da parte do beneficiário.
+- **Chave Pix (`pix`):** o sistema grava o saldo na confirmação do pagamento (ledger `cash_in`). A carência é `affiliate_cash_in_hold_days` (padrão 0 dia). O saldo sai pela fila de saques (seção 6). Só o afiliado de link tem este modo. O Bureau indicador recebe por `walletId` ou por accrual.
+
+## 3. Ligar e desligar o afiliado de link
+
+- O admin do Bureau liga ou desliga em `/afiliados` (cartão de afiliados). O padrão é desligado.
+- A % de afiliados (`default_pct`) continua só do superadmin, em `/superadmin/bureaus/<id>`.
+- Desligar não cancela cobranças já criadas. Vale para as próximas cobranças.
+
+## 4. Estorno e chargeback
+
+- **Modo conta Asaas:** o Asaas reverte o split sozinho. A linha vira `refunded`.
+- **Modo Pix:** o sistema lança a reversão no livro-razão (`commission_clawback`, migrações 073 e 074, `src/lib/affiliates/reversal.ts`).
+  - O saldo do afiliado pode ficar negativo. O que falta é abatido das próximas comissões.
+  - Com saldo menor ou igual a zero, saque e conversão são recusados (`insufficient_funds`).
+- **Bureau sem `walletId`:** a reversão entra como lançamento `reversal`, ligado ao accrual.
+- **Status de `charge_splits`:** `pending`, `done`, `refused`, `refunded` ou `reversal_failed`.
+- **Relatórios:** `/afiliados` (Bureau) e `/superadmin/splits` (superadmin). O relatório por cliente mostra estorno, chargeback e comissão já paga sobre cobrança estornada.
+
+## 5. Runbook: split recusado ou `reversal_failed`
+
+O Asaas não tem o evento `PAYMENT_SPLIT_REFUSED`. A recusa chega como item de `payment.split[]` com status `REFUSED` ou `CANCELLED`. O sistema grava `refused` (migração 067, `src/lib/asaas/split-events.ts`).
+
+**Split recusado (`refused`):**
+
+1. Abra `/superadmin/splits` e filtre por "Recusado".
+2. Veja a cobrança, o beneficiário (mascarado) e o valor.
+3. No Asaas, confira o `walletId` do beneficiário e o motivo da recusa.
+4. Corrija o cadastro (`/superadmin/settings/socios` ou `walletId` do Bureau). A correção vale para as próximas cobranças. A cobrança recusada não muda.
+5. O sistema não refaz o repasse. `refused` é estado final. Decida com o financeiro como pagar o valor fora do sistema, e registre o pagamento.
+
+**Reversão falhou (`reversal_failed`):** o pagamento foi estornado, mas o Asaas não reverteu o repasse já feito. O beneficiário ficou com dinheiro que deveria voltar.
+
+1. Abra `/superadmin/splits` e filtre por "Reversão falhou".
+2. Confirme o valor no Asaas.
+3. Decida com o financeiro como recuperar o valor. O sistema não cobra sozinho.
+4. O valor aparece como prejuízo do cliente no relatório. O evento de auditoria é `charge_split.reversal_failed`.
+
+## 6. Fila de saques (modo Pix)
+
+Esta seção vale para o afiliado em modo Pix.
+
+### Saque ligado e desligado
+
+O saque nasce desligado. A flag é `AFFILIATE_WITHDRAWALS_ENABLED`: só o valor `true` liga. Desligado, o portal mostra "Saque disponível em breve." no lugar de "Sacar por PIX". O pedido de saque é recusado com "O saque ainda não está disponível.". A conversão em créditos, a carência e a fila do superadmin continuam. Para liberar, depois da validação do contador, defina `AFFILIATE_WITHDRAWALS_ENABLED=true` no deploy e reinicie o app.
 
 **Antes de liberar saques em produção:** o contador deve validar o tratamento fiscal do saque. Este item é **(post-deploy)**. Ele não bloqueia o merge. Enquanto a validação não existir, não avise os clientes sobre a função de saque.
 
-**Flag do saque:** `AFFILIATE_WITHDRAWALS_ENABLED`. O saque nasce desligado: só o valor `true` liga. Desligado, o portal mostra "Saque disponível em breve." no lugar de "Sacar por PIX", e o pedido de saque é recusado com "O saque ainda não está disponível.". A conversão em créditos, a carência e a fila do superadmin continuam. Para liberar, depois da validação do contador, defina `AFFILIATE_WITHDRAWALS_ENABLED=true` no deploy e reinicie o app.
-
-## 1. Como a comissão nasce
-
-1. O cliente A copia o link em `/portal/afiliacao`.
-2. O cliente B se cadastra pelo link. O vínculo nasce nesse momento e não muda.
-3. B compra online. Quando o pedido é capturado, a comissão é a % de afiliados do Bureau sobre o preço bruto. Ela sai da parte da plataforma.
-4. A comissão só nasce se B tem o celular verificado.
-5. A comissão entra em "Em carência". Depois do prazo, ela passa a "Comissão disponível".
-
-O estorno da recarga PIX do indicado reverte primeiro a comissão ainda em carência. Só o que sobra é cobrado do Bureau. Comissão já liberada não é revertida.
-
-## 2. % de afiliados do Bureau
-
-O superadmin define **uma** % para todos os afiliados de cada Bureau, em `/superadmin/bureaus/<id>`. O Bureau vê a % em `/afiliados`, só em leitura. Não há % por afiliado. A % vale na captura e fica gravada na comissão. Mudar a % não altera comissões já criadas.
-
-A soma da % do Bureau e da % de afiliados não pode passar de 100%. A tela recusa a soma maior.
-
-## 3. Carência
-
-- Configuração: `/superadmin/settings/afiliados`, campo de dias de carência (`affiliate_commission_hold_days`, padrão 30).
-- O tick `POST /api/internal/orders/tick` chama `release_due_commissions()`. A função libera as comissões com `release_at` vencido.
-- O prazo gravado na comissão não muda quando o superadmin altera a configuração.
-
-## 4. Fila de saques
+### Pedido de saque
 
 1. A afiliada pede o saque em `/portal/afiliacao/saque`. Ela informa a chave PIX e declara que a chave está no nome dela.
 2. A taxa de saque é a configuração `affiliate_withdrawal_fee` (valor fixo mais %). O valor líquido é o valor menos a taxa. A afiliada vê a taxa em `/portal/afiliacao` e em `/portal/afiliacao/saque`.
@@ -38,7 +93,7 @@ A soma da % do Bureau e da % de afiliados não pode passar de 100%. A tela recus
 
 Com uma sessão de suporte ativa, a fila não abre. Encerre a sessão de suporte.
 
-## 5. Pagar fora do sistema
+### Pagar fora do sistema
 
 1. Abra o saque em `/superadmin/saques/<id>`.
 2. Pague o valor líquido por PIX no banco da empresa.
@@ -47,7 +102,7 @@ Com uma sessão de suporte ativa, a fila não abre. Encerre a sessão de suporte
 
 Não existe repasse automático.
 
-## 6. Cancelar um saque
+### Cancelar um saque
 
 1. Abra o saque aberto.
 2. Escreva o motivo (até 500 caracteres). A afiliada vê o motivo.
@@ -55,14 +110,33 @@ Não existe repasse automático.
 
 Um saque pago não pode ser cancelado.
 
-## 7. Anonimização (LGPD) de uma afiliada
+## 7. Runbook: zerar saldos antigos de comissão do Bureau
 
-A anonimização fica bloqueada se a afiliada tem comissão disponível ou saque aberto: ela precisa sacar antes. A comissão ainda em carência é perdida na anonimização (decisão do designer; validar com o jurídico).
+Os saldos de comissão do Bureau criados antes do split já foram repassados fora do sistema. Este script zera esses saldos. Ele não apaga nada.
+
+Script: `scripts/db/zero-legacy-bureau-payables.mjs`. Usa `DATABASE_OWNER_URL`.
+
+1. Liste. O padrão é `--dry-run`, que não grava nada:
+   `node scripts/db/zero-legacy-bureau-payables.mjs`
+2. Confira a lista, Bureau por Bureau. Saldo negativo (dívida do Bureau) aparece, mas o script não ajusta.
+3. Não crie repasse (`create_payout`) antes do ajuste.
+4. Grave os ajustes:
+   `node scripts/db/zero-legacy-bureau-payables.mjs --apply`
+   Cada Bureau recebe um lançamento `reversal`, com o motivo "Saldo anterior repassado fora do sistema (zerado por script)". Cada ajuste gera o evento `payable.legacy_zeroed`.
+5. Rode o `--dry-run` de novo. Depois do ajuste, a lista fica vazia. Uma segunda execução de `--apply` não grava nada.
+
+O usuário executa este script em produção, só depois de conferir a lista.
 
 ## 8. Conversão em créditos
 
 A afiliada converte parte do saldo disponível em créditos em `/portal/afiliacao`. Um crédito vale R$ 1. A conversão não tem taxa e não pode ser desfeita. O crédito convertido não pode ser sacado.
 
-## 9. Teste e2e
+## 9. Anonimização (LGPD) de uma afiliada
 
-`e2e/affiliate.spec.ts` cobre o fluxo completo: link, cadastro, compra, carência, tick, conversão, saque e pagamento. O teste roda com `AFFILIATE_WITHDRAWALS_ENABLED=true` (definido no `ci.yml`). Ele confirma o celular, define o saldo do indicado e captura o pedido direto no banco. Ele não depende da execução da pesquisa.
+A anonimização fica bloqueada se a afiliada tem comissão disponível ou saque aberto: ela precisa sacar antes. A comissão ainda em carência é perdida na anonimização (decisão do designer; validar com o jurídico).
+
+## 10. Teste e2e
+
+`e2e/affiliate.spec.ts` cobre o fluxo de link, cadastro, compra, carência, tick, conversão, saque e pagamento. O teste roda com `AFFILIATE_WITHDRAWALS_ENABLED=true` (definido no `ci.yml`).
+
+Aviso: o teste ainda captura o pedido e espera a comissão na carência. Esse trecho não vale para pedido online novo (migração 072). Ele precisa de revisão em outra tarefa.
