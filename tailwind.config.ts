@@ -111,7 +111,13 @@ const config: Config = {
         // Brilho só no CTA principal da tela.
         glow: "var(--shadow-glow)",
       },
+      transitionTimingFunction: { out: "var(--ease-out)" },
+      transitionDuration: { fast: "var(--duration-fast)", base: "var(--duration-base)" },
       keyframes: {
+        "fade-in": { from: { opacity: "0" }, to: { opacity: "1" } },
+        "slide-in-right": { from: { opacity: "0", transform: "translateX(16px)" }, to: { opacity: "1", transform: "translateX(0)" } },
+        "slide-in-left": { from: { opacity: "0", transform: "translateX(-16px)" }, to: { opacity: "1", transform: "translateX(0)" } },
+        "dialog-in": { from: { opacity: "0", transform: "scale(0.96)" }, to: { opacity: "1", transform: "scale(1)" } },
         "accordion-down": {
           from: { height: "0" },
           to: { height: "var(--radix-accordion-content-height)" },
@@ -122,6 +128,10 @@ const config: Config = {
         },
       },
       animation: {
+        "fade-in": "fade-in var(--duration-base) var(--ease-out)",
+        "slide-in-right": "slide-in-right var(--duration-base) var(--ease-out)",
+        "slide-in-left": "slide-in-left var(--duration-base) var(--ease-out)",
+        "dialog-in": "dialog-in var(--duration-base) var(--ease-out)",
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
       },

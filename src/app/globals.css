@@ -6,6 +6,9 @@
   /* Identidade Rainha Cred: verde escuro de fundo + amarelo forte de destaque; branco só em texto corrido.
      Valores em hex espelhados em APP_COLORS (src/lib/brand/tokens.ts). Um único vermelho, só para erro e ação destrutiva. */
   :root {
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --duration-fast: 150ms;
+    --duration-base: 250ms;
     --background: 167 77% 8%;              /* #05261F, fundo dominante */
     --foreground: 0 0% 100%;               /* #FFFFFF, texto corrido */
     --card: 165 68% 14%;                   /* #0B3A2E, superfície elevada (cartão, tabela, campo) */

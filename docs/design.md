@@ -70,6 +70,8 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 - Raios: campo `rounded-input` 8, cartão `rounded-card`/`rounded-lg` 12, destaque `rounded-hero` 16, modal `rounded-modal` 24. Botão, tag, busca e item ativo da barra: `rounded-full`.
 - Sombras leves: `shadow-sm` baixa, `shadow-md` média, `shadow-lg` alta (valores em `globals.css`). `shadow-glow` (brilho dourado) só no CTA principal.
 - Espaço: 4, 8, 12, 16, 24, 32, 40, 48. Margem de tela `px-screen` (16 px abaixo de 375 px, 20 px acima).
+- Densidade (portal): `Button` `default` `h-11 px-5` 15 px semibold, `sm` `h-11` e `md:h-9`, `lg` `h-12`, `icon` `h-11 w-11` e `md:h-10 md:w-10`, ícone de 18 px, `outline` com borda de 1 px. Cartão com padding de 16 px, `CardTitle` 16 px semibold, `Label` 14 px, `PageHeader` h1 20 px (24 px de `md`), `mb-4`, descrição 14 px.
+- Movimento: variáveis `--ease-out` `cubic-bezier(0.22, 1, 0.36, 1)`, `--duration-fast` 150 ms e `--duration-base` 250 ms (utilitários `ease-out`, `duration-fast`, `duration-base`). Animações `fade-in`, `slide-in-right`, `slide-in-left` (16 px) e `dialog-in` (escala 0,96 a 1). Botão faz `scale-[0.97]` ao pressionar e `Dialog` entra com `dialog-in`, ambos só em `motion-safe`.
 - Números de saldo e extrato: classe `tabular-nums`. Pesos 400, 500 e 700.
 
 ## Tipografia e toque
@@ -77,7 +79,7 @@ Não copie valores de cor para outros arquivos. Importe do módulo de tokens.
 - Títulos (h1 a h3) em **Georgia** (serifa), pela classe `font-heading`.
 - Texto corrido: **Atkinson Hyperlegible** (400 e 700), carregada com `next/font/google` em `src/app/layout.tsx` (variável `--font-sans`). No PDF, TTF do repositório.
 - Base de 18 px no portal e nas páginas públicas (`.area-portal`), 16 px nos painéis. Nunca menos de 14 px; no portal nunca menos de 16 px. Altura de linha 1,5.
-- Alvos de toque: 48 px no portal e nas páginas públicas, 44 px nos painéis. 8 px entre alvos.
+- Alvos de toque: 44 px no portal, nas páginas públicas e nos painéis (abaixo de `md`). 8 px entre alvos.
 - Botão só com ícone leva `aria-label`. Ícone importante tem texto ao lado.
 
 ## Estados
@@ -116,8 +118,8 @@ Três partes, nesta ordem, sem termo técnico e sem código de erro. Use `failur
 
 Primitivos em `src/components/ui/` (Radix + `cva` + `cn()`). Não crie botão, campo ou selo à mão.
 
-- Ação: `Button` (pílula). `default` é creme com borda dourada clara e texto `--cta-foreground`; `cta` é dourado cheio (`--cta`, hover `--cta-hover`) só para as entradas "Nova pesquisa" e "Novo pedido"; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#123029`, `--ink`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho dourado só ao `default` e ao `cta` e só no CTA principal da tela. `IconButton` é circular de 48 px e exige `aria-label`.
-- Formulário: `Input`, `Textarea`, `Select` (8 px, 48 px de altura; erro por `aria-invalid`), `Field` (rótulo sempre visível, ajuda e erro ligados por `aria-describedby`), `SearchInput` (pílula), `Label`, `Checkbox`, `RadioGroup`, `Dialog` (24 px, scrim escuro).
+- Ação: `Button` (pílula). `default` é creme com borda dourada clara e texto `--cta-foreground`; `cta` é dourado cheio (`--cta`, hover `--cta-hover`) só para as entradas "Nova pesquisa" e "Novo pedido"; `outline` é o secundário; `ghost` é o terciário (só texto); `dark` (`#123029`, `--ink`); `onBrand` (branco, sobre o cartão de saldo); `secondary`, `destructive`, `link`. Prop `glow` dá brilho dourado só ao `default` e ao `cta` e só no CTA principal da tela. `IconButton` é circular de 44 px (40 px de `md`) e exige `aria-label`.
+- Formulário: `Input`, `Textarea`, `Select` (8 px, 44 px de altura, texto de 16 px abaixo de `md` e 14 px de `md` em diante; erro por `aria-invalid`), `Field` (rótulo sempre visível, ajuda e erro ligados por `aria-describedby`), `SearchInput` (pílula), `Label`, `Checkbox`, `RadioGroup`, `Dialog` (24 px, scrim escuro).
 - Cartão: `Card` com `variant` `flat` (padrão, borda de 1 px), `elevated`, `hero` (amarelo do portal) e `dark` (verde escuro do painel admin).
 - Cartões de produto mostram nome e descrição completos (sem corte); o bloco "O que você recebe" é um `<details>` com seta (chevron) que gira ao abrir.
 - Saldo e atalhos: `BalanceCard` (valor grande com `tabular-nums`, `hideable` mostra o olho; `displayBalance` em `balance.ts`), `QuickActions` + `QuickAction` (tile de 56 px com ícone, rótulo embaixo, `active` para a ação principal, link ou botão), `ListRow` (ícone circular cinza, título, subtítulo, valor à direita), `SectionHeader` (título e link).

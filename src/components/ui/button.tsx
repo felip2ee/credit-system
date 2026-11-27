@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-base font-bold admin:text-sm ring-offset-background transition-[background-color,box-shadow,transform] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:active:scale-100 [&_svg]:pointer-events-none [&_svg]:size-5 admin:[&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-[15px] font-semibold admin:text-sm ring-offset-background transition-[transform,background-color,box-shadow] duration-fast ease-out motion-safe:active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-[18px] admin:[&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -17,7 +17,7 @@ const buttonVariants = cva(
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         // Secundário: contorno.
         outline:
-          "border-2 border-primary bg-transparent text-primary hover:bg-accent",
+          "border border-primary bg-transparent text-primary hover:bg-accent",
         secondary:
           "border border-input bg-secondary text-secondary-foreground hover:bg-accent",
         // Terciário: só texto.
@@ -29,10 +29,10 @@ const buttonVariants = cva(
         onBrand: "bg-primary text-primary-foreground hover:bg-primary-hover",
       },
       size: {
-        default: "h-12 px-6 py-2 admin:h-10 admin:px-4",
-        sm: "h-11 px-4 admin:h-9 admin:px-3.5",
-        lg: "h-14 px-8 admin:h-11 admin:px-6",
-        icon: "h-12 w-12 admin:h-10 admin:w-10",
+        default: "h-11 px-5 py-2 admin:h-10 admin:px-4",
+        sm: "h-11 px-4 text-sm md:h-9 md:px-3.5 admin:h-9 admin:px-3.5",
+        lg: "h-12 px-6 text-base admin:h-11 admin:px-6",
+        icon: "h-11 w-11 md:h-10 md:w-10 admin:h-10 admin:w-10",
       },
     },
     defaultVariants: {
