@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/card";
 import { StatusBanner } from "@/components/ui/status-banner";
 
-// A action devolve uma frase só para o termo: o erro vai para o primeiro campo obrigatório vazio, ou para o formulário.
+// Mesma frase de saveScrTermSettings (src/actions/settings.ts): só ela vai para o campo; outro erro vai para o banner.
+const REQUIRED_ERROR = "Preencha nome, instituição e cidade do termo.";
 const REQUIRED_FIELDS = ["authorizedName", "institutionName", "city"] as const;
 
 export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
@@ -45,7 +46,7 @@ export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
     });
   };
 
-  const emptyField = error ? REQUIRED_FIELDS.find((k) => values[k].trim() === "") : undefined;
+  const emptyField = error === REQUIRED_ERROR ? REQUIRED_FIELDS.find((k) => values[k].trim() === "") : undefined;
   const fieldError = (k: keyof ScrTermSettings) => (emptyField === k ? error : null);
 
   return (
@@ -69,7 +70,7 @@ export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
           <Field
             id="authorizedDocument"
             label="CNPJ de quem opera"
-            helper="Opcional. Quando preenchido, entra no termo junto ao nome."
+            helper="Se ficar vazio, o termo usa o CNPJ padrão da plataforma."
           >
             {(a11y) => (
               <Input

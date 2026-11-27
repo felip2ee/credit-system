@@ -15,7 +15,7 @@ export default async function BureauCommissionPage() {
 
   return (
     <div className="space-y-4">
-      <SettingsHeader title="Comissão dos Bureaus" description="% do preço bruto que o Bureau recebe, válida para todos os Bureaus" />
+      <SettingsHeader title="Comissão dos Bureaus" description="% do preço bruto que o Bureau recebe. Vale para todo Bureau que não tem uma % própria" />
       <CommissionForm initialPct={pct} />
     </div>
   );

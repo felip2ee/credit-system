@@ -7,7 +7,7 @@ export const metadata = { title: "Configurações" };
 
 const SECTIONS = [
   { href: "/superadmin/settings/afiliados", title: "Afiliados", description: "Carência da comissão e taxa de saque do programa de afiliados" },
-  { href: "/superadmin/settings/comissao", title: "Comissão dos Bureaus", description: "% do preço bruto que o Bureau recebe em cada venda" },
+  { href: "/superadmin/settings/comissao", title: "Comissão dos Bureaus", description: "% do preço bruto que o Bureau recebe em cada venda. Vale para todo Bureau que não tem uma % própria" },
   { href: "/superadmin/settings/prompts", title: "Prompts da IA", description: "System prompts dos analisadores de crédito" },
   { href: "/superadmin/settings/repasses", title: "Prazo dos repasses", description: "Quantos dias o valor a receber fica retido antes do repasse" },
   { href: "/superadmin/settings/scr", title: "Termo SCR", description: "Termo de consentimento da autogestão de SCR" },

@@ -11,7 +11,16 @@ import { Input } from "@/components/ui/input";
 import type { AffiliateSettings } from "@/lib/settings/readers";
 import { StatusBanner } from "@/components/ui/status-banner";
 
-const ERROR_ID = "affiliate-settings-error";
+type AffiliateField = "holdDays" | "fixed" | "percent";
+
+// Frases de validação de saveAffiliateSettings (src/actions/settings.ts:193-197) que apontam um campo só.
+// "Valor inválido." vale para a taxa fixa e para a percentual: não aponta nenhum.
+const FIELD_BY_ERROR: Record<string, AffiliateField> = {
+  "Informe dias inteiros.": "holdDays",
+  "Dias inválidos.": "holdDays",
+  "Use no máximo 365 dias.": "holdDays",
+  "A taxa percentual vai de 0 a 100.": "percent",
+};
 
 export function AffiliateSettingsForm({ initial }: { initial: AffiliateSettings }) {
   const router = useRouter();
@@ -34,12 +43,13 @@ export function AffiliateSettingsForm({ initial }: { initial: AffiliateSettings 
     });
   };
 
-  // A action devolve uma frase só para o formulário: o banner de erro descreve os três campos.
-  const withError = (a11y: { "aria-describedby"?: string; "aria-invalid"?: true }) => ({
-    ...a11y,
-    "aria-describedby": [error ? ERROR_ID : null, a11y["aria-describedby"]].filter(Boolean).join(" ") || undefined,
-    "aria-invalid": error ? (true as const) : undefined,
-  });
+  // A action devolve uma frase só; ela só marca o campo a que se refere. Outro erro fica só no banner.
+  const fieldOf = error ? FIELD_BY_ERROR[error] : undefined;
+  const fieldError = (field: AffiliateField) => (fieldOf === field ? error : null);
+  const edit = (set: (value: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError(null);
+    set(e.target.value);
+  };
 
   return (
     <Card>
@@ -49,20 +59,16 @@ export function AffiliateSettingsForm({ initial }: { initial: AffiliateSettings 
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-4" noValidate>
-          <Field id="hold-days" label="Carência da comissão (dias)" helper="Dias entre a captura do pedido e a liberação da comissão. De 0 a 365 dias.">
-            {(a11y) => <Input {...withError(a11y)} inputMode="numeric" value={holdDays} onChange={(e) => setHoldDays(e.target.value)} disabled={isPending} />}
+          <Field id="hold-days" label="Carência da comissão (dias)" error={fieldError("holdDays")} helper="Dias entre a captura do pedido e a liberação da comissão. De 0 a 365 dias.">
+            {(a11y) => <Input {...a11y} inputMode="numeric" value={holdDays} onChange={edit(setHoldDays)} disabled={isPending} />}
           </Field>
-          <Field id="fee-fixed" label="Taxa fixa de saque (R$)" helper="Valor descontado de cada saque, em reais. Use 0 para não cobrar taxa fixa.">
-            {(a11y) => <Input {...withError(a11y)} inputMode="decimal" value={fixed} onChange={(e) => setFixed(e.target.value)} disabled={isPending} />}
+          <Field id="fee-fixed" label="Taxa fixa de saque (R$)" error={fieldError("fixed")} helper="Valor descontado de cada saque, em reais. Use 0 para não cobrar taxa fixa.">
+            {(a11y) => <Input {...a11y} inputMode="decimal" value={fixed} onChange={edit(setFixed)} disabled={isPending} />}
           </Field>
-          <Field id="fee-percent" label="Taxa de saque (%)" helper="Percentual descontado de cada saque. De 0 a 100. Use 0 para não cobrar percentual.">
-            {(a11y) => <Input {...withError(a11y)} inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} disabled={isPending} />}
+          <Field id="fee-percent" label="Taxa de saque (%)" error={fieldError("percent")} helper="Percentual descontado de cada saque. De 0 a 100. Use 0 para não cobrar percentual.">
+            {(a11y) => <Input {...a11y} inputMode="decimal" value={percent} onChange={edit(setPercent)} disabled={isPending} />}
           </Field>
-          {error && (
-            <div id={ERROR_ID}>
-              <StatusBanner tone="danger" title={error} />
-            </div>
-          )}
+          {error && !fieldOf && <StatusBanner tone="danger" title={error} />}
           {saved && !error && <StatusBanner tone="success" title="Regras salvas." />}
           <Button type="submit" disabled={isPending}>
             {isPending ? "Salvando..." : "Salvar"}
