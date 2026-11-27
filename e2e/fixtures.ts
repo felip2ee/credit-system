@@ -116,19 +116,16 @@ export async function openNewOrderAtStep(page: Page, step: 1 | 2 | 3 | 4): Promi
   await page.getByLabel("CNPJ da empresa").fill(validCnpj());
   await page.getByLabel("Razão social").fill("e2e Empresa Portal");
   await page.getByLabel("E-mail do responsável").fill(`e2e-resp-${stamp}@example.test`);
-  await next("Sócios");
+  await next("Pessoas da empresa");
   if (step === 3) return;
-  await page.getByRole("button", { name: "Adicionar sócio" }).click();
-  await page.getByLabel("Nome do sócio 1").fill("e2e Sócio Portal");
-  await page.getByLabel("CPF do sócio 1").fill(validCpf());
-  await page.getByLabel("E-mail do sócio 1").fill(`e2e-partner-${stamp}@example.test`);
+  await addPerson(page, 1, { name: "e2e Sócio Portal", cpf: validCpf(), email: `e2e-partner-${stamp}@example.test` });
   await next("Revisar e confirmar");
 }
 
 // Steps 1 and 2 of the purchase wizard for a company: leaves the page on "Pessoas da empresa".
 export async function startCompanyOrder(page: Page, stamp = Date.now()): Promise<void> {
   await page.goto("/portal/pesquisas/nova");
-  await page.getByRole("radio", { name: /Para uma empresa/ }).check();
+  await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();
   await page.getByRole("button", { name: "Continuar" }).click();
   await page.getByLabel("CNPJ da empresa").fill(validCnpj());
   await page.getByLabel("Razão social").fill("e2e Empresa Portal");
@@ -151,7 +148,7 @@ export async function openOrder(page: Page, { expectPayment = false } = {}): Pro
   await startCompanyOrder(page, stamp);
   await addPerson(page, 1, { name: "e2e Sócio Portal", cpf: validCpf(), email: `e2e-partner-${stamp}@example.test` });
   await page.getByRole("button", { name: "Continuar" }).click();
-  await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Revisar e confirmar" })).toBeVisible();
   // The declaration is mandatory: the confirm button stays disabled until the buyer accepts it.
   const confirm = page.getByRole("button", { name: "Ir para o pagamento" });
   await expect(confirm).toBeDisabled();

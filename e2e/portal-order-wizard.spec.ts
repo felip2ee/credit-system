@@ -14,7 +14,7 @@ test("Voltar mantém os dados", async ({ page }) => {
   await startCompanyOrder(page);
   await addPerson(page, 1, { name: "e2e Pessoa Volta", cpf: "529.982.247-25", email: "e2e-volta@example.test" });
   await next(page);
-  await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Revisar e confirmar" })).toBeVisible();
 
   await page.getByRole("button", { name: "Voltar" }).click();
   await expect(page.getByLabel("Nome da pessoa 1", { exact: true })).toHaveValue("e2e Pessoa Volta");
@@ -30,13 +30,15 @@ test("trocar a escolha limpa os dados", async ({ page }) => {
   await page.getByRole("button", { name: "Voltar" }).click();
   await page.getByRole("button", { name: "Voltar" }).click();
 
-  await page.getByRole("radio", { name: /Só para você/ }).check();
+  await page.getByRole("radio", { name: /Dossiê Pessoa Física/ }).check();
   await next(page);
-  await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
+  await next(page);
+  await expect(page.getByRole("heading", { name: "Revisar e confirmar" })).toBeVisible();
   await expect(page.getByText("e2e Empresa Portal")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Voltar" }).click();
-  await page.getByRole("radio", { name: /Para uma empresa/ }).check();
+  await page.getByRole("button", { name: "Voltar" }).click();
+  await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();
   await next(page);
   await expect(page.getByLabel("CNPJ da empresa")).toHaveValue("");
   await expect(page.getByLabel("Razão social")).toHaveValue("");
@@ -44,18 +46,18 @@ test("trocar a escolha limpa os dados", async ({ page }) => {
 
 test("Enter não pula etapa", async ({ page }) => {
   await page.goto("/portal/pesquisas/nova");
-  await page.getByRole("radio", { name: /Para uma empresa/ }).check();
+  await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();
   await next(page);
   await page.getByLabel("CNPJ da empresa").press("Enter");
-  await expect(page.getByRole("heading", { name: "Revise o pedido" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Revisar e confirmar" })).toHaveCount(0);
   await expect(page.getByText("Informe o documento.")).toBeVisible();
 });
 
 test("o foco vai ao título da etapa", async ({ page }) => {
   await page.goto("/portal/pesquisas/nova");
-  await page.getByRole("radio", { name: /Para uma empresa/ }).check();
+  await page.getByRole("radio", { name: /Dossiê Empresarial/ }).check();
   await next(page);
-  await expect(page.getByRole("heading", { name: "Dados da empresa" })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Dados" })).toBeFocused();
 });
 
 test('e-mail repetido bloqueia "Continuar" na etapa de pessoas', async ({ page }) => {
@@ -75,18 +77,20 @@ test("a revisão mostra a lista e o total", async ({ page }) => {
   await addPerson(page, 2, person("conjuge", cpf)); // mesmo CPF: o servidor cobra uma vez
   await next(page);
 
-  await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Pessoas (1)" })).toBeVisible();
-  await expect(page.getByRole("definition")).toContainText(brl(Number(E2E.salePrice) + Number(E2E.salePricePerPartner)));
+  await expect(page.getByRole("heading", { name: "Revisar e confirmar" })).toBeVisible();
+  await expect(page.getByText("Pessoas (1)", { exact: true })).toBeVisible();
+  await expect(page.locator("dd[aria-live=polite]")).toContainText(brl(Number(E2E.salePrice) + Number(E2E.salePricePerPartner)));
 });
 
-test('"só para você" tem duas etapas e não pede declaração', async ({ page }) => {
+test('"Dossiê Pessoa Física" tem três etapas e não pede declaração', async ({ page }) => {
   await page.goto("/portal/pesquisas/nova");
-  await page.getByRole("radio", { name: /Só para você/ }).check();
-  await expect(page.getByText("Etapa 1 de 2")).toBeVisible();
+  await page.getByRole("radio", { name: /Dossiê Pessoa Física/ }).check();
+  await expect(page.getByRole("heading", { level: 2, name: /Passo 1 de 3/ })).toBeVisible();
   await next(page);
-  await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
-  await expect(page.getByText("Etapa 2 de 2")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: /Passo 2 de 3: Dados/ })).toBeVisible();
+  await next(page);
+  await expect(page.getByRole("heading", { name: "Revisar e confirmar" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: /Passo 3 de 3/ })).toBeVisible();
   await expect(page.getByLabel("Li e concordo com a declaração acima.")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Ir para o pagamento" })).toBeEnabled();
 });
@@ -115,6 +119,6 @@ test("comprador, sócio e cônjuge entram na lista e a revisão mostra os três"
   await addPerson(page, 2, person("socio"));
   await addPerson(page, 3, person("conjuge"));
   await next(page);
-  await expect(page.getByRole("heading", { name: "Pessoas (3)" })).toBeVisible();
-  await expect(page.getByRole("definition")).toContainText(brl(Number(E2E.salePrice) + 3 * Number(E2E.salePricePerPartner)));
+  await expect(page.getByText("Pessoas (3)", { exact: true })).toBeVisible();
+  await expect(page.locator("dd[aria-live=polite]")).toContainText(brl(Number(E2E.salePrice) + 3 * Number(E2E.salePricePerPartner)));
 });
