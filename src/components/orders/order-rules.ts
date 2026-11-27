@@ -1,7 +1,7 @@
 // Regras de tela do pedido, sem React: o que cada conta vê, o total ao vivo e quando o cliente pode cancelar.
 import { buildQuote } from "@/lib/catalog/build-quote";
 import { toCents } from "@/lib/catalog/money";
-import type { OrderMemberScrStatus } from "@/lib/orders/client-ops";
+import type { OrderMember, OrderMemberScrStatus } from "@/lib/orders/client-ops";
 import type { OrderMode, OrderProductCode, OrderState } from "@/lib/orders/types";
 
 export type HolderType = "PF" | "PJ" | null;
@@ -28,15 +28,19 @@ export function orderTotalCents(product: ProductPrices, partnerCount: number): n
 const CPF_DIGITS = 11;
 const digitsOf = (value: string | undefined): string => (value ?? "").replace(/\D/g, "");
 
-// Sócios que o servidor cobra: CPF completo, distinto, e diferente do documento da empresa. Linha vazia ou incompleta não conta.
-export function countBillablePartners(partners: { document?: string }[], companyDocument?: string): number {
-	const company = digitsOf(companyDocument);
-	const seen = new Set<string>();
-	for (const partner of partners) {
+// Linhas que o servidor cobra: CPF completo, distinto (vale a 1ª), e diferente do documento da empresa. Linha vazia ou incompleta não conta.
+export function billablePartners<T extends { document?: string }>(partners: T[], companyDocument?: string): T[] {
+	const seen = new Set<string>([digitsOf(companyDocument)]);
+	return partners.filter((partner) => {
 		const digits = digitsOf(partner.document);
-		if (digits.length === CPF_DIGITS && digits !== company) seen.add(digits);
-	}
-	return seen.size;
+		if (digits.length !== CPF_DIGITS || seen.has(digits)) return false;
+		seen.add(digits);
+		return true;
+	});
+}
+
+export function countBillablePartners(partners: { document?: string }[], companyDocument?: string): number {
+	return billablePartners(partners, companyDocument).length;
 }
 
 export interface OrderPriceBreakdown {
@@ -102,4 +106,36 @@ const BLOCKED_COUNTER_MESSAGE = "Este pedido não vai rodar. Fale com o Bureau."
 // Só o pedido online tem botão de cancelar: no balcão a saída é falar com o Bureau.
 export function blockedOrderMessage(mode: OrderMode): string {
 	return mode === "online" ? BLOCKED_ONLINE_MESSAGE : BLOCKED_COUNTER_MESSAGE;
+}
+
+// O comprador só entra como pessoa na conta PF: o e-mail da conta vale para o CPF do Titular.
+export const canAddSelf = (holderType: HolderType): boolean => holderType === "PF";
+
+export function hasBuyerRow(partners: { email?: string }[], buyerEmail: string): boolean {
+	const buyer = buyerEmail.trim().toLowerCase();
+	return buyer !== "" && partners.some((p) => (p.email ?? "").trim().toLowerCase() === buyer);
+}
+
+export function choiceTitle(productCode: OrderProductCode, holderType: HolderType): string {
+	if (productCode === "dossie_empresarial") return "Para uma empresa";
+	return isSelfOrder(productCode, holderType) ? "Só para você" : "Para o responsável da empresa";
+}
+
+export const reviewActionLabel = (totalCents: number): string => (totalCents > 0 ? "Ir para o pagamento" : "Confirmar pedido");
+
+// Texto de apoio por pessoa na seção Autorizações; nulo quando não há o que dizer.
+export function memberActionHint(
+	m: Pick<OrderMember, "scrStatus" | "canEditEmail" | "canResend" | "changesLeft">,
+): string | null {
+	if (m.scrStatus !== "pending") return null;
+	if (m.changesLeft === 0) return "Limite de envios de hoje atingido. Tente amanhã.";
+	if (m.canEditEmail || m.canResend) {
+		return m.changesLeft === 1 ? "Resta 1 envio hoje." : `Restam ${m.changesLeft} envios hoje.`;
+	}
+	return "E-mail da sua conta.";
+}
+
+// Foco só volta à linha quando as ações somem (true→false) e o foco caiu no body. No mount não mexe.
+export function shouldRestoreFocus(prevCanAct: boolean, canAct: boolean, activeIsBody: boolean): boolean {
+	return prevCanAct && !canAct && activeIsBody;
 }

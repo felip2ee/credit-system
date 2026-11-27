@@ -72,10 +72,14 @@ function runAfterAck(step: string, task: () => Promise<unknown>): void {
 		);
 }
 
+// Pix de pedido online (065): o valor vira saldo do cliente e o pedido pode avançar. Todos pedem a nota do crédito.
+const ORDER_RESULTS = new Set(["order_paid", "order_reserve_failed", "order_not_payable"]);
+
 // O crédito do cliente muda o saldo da tela dele; o cache falhar não pode virar 500 (o crédito já está gravado).
-function revalidateClientCredits(): void {
+function revalidateClientCredits(orderPix = false): void {
 	try {
 		revalidatePath("/portal/credits");
+		if (orderPix) revalidatePath("/portal/pesquisas");
 	} catch (error) {
 		console.error("[asaas-webhook] revalidação falhou", { name: error instanceof Error ? error.name : typeof error });
 	}
@@ -147,9 +151,13 @@ export async function POST(request: Request): Promise<Response> {
 	// O crédito já está gravado. A nota (chamada lenta ao Asaas) roda depois da resposta e nunca muda o status dela.
 	const paymentId = parsed.data.payment.id;
 	const installment = parsed.data.payment.installment;
-	if (result === "credited") {
+	if (result === "credited" || ORDER_RESULTS.has(result)) {
 		runAfterAck("pedido da nota", () => requestInvoiceForPayment(paymentId, installment));
-		revalidateClientCredits();
+		revalidateClientCredits(result !== "credited");
+		// Reserva recusada depois do pagamento ou pedido já fora de awaiting_payment: o valor ficou como saldo. A operação confere. Só ids no log.
+		if (result === "order_reserve_failed" || result === "order_not_payable") {
+			console.error(`[asaas-webhook] pix de pedido virou saldo (${result})`, { event: parsed.data.event, asaasPaymentId: paymentId });
+		}
 	} else if (result === "duplicate" && PAYMENT_CREDIT_EVENTS.has(parsed.data.event)) {
 		// Reenvio de um crédito já aplicado: repara a nota que ficou em not_requested ou presa em pending (mais de 10 min).
 		runAfterAck("reparo da nota", () => repairInvoiceForPayment(paymentId, installment));

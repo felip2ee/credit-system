@@ -18,6 +18,7 @@ import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { listMyOrderMembers } from "@/lib/orders/client-ops";
 import { getMyDelivery, getMyOrder } from "@/lib/orders/client-queries";
+import { getOrderPayment } from "@/lib/orders/order-pix";
 import { ORDER_REASON_LABEL, orderStepLines } from "@/lib/orders/labels";
 import { failureMessage, type MoneyOutcome } from "@/lib/ui/failure-message";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
@@ -37,10 +38,15 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 			order,
 			members: await listMyOrderMembers(client, params.id),
 			delivery: order.state === "released" ? await getMyDelivery(client, params.id) : null,
+			// PIX já pago e pedido ainda em awaiting_payment (reserva recusada): o banner de espera seria falso.
+			paidPix:
+				order.state === "awaiting_payment" && order.mode === "online"
+					? (await getOrderPayment(client, params.id))?.charge?.status === "paid"
+					: false,
 		};
 	});
 	if (!found) notFound();
-	const { order, members, delivery } = found;
+	const { order, members, delivery, paidPix } = found;
 
 	const steps = orderSteps(order.state, order.reason);
 	const nextLines = orderStepLines(order);
@@ -87,6 +93,30 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 					)}
 				</CardContent>
 			</Card>
+			{order.state === "awaiting_payment" && order.mode === "online" && paidPix && (
+				<StatusBanner
+					tone="attention"
+					title="Recebemos o pagamento do PIX."
+					description="O valor está no seu saldo."
+					action={
+						<Button asChild>
+							<Link href="/portal/credits">Ver meu saldo</Link>
+						</Button>
+					}
+				/>
+			)}
+			{order.state === "awaiting_payment" && order.mode === "online" && !paidPix && (
+				<StatusBanner
+					tone="waiting"
+					title="Aguardando o pagamento do PIX"
+					description="O pedido segue sozinho depois que o pagamento for confirmado."
+					action={
+						<Button asChild>
+							<Link href={`/portal/pesquisas/${order.dossierId}/pagar`}>Pagar com PIX</Link>
+						</Button>
+					}
+				/>
+			)}
 			{failure && (
 				<StatusBanner
 					tone={order.state === "failed" ? "attention" : "neutral"}
@@ -110,7 +140,7 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 					<CancelOrderButton dossierId={order.dossierId} />
 				</div>
 			)}
-			<OrderMembers members={members} mode={order.mode} />
+			<OrderMembers members={members} mode={order.mode} dossierId={order.dossierId} orderState={order.state} />
 			{order.state === "released" &&
 				(delivery ? (
 					<DeliveryView delivery={delivery} />

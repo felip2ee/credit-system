@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { getCheckoutContextAction, type CheckoutContextResult } from "@/actions/checkout-context";
-import { toCents } from "@/lib/catalog/money";
+import { fromCents, toCents } from "@/lib/catalog/money";
 import type { ReferencePriceRow } from "@/lib/catalog/reference-prices";
 import { Button } from "@/components/ui/button";
 import { StatusBanner } from "@/components/ui/status-banner";
@@ -39,7 +39,11 @@ type Props = {
   onClose: () => void;
   /** Preços de referência dos dossiês (só no fluxo do cliente). */
   priceRows?: ReferencePriceRow[];
+  /** Valor já definido pelo servidor (PIX do pedido): sem etapa de valor, só PIX, sem cartão. */
+  fixed?: { amountCents: number };
 };
+
+const FIXED_STEPS: Step[] = ["payer"];
 
 const OUTCOME: Record<Exclude<PollOutcome, "aborted">, { tone: "success" | "attention" | "neutral" | "waiting"; title: string; description?: string }> = {
   paid: { tone: "success", title: "Pagamento aprovado.", description: "Seu saldo foi atualizado." },
@@ -49,9 +53,9 @@ const OUTCOME: Record<Exclude<PollOutcome, "aborted">, { tone: "success" | "atte
   refunded: { tone: "neutral", title: "Pagamento estornado." },
 };
 
-export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: Props) {
+export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [], fixed }: Props) {
   const router = useRouter();
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(fixed ? fromCents(fixed.amountCents) : "");
   const [method, setMethod] = useState<Method>("PIX");
   const [kind, setKind] = useState<PayerKind>("owner");
   const [values, setValues] = useState(EMPTY_VALUES);
@@ -59,14 +63,14 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
   const [declaration, setDeclaration] = useState(false);
   const [card, setCard] = useState<CardDraft>(EMPTY_CARD);
   const [installments, setInstallments] = useState(1);
-  const [step, setStep] = useState<Step>("amount");
+  const [step, setStep] = useState<Step>(fixed ? "payer" : "amount");
   const [errors, setErrors] = useState<CheckoutErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [ctx, setCtx] = useState<CheckoutContextResult | null>(null);
   const [isPending, startTransition] = useTransition();
   const amountRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const prevStep = useRef<Step>("amount");
+  const prevStep = useRef<Step>(fixed ? "payer" : "amount");
   const requestSeq = useRef(0);
   const firstLoad = useRef(true);
   const keyHolder = useRef<KeyHolder>(null);
@@ -99,7 +103,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
   }, [amount, scope]);
 
   const options = ctx?.installmentOptions ?? [];
-  const cardEnabled = ctx?.cardEnabled === true;
+  const cardEnabled = !fixed && ctx?.cardEnabled === true;
   const pixDisabled = ctx?.pixEnabled === false;
   const activeMethod: Method = cardEnabled && (method === "CREDIT_CARD" || pixDisabled) ? "CREDIT_CARD" : "PIX";
   const noMethod = pixDisabled && !cardEnabled;
@@ -111,7 +115,7 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
   const cardUnavailable = activeMethod === "CREDIT_CARD" && options.length === 0;
   const missing = ctx?.missing?.[activeMethod] ?? [];
   const ready = ctx !== null && !ctx.error && ctx.owner !== undefined;
-  const steps = stepsFor(cardEnabled, activeMethod);
+  const steps = fixed ? FIXED_STEPS : stepsFor(cardEnabled, activeMethod);
   const stepIndex = Math.max(0, steps.indexOf(step));
   const isLast = stepIndex === steps.length - 1;
 
@@ -196,8 +200,8 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
         setSubmitError(res.error ?? "Não foi possível concluir o pagamento. Tente novamente.");
         return;
       }
-      if (res.method === "PIX" && res.pixPayload && !res.reused) {
-        onPix({ id: res.id, pixPayload: res.pixPayload, qrImageBase64: res.qrImageBase64 ?? "", summary: res.summary });
+      if (res.method === "PIX" && (fixed || (res.pixPayload && !res.reused))) {
+        onPix({ id: res.id, pixPayload: res.pixPayload ?? "", qrImageBase64: res.qrImageBase64 ?? "", summary: res.summary });
         return;
       }
       polling.start(res.id);
@@ -239,9 +243,11 @@ export function CheckoutForm({ scope, action, onPix, onClose, priceRows = [] }: 
     <form onSubmit={submit} className="space-y-5" noValidate>
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-sm text-muted-foreground">
-            Etapa {stepIndex + 1} de {steps.length}
-          </p>
+          {steps.length > 1 && (
+            <p className="text-sm text-muted-foreground">
+              Etapa {stepIndex + 1} de {steps.length}
+            </p>
+          )}
           <h3 ref={headingRef} tabIndex={-1} className="text-lg font-bold outline-none">
             {STEP_TITLE[step]}
           </h3>

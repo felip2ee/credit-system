@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_PARTNERS, clientOrderSchema, counterOrderSchema, orderIdSchema, revokeSchema, updateOrderContactSchema } from "./order";
+import { MAX_PARTNERS, clientOrderSchema, counterOrderSchema, duplicateEmailIndexes, orderIdSchema, revokeSchema, updateOrderContactSchema } from "./order";
 
 const CPF = "529.982.247-25";
 const CPF_DIGITS = "52998224725";
@@ -92,11 +92,32 @@ describe("clientOrderSchema partners", () => {
 	});
 
 	it("accepts up to 20 partners on dossie_empresarial and refuses 21", () => {
-		const many = (n: number) => Array.from({ length: n }, () => ({ ...partner }));
+		const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ...partner, email: `socio${i}@example.test` }));
 		const ok = clientOrderSchema.safeParse(company({ partners: many(MAX_PARTNERS) }));
 		expect(ok.success).toBe(true);
-		if (ok.success) expect(ok.data.partners[0]).toEqual({ documentDigits: CPF_DIGITS, name: "Sócio Um", email: "socio@example.test", percentage: 50, role: "Sócio" });
+		if (ok.success) expect(ok.data.partners[0]).toEqual({ documentDigits: CPF_DIGITS, name: "Sócio Um", email: "socio0@example.test", percentage: 50, role: "Sócio" });
 		expect(clientOrderSchema.safeParse(company({ partners: many(MAX_PARTNERS + 1) })).success).toBe(false);
+	});
+
+	it("names the people limit in the message", () => {
+		const many = Array.from({ length: MAX_PARTNERS + 1 }, (_, i) => ({ ...partner, email: `socio${i}@example.test` }));
+		const parsed = clientOrderSchema.safeParse(company({ partners: many }));
+		expect(parsed.error?.issues.map((i) => i.message)).toContain("No máximo 20 pessoas.");
+	});
+
+	it("refuses two partners with the same e-mail, ignoring case and spaces", () => {
+		const other = { ...partner, name: "Sócio Dois", document: "111.444.777-35", email: "  SOCIO@Example.test " };
+		const parsed = clientOrderSchema.safeParse(company({ partners: [partner, other] }));
+		expect(parsed.success).toBe(false);
+		const issue = parsed.error?.issues.find((i) => i.path.join(".") === "partners.1.email");
+		expect(issue?.message).toBe("Cada pessoa precisa de um e-mail próprio.");
+	});
+
+	it("accepts the same CPF twice and counts one partner", () => {
+		const again = { ...partner, email: "outro@example.test" };
+		const parsed = clientOrderSchema.safeParse(company({ partners: [partner, again] }));
+		expect(parsed.success).toBe(true);
+		if (parsed.success) expect(parsed.data.partners).toHaveLength(1);
 	});
 
 	it("refuses a CNPJ as partner and keeps the declaration flag", () => {
@@ -190,5 +211,21 @@ describe("counterOrderSchema without contact", () => {
 			contactPhone: "",
 		});
 		expect(parsed).toMatchObject({ contactEmail: null, contactPhone: null });
+	});
+});
+
+describe("duplicateEmailIndexes", () => {
+	it("finds repeated e-mails ignoring case and spaces", () => {
+		expect(duplicateEmailIndexes([{ email: "a@b.co" }, { email: "x@b.co" }, { email: " A@B.co " }])).toEqual([2]);
+	});
+
+	it("ignores rows without e-mail and an empty list", () => {
+		expect(duplicateEmailIndexes([{ email: "" }, {}, { email: "  " }])).toEqual([]);
+		expect(duplicateEmailIndexes([])).toEqual([]);
+	});
+
+	it("does not treat a repeated CPF with different e-mails as a repeat", () => {
+		const row = { document: "529.982.247-25" };
+		expect(duplicateEmailIndexes([{ ...row, email: "a@b.co" }, { ...row, email: "c@b.co" }])).toEqual([]);
 	});
 });

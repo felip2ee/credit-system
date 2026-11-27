@@ -1,13 +1,13 @@
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
-import { ADMIN_STATE, CLIENT_STATE, dbQuery, E2E, openNewOrderAtStep, openOrder, resetRateLimit, runTick, STAFF_STATE, SUPERADMIN_STATE, TICK_POLL_TIMEOUT_MS } from "./fixtures";
+import { ADMIN_STATE, CLIENT_NO_BALANCE_STATE, CLIENT_STATE, dbQuery, E2E, openNewOrderAtStep, openOrder, resetRateLimit, runTick, STAFF_STATE, SUPERADMIN_STATE, TICK_POLL_TIMEOUT_MS } from "./fixtures";
 
 // The 10 critical client screens and the first screen of each panel (spec "Telas críticas do cliente").
 // Shared by a11y.spec.ts and mobile.spec.ts.
-export type Ids = { dossierId: string; scrToken: string };
+export type Ids = { dossierId: string; scrToken: string; payId: string };
 export type Screen = {
   name: string;
-  auth: "none" | "client" | "staff" | "admin" | "superadmin";
+  auth: "none" | "client" | "clientNoBalance" | "staff" | "admin" | "superadmin";
   open: (page: Page, ids: Ids) => Promise<void>;
 };
 
@@ -38,17 +38,18 @@ export const SCREENS: Screen[] = [
   { name: "portal: início", auth: "client", open: goto(() => "/portal") },
   { name: "portal: nova pesquisa, passo 1 (escolha)", auth: "client", open: (page) => openNewOrderAtStep(page, 1) },
   { name: "portal: nova pesquisa, passo 2 (dados)", auth: "client", open: (page) => openNewOrderAtStep(page, 2) },
-  { name: "portal: nova pesquisa, passo 3 (sócios)", auth: "client", open: (page) => openNewOrderAtStep(page, 3) },
+  { name: "portal: nova pesquisa, passo 3 (pessoas)", auth: "client", open: (page) => openNewOrderAtStep(page, 3) },
   { name: "portal: nova pesquisa, passo 4 (revisão)", auth: "client", open: (page) => openNewOrderAtStep(page, 4) },
   { name: "portal: lista de pesquisas", auth: "client", open: goto(() => "/portal/pesquisas") },
   { name: "portal: andamento do pedido", auth: "client", open: goto((ids) => `/portal/pesquisas/${ids.dossierId}`) },
+  { name: "portal: pagamento do pedido (PIX)", auth: "clientNoBalance", open: goto((ids) => `/portal/pesquisas/${ids.payId}/pagar`) },
   { name: "portal: créditos (PIX)", auth: "client", open: goto(() => "/portal/credits") },
   { name: "autorização SCR do titular", auth: "none", open: goto((ids) => `/autorizacao-scr/${ids.scrToken}`) },
   { name: "painel do Bureau", auth: "staff", open: goto(() => "/") },
   { name: "painel do superadmin", auth: "superadmin", open: goto(() => "/superadmin") },
 ];
 
-const STATE = { none: undefined, client: CLIENT_STATE, staff: STAFF_STATE, admin: ADMIN_STATE, superadmin: SUPERADMIN_STATE } as const;
+const STATE = { none: undefined, client: CLIENT_STATE, clientNoBalance: CLIENT_NO_BALANCE_STATE, staff: STAFF_STATE, admin: ADMIN_STATE, superadmin: SUPERADMIN_STATE } as const;
 
 export async function newPage(browser: Browser, auth: Screen["auth"], options: Parameters<Browser["newContext"]>[0] = {}) {
   const context: BrowserContext = await browser.newContext({ ...options, storageState: STATE[auth] });
@@ -66,11 +67,32 @@ const pendingScr = () =>
     [E2E.client.email],
   );
 
+// An order awaiting PIX payment, bought by the client without balance (the /pagar screen needs one).
+const pendingPayment = () =>
+  dbQuery<{ dossier_id: string }>(
+    `select o.dossier_id from dossier_orders o
+      where o.client_profile_id = (select id from profiles where email = $1) and o.state = 'awaiting_payment'
+      order by o.created_at desc limit 1`,
+    [E2E.clientNoBalance.email],
+  );
+
+async function ensurePaymentOrder(browser: Browser): Promise<string> {
+  const found = (await pendingPayment())[0];
+  if (found) return found.dossier_id;
+  const { context, page } = await newPage(browser, "clientNoBalance");
+  try {
+    return await openOrder(page, { expectPayment: true });
+  } finally {
+    await context.close();
+  }
+}
+
 // An order with a pending SCR request: reuses one left by an earlier spec, else buys one as the e2e client.
 // The data isolation rule is relaxed on purpose: each order costs credits and the e2e wallet is small.
 export async function ensureOrder(browser: Browser): Promise<Ids> {
+  const payId = await ensurePaymentOrder(browser);
   const found = (await pendingScr())[0];
-  if (found) return { dossierId: found.dossier_id, scrToken: found.public_token };
+  if (found) return { dossierId: found.dossier_id, scrToken: found.public_token, payId };
   const { context, page } = await newPage(browser, "client");
   try {
     const dossierId = await openOrder(page);
@@ -81,7 +103,7 @@ export async function ensureOrder(browser: Browser): Promise<Ids> {
       }, { message: "tick issues the SCR requests", timeout: TICK_POLL_TIMEOUT_MS, intervals: [1_000] })
       .toBeGreaterThan(0);
     const row = (await pendingScr())[0];
-    return { dossierId, scrToken: row.public_token };
+    return { dossierId, scrToken: row.public_token, payId };
   } finally {
     await context.close();
   }

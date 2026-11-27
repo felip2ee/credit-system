@@ -42,7 +42,7 @@ import {
 	type SeededTenant,
 } from "@/test/seed";
 
-import { cancelMyOrder, getCurrentDeclaration, listMyOrderMembers, recordOrderDeclaration } from "./client-ops";
+import { cancelMyOrder, getCurrentDeclaration, listMyOrderMembers, recordOrderDeclaration, updateMyOrderMemberEmail } from "./client-ops";
 import { cancelOrder, claimOrders, placeOrder, refreshOrderState } from "./queries";
 import type { OpenOrderInput } from "./types";
 
@@ -247,6 +247,11 @@ describe("listMyOrderMembers", () => {
 			name: "Empresa Teste",
 			documentMasked: `**.${company.document.slice(2, 5)}.${company.document.slice(5, 8)}/${company.document.slice(8, 12)}-**`,
 			scrStatus: "authorized",
+			consultationId: company.id,
+			emailMasked: expect.stringContaining("***@"),
+			canEditEmail: false,
+			canResend: false,
+			changesLeft: 3,
 		});
 		const partners = members.slice(1);
 		expect(partners.map((m) => [m.role, m.name, m.scrStatus])).toEqual([
@@ -280,6 +285,31 @@ describe("listMyOrderMembers", () => {
 		expect(await withUserTransaction(other, (c) => listMyOrderMembers(c, id))).toEqual([]);
 		expect(await withUserTransaction(foreign.client, (c) => listMyOrderMembers(c, id))).toEqual([]);
 		expect(await withUserTransaction(staff(t), (c) => listMyOrderMembers(c, id))).toEqual([]);
+	});
+});
+
+describe("updateMyOrderMemberEmail", () => {
+	it("changes the email of an own order and returns not_found for another client's", async () => {
+		const t = await newTenant("co member email");
+		const other = await seedClientProfile(owner, t.bureau.id);
+		const id = await place(t, t.client, companyInput(["Sócio A"]));
+		const [before] = (await withUserTransaction(t.client, (c) => listMyOrderMembers(c, id))).filter((m) => m.role === "partner");
+		expect(before).toMatchObject({ canEditEmail: true, canResend: true, changesLeft: 3 });
+		const email = mail();
+
+		const foreign = await withUserTransaction(other, (c) =>
+			updateMyOrderMemberEmail(c, { dossierId: id, consultationId: before.consultationId, email }),
+		);
+		expect(foreign).toEqual({ ok: false, reason: "not_found" });
+
+		const result = await withUserTransaction(t.client, (c) =>
+			updateMyOrderMemberEmail(c, { dossierId: id, consultationId: before.consultationId, email }),
+		);
+		expect(result).toEqual({ ok: true, authorizationId: expect.any(String) });
+		const { rows } = await owner.query<{ scr_email: string }>("select scr_email from consultations where id = $1", [before.consultationId]);
+		expect(rows[0].scr_email).toBe(email);
+		const [after] = (await withUserTransaction(t.client, (c) => listMyOrderMembers(c, id))).filter((m) => m.role === "partner");
+		expect(after.changesLeft).toBe(2);
 	});
 });
 

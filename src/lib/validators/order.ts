@@ -4,6 +4,7 @@ import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 
 import { percentageSchema } from "./holder";
 import { uuidSchema } from "./id";
+import { payerFieldsSchema } from "./payer";
 
 export const MAX_PARTNERS = 20;
 const MAX_REASON = 500;
@@ -44,16 +45,16 @@ const toSubject = (subject: Subject, productCode: string) => ({
 	documentDigits: onlyDigits(subject.document),
 });
 
-// D9: um consentimento por membro. O e-mail do sócio é obrigatório; o contato da empresa nunca vale por ele.
+// D9: um consentimento por membro. O e-mail da pessoa é obrigatório; o contato da empresa nunca vale por ele.
 const partnerEmailSchema = z
-	.string({ required_error: "Informe o e-mail do sócio." })
+	.string({ required_error: "Informe o e-mail da pessoa." })
 	.trim()
-	.min(1, "Informe o e-mail do sócio.")
-	.email("E-mail do sócio inválido.")
+	.min(1, "Informe o e-mail da pessoa.")
+	.email("E-mail da pessoa inválido.")
 	.max(254, "E-mail muito longo.");
 
 export const partnerSchema = z.object({
-	document: z.string().refine(isValidCPF, "CPF do sócio inválido."),
+	document: z.string().refine(isValidCPF, "CPF da pessoa inválido."),
 	name: nameSchema,
 	email: partnerEmailSchema,
 	percentage: percentageSchema.nullish().transform((v) => v ?? null),
@@ -70,6 +71,18 @@ const toPartners = (partners: z.infer<typeof partnerSchema>[]) => {
 		return [{ documentDigits, name: p.name, email: p.email, percentage: p.percentage, role: p.role }];
 	});
 };
+
+// Índices das linhas cujo e-mail (trim, minúsculas) já apareceu antes na lista. Linha sem e-mail não conta.
+export function duplicateEmailIndexes(partners: readonly { email?: string }[]): number[] {
+	const seen = new Set<string>();
+	return partners.flatMap((p, i) => {
+		const email = (p.email ?? "").trim().toLowerCase();
+		if (!email) return [];
+		if (seen.has(email)) return [i];
+		seen.add(email);
+		return [];
+	});
+}
 
 const ORDER_PRODUCT_CODES = ["dossie_pf", "dossie_empresarial"] as const;
 const productCodeSchema = z.enum(ORDER_PRODUCT_CODES, { errorMap: () => ({ message: "Produto inválido." }) });
@@ -90,7 +103,7 @@ export const clientOrderSchema = z
 		subject: subjectSchema.nullish(),
 		contactEmail: optionalEmail,
 		contactPhone: optionalPhone,
-		partners: z.array(partnerSchema).max(MAX_PARTNERS, `No máximo ${MAX_PARTNERS} sócios.`).default([]),
+		partners: z.array(partnerSchema).max(MAX_PARTNERS, `No máximo ${MAX_PARTNERS} pessoas.`).default([]),
 		declarationAccepted: z.boolean().default(false),
 		// A versão do texto que o formulário mostrou. O banco recusa se já não for a vigente.
 		declarationVersion: z.number().int().positive().nullish().transform((v) => v ?? null),
@@ -101,6 +114,10 @@ export const clientOrderSchema = z
 	.superRefine((v, ctx) => {
 		if (v.partners.length > 0 && v.productCode !== "dossie_empresarial") {
 			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners"], message: PARTNERS_ONLY_EMPRESARIAL });
+		}
+		// Um consentimento por e-mail: o mesmo e-mail em duas linhas é recusado (o CPF repetido segue contando uma vez).
+		for (const i of duplicateEmailIndexes(v.partners)) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners", i, "email"], message: "Cada pessoa precisa de um e-mail próprio." });
 		}
 		if (v.self) return;
 		if (!v.subject) {
@@ -150,6 +167,22 @@ export const counterOrderSchema = z
 	}));
 
 export const orderIdSchema = uuidSchema;
+
+// Cliente corrige o e-mail de quem autoriza o SCR no próprio pedido. E-mail obrigatório (reenviar não leva e-mail).
+const memberRefSchema = z.object({ dossierId: uuidSchema, consultationId: uuidSchema });
+export const updateMemberEmailSchema = memberRefSchema.extend({
+	email: z.string({ required_error: "E-mail inválido.", invalid_type_error: "E-mail inválido." }).pipe(emailSchema),
+});
+export const resendMemberSchema = memberRefSchema;
+
+// PIX do pedido. Sem valor nem método: o preço vem da cotação guardada no servidor e o método é sempre PIX.
+export const orderPixSchema = z.object({
+	dossierId: uuidSchema,
+	idempotencyKey: z.string().uuid(),
+	payerKind: z.enum(["owner", "other"]).default("owner"),
+	payer: payerFieldsSchema.optional(),
+	declaration: z.literal(true).optional(),
+});
 
 // Correção do contato do pedido de autorização. E-mail e celular em branco = manter o atual (reenvio). Para o próprio
 // Titular do comprador o servidor usa o e-mail da conta e descarta o que for digitado.
