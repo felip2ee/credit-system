@@ -74,6 +74,7 @@ export default async function globalSetup() {
     const bureau = await client.query<{ id: string }>("insert into bureaus (name, slug) values ('e2e Bureau', $1) returning id", [E2E.bureauSlug]);
     const bureauId = bureau.rows[0].id;
     const staffId = await insertUser(client, { ...E2E.staff, name: "e2e Operador", role: "operator", bureauId });
+    await insertUser(client, { ...E2E.admin, name: "e2e Administrador", role: "bureau_admin", bureauId });
     await insertUser(client, { ...E2E.superadmin, name: "e2e Superadmin", role: "superadmin", bureauId: null });
     const disabledId = await insertUser(client, { ...E2E.disabled, name: "e2e Desativado", role: "operator", bureauId });
     const clientId = await insertUser(client, { ...E2E.client, name: "e2e Cliente", role: "client", bureauId });

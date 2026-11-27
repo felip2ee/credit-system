@@ -136,6 +136,9 @@ test("referred client buys, commission waits the hold, then converts to credits 
   await expect(confirm).toBeEnabled();
   await confirm.click();
   await expect(page.getByText("Saque solicitado.")).toBeVisible();
+  // O refresh traz o saldo novo; a confirmação continua na tela (o remonte da página a apagava).
+  await expect(page.getByText(/Disponível para saque: R\$\s*0,00/)).toBeVisible();
+  await expect(page.getByText("Saque solicitado.")).toBeVisible();
   expect(await walletOf(affiliate.userId)).toBe(0);
 
   // The superadmin sees the queue and marks the withdrawal as paid with the receipt.

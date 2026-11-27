@@ -146,7 +146,7 @@ export default async function DashboardPage({
               label="Faturamento total"
               value={formatCurrency(revenue.total.amount)}
               hint={`${orders} ${orders === 1 ? "pedido concluído" : "pedidos concluídos"} desde o início`}
-              icon={TrendingUp}
+              icon={<TrendingUp className="size-[18px]" />}
             />
           )}
           {payable !== null && (

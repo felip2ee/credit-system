@@ -11,16 +11,17 @@ interface HideableStatProps {
   // Valor já formatado, ex.: "R$ 123,45".
   value: string;
   hint: string;
-  icon: React.ComponentType<{ className?: string }>;
+  // Nó já renderizado: um componente (função) não passa do servidor para este componente de cliente.
+  icon: React.ReactNode;
 }
 
 // Mesmo visual do Stat, com botão para ocultar o valor. Começa visível; a escolha não é guardada.
-export function HideableStat({ label, value, hint, icon: Icon }: HideableStatProps) {
+export function HideableStat({ label, value, hint, icon }: HideableStatProps) {
   const [hidden, setHidden] = useState(false);
   return (
     <Card className="flex h-full items-center gap-3 p-4">
       <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-brand-soft text-brand-soft-foreground">
-        <Icon className="size-[18px]" />
+        {icon}
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-[13px] text-muted-foreground">{label}</p>
