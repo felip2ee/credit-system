@@ -35,19 +35,19 @@ export function ClientOrderList({ orders }: { orders: ClientOrderListItem[] }) {
 					<li key={o.dossierId}>
 						<Link
 							href={`/portal/pesquisas/${o.dossierId}`}
-							className="flex min-h-14 items-start gap-3 rounded-card px-4 py-3 duration-fast ease-out hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-safe:transition-colors"
+							className="flex min-h-14 flex-wrap items-start gap-3 rounded-card px-4 py-3 duration-fast ease-out hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-safe:transition-colors"
 						>
 							<span aria-hidden className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
 								<FileText className="size-5" />
 							</span>
-							<span className="min-w-0 flex-1 space-y-1">
+							<span className="min-w-[6rem] flex-1 space-y-1">
 								<span className="block break-words text-base font-bold">{o.subjectName}</span>
 								<span className="block text-sm text-muted-foreground">
 									{PRODUCT_LABEL[o.productCode]} · {o.subjectDocumentMasked} · {formatDate(o.createdAt)}
 								</span>
 								<OrderStateBadge state={o.state} reason={o.reason} />
 							</span>
-							<span className="shrink-0 whitespace-nowrap text-right text-base font-bold tabular-nums">
+							<span className="ml-auto shrink-0 whitespace-nowrap text-right text-base font-bold tabular-nums">
 								{o.price === null ? "—" : formatCurrency(Number(o.price))}
 							</span>
 						</Link>

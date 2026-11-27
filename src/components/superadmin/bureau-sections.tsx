@@ -8,8 +8,8 @@ interface BureauSectionLink {
 // Índice por âncoras no topo do detalhe: cada link leva à seção de mesmo id. Alvo de 44 px abaixo de `md`.
 export function BureauSectionNav({ sections }: { sections: BureauSectionLink[] }) {
   return (
-    <nav aria-label="Seções do Bureau" className="-mx-1 overflow-x-auto">
-      <ul className="flex w-max gap-1 px-1">
+    <nav aria-label="Seções do Bureau">
+      <ul className="flex flex-wrap gap-1">
         {sections.map((section) => (
           <li key={section.id}>
             <a
@@ -30,10 +30,9 @@ interface BureauSectionProps extends BureauSectionLink {
   children: ReactNode;
 }
 
-// `scroll-mt-20` deixa o título abaixo do cabeçalho fixo ao seguir a âncora.
 export function BureauSection({ id, label, description, children }: BureauSectionProps) {
   return (
-    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-20 space-y-4 border-t border-border pt-4">
+    <section id={id} aria-labelledby={`${id}-title`} className="space-y-4 border-t border-border pt-4">
       <div className="space-y-1">
         <h2 id={`${id}-title`} className="text-base font-bold">
           {label}

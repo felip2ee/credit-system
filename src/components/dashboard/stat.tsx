@@ -10,15 +10,16 @@ interface StatProps {
   href?: string;
 }
 
+// Valor com teto em vw: com a fonte ampliada o número não quebra no meio (igual no HideableStat).
 export function Stat({ label, value, hint, icon: Icon, href }: StatProps) {
   const body = (
-    <Card className="flex h-full items-center gap-3 p-4 motion-safe:transition-shadow hover:shadow-md">
+    <Card className="flex h-full flex-wrap items-center gap-3 p-4 motion-safe:transition-shadow hover:shadow-md">
       <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-brand-soft text-brand-soft-foreground">
         <Icon className="size-[18px]" />
       </span>
-      <div className="min-w-0">
+      <div className="min-w-[6rem] flex-1">
         <p className="text-[13px] text-muted-foreground">{label}</p>
-        <p className="break-words text-xl font-bold leading-tight md:text-2xl tabular-nums">{value}</p>
+        <p className="break-words text-[length:min(1.25rem,9vw)] font-bold leading-tight md:text-2xl tabular-nums">{value}</p>
         <p className="text-xs text-muted-foreground">{hint}</p>
       </div>
     </Card>

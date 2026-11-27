@@ -96,7 +96,7 @@ export default async function DossiersPage({
                     <summary className="flex cursor-pointer list-none flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 hover:bg-accent sm:items-center">
                       <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground motion-safe:transition-transform group-open:rotate-90 sm:mt-0" />
                       <div className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] sm:basis-0">
-                        <p className="truncate text-base font-bold">{d.holder_name}</p>
+                        <p className="text-base font-bold [overflow-wrap:anywhere]">{d.holder_name}</p>
                         <p className="text-sm text-muted-foreground">
                           {DOSSIER_KIND_LABEL[d.kind]} · {d.members.length}{" "}
                           {d.members.length === 1 ? "consulta" : "consultas"} · {formatDate(d.created_at)}

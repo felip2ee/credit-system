@@ -102,7 +102,7 @@ export function ClientStep({ value, onChange, picked, onPicked, errors = {} }: C
         </div>
       ) : (
         <>
-          <div role="group" aria-label="Como informar o cliente" className="flex gap-2">
+          <div role="group" aria-label="Como informar o cliente" className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant={mode === "search" ? "secondary" : "ghost"} onClick={() => setMode("search")}>Buscar cadastrado</Button>
             <Button type="button" size="sm" variant={mode === "new" ? "secondary" : "ghost"} onClick={() => setMode("new")}>Novo cliente</Button>
           </div>

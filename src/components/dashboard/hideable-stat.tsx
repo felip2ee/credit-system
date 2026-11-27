@@ -19,13 +19,13 @@ interface HideableStatProps {
 export function HideableStat({ label, value, hint, icon }: HideableStatProps) {
   const [hidden, setHidden] = useState(false);
   return (
-    <Card className="flex h-full items-center gap-3 p-4">
+    <Card className="flex h-full flex-wrap items-center gap-3 p-4">
       <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-brand-soft text-brand-soft-foreground">
         {icon}
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[6rem] flex-1">
         <p className="text-[13px] text-muted-foreground">{label}</p>
-        <p className="break-words text-xl font-bold leading-tight md:text-2xl tabular-nums">
+        <p className="break-words text-[length:min(1.25rem,9vw)] font-bold leading-tight md:text-2xl tabular-nums">
           <span aria-hidden={hidden || undefined}>{displayBalance(value, hidden)}</span>
           {hidden && <span className="sr-only">{label} oculto</span>}
         </p>
@@ -35,7 +35,7 @@ export function HideableStat({ label, value, hint, icon }: HideableStatProps) {
         type="button"
         onClick={() => setHidden((h) => !h)}
         aria-label={hidden ? `Mostrar ${label.toLowerCase()}` : `Ocultar ${label.toLowerCase()}`}
-        className="flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="ml-auto flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {/* O ícone mostra a ação: olho = mostrar, olho riscado = ocultar. */}
         {hidden ? <Eye aria-hidden className="size-5" /> : <EyeOff aria-hidden className="size-5" />}

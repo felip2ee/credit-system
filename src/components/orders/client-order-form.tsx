@@ -52,9 +52,9 @@ const ignoreRepeatedClick = (event: React.MouseEvent<HTMLButtonElement>) => {
 // Sangra até a borda da tela: o gutter da página é 16 px (20 px a partir de 375 px), como `.px-screen`.
 const BLEED = "-mx-4 min-[375px]:-mx-5";
 
-// Cabeçalho e rodapé fixos cobrem a tela: o foco de um campo inválido não pode ficar embaixo deles.
+// Cabeçalho e rodapé fixos cobrem a tela: o foco de um campo não fica embaixo deles (scroll-padding em globals.css).
 const SECTION_CLASS =
-	"space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20 [&_input]:scroll-mb-44 [&_button]:scroll-mb-44";
+	"space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200";
 
 // Campos que cada etapa valida ao continuar. Só as etapas "dados" e "sócios" têm campo de texto.
 function stepFields(step: WizardStepId, isSelf: boolean): FieldPath<OrderFormValues>[] {
@@ -262,7 +262,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 					</p>
 				</section>
 				{/* 3.5rem = altura da barra inferior em bottom-nav.tsx (min-h-14); os dois valores mudam juntos. */}
-					<div className={`sticky bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background px-screen py-3 md:bottom-0 ${BLEED}`}>
+					<div data-sticky-footer className={`sticky bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background px-screen py-3 md:bottom-0 ${BLEED}`}>
 					{!isLast ? (
 						<Button key="next" type="submit" size="lg" glow className="w-full" onClick={ignoreRepeatedClick}>
 							Continuar

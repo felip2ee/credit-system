@@ -83,7 +83,7 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
         {/* Fora do banner (role="alert"): o leitor de tela não lê os códigos em voz alta nem relê o aviso ao copiar. */}
         <div className="space-y-2">
           <h3 className="text-base font-bold">Códigos de recuperação</h3>
-          <ul className="grid grid-cols-2 gap-1 font-mono">
+          <ul className="grid grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))] gap-1 font-mono">
             {backupCodes.map((backupCode) => <li key={backupCode}>{backupCode}</li>)}
           </ul>
           <Button type="button" variant="outline" size="sm" onClick={copyBackupCodes}>

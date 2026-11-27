@@ -176,7 +176,7 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
         step={{ current: step + 1, total: STEPS.length, label: current.label }}
       />
 
-      <section key={step} className="mx-auto w-full max-w-2xl space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20 [&_input]:scroll-mb-28 [&_button]:scroll-mb-28">
+      <section key={step} className="mx-auto w-full max-w-2xl space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
         <h2 ref={titleRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">
           <span className="sr-only">
             Passo {step + 1} de {STEPS.length}:{" "}
@@ -192,10 +192,10 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
             <RadioGroup aria-label="Produto" value={productCode ?? ""} onValueChange={setProductCode}>
               {options.map((p) => (
                 <div key={p.code} className="min-w-0 rounded-card border border-input has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-brand-soft">
-                  <label htmlFor={`product-${p.code}`} className="flex min-h-14 min-w-0 cursor-pointer items-center gap-3 p-3">
+                  <label htmlFor={`product-${p.code}`} className="flex min-h-14 min-w-0 cursor-pointer flex-wrap items-center gap-3 p-3">
                     <RadioGroupItem id={`product-${p.code}`} value={p.code} className="shrink-0" />
-                    <span className="min-w-0 flex-1 break-words font-medium">{p.name}</span>
-                    <span className="font-bold tabular-nums">{formatCurrency(Number(p.price))}</span>
+                    <span className="min-w-[6rem] flex-1 break-words font-medium">{p.name}</span>
+                    <span className="ml-auto font-bold tabular-nums">{formatCurrency(Number(p.price))}</span>
                   </label>
                 </div>
               ))}

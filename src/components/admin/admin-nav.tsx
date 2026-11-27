@@ -45,6 +45,7 @@ export function AdminNav({ variant }: { variant: "top" | "bottom" }) {
 
   return (
     <nav
+      data-bottom-nav
       aria-label="Principal"
       className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-sidebar-border bg-sidebar pb-[env(safe-area-inset-bottom)] md:hidden"
     >

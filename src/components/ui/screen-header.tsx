@@ -47,7 +47,7 @@ export function ScreenHeader({ title, onBack, backHref, backLabel = "Voltar", cl
 	const hasBack = Boolean(onBack || backHref);
 	const hasClose = Boolean(onClose || closeHref);
 	return (
-		<header className={cn("sticky top-0 z-30 border-b border-border bg-background pt-[env(safe-area-inset-top)]", className)}>
+		<header data-screen-header className={cn("sticky top-0 z-30 border-b border-border bg-background pt-[env(safe-area-inset-top)]", className)}>
 			<div className="flex min-h-11 items-center gap-1">
 				{hasBack ? (
 					<IconAction label={backLabel} href={backHref} onClick={onBack}>
@@ -57,9 +57,9 @@ export function ScreenHeader({ title, onBack, backHref, backLabel = "Voltar", cl
 					<span aria-hidden className="size-11 shrink-0" />
 				)}
 				<div className="min-w-0 flex-1 text-center">
-					<h1 className="truncate text-base font-bold">{title}</h1>
+					<h1 className="text-base font-bold [overflow-wrap:anywhere]">{title}</h1>
 					{step && (
-						<p className="truncate text-sm text-muted-foreground">
+						<p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
 							Passo {step.current} de {step.total}: {step.label}
 						</p>
 					)}

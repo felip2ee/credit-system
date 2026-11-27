@@ -109,7 +109,7 @@ export function ReviewStep(props: ReviewStepProps) {
 			)}
 			{empresarial && breakdown && pricePerPartner !== null && <OrderPriceSummary breakdown={breakdown} pricePerPartner={pricePerPartner} />}
 			<CouponField coupon={coupon} />
-			<dl className="grid grid-cols-2 gap-4">
+			<dl className="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-4">
 				<div>
 					<dt className="text-muted-foreground">Total</dt>
 					<dd className="text-2xl font-bold tabular-nums" aria-live="polite">

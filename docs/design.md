@@ -137,7 +137,8 @@ Regras:
 
 - **Portal (celular):** cabeçalho com a logo e o chip de saldo (só com `credits:read` e carteira; sem saldo, o cabeçalho não mostra nada). Barra inferior com ícone e texto; o item ativo é um círculo verde-escuro (`--primary`) com ícone branco e rótulo visível: Início, Pesquisas, Créditos (com `credits:read`) e Conta. No computador, logo completa e os mesmos itens em linha.
 - **Saldo:** aparece só no chip do cabeçalho e na tela Créditos. Nenhuma outra tela repete o saldo.
-- **Texto em lista:** corta com "…" (uma linha). Exceção: o nome do Bureau no `PublicShell` quebra em várias linhas.
+- **Texto em lista:** corta com "…" (uma linha). Exceções: o nome do Bureau no `PublicShell` quebra em várias linhas; no `ListRow`, a fonte ampliada (linha menor que 12rem) quebra o texto em vez de cortar. Título e etapa do `ScreenHeader` nunca são cortados.
+- **Barras fixas:** barra inferior (`data-bottom-nav`), cabeçalho (`data-screen-header`, `data-portal-header`) e rodapé preso (`data-sticky-footer`) levam esses atributos. `globals.css` usa `scroll-padding` para o controle focado não ficar sob elas. Barra nova leva o atributo.
 - **Créditos:** o extrato fica agrupado por data. A tela não tem tabela de movimentos nem a seção "Recargas recentes".
 - **Explicações:** Nova pesquisa tem a introdução "como funciona" (`ResearchIntro`). Afiliação tem "Como funciona" (`HowItWorks`). A página pública do Bureau tem a mesma explicação em `PublicHowItWorks`.
 - **Páginas públicas:** logo completa no topo, nome do Bureau, uma coluna.

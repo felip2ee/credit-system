@@ -173,7 +173,7 @@ export function ProductForm() {
         step={{ current: stepIndex + 1, total: STEPS.length, label: current.label }}
       />
       <form onSubmit={onSubmit} noValidate className="mx-auto w-full max-w-xl space-y-6">
-        <section key={current.id} className="space-y-4 motion-safe:animate-fade-in [&_input]:scroll-mt-20">
+        <section key={current.id} className="space-y-4 motion-safe:animate-fade-in">
           <h2 ref={titleRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">
             <span className="sr-only">
               Passo {stepIndex + 1} de {STEPS.length}:{" "}

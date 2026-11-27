@@ -50,8 +50,8 @@ const ignoreRepeatedClick = (event: React.MouseEvent<HTMLButtonElement>) => {
 // Sangra até a borda do `main` do painel (p-4, md:p-6) para o cabeçalho fixo ocupar a largura toda.
 const BLEED = "-mx-4 -mt-4 md:-mx-6 md:-mt-6";
 
-// O cabeçalho fixo cobre o topo: o foco de um campo inválido não pode ficar embaixo dele.
-const SECTION_CLASS = "space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20";
+// O cabeçalho fixo cobre o topo: o foco de um campo não fica embaixo dele (scroll-padding em globals.css).
+const SECTION_CLASS = "space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200";
 
 // Campos que cada etapa valida ao continuar.
 function stepFields(step: DossierStepId, ownResearch: boolean): FieldPath<CounterOrderFormValues>[] {
