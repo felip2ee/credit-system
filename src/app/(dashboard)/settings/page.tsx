@@ -1,46 +1,42 @@
-import { ScrollText, ShieldCheck, Users } from "lucide-react";
+import { PackageSearch, ScrollText, ShieldCheck, Store, Ticket, Users, Wallet } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { redirect } from "next/navigation";
 
+import { SETTINGS_PAGES, visibleNavItems } from "@/components/layout/nav-items";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { ListRow } from "@/components/ui/list-row";
-import { redirect } from "next/navigation";
-
 import { getRequiredSession } from "@/lib/auth/session";
+import { permissionsFor } from "@/lib/db/permissions";
+
+const ICONS: Record<string, LucideIcon> = {
+  "/settings/security": ShieldCheck,
+  "/settings/users": Users,
+  "/settings/audit": ScrollText,
+  "/settings/catalog": PackageSearch,
+  "/settings/cupons": Ticket,
+  "/settings/wallet": Wallet,
+  "/settings/counter-payments": Store,
+};
 
 export default async function SettingsPage() {
   const session = await getRequiredSession().catch(() => redirect("/login"));
-  const admin = session.role === "bureau_admin";
+  const pages = visibleNavItems(SETTINGS_PAGES, permissionsFor(session));
 
   return (
     <div>
-      <PageHeader
-        title="Configurações"
-        description="Gestão da conta e da operação"
-      />
+      <PageHeader title="Configurações" description="Escolha o que você quer ajustar" />
 
       <Card className="divide-y divide-border overflow-hidden">
-        <ListRow
-          href="/settings/security"
-          icon={ShieldCheck}
-          title="Segurança (MFA)"
-          subtitle="Cadastre um autenticador TOTP para sua conta."
-        />
-        {admin && (
+        {pages.map((page) => (
           <ListRow
-            href="/settings/users"
-            icon={Users}
-            title="Equipe"
-            subtitle="Convide e gerencie operadores e administradores."
+            key={page.href}
+            href={page.href}
+            icon={ICONS[page.href]}
+            title={page.label}
+            subtitle={<span className="block whitespace-normal">{page.description}</span>}
           />
-        )}
-        {admin && (
-          <ListRow
-            href="/settings/audit"
-            icon={ScrollText}
-            title="Auditoria"
-            subtitle="Trilha de acessos ao bureau (quem consultou o quê e quando)."
-          />
-        )}
+        ))}
       </Card>
     </div>
   );
