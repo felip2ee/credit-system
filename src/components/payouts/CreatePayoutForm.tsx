@@ -51,7 +51,13 @@ export function CreatePayoutForm({ bureaus, latestDate }: CreatePayoutFormProps)
     const cutoffAt = cutoffFromDate(cutoff);
     if (!cutoffAt) return;
     startTransition(async () => {
-      const res = await createPayoutAction({ bureauId, cutoffAt });
+      let res;
+      try {
+        res = await createPayoutAction({ bureauId, cutoffAt });
+      } catch {
+        setConfirming(false);
+        return setServerError("Não foi possível criar o repasse. Confira a lista de repasses antes de tentar de novo.");
+      }
       setConfirming(false);
       if (res.error) return setServerError(res.error);
       setDone(true);

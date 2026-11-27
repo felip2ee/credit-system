@@ -16,7 +16,7 @@ import { signedMoneySchema } from "@/lib/validators/wallet";
 
 interface WalletAdjustFormProps {
   bureauId: string;
-  // Nome do Bureau, mostrado na confirmação. Sem ele a confirmação diz "Bureau desta página".
+  // Nome do Bureau, mostrado na confirmação. Sem ele a confirmação diz "o Bureau aberto nesta página".
   bureauName?: string;
 }
 
@@ -50,7 +50,14 @@ export function WalletAdjustForm({ bureauId, bureauName }: WalletAdjustFormProps
 
   const confirm = () => {
     startTransition(async () => {
-      const res = await adjustWalletAction({ bureauId, amount: normalized, reason, idempotencyKey });
+      let res;
+      try {
+        res = await adjustWalletAction({ bureauId, amount: normalized, reason, idempotencyKey });
+      } catch {
+        // Mesma chave de idempotência: tentar de novo não duplica o ajuste.
+        setConfirming(false);
+        return setServerError("Não foi possível confirmar o ajuste. Confira o extrato do Bureau antes de tentar de novo.");
+      }
       setConfirming(false);
       if (res.error) return setServerError(res.error);
       setDone(true);
@@ -111,7 +118,7 @@ export function WalletAdjustForm({ bureauId, bureauName }: WalletAdjustFormProps
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between gap-4">
             <dt className="text-muted-foreground">Bureau</dt>
-            <dd className="break-words text-right">{bureauName ?? "Bureau desta página"}</dd>
+            <dd className="break-words text-right">{bureauName ?? "o Bureau aberto nesta página"}</dd>
           </div>
           <div className="flex justify-between gap-4">
             <dt className="text-muted-foreground">Ajuste</dt>

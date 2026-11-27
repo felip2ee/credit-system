@@ -61,46 +61,46 @@ export function PayoutTable({ payouts, bureauNames, canManage = false, stacked =
       </StackedList>
     )}
     <div className={stacked ? "hidden md:block" : undefined}>
-    <Table>
-      <TableHeader>
-        <TableRow>
-          {bureauNames && <TableHead>Bureau</TableHead>}
-          <TableHead>Corte</TableHead>
-          <TableHead>Valor</TableHead>
-          <TableHead>Estado</TableHead>
-          <TableHead>Pago em</TableHead>
-          <TableHead>Comprovante</TableHead>
-          {canManage && <TableHead>Ações</TableHead>}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {payouts.map((payout) => (
-          <TableRow key={payout.id}>
-            {bureauNames && <TableCell>{bureauNames[payout.bureauId] ?? "—"}</TableCell>}
-            <TableCell>{formatDateSP(payout.cutoffAt)}</TableCell>
-            <TableCell>{formatCurrency(Number(payout.amount))}</TableCell>
-            <TableCell>
-              <StatusBadge tone={PAYOUT_STATUS_TONE[payout.status]} label={PAYOUT_STATUS_LABEL[payout.status]} />
-            </TableCell>
-            <TableCell>{formatDateTime(payout.paidAt)}</TableCell>
-            <TableCell>
-              {payout.status === "paid" && payout.hasReceipt ? (
-                <ReceiptLink payout={payout} />
-              ) : (
-                "—"
-              )}
-            </TableCell>
-            {canManage && (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {bureauNames && <TableHead>Bureau</TableHead>}
+            <TableHead>Corte</TableHead>
+            <TableHead>Valor</TableHead>
+            <TableHead>Estado</TableHead>
+            <TableHead>Pago em</TableHead>
+            <TableHead>Comprovante</TableHead>
+            {canManage && <TableHead>Ações</TableHead>}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {payouts.map((payout) => (
+            <TableRow key={payout.id}>
+              {bureauNames && <TableCell>{bureauNames[payout.bureauId] ?? "—"}</TableCell>}
+              <TableCell>{formatDateSP(payout.cutoffAt)}</TableCell>
+              <TableCell>{formatCurrency(Number(payout.amount))}</TableCell>
               <TableCell>
-                {payout.status === "open" && (
-                  <RowActions payout={payout} bureauName={bureauNames?.[payout.bureauId] ?? "Bureau"} />
+                <StatusBadge tone={PAYOUT_STATUS_TONE[payout.status]} label={PAYOUT_STATUS_LABEL[payout.status]} />
+              </TableCell>
+              <TableCell>{formatDateTime(payout.paidAt)}</TableCell>
+              <TableCell>
+                {payout.status === "paid" && payout.hasReceipt ? (
+                  <ReceiptLink payout={payout} />
+                ) : (
+                  "—"
                 )}
               </TableCell>
-            )}
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+              {canManage && (
+                <TableCell>
+                  {payout.status === "open" && (
+                    <RowActions payout={payout} bureauName={bureauNames?.[payout.bureauId] ?? "Bureau"} />
+                  )}
+                </TableCell>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
     </Card>
   );

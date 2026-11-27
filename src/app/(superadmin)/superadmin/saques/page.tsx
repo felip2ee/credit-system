@@ -57,40 +57,40 @@ export default async function WithdrawalQueuePage() {
           ))}
         </StackedList>
         <div className="hidden md:block">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Pedido em</TableHead>
-              <TableHead>Bureau</TableHead>
-              <TableHead>Afiliada</TableHead>
-              <TableHead>Valor</TableHead>
-              <TableHead>Taxa</TableHead>
-              <TableHead>Líquido</TableHead>
-              <TableHead>Chave PIX</TableHead>
-              <TableHead>Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {queue.map((w) => (
-              <TableRow key={w.id}>
-                <TableCell>{formatDateTime(w.createdAt)}</TableCell>
-                <TableCell>{bureauNames.get(w.bureauId) ?? "—"}</TableCell>
-                <TableCell>{w.holderName}</TableCell>
-                <TableCell>{formatCurrency(Number(w.amount))}</TableCell>
-                <TableCell>{formatCurrency(Number(w.fee))}</TableCell>
-                <TableCell className="font-semibold">{formatCurrency(Number(w.net))}</TableCell>
-                <TableCell className="font-mono text-sm">{w.pixKeyMasked}</TableCell>
-                <TableCell>
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={`/superadmin/saques/${w.id}`} aria-label={`Abrir saque de ${w.holderName}`}>
-                      Abrir
-                    </Link>
-                  </Button>
-                </TableCell>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Pedido em</TableHead>
+                <TableHead>Bureau</TableHead>
+                <TableHead>Afiliada</TableHead>
+                <TableHead>Valor</TableHead>
+                <TableHead>Taxa</TableHead>
+                <TableHead>Líquido</TableHead>
+                <TableHead>Chave PIX</TableHead>
+                <TableHead>Ações</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {queue.map((w) => (
+                <TableRow key={w.id}>
+                  <TableCell>{formatDateTime(w.createdAt)}</TableCell>
+                  <TableCell>{bureauNames.get(w.bureauId) ?? "—"}</TableCell>
+                  <TableCell>{w.holderName}</TableCell>
+                  <TableCell>{formatCurrency(Number(w.amount))}</TableCell>
+                  <TableCell>{formatCurrency(Number(w.fee))}</TableCell>
+                  <TableCell className="font-semibold">{formatCurrency(Number(w.net))}</TableCell>
+                  <TableCell className="font-mono text-sm">{w.pixKeyMasked}</TableCell>
+                  <TableCell>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/superadmin/saques/${w.id}`} aria-label={`Abrir saque de ${w.holderName}`}>
+                        Abrir
+                      </Link>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
         </Card>
       )}

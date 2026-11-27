@@ -63,34 +63,34 @@ export function NfseFailuresTable({ rows, canRetry }: { rows: NfseFailureView[];
       ))}
     </StackedList>
     <div className="hidden md:block">
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Cobrança</TableHead>
-          <TableHead>Bureau</TableHead>
-          <TableHead>Valor</TableHead>
-          <TableHead>Tentativas</TableHead>
-          <TableHead>Última atualização</TableHead>
-          {canRetry && <TableHead>Ação</TableHead>}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => (
-          <TableRow key={row.chargeId}>
-            <TableCell className="font-mono text-sm">{row.chargeId.slice(0, 8)}</TableCell>
-            <TableCell>{row.bureauName}</TableCell>
-            <TableCell>{formatCurrency(Number(row.amount))}</TableCell>
-            <TableCell>{row.attempts}</TableCell>
-            <TableCell>{formatDateTime(row.updatedAt ?? row.createdAt)}</TableCell>
-            {canRetry && (
-              <TableCell>
-                <RetryButton chargeId={row.chargeId} label={`${row.chargeId.slice(0, 8)} (${row.bureauName})`} />
-              </TableCell>
-            )}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Cobrança</TableHead>
+            <TableHead>Bureau</TableHead>
+            <TableHead>Valor</TableHead>
+            <TableHead>Tentativas</TableHead>
+            <TableHead>Última atualização</TableHead>
+            {canRetry && <TableHead>Ação</TableHead>}
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.chargeId}>
+              <TableCell className="font-mono text-sm">{row.chargeId.slice(0, 8)}</TableCell>
+              <TableCell>{row.bureauName}</TableCell>
+              <TableCell>{formatCurrency(Number(row.amount))}</TableCell>
+              <TableCell>{row.attempts}</TableCell>
+              <TableCell>{formatDateTime(row.updatedAt ?? row.createdAt)}</TableCell>
+              {canRetry && (
+                <TableCell>
+                  <RetryButton chargeId={row.chargeId} label={`${row.chargeId.slice(0, 8)} (${row.bureauName})`} />
+                </TableCell>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
     </Card>
   );
