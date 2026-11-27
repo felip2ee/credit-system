@@ -6,10 +6,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
-import { signOut } from "@/actions/auth";
 import { authClient } from "@/lib/auth/client";
 import { newPasswordSchema } from "@/lib/validators/password";
 import { Button } from "@/components/ui/button";
+import { SignOutButton } from "@/components/auth/auth-exit";
 import { AuthHeading } from "@/components/auth/auth-heading";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Field } from "@/components/ui/field";
@@ -59,7 +59,8 @@ export default function ChangePasswordPage() {
   };
 
   return (
-    <section className="w-full max-w-md space-y-8">
+    <section className="w-full max-w-md space-y-6">
+      <SignOutButton />
       <AuthHeading
         title="Defina uma nova senha"
         description="Sua senha foi definida por um administrador. Crie uma senha pessoal para continuar."
@@ -75,13 +76,8 @@ export default function ChangePasswordPage() {
           {(a) => <PasswordInput withIcon {...a} {...register("confirm")} />}
         </Field>
         {error && <StatusBanner tone="attention" title={error} />}
-        <Button type="submit" size="lg" glow className="w-full" disabled={isSubmitting}>
+        <Button type="submit" glow className="w-full" disabled={isSubmitting}>
           {isSubmitting ? "Salvando..." : "Salvar nova senha"}
-        </Button>
-      </form>
-      <form action={signOut}>
-        <Button type="submit" variant="outline" size="lg" className="w-full">
-          Sair
         </Button>
       </form>
     </section>

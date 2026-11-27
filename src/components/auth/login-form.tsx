@@ -72,13 +72,13 @@ export function LoginForm({ withHeading = true }: { withHeading?: boolean }) {
         {serverError && (
           <StatusBanner tone="attention" title={serverError} description="Confira os dados e tente de novo." />
         )}
-        <Button type="submit" variant="cta" size="lg" glow className="w-full" disabled={isSubmitting}>
+        <Button type="submit" variant="cta" glow className="w-full" disabled={isSubmitting}>
           {isSubmitting ? "Entrando..." : "Entrar"}
         </Button>
         <div className="text-center">
           <Link
             href="/reset-password"
-            className="inline-flex min-h-12 items-center text-base font-bold text-primary underline-offset-4 hover:underline"
+            className="inline-flex min-h-11 items-center text-base font-bold text-primary underline-offset-4 hover:underline"
           >
             Esqueci minha senha
           </Link>

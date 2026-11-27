@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 
-import { signOut } from "@/actions/auth";
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
 import { KeyRound } from "lucide-react";
 
+import { SignOutButton } from "@/components/auth/auth-exit";
 import { AuthHeading } from "@/components/auth/auth-heading";
 import { IconInput } from "@/components/auth/icon-input";
 import { Field } from "@/components/ui/field";
@@ -33,7 +33,8 @@ export default function MfaVerifyPage() {
   };
 
   return (
-    <section className="w-full max-w-md space-y-8">
+    <section className="w-full max-w-md space-y-6">
+      <SignOutButton />
       <AuthHeading title="Verificação em dois fatores" description="Digite o código do seu app autenticador" />
       <div className="space-y-5">
         <Field id="totp" label="Código de 6 dígitos">
@@ -52,14 +53,9 @@ export default function MfaVerifyPage() {
           )}
         </Field>
         {error && <StatusBanner tone="attention" title={error} />}
-        <Button size="lg" glow className="w-full" onClick={verify} disabled={busy || code.length < 6}>
+        <Button glow className="w-full" onClick={verify} disabled={busy || code.length < 6}>
           {busy ? "Verificando..." : "Verificar"}
         </Button>
-        <form action={signOut}>
-          <Button type="submit" variant="outline" size="lg" className="w-full">
-            Sair
-          </Button>
-        </form>
       </div>
     </section>
   );
