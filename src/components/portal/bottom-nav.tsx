@@ -14,6 +14,7 @@ function isActive(pathname: string, href: string): boolean {
 	return href === "/portal" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 }
 
+// A altura min-h-14 (56 px) também vale em client-order-form.tsx (rodapé fixo do assistente); os dois valores mudam juntos.
 // Celular: barra fixa embaixo. Item ativo = círculo verde com ícone branco; o rótulo fica sempre visível.
 export function BottomNav({ items }: { items: PortalNavItem[] }) {
 	const pathname = usePathname() ?? "";

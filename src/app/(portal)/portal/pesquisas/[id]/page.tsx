@@ -58,19 +58,23 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 		<div className="space-y-4">
 			<OrderAutoRefresh orderId={order.dossierId} initialState={order.state} />
 			<ScreenHeader
-				className="-mx-4 -mt-4 min-[375px]:-mx-5 md:mx-0"
-				title={order.subjectName}
+				// md+: o cabeçalho do portal (menu e saldo) fica visível; aqui basta o botão de voltar.
+				className="-mx-4 -mt-4 min-[375px]:-mx-5 md:static md:mx-0 md:mt-0"
+				title="Pesquisa"
 				backHref="/portal/pesquisas"
 				backLabel="Voltar às pesquisas"
 			/>
-			<p className="text-sm text-muted-foreground">
-				{order.subjectDocumentMasked} · {formatDateTime(order.createdAt)}
-			</p>
+			<div>
+				<p className="break-words text-lg font-bold">{order.subjectName}</p>
+				<p className="text-sm text-muted-foreground">
+					{order.subjectDocumentMasked} · {formatDateTime(order.createdAt)}
+				</p>
+			</div>
 			<Card>
 				<CardContent className="space-y-4 pt-4">
 					{steps && <Stepper steps={steps} />}
 					<div className="flex flex-wrap items-center justify-between gap-3">
-						<OrderStateBadge state={order.state} reason={null} />
+						<OrderStateBadge state={order.state} />
 						{order.price !== null && <p className="text-muted-foreground">
 							Valor: <span className="font-bold tabular-nums">{formatCurrency(Number(order.price))}</span>
 						</p>}
