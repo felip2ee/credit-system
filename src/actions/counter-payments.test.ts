@@ -140,7 +140,7 @@ describe("registerCounterPaymentAction validation", () => {
 
 	it("maps an idempotency conflict to a message", async () => {
 		state.registerCounterPayment.mockResolvedValue({ ok: false, reason: "idempotency_conflict" });
-		expect((await registerCounterPaymentAction(form)).error).toMatch(/Este envio já foi feito com outros dados/);
+		expect((await registerCounterPaymentAction(form)).error).toMatch(/Este pagamento já foi registrado com outros dados/);
 	});
 
 	it("maps a failure to a message without revalidating", async () => {

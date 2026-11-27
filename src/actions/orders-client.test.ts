@@ -136,7 +136,7 @@ describe("openClientOrderAction", () => {
 	it("maps an idempotency conflict to a message", async () => {
 		state.placeOrder.mockResolvedValue({ ok: false, reason: "idempotency_conflict" });
 
-		expect((await openClientOrderAction({ ...ownOrder, idempotencyKey: "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10" })).error).toMatch(/Este envio já foi feito com outros dados/);
+		expect((await openClientOrderAction({ ...ownOrder, idempotencyKey: "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10" })).error).toMatch(/Este envio já foi registrado com outros dados/);
 	});
 
 	it("quotes base plus the per-partner value and sends the partners", async () => {

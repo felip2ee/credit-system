@@ -94,7 +94,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const shownStep = useRef(0);
 	// Só a confirmação usa o tempo de guarda, contado desde a troca para a revisão.
 	const stepChangedAt = useRef(0);
-	// Um uuid por pedido (063): duplo clique, retry de rede ou voltar do navegador reenviam a mesma chave e o servidor não cria o pedido de novo.
+	// Um uuid por pedido (063): duplo clique e retry de rede reenviam a mesma chave e o servidor não cria o pedido de novo.
 	const idempotencyKey = useRef<string | null>(null);
 	const firstCode = products[0]?.code ?? "dossie_pf";
 
@@ -196,7 +196,6 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 				setServerError(result?.error ?? "Não foi possível abrir o pedido.");
 				return;
 			}
-			idempotencyKey.current = null;
 			router.push(`/portal/pesquisas/${result.id}`);
 		});
 	};

@@ -188,6 +188,29 @@ describe("placeOrder online with an idempotency key", () => {
 		expect(await orderCount(t)).toBe(1);
 	});
 
+	it("a key conflict or a duplicate with a coupon does not consume a coupon attempt", async () => {
+		const t = await newTenant("idem online coupon slot");
+		const code = `I${randomUUID().slice(0, 8).toUpperCase()}`;
+		await owner.query(
+			`insert into coupons (bureau_id, code, kind, value, all_products, valid_from, active, created_by)
+			 values ($1, $2, 'percent', '20', true, now() - interval '2 hours', true, $3)`,
+			[t.bureau.id, code, t.bureauAdmin.userId],
+		);
+		const misses = async () =>
+			count("select count(*) as n from coupon_attempt_misses where profile_id = $1", [t.client.userId]);
+		const key = randomUUID();
+
+		const first = await place(t, key, ownInput, { couponCode: code });
+		const duplicate = await place(t, key, ownInput, { couponCode: code });
+		const conflicts = [await place(t, key, ownInput, { couponCode: "OUTRO1" }), await place(t, key, ownInput, { couponCode: "OUTRO2" })];
+
+		expect(first).toMatchObject({ ok: true });
+		expect(duplicate).toMatchObject({ ok: true, duplicate: true });
+		expect(conflicts).toEqual(Array(2).fill({ ok: false, reason: "idempotency_conflict" }));
+		expect(await orderCount(t)).toBe(1);
+		expect(await misses()).toBe(0);
+	});
+
 	it("a refused order keeps no key: the same key works after the client tops up", async () => {
 		const t = await newTenant("idem online retry", { bureau: "200.00" });
 		const key = randomUUID();

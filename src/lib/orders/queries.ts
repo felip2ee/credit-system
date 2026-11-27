@@ -164,8 +164,8 @@ export async function placeOrder(
 		return placed;
 	} catch (error) {
 		if (error instanceof PlaceOrderAbort) {
-			// Só o sucesso e a falta de saldo do Bureau (que não é erro de código) devolvem a vaga; o resto conta.
-			if (slot && error.reason === "coupon_funds_insufficient") await clearCouponAttempt(identity, slot);
+			// Só o sucesso, a falta de saldo do Bureau e o conflito de chave (nenhum é erro de código) devolvem a vaga; o resto conta.
+			if (slot && (error.reason === "coupon_funds_insufficient" || error.reason === "idempotency_conflict")) await clearCouponAttempt(identity, slot);
 			return { ok: false, reason: error.reason };
 		}
 		throw error;
