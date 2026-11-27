@@ -45,7 +45,7 @@ export function CounterPaymentForm({ dossierId, holderName, remainingCents }: Co
   const amountError = amount === "" ? null : moneyError(amount);
   const typedAmount = amount !== "" && !amountError ? formatCurrency(Number(normalizeMoney(amount))) : null;
   const expected =
-    remainingCents === null ? "Este pedido ainda não tem preço." : remainingCents > 0 ? `Falta receber ${formatCurrency(remainingCents / 100)}.` : "Este pedido já está quitado.";
+    remainingCents === null ? "Este pedido ainda não tem preço." : remainingCents > 0 ? `Falta receber ${formatCurrency(remainingCents / 100)}.` : "Não há valor a receber.";
 
   // Segundo clique de um duplo clique de verdade: ignora (teclado tem detail 0 e passa).
   const ignoreDoubleClick = (event: React.MouseEvent) => {
