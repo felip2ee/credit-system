@@ -19,12 +19,16 @@ export const COUPON_INVALID = "Cupom inválido ou indisponível";
 export const CLIENT_ORDER_MESSAGES: Record<string, string> = {
 	...SHARED_MESSAGES,
 	insufficient_balance: "Saldo insuficiente. Compre créditos para continuar.",
+	contact_is_buyer: "Use um e-mail diferente do seu. O seu e-mail só vale na linha com o seu CPF.",
 	third_party_not_allowed:
 		"No portal, o Dossiê Pessoa Física é só para você. Envie seu link para a outra pessoa consultar na conta dela.",
 	price_mismatch: "O preço mudou. Revise e confirme de novo.",
 	commission_not_configured: "Vendas indisponíveis no momento. Fale com o Bureau.",
 	too_many_orders: "Você atingiu o limite de pedidos de hoje. Tente amanhã.",
 	declaration_outdated: "A declaração mudou. Leia e confirme de novo.",
+	pix_amount_above_limit: "O valor passa do limite do PIX (R$ 5.000,00). Fale com o Bureau para pagar de outro jeito.",
+	pix_amount_below_minimum: "O valor fica abaixo do mínimo do PIX (R$ 10,00). Fale com o Bureau.",
+	too_many_awaiting_payment: "Você já tem pedidos aguardando pagamento. Pague ou aguarde o vencimento de um deles antes de abrir outro.",
 	coupon_invalid: COUPON_INVALID,
 	coupon_expired: COUPON_INVALID,
 	coupon_exhausted: COUPON_INVALID,
@@ -53,3 +57,16 @@ export const CONTACT_UPDATED_AWAITING_PAYMENT = "Contato atualizado. A autoriza�
 // Pedido em awaiting_authorization: o tick emite de novo a cada rodada (cerca de 1 minuto) enquanto a autorização não tem código.
 export const CONTACT_SEND_PENDING =
 	"Contato atualizado, mas o envio do pedido de autorização falhou. O sistema tenta enviar de novo em cerca de 1 minuto.";
+
+// Cliente corrige ou reenvia o e-mail de quem autoriza o SCR. Nenhuma mensagem leva e-mail.
+export const MEMBER_EMAIL_MESSAGES: Record<string, string> = {
+	not_found: "Pedido não encontrado.",
+	invalid_input: "E-mail inválido. Confira e tente de novo.",
+	invalid_state: "Esta autorização não pode mais ser alterada. Recarregue a página.",
+	same_email: "Este já é o e-mail desta autorização. Use Reenviar.",
+	contact_is_buyer: "Informe o e-mail da outra pessoa, não o seu.",
+	own_account_email: "O e-mail desta pessoa vem da sua conta e não pode ser trocado aqui.",
+	too_many_requests: "Muitos pedidos de autorização recentes para este contato ou nesta conta. Tente novamente amanhã.",
+	resend_too_soon: "O pedido acabou de ser enviado. Aguarde 2 minutos para tentar de novo.",
+	resend_limit_reached: "Limite de envios de hoje atingido para esta pessoa. Tente amanhã.",
+};

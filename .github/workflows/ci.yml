@@ -62,6 +62,8 @@ jobs:
       - name: E2E (Playwright)
         env:
           DATABASE_URL: postgres://app_runtime:test@localhost:54329/credit_system
+          # The Asaas webhook route reads its own role; e2e/portal-order-pix.spec.ts posts a paid event to it.
+          DATABASE_WEBHOOK_URL: postgres://app_webhook:test@localhost:54329/credit_system
           BETTER_AUTH_SECRET: e2e-only-not-a-production-secret-0123456789
           BETTER_AUTH_URL: http://127.0.0.1:3000
           DOCUMENT_ROOT: /tmp/documents
@@ -74,6 +76,8 @@ jobs:
           SMTP_PASS: e2e-only-placeholder
           TRAEFIK_PROXY_CIDR: 10.0.0.0/8
           ASAAS_DRIVER: fake
+          # Test token for the fake driver; e2e/portal-order-pix.spec.ts reads it from the env. Not a secret.
+          ASAAS_WEBHOOK_TOKEN: e2e-only-webhook-token-fedcba9876543210
           PII_ENCRYPTION_KEY: ci:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
           CARD_FEE_TABLE: 1:2.99:49,6:2.99:49,12:2.99:49
           WHATSAPP_DRIVER: fake

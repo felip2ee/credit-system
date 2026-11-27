@@ -146,7 +146,7 @@ describe("POST /api/webhooks/asaas result", () => {
 		});
 	});
 
-	it.each(["credited", "refunded", "duplicate", "ignored", "unknown_charge", "partial_refund_ignored", "chargeback_ignored", "amount_mismatch"])("answers 200 for %s", async (result) => {
+	it.each(["credited", "refunded", "duplicate", "ignored", "unknown_charge", "partial_refund_ignored", "chargeback_ignored", "amount_mismatch", "order_paid", "order_reserve_failed", "order_not_payable"])("answers 200 for %s", async (result) => {
 		state.applyAsaasPayment.mockResolvedValue(result);
 
 		expect((await call(body)).status).toBe(200);
@@ -222,6 +222,31 @@ describe("POST /api/webhooks/asaas payload hygiene and logs", () => {
 		expect(response.status).toBe(200);
 		expect(log).toHaveBeenCalledWith("[asaas-webhook] valor divergente", { asaasPaymentId: "pay_1" });
 		expect(state.requestInvoiceForPayment).not.toHaveBeenCalled();
+		log.mockRestore();
+	});
+
+	it("order_paid requests the invoice and refreshes the order list", async () => {
+		state.applyAsaasPayment.mockResolvedValue("order_paid");
+
+		const response = await call({ ...body, payment: { ...body.payment, installment: undefined } });
+
+		expect(response.status).toBe(200);
+		expect(state.requestInvoiceForPayment).toHaveBeenCalledWith("pay_1", undefined);
+		expect(state.revalidatePath).toHaveBeenCalledWith("/portal/credits");
+		expect(state.revalidatePath).toHaveBeenCalledWith("/portal/pesquisas");
+	});
+
+	it.each(["order_reserve_failed", "order_not_payable"])("%s requests the invoice and logs only ids", async (result) => {
+		state.applyAsaasPayment.mockResolvedValue(result);
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const response = await call({ ...body, payment: { ...body.payment, creditCard: { creditCardToken: "tok_secret" } } });
+
+		expect(response.status).toBe(200);
+		expect(state.requestInvoiceForPayment).toHaveBeenCalledWith("pay_1", undefined);
+		expect(state.revalidatePath).toHaveBeenCalledWith("/portal/pesquisas");
+		expect(log).toHaveBeenCalledWith(expect.stringContaining("[asaas-webhook]"), { event: "PAYMENT_RECEIVED", asaasPaymentId: "pay_1" });
+		expect(JSON.stringify(log.mock.calls)).not.toContain("tok_secret");
 		log.mockRestore();
 	});
 });

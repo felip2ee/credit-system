@@ -31,6 +31,14 @@ describe("orderStepLines", () => {
 		expect(orderStepLines({ state: "failed", reason: "reservation_clawed_back", mode: "online" })).toEqual(["Pagamento estornado"]);
 	});
 
+	it("explains a paid PIX that became balance without promising a returned reservation", () => {
+		expect(orderStepLines({ state: "cancelled", reason: "payment_not_reserved", mode: "online" })).toEqual(["Pagamento recebido como saldo"]);
+	});
+
+	it("says a PIX refund went to the payer, without promising a returned reservation", () => {
+		expect(orderStepLines({ state: "cancelled", reason: "payment_refunded", mode: "online" })).toEqual(["PIX estornado"]);
+	});
+
 	it("describes the waiting states and says nothing for released", () => {
 		expect(orderStepLines({ state: "executing", reason: null, mode: "online" })).toEqual(["Consulta em andamento."]);
 		expect(orderStepLines({ state: "released", reason: null, mode: "online" })).toEqual([]);

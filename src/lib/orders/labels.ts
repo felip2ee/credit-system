@@ -12,6 +12,8 @@ const ORDER_REASONS: OrderStateReason[] = [
 	"deps_incompatible",
 	"deps_unavailable",
 	"reservation_clawed_back",
+	"payment_not_reserved",
+	"payment_refunded",
 ];
 
 // Rótulos vêm do vocabulário único (`@/lib/ui/status`). O motivo mostra a explicação, que diz o que houve.
@@ -43,7 +45,8 @@ export function orderStepLines(order: {
 	if (order.state === "awaiting_authorization" && order.selfResearch) return [SELF_AUTHORIZATION_STEP];
 	if (order.state === "failed" || order.state === "cancelled") {
 		const lines = [order.reason ? ORDER_REASON_LABEL[order.reason] : "Pedido encerrado."];
-		if (order.mode === "online" && order.reason !== "reservation_clawed_back") lines.push(REFUNDED);
+		// Sem reserva a devolver: estorno já tirou o valor do saldo; reserva recusada deixou o PIX como saldo; estorno de PIX foi ao pagador (o motivo já diz).
+		if (order.mode === "online" && order.reason !== "reservation_clawed_back" && order.reason !== "payment_not_reserved" && order.reason !== "payment_refunded") lines.push(REFUNDED);
 		return lines;
 	}
 	return NEXT_STEP[order.state] ? [NEXT_STEP[order.state] as string] : [];

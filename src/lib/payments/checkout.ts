@@ -82,6 +82,7 @@ const CARD_WINDOW_MS = 3_600_000;
 const BAD_AMOUNT = "Valor inválido.";
 const REFERENCE_TAKEN = "Pedido já usado. Tente novamente.";
 
+const ORDER_PIX_ONLY = "Este pedido só aceita PIX.";
 const MISSING_FIELDS = "Preencha os dados de pagamento que faltam.";
 
 const CARD_FEE_MESSAGES: Record<CardFeeError["code"], string> = {
@@ -321,6 +322,15 @@ async function bind(
 
 const REVALIDATE: Record<ChargeScope["kind"], string> = { bureau: "/settings/wallet", client: "/portal/credits" };
 
+function revalidateCharge(scope: ChargeScope): void {
+	if (scope.kind === "client" && scope.orderId) {
+		revalidatePath(`/portal/pesquisas/${scope.orderId}/pagar`);
+		revalidatePath(`/portal/pesquisas/${scope.orderId}`);
+		return;
+	}
+	revalidatePath(REVALIDATE[scope.kind]);
+}
+
 async function createPix(
 	session: DbIdentity,
 	scope: ChargeScope,
@@ -357,7 +367,7 @@ async function createPix(
 		pixPayload: charge.pixPayload,
 	});
 	if (!bound) return { error: FAILED_PIX };
-	revalidatePath(REVALIDATE[scope.kind]);
+	revalidateCharge(scope);
 	return {
 		error: null,
 		id: reserved.chargeId,
@@ -441,7 +451,7 @@ async function createCard(
 		cardBrand: charge.brand,
 		cardLast4: charge.last4,
 	});
-	revalidatePath(REVALIDATE[scope.kind]);
+	revalidateCharge(scope);
 	return { error: null, id: reserved.chargeId, method: "CREDIT_CARD", summary: summaryOf(input, plan) };
 }
 
@@ -452,6 +462,8 @@ export async function runCheckout(
 	input: CheckoutInput,
 	meta: CheckoutMeta,
 ): Promise<CheckoutResult> {
+	// Cobrança de pedido: só PIX (o preço do pedido é o valor da cobrança; sem parcelas nem taxa de cartão).
+	if (scope.kind === "client" && scope.orderId && input.method !== "PIX") return { error: ORDER_PIX_ONLY };
 	const failed = input.method === "PIX" ? FAILED_PIX : FAILED_CARD;
 	try {
 		const plan = planCard(input);

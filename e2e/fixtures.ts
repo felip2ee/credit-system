@@ -15,11 +15,21 @@ export const E2E = {
     cpf: "529.982.247-25",
     phone: "+5511999990001",
   },
+  // Client with an empty wallet: the order cannot be paid from the balance, so it goes to the PIX screen.
+  clientNoBalance: {
+    email: "e2e-client-pix@example.test",
+    password: "e2e-client-pix-password-123",
+    cpf: "111.444.777-35",
+    phone: "+5511999990002",
+  },
   superadmin: { email: "e2e-superadmin@example.test", password: "e2e-superadmin-password-123" },
   disabled: { email: "e2e-disabled@example.test", password: "e2e-disabled-password-123" },
   product: "dossie_empresarial",
   salePrice: "20.00",
   salePricePerPartner: "5.00",
+  // "Só para você": a página de nova pesquisa só lista o que o Bureau vende.
+  productPf: "dossie_pf",
+  salePricePf: "10.00",
 } as const;
 
 // A tick sweeps every Bureau with due work, so one pass can take several seconds on a shared database.
@@ -29,6 +39,7 @@ export const AUTH_DIR = "e2e/.auth";
 export const STAFF_STATE = `${AUTH_DIR}/staff.json`;
 export const STAFF_SECRET_FILE = `${AUTH_DIR}/staff-secret.txt`;
 export const CLIENT_STATE = `${AUTH_DIR}/client.json`;
+export const CLIENT_NO_BALANCE_STATE = `${AUTH_DIR}/client-no-balance.json`;
 export const SUPERADMIN_STATE = `${AUTH_DIR}/superadmin.json`;
 export const SUPERADMIN_SECRET_FILE = `${AUTH_DIR}/superadmin-secret.txt`;
 // Affiliate commission, % of the GROSS price, that global-setup sets for the e2e Bureau. The Bureau override is 30%
@@ -114,17 +125,42 @@ export async function openNewOrderAtStep(page: Page, step: 1 | 2 | 3 | 4): Promi
   await next("Revisar e confirmar");
 }
 
-// Opens an order on /portal/pesquisas/nova (Dossiê Empresarial with 1 partner) and returns the dossier id.
-export async function openOrder(page: Page): Promise<string> {
-  await openNewOrderAtStep(page, 4);
+// Steps 1 and 2 of the purchase wizard for a company: leaves the page on "Pessoas da empresa".
+export async function startCompanyOrder(page: Page, stamp = Date.now()): Promise<void> {
+  await page.goto("/portal/pesquisas/nova");
+  await page.getByRole("radio", { name: /Para uma empresa/ }).check();
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByLabel("CNPJ da empresa").fill(validCnpj());
+  await page.getByLabel("Razão social").fill("e2e Empresa Portal");
+  await page.getByLabel("E-mail do responsável").fill(`e2e-resp-${stamp}@example.test`);
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Pessoas da empresa" })).toBeVisible();
+}
+
+// Adds one row on the people step and fills it. `n` is the 1-based row number.
+export async function addPerson(page: Page, n: number, person: { name: string; cpf: string; email: string }): Promise<void> {
+  await page.getByRole("button", { name: "Adicionar pessoa" }).click();
+  await page.getByLabel(`Nome da pessoa ${n}`, { exact: true }).fill(person.name);
+  await page.getByLabel(`CPF da pessoa ${n}`).fill(person.cpf);
+  await page.getByLabel(`E-mail da pessoa ${n}`).fill(person.email);
+}
+
+// Opens an order on /portal/pesquisas/nova (Dossiê Empresarial with 1 person) and returns the dossier id.
+export async function openOrder(page: Page, { expectPayment = false } = {}): Promise<string> {
+  const stamp = Date.now();
+  await startCompanyOrder(page, stamp);
+  await addPerson(page, 1, { name: "e2e Sócio Portal", cpf: validCpf(), email: `e2e-partner-${stamp}@example.test` });
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Revise o pedido" })).toBeVisible();
   // The declaration is mandatory: the confirm button stays disabled until the buyer accepts it.
-  const confirm = page.getByRole("button", { name: "Confirmar pedido" });
+  const confirm = page.getByRole("button", { name: "Ir para o pagamento" });
   await expect(confirm).toBeDisabled();
   await page.getByLabel("Li e concordo com a declaração acima.").check();
   await expect(confirm).toBeEnabled();
   await confirm.click();
-  await expect(page).toHaveURL(/\/portal\/pesquisas\/[0-9a-f-]{36}$/);
-  return page.url().split("/").pop() as string;
+  // Without balance the order goes to the PIX screen (/pagar).
+  await expect(page).toHaveURL(expectPayment ? /\/portal\/pesquisas\/[0-9a-f-]{36}\/pagar$/ : /\/portal\/pesquisas\/[0-9a-f-]{36}$/);
+  return new URL(page.url()).pathname.split("/")[3];
 }
 
 // better-auth limits sign-ins per IP (3 per 10 s) and every e2e request comes from 127.0.0.1.
