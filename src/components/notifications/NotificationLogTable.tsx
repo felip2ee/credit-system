@@ -14,9 +14,46 @@ export interface NotificationLogTableProps {
 }
 
 export function NotificationLogTable({ rows, bureauNames, canWrite }: NotificationLogTableProps) {
+  const retryButton = (row: NotificationRow) =>
+    canRetryNotification(row.status, canWrite, row.retryable) && (
+      <RetryNotificationButton
+        id={row.id}
+        label={`Tentar de novo o envio ${row.templateKey ?? "sem template"} para ${row.recipientMasked}`}
+      />
+    );
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">Nenhuma notificação encontrada.</p>;
   return (
-    <Card className="overflow-hidden">
+    <>
+    <ul className="space-y-3 md:hidden" aria-label="Log de notificações">
+      {rows.map((row) => (
+        <li key={row.id}>
+          <Card className="space-y-2 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">{formatDateTime(row.createdAt)}</span>
+              <NotificationStatusBadge status={row.status} />
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">Bureau</dt>
+              <dd className="break-words">{row.bureauId ? (bureauNames.get(row.bureauId) ?? "—") : "Plataforma"}</dd>
+              <dt className="text-muted-foreground">Template</dt>
+              <dd className="break-all font-mono text-xs">{row.templateKey ?? "—"}</dd>
+              <dt className="text-muted-foreground">Canal</dt>
+              <dd>{CHANNEL_LABEL[row.channel]}</dd>
+              <dt className="text-muted-foreground">Destinatário</dt>
+              <dd className="break-all font-mono text-xs">{row.recipientMasked}</dd>
+              <dt className="text-muted-foreground">Tentativas</dt>
+              <dd>
+                {row.attempts}/{row.maxAttempts}
+              </dd>
+              <dt className="text-muted-foreground">Último erro</dt>
+              <dd className="break-all font-mono text-xs">{row.lastErrorCode ?? "—"}</dd>
+            </dl>
+            {retryButton(row)}
+          </Card>
+        </li>
+      ))}
+    </ul>
+    <Card className="hidden overflow-hidden md:block">
     <Table>
       <TableHeader>
         <TableRow>
@@ -47,19 +84,13 @@ export function NotificationLogTable({ rows, bureauNames, canWrite }: Notificati
             </TableCell>
             <TableCell className="font-mono text-xs">{row.lastErrorCode ?? "—"}</TableCell>
             {canWrite && (
-              <TableCell>
-                {canRetryNotification(row.status, canWrite, row.retryable) && (
-                  <RetryNotificationButton
-                    id={row.id}
-                    label={`Tentar de novo o envio ${row.templateKey ?? "sem template"} para ${row.recipientMasked}`}
-                  />
-                )}
-              </TableCell>
+              <TableCell>{retryButton(row)}</TableCell>
             )}
           </TableRow>
         ))}
       </TableBody>
     </Table>
     </Card>
+    </>
   );
 }

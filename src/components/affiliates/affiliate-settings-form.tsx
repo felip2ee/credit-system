@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import { saveAffiliateSettings } from "@/actions/settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { AffiliateSettings } from "@/lib/settings/readers";
 import { StatusBanner } from "@/components/ui/status-banner";
+
+const ERROR_ID = "affiliate-settings-error";
 
 export function AffiliateSettingsForm({ initial }: { initial: AffiliateSettings }) {
   const router = useRouter();
@@ -32,29 +34,34 @@ export function AffiliateSettingsForm({ initial }: { initial: AffiliateSettings 
     });
   };
 
+  // A action devolve uma frase só para o formulário: o banner de erro descreve os três campos.
+  const withError = (a11y: { "aria-describedby"?: string; "aria-invalid"?: true }) => ({
+    ...a11y,
+    "aria-describedby": [error ? ERROR_ID : null, a11y["aria-describedby"]].filter(Boolean).join(" ") || undefined,
+    "aria-invalid": error ? (true as const) : undefined,
+  });
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Regras do programa de afiliados</CardTitle>
+        <CardTitle>Regras do programa de afiliados</CardTitle>
         <CardDescription>Valem para todos os Bureaus. Mudanças valem para as próximas comissões e saques.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={submit} className="space-y-5" noValidate>
-          <div className="space-y-2">
-            <Label htmlFor="hold-days">Carência da comissão (dias)</Label>
-            <Input id="hold-days" inputMode="numeric" value={holdDays} onChange={(e) => setHoldDays(e.target.value)} disabled={isPending} />
-            <p className="text-sm text-muted-foreground">Dias entre a captura do pedido e a liberação da comissão.</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="fee-fixed">Taxa fixa de saque (R$)</Label>
-            <Input id="fee-fixed" inputMode="decimal" value={fixed} onChange={(e) => setFixed(e.target.value)} disabled={isPending} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="fee-percent">Taxa de saque (%)</Label>
-            <Input id="fee-percent" inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} disabled={isPending} />
-          </div>
+        <form onSubmit={submit} className="space-y-4" noValidate>
+          <Field id="hold-days" label="Carência da comissão (dias)" helper="Dias entre a captura do pedido e a liberação da comissão. De 0 a 365 dias.">
+            {(a11y) => <Input {...withError(a11y)} inputMode="numeric" value={holdDays} onChange={(e) => setHoldDays(e.target.value)} disabled={isPending} />}
+          </Field>
+          <Field id="fee-fixed" label="Taxa fixa de saque (R$)" helper="Valor descontado de cada saque, em reais. Use 0 para não cobrar taxa fixa.">
+            {(a11y) => <Input {...withError(a11y)} inputMode="decimal" value={fixed} onChange={(e) => setFixed(e.target.value)} disabled={isPending} />}
+          </Field>
+          <Field id="fee-percent" label="Taxa de saque (%)" helper="Percentual descontado de cada saque. De 0 a 100. Use 0 para não cobrar percentual.">
+            {(a11y) => <Input {...withError(a11y)} inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} disabled={isPending} />}
+          </Field>
           {error && (
-            <StatusBanner tone="danger" title={error} />
+            <div id={ERROR_ID}>
+              <StatusBanner tone="danger" title={error} />
+            </div>
           )}
           {saved && !error && <StatusBanner tone="success" title="Regras salvas." />}
           <Button type="submit" disabled={isPending}>
