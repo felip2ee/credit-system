@@ -6,12 +6,18 @@ import { config } from "@/lib/config";
 import { lockCommissionSplit, assertSplitWithin100, SplitOver100Error } from "@/lib/commission/queries";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
+import { maskWalletId } from "./payout-settings";
+import type { PayoutMethod } from "./types";
+
 export type BureauAffiliate = {
 	profileId: string;
 	name: string;
 	code: string;
 	referrals: number;
 	totalCommission: string;
+	payoutMethod: PayoutMethod;
+	// Só mascarado: o walletId inteiro não sai da camada de queries.
+	walletIdMasked: string | null;
 };
 
 type AffiliateDbRow = {
@@ -20,6 +26,8 @@ type AffiliateDbRow = {
 	code: string;
 	referrals: number;
 	total_commission: string;
+	payout_method: PayoutMethod;
+	asaas_wallet_id: string | null;
 };
 
 export function affiliateLink(slug: string, code: string): string {
@@ -32,9 +40,11 @@ export async function listBureauAffiliates(identity: DbIdentity): Promise<Bureau
 			`select c.profile_id, p.full_name as name, c.code,
 			        (select count(*)::int from affiliate_referrals r where r.affiliate_profile_id = c.profile_id) as referrals,
 			        (select coalesce(sum(m.amount - m.reversed_amount), 0)::numeric(15,2)
-			           from affiliate_commissions m where m.affiliate_profile_id = c.profile_id) as total_commission
+			           from affiliate_commissions m where m.affiliate_profile_id = c.profile_id) as total_commission,
+			        w.payout_method, w.asaas_wallet_id
 			   from affiliate_codes c
 			   join profiles p on p.id = c.profile_id
+			   left join affiliate_wallets w on w.profile_id = c.profile_id
 			  where c.bureau_id = app_bureau_id()
 			  order by p.full_name, c.profile_id`,
 		);
@@ -44,6 +54,8 @@ export async function listBureauAffiliates(identity: DbIdentity): Promise<Bureau
 			code: r.code,
 			referrals: r.referrals,
 			totalCommission: r.total_commission,
+			payoutMethod: r.payout_method ?? "pix",
+			walletIdMasked: r.asaas_wallet_id ? maskWalletId(r.asaas_wallet_id) : null,
 		}));
 	});
 }

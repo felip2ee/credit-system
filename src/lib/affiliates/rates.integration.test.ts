@@ -153,7 +153,7 @@ describe("listBureauAffiliates", () => {
 		);
 		const list = await listBureauAffiliates(A.bureauAdmin);
 		const mine = list.find((a) => a.profileId === A.client.userId);
-		expect(mine).toMatchObject({ referrals: 1, totalCommission: "4.00" });
+		expect(mine).toMatchObject({ referrals: 1, totalCommission: "4.00", payoutMethod: "pix", walletIdMasked: null });
 		expect(mine?.name).toBeTruthy();
 		expect(list.find((a) => a.profileId === second.userId)).toMatchObject({ referrals: 0, totalCommission: "0.00" });
 		expect(list.every((a) => a.profileId !== B.client.userId)).toBe(true);

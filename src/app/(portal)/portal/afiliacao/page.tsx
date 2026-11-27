@@ -48,6 +48,9 @@ export default async function AffiliatePage() {
       <PageHeader title="Afiliação" />
       <HowItWorks fee={fee} />
       <AffiliateLinkCard link={affiliateLink(data.slug, code)} />
+      <Button asChild variant="outline" size="lg" className="w-full sm:w-auto">
+        <Link href="/portal/afiliacao/pagamentos">Configurar pagamentos</Link>
+      </Button>
       <BalanceCard
         label="Comissão disponível"
         value={formatCurrency(Number(wallet.available))}

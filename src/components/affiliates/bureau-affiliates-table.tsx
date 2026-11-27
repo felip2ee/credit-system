@@ -1,3 +1,4 @@
+import { AffiliatePayoutDialog } from "@/components/affiliates/affiliate-payout-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { BureauAffiliate } from "@/lib/affiliates/rates";
@@ -33,6 +34,7 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
               <TableHead>Código</TableHead>
               <TableHead>Indicados</TableHead>
               <TableHead>Total de comissão</TableHead>
+              <TableHead>Recebe por</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -42,6 +44,13 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
                 <TableCell className="font-mono text-sm">{a.code}</TableCell>
                 <TableCell>{a.referrals}</TableCell>
                 <TableCell>{formatCurrency(Number(a.totalCommission))}</TableCell>
+                <TableCell>
+                  <AffiliatePayoutDialog
+                    profileId={a.profileId}
+                    name={a.name}
+                    current={{ method: a.payoutMethod, walletIdMasked: a.walletIdMasked }}
+                  />
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
