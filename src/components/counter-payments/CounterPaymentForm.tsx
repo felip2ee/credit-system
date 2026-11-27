@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { registerCounterPaymentAction } from "@/actions/counter-payments";
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
-import { todayInSaoPaulo } from "@/lib/utils";
+import { formatCurrency, todayInSaoPaulo } from "@/lib/utils";
 import { COUNTER_METHODS } from "@/lib/validators/counter-payments";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -24,9 +24,13 @@ export const METHOD_LABEL: Record<(typeof COUNTER_METHODS)[number], string> = {
 
 interface CounterPaymentFormProps {
   dossierId: string;
+  // Nome do titular do pedido que recebe o pagamento.
+  holderName: string;
+  // Quanto falta receber, em centavos; null quando o pedido ainda não tem preço.
+  remainingCents: number | null;
 }
 
-export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
+export function CounterPaymentForm({ dossierId, holderName, remainingCents }: CounterPaymentFormProps) {
   const router = useRouter();
   const [method, setMethod] = useState<(typeof COUNTER_METHODS)[number]>("cash");
   const [amount, setAmount] = useState("");
@@ -35,9 +39,22 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [amountInvalid, setAmountInvalid] = useState(false);
   const [isPending, startTransition] = useTransition();
+  // Barreira síncrona: dois cliques seguidos entram antes de isPending virar true.
+  const sending = useRef(false);
+
+  const amountError = amount === "" ? null : moneyError(amount);
+  const typedAmount = amount !== "" && !amountError ? formatCurrency(Number(normalizeMoney(amount))) : null;
+  const expected =
+    remainingCents === null ? "Este pedido ainda não tem preço." : remainingCents > 0 ? `Falta receber ${formatCurrency(remainingCents / 100)}.` : "Este pedido já está quitado.";
+
+  // Segundo clique de um duplo clique de verdade: ignora (teclado tem detail 0 e passa).
+  const ignoreDoubleClick = (event: React.MouseEvent) => {
+    if (event.detail > 1) event.preventDefault();
+  };
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
+    if (sending.current) return;
     const invalid = moneyError(amount);
     if (invalid) {
       setAmountInvalid(true);
@@ -46,6 +63,7 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
     }
     setError(null);
     setAmountInvalid(false);
+    sending.current = true;
     startTransition(async () => {
       const res = await registerCounterPaymentAction({
         dossierId,
@@ -53,6 +71,8 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
         amount: normalizeMoney(amount),
         receivedAt,
         note: note || null,
+      }).finally(() => {
+        sending.current = false;
       });
       if (res.error) {
         setError(res.error);
@@ -67,7 +87,7 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Registrar pagamento</CardTitle>
+        <CardTitle>Registrar pagamento</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} noValidate className="grid gap-4 sm:grid-cols-2">
@@ -125,8 +145,25 @@ export function CounterPaymentForm({ dossierId }: CounterPaymentFormProps) {
               {error}
             </p>
           )}
+          <div className="space-y-2 rounded-card bg-muted p-4 text-base sm:col-span-2" aria-live="polite">
+            <p>
+              Pedido de <strong>{holderName}</strong>. {expected}
+            </p>
+            <p>
+              {typedAmount ? (
+                <>
+                  Você vai registrar <strong>{typedAmount}</strong> em {METHOD_LABEL[method]}.
+                </>
+              ) : (
+                "Digite o valor recebido para ver o resumo."
+              )}
+            </p>
+            <p className="text-muted-foreground">
+              O que acontece depois: o pagamento entra na lista abaixo e a situação do pedido é atualizada. Se errar, você pode anular com um motivo.
+            </p>
+          </div>
           <div className="sm:col-span-2">
-            <Button type="submit" disabled={isPending || amount === ""}>
+            <Button type="submit" onClick={ignoreDoubleClick} disabled={isPending || amount === ""}>
               {isPending ? "Registrando..." : "Registrar pagamento"}
             </Button>
           </div>

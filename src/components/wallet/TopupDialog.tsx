@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { requestTopupAction } from "@/actions/wallet-topup";
 import { Button } from "@/components/ui/button";
 import { CheckoutForm } from "@/components/payments/CheckoutForm";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCents, pixQrNote } from "@/components/payments/checkout-summary";
@@ -80,75 +82,60 @@ export function TopupDialog({ charges }: TopupDialogProps) {
       <Button ref={openerRef} variant="onBrand" onClick={() => setOpen(true)}>
         Recarregar
       </Button>
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-4"
-          onKeyDown={(e) => e.key === "Escape" && close()}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="topup-title"
-            className="max-h-[92vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-modal border border-border bg-card p-6 text-card-foreground shadow-lg"
-          >
-            <h2 id="topup-title" className="text-lg font-semibold">
-              Recarregar carteira
-            </h2>
-            {!charge ? (
-              <CheckoutForm scope="bureau" action={requestTopupAction} onClose={close} onPix={setCharge} />
-            ) : (
-              <div className="space-y-4">
-                {status === "pending" ? (
-                  <>
-                    {charge.qrImageBase64 && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={`data:image/png;base64,${charge.qrImageBase64}`}
-                        alt="QR Code do PIX"
-                        className="mx-auto h-48 w-48"
-                      />
-                    )}
-                    {charge.summary && (
-                      <div className="text-center" aria-live="polite">
-                        <p className="text-sm text-muted-foreground">Valor a pagar</p>
-                        <p className="text-2xl font-bold">{formatCents(charge.summary.totalCents)}</p>
-                        {pixQrNote(charge.summary) && <p className="text-xs text-muted-foreground">{pixQrNote(charge.summary)}</p>}
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <Label htmlFor="topup-code">PIX copia e cola</Label>
-                      <Input id="topup-code" readOnly value={charge.pixPayload} onFocus={(e) => e.target.select()} />
-                      <Button type="button" variant="outline" size="sm" onClick={copy}>
-                        {copied ? "Copiado" : "Copiar código"}
-                      </Button>
-                      {error && (
-                        <StatusBanner tone="danger" title={error} />
-                      )}
-                    </div>
-                    <p role="status" className="text-sm text-muted-foreground">
-                      Aguardando pagamento...
-                    </p>
-                  </>
-                ) : (
-                  <div role="status" className="space-y-1 text-center">
-                    <p className="text-lg font-semibold">{STATUS_LABEL[status]}</p>
-                    {status === "expired" && (
-                      <p className="text-sm text-muted-foreground">
-                        Se o PIX for pago depois, o valor ainda será creditado.
-                      </p>
-                    )}
+      <Dialog open={open} onClose={close} title="Recarregar carteira" className="max-h-[92vh] max-w-lg overflow-y-auto">
+        {!charge ? (
+          <CheckoutForm scope="bureau" action={requestTopupAction} onClose={close} onPix={setCharge} />
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">Passo final: pagar o Pix</p>
+              <button
+                ref={closeRef}
+                type="button"
+                onClick={close}
+                aria-label="Fechar"
+                className="-mr-2 inline-flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="size-5" aria-hidden="true" />
+              </button>
+            </div>
+            {status === "pending" ? (
+              <>
+                {charge.summary && (
+                  <div className="text-center" aria-live="polite">
+                    <p className="text-sm text-muted-foreground">Valor a pagar</p>
+                    <p className="text-2xl font-bold">{formatCents(charge.summary.totalCents)}</p>
+                    {pixQrNote(charge.summary) && <p className="text-xs text-muted-foreground">{pixQrNote(charge.summary)}</p>}
                   </div>
                 )}
-                <div className="flex justify-end">
-                  <Button ref={closeRef} type="button" variant="outline" onClick={close}>
-                    Fechar
+                <p className="text-base">O que acontece depois: pague este Pix no app do seu banco. O saldo da carteira sobe sozinho quando o pagamento for confirmado.</p>
+                {charge.qrImageBase64 && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={`data:image/png;base64,${charge.qrImageBase64}`} alt="QR Code do PIX" className="mx-auto h-48 w-48" />
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="topup-code">PIX copia e cola</Label>
+                  <Input id="topup-code" readOnly value={charge.pixPayload} onFocus={(e) => e.target.select()} />
+                  <Button type="button" variant="outline" size="sm" onClick={copy}>
+                    {copied ? "Copiado" : "Copiar código"}
                   </Button>
+                  {error && <StatusBanner tone="danger" title={error} />}
                 </div>
+                <p role="status" className="text-sm text-muted-foreground">
+                  Aguardando pagamento...
+                </p>
+              </>
+            ) : (
+              <div role="status" className="space-y-1 text-center">
+                <p className="font-semibold">{STATUS_LABEL[status]}</p>
+                {status === "expired" && (
+                  <p className="text-sm text-muted-foreground">Se o PIX for pago depois, o valor ainda será creditado.</p>
+                )}
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </Dialog>
     </>
   );
 }
