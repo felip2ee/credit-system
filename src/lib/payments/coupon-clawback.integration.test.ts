@@ -99,6 +99,17 @@ const chargeRow = async (id: string) =>
 const seedReleased = (t: SeededTenant) =>
 	seedPayableEntry(owner, { bureauId: t.bureau.id, kind: "accrual", amount: "100.00", createdAt: "2020-01-01T00:00:00Z" });
 
+// O clawback do valor a repassar só vale para o que o cliente gastou em pedido capturado antes da 072 (077: teto no gasto
+// em pedido com commission_on_cash_in falso). Estes testes montam a falta direto na carteira, sem o gasto real: este
+// pedido capturado marca o gasto que a falta representa.
+async function seedLegacySpend(t: SeededTenant, price: string) {
+	await owner.query(
+		`insert into order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost, status, closed_at)
+		 values ($1, $2, 'online', $3, $4, 0, 'captured', now())`,
+		[randomUUID(), t.bureau.id, t.client.userId, price],
+	);
+}
+
 describe("estorno de Pix depois de um pedido com cupom parcial", () => {
 	it("claws back only the real balance (after coupon_cost) and creates no debt", async () => {
 		const t = await seedTenant(owner, "clawback cupom");
@@ -110,6 +121,7 @@ describe("estorno de Pix depois de um pedido com cupom parcial", () => {
 		});
 		// Cupom de 70: o cliente paga 30, o custo é 60, a falta de 30 sai do repasse (coupon_cost -30). Saldo real: 70.
 		await placeAndCapture(t, "70.00", "30.00");
+		await seedLegacySpend(t, "70.00");
 		expect(await payableTotal(t.bureau.id)).toBe("70.00");
 
 		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
@@ -131,6 +143,7 @@ describe("estorno de Pix depois de um pedido com cupom parcial", () => {
 			bureauId: t.bureau.id, requestedBy: t.client.userId, clientProfileId: t.client.userId, amount: "100.00", status: "paid",
 		});
 		// Só o repasse devolvido pelo cupom (coupon_refund +40) forma o saldo; sem ele o clawback seria 0.
+		await seedLegacySpend(t, "100.00");
 		const orderRef = randomUUID();
 		await owner.query(
 			`insert into order_settlements (order_ref, bureau_id, mode, price, cost, status, closed_at)
@@ -156,6 +169,8 @@ describe("estorno de Pix depois de um pedido com cupom parcial", () => {
 		const charge = await seedPixCharge(owner, {
 			bureauId: t.bureau.id, requestedBy: t.client.userId, clientProfileId: t.client.userId, amount: "100.00", status: "paid",
 		});
+
+		await seedLegacySpend(t, "70.00");
 
 		expect(await refund(charge.asaasPaymentId)).toBe("refunded");
 

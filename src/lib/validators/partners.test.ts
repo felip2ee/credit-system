@@ -19,6 +19,14 @@ describe("partnerSchema", () => {
 		expect(partnerSchema.safeParse({ ...ok, asaasWalletId: "" }).success).toBe(false);
 		expect(partnerSchema.safeParse({ ...ok, asaasWalletId: "a b; drop" }).success).toBe(false);
 	});
+	it("walletId é um UUID, o mesmo formato do afiliado: um texto qualquer de 8 a 64 caracteres é recusado", () => {
+		for (const asaasWalletId of ["abcd1234", "abcdefgh-ijkl", "11111111-2222-3333-4444-55555555555", "x".repeat(36)]) {
+			expect(partnerSchema.safeParse({ ...ok, asaasWalletId }).success).toBe(false);
+			expect(bureauWalletSchema.safeParse({ bureauId: BUREAU, asaasWalletId }).success).toBe(false);
+		}
+		const upper = partnerSchema.safeParse({ ...ok, asaasWalletId: "  AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE " });
+		expect(upper.success && upper.data.asaasWalletId).toBe("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+	});
 });
 
 describe("bureauWalletSchema", () => {

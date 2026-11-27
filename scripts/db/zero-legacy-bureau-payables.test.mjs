@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import pg from "pg";
 
 import { migrate } from "./migrate.mjs";
-import { ADJUSTMENT_REASON, formatReport, zeroLegacyPayables } from "./zero-legacy-bureau-payables.mjs";
+import { ADJUSTMENT_REASON, describeTarget, formatReport, zeroLegacyPayables } from "./zero-legacy-bureau-payables.mjs";
 
 const ADMIN_URL = "postgres://postgres:test@127.0.0.1:54329/postgres";
 
@@ -58,9 +60,9 @@ test("dry-run lists the open legacy balance per bureau and writes nothing", asyn
       const report = await zeroLegacyPayables({ connectionString: url });
 
       assert.equal(report.mode, "dry-run");
-      assert.deepEqual(report.rows, [{ bureauId: a, name: "Bureau A", openBalance: "230.00", entries: 3, status: "listed" }]);
+      assert.deepEqual(report.rows, [{ bureauId: a, name: "Bureau A", openBalance: "230.00", waiting: "0.00", entries: 3, status: "listed" }]);
       assert.deepEqual(await snapshot(client), before);
-      assert.match(formatReport(report), /dry-run \(nada foi gravado/);
+      assert.match(formatReport(report), /dry-run \(nada foi gravado; use --apply --yes/);
     } finally {
       await client.end();
     }
@@ -115,9 +117,109 @@ test("cash-in accruals, linked reversals, payout items and debts are left alone"
 
       const report = await zeroLegacyPayables({ connectionString: url, apply: true });
 
-      assert.deepEqual(report.rows, [{ bureauId: debt, name: "Bureau Debt", openBalance: "-75.00", entries: 1, status: "skipped_debt" }]);
+      assert.deepEqual(report.rows, [{ bureauId: debt, name: "Bureau Debt", openBalance: "-75.00", waiting: "0.00", entries: 1, status: "skipped_debt" }]);
       assert.deepEqual(await snapshot(client), before);
       assert.ok(cashIn);
+    } finally {
+      await client.end();
+    }
+  });
+});
+
+test("a clawback from a post-deploy refund (reversal with pix_charge_id) is never forgiven", async () => {
+  await withTempDatabase(async (url) => {
+    const client = new pg.Client({ connectionString: url });
+    await client.connect();
+    try {
+      // Legado de 100 e uma dívida nova de 75 (clawback do estorno de uma cobrança, sem reverses_entry_id).
+      const a = await seed(client, "Bureau A", [["accrual", 100, { daysAgo: 90 }], ["reversal", -75, { pixChargeId: randomUUID(), daysAgo: 1 }]]);
+      const onlyDebt = await seed(client, "Bureau Only Clawback", [["reversal", -40, { pixChargeId: randomUUID(), daysAgo: 1 }]]);
+      const before = await snapshot(client);
+
+      const dry = await zeroLegacyPayables({ connectionString: url });
+      assert.deepEqual(dry.rows.map((r) => [r.bureauId, r.openBalance, r.entries]), [[a, "100.00", 1]]);
+
+      await zeroLegacyPayables({ connectionString: url, apply: true });
+
+      const net = await client.query("select bureau_id, sum(amount)::text as s from bureau_payable_entries group by bureau_id");
+      const byBureau = new Map(net.rows.map((r) => [r.bureau_id, r.s]));
+      assert.equal(byBureau.get(a), "-75.00");
+      assert.equal(byBureau.get(onlyDebt), "-40.00");
+      assert.equal((await snapshot(client)).length, before.length + 1);
+    } finally {
+      await client.end();
+    }
+  });
+});
+
+test("legacy accrual still inside the retention window waits; the adjustment never leaves the bureau in debt", async () => {
+  await withTempDatabase(async (url) => {
+    const client = new pg.Client({ connectionString: url });
+    await client.connect();
+    try {
+      const a = await seed(client, "Bureau A", [["accrual", 300, { daysAgo: 90 }], ["accrual", 50, { daysAgo: 5 }]]);
+      const young = await seed(client, "Bureau Young", [["accrual", 20, { daysAgo: 2 }]]);
+
+      const dry = await zeroLegacyPayables({ connectionString: url });
+      assert.deepEqual(dry.rows.map((r) => [r.name, r.openBalance, r.waiting, r.status]), [["Bureau A", "300.00", "50.00", "listed"], ["Bureau Young", "0.00", "20.00", "waiting"]]);
+
+      await zeroLegacyPayables({ connectionString: url, apply: true });
+
+      // Nenhum bureau fica com saldo liberado negativo: o ajuste cobre só o accrual já liberado; o retido segue como estava.
+      for (const id of [a, young]) {
+        const { rows } = await client.query("select kind, sum(amount)::text as s from bureau_payable_entries where bureau_id = $1 group by kind order by kind", [id]);
+        const accrual = Number(rows.find((r) => r.kind === "accrual").s);
+        const reversal = Number(rows.find((r) => r.kind === "reversal")?.s ?? 0);
+        const retained = id === a ? 50 : 20;
+        assert.equal(accrual + reversal, retained);
+      }
+      // Quando a janela passar, o accrual retido entra e uma nova execução o zera.
+      await client.query("begin");
+      await client.query("set local session_replication_role = replica");
+      await client.query("update bureau_payable_entries set created_at = now() - interval '60 days' where bureau_id = $1 and kind = 'accrual' and amount = 50", [a]);
+      await client.query("commit");
+      const later = await zeroLegacyPayables({ connectionString: url, apply: true });
+      assert.deepEqual(later.rows.map((r) => [r.name, r.openBalance, r.status]), [["Bureau A", "50.00", "zeroed"], ["Bureau Young", "0.00", "waiting"]]);
+    } finally {
+      await client.end();
+    }
+  });
+});
+
+test("describeTarget shows host, port and database, never the credentials", () => {
+  const shown = describeTarget("postgres://owner:s3cret@db.example.test:5433/credit_prod");
+  assert.equal(shown, "db.example.test:5433/credit_prod");
+  assert.ok(!shown.includes("s3cret") && !shown.includes("owner"));
+});
+
+test("CLI prints the target, and --apply without --yes writes nothing", async () => {
+  await withTempDatabase(async (url) => {
+    const client = new pg.Client({ connectionString: url });
+    await client.connect();
+    try {
+      await seed(client, "Bureau A", [["accrual", 300, { daysAgo: 90 }]]);
+      const before = await snapshot(client);
+      const run = (...args) =>
+        spawnSync(process.execPath, [fileURLToPath(new URL("./zero-legacy-bureau-payables.mjs", import.meta.url)), ...args], {
+          env: { ...process.env, DATABASE_OWNER_URL: url },
+          encoding: "utf8",
+        });
+
+      const dry = run();
+      assert.equal(dry.status, 0);
+      assert.match(dry.stdout, /^banco alvo: 127\.0\.0\.1:54329\/zero_payables_/);
+      assert.ok(!dry.stdout.includes("postgres:test") && !dry.stdout.includes(":test@"));
+
+      const noYes = run("--apply");
+      assert.equal(noYes.status, 1);
+      assert.match(noYes.stderr, /--apply --yes/);
+      assert.match(noYes.stdout, /^banco alvo: /);
+      assert.deepEqual(await snapshot(client), before);
+
+      const yes = run("--apply", "--yes");
+      assert.equal(yes.status, 0);
+      assert.match(yes.stdout, /zeroed/);
+      assert.equal((await snapshot(client)).length, before.length + 1);
     } finally {
       await client.end();
     }

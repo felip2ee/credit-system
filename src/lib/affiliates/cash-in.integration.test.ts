@@ -58,6 +58,7 @@ import {
 } from "@/test/seed";
 
 import { recordCashInCommission } from "./cash-in";
+import { setBureauDefaultPct } from "./rates";
 
 const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
 const TOKEN = "c".repeat(32);
@@ -81,6 +82,7 @@ afterAll(async () => {
 		await client.query(`delete from bureau_commission_rates where bureau_id in ${mine}`);
 		await client.query(`delete from bureau_referrals where referred_bureau_id in ${mine} or referrer_bureau_id in ${mine}`);
 		await client.query(`delete from bureau_affiliate_settings where bureau_id in ${mine}`);
+		await client.query(`delete from affiliate_rates where bureau_id in ${mine}`);
 		await client.query("commit");
 	} catch (error) {
 		await client.query("rollback");
@@ -302,6 +304,29 @@ describe("plano de split da cobrança", () => {
 		await expect(reservePlan(t, "client")).rejects.toBeInstanceOf(SplitOver100Error);
 		expect(Number((await owner.query("select count(*)::int as n from pix_charges where bureau_id = $1", [t.bureau.id])).rows[0].n)).toBe(0);
 		expect(Number((await owner.query("select count(*)::int as n from charge_splits where bureau_id = $1", [t.bureau.id])).rows[0].n)).toBe(0);
+	});
+
+	it("o teto aceita uma configuração só se todo plano fica em 100%, e o plano não passa do que o teto somou (affiliate_rates legado ignorado)", async () => {
+		const t = await seedTenant(owner, "Split Guard");
+		await addPartner(10, WALLET(1));
+		await setBureauPct(t, 30);
+		await withAffiliate(t, { pct: 10 });
+		// Linha antiga de affiliate_rates (só leitura desde a 055): o plano não a enxerga, o teto também não.
+		await owner.query("insert into affiliate_rates (bureau_id, affiliate_profile_id, pct) values ($1, (select affiliate_profile_id from affiliate_referrals where referred_profile_id = $2), 90)", [
+			t.bureau.id,
+			t.client.userId,
+		]);
+
+		// 10 (sócio) + 30 (bureau) + 60 (afiliados) = 100: aceita, e o plano da cobrança soma exatamente 100.
+		expect(await setBureauDefaultPct(SA, t.bureau.id, "60")).toEqual({ ok: true });
+		const { id, plan } = await reservePlan(t, "client");
+		expect(plan.pixLines).toMatchObject([{ kind: "affiliate", pct: 60 }]);
+		const sum = (await owner.query<{ s: string }>("select sum(pct) as s from charge_splits where pix_charge_id = $1", [id])).rows[0].s;
+		expect(Number(sum)).toBe(100);
+
+		// 61 passa de 100: o teto recusa e nenhum plano com essa % chega a existir.
+		expect(await setBureauDefaultPct(SA, t.bureau.id, "61")).toEqual({ ok: false, reason: "split_over_100" });
+		expect((await owner.query("select default_pct from bureau_affiliate_settings where bureau_id = $1", [t.bureau.id])).rows[0].default_pct).toBe("60.00");
 	});
 
 	it("chamar de novo devolve o mesmo plano sem duplicar, e mudar walletId depois não altera a cobrança", async () => {

@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-// walletId do Asaas: texto curto sem espaço nem pontuação (a coluna aceita até 64).
-const walletIdField = z
-	.string()
-	.trim()
-	.regex(/^[A-Za-z0-9-]{8,64}$/, "Informe um walletId válido do Asaas.");
+import { asaasWalletIdField } from "./affiliate-payout";
 
 // Mesmo formato de affiliatePctField, mas o sócio precisa de mais de 0 (check da coluna).
 const partnerPctField = z
@@ -16,7 +12,7 @@ const partnerPctField = z
 export const partnerSchema = z.object({
 	id: z.string().uuid("Sócio inválido.").optional(),
 	name: z.string().trim().min(1, "Informe o nome.").max(120, "O nome passa de 120 caracteres."),
-	asaasWalletId: walletIdField,
+	asaasWalletId: asaasWalletIdField,
 	pct: partnerPctField,
 	active: z.boolean(),
 });
@@ -25,6 +21,6 @@ export type PartnerInput = z.infer<typeof partnerSchema>;
 // app_runtime não tem delete em bureau_asaas_wallets (065): o walletId só se troca, não se remove.
 export const bureauWalletSchema = z.object({
 	bureauId: z.string().uuid("Bureau inválido."),
-	asaasWalletId: walletIdField,
+	asaasWalletId: asaasWalletIdField,
 });
 export type BureauWalletInput = z.infer<typeof bureauWalletSchema>;

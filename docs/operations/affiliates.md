@@ -7,7 +7,7 @@ Runbook do split na entrada de dinheiro, dos dois modos de recebimento, do estor
 1. No Asaas de produção, habilite o split: **Integrações > Segurança**. Sem isso, o Asaas recusa o `split` das cobranças.
 2. Teste um `walletId` real no sandbox antes de usar em produção. O cliente Asaas deste projeto não foi conferido em sandbox (veja o comentário em `src/lib/asaas/client.ts`). Confirme que a cobrança com split chega ao beneficiário e que o evento de split volta ao webhook.
 3. Cadastre os sócios em `/superadmin/settings/socios` (`walletId` e %). Cadastre o `walletId` de cada Bureau em `/superadmin/bureaus/<id>`.
-4. Aplique as migrações até a 076 (`npm run db:migrate`).
+4. Aplique as migrações até a 077 (`npm run db:migrate`).
 
 ## 1. Como o split funciona
 
@@ -21,7 +21,7 @@ Toda cobrança Asaas criada pelo sistema leva um `split`. O split divide o valor
 | Sócio (`platform_partners`) | Cadastro do superadmin | Sempre `walletId` |
 | Bureau dono do cliente | % do Bureau (`bureau_commission_rates`, ou a % global) | Sem `walletId`: accrual em `bureau_payable_entries` (repasse manual) |
 | Bureau indicador (`bureau_referrals`) | % da indicação (padrão 5%, definida pelo superadmin na página do Bureau) | Sem `walletId`: accrual |
-| Afiliado de link | % do afiliado, ou a padrão do Bureau | Modo Pix: saldo no livro-razão (seção 2) |
+| Afiliado de link | % de afiliados do Bureau (`default_pct`; `affiliate_rates` é legado e o plano o ignora) | Modo Pix: saldo no livro-razão (seção 2) |
 
 - **Regras de cobrança:**
   - Recarga do próprio Bureau: só sócios recebem.
@@ -118,12 +118,19 @@ Script: `scripts/db/zero-legacy-bureau-payables.mjs`. Usa `DATABASE_OWNER_URL`.
 
 1. Liste. O padrão é `--dry-run`, que não grava nada:
    `node scripts/db/zero-legacy-bureau-payables.mjs`
+   A primeira linha da saída é o banco alvo (host, porta e nome; nunca a senha). Confira que é o banco de produção.
 2. Confira a lista, Bureau por Bureau. Saldo negativo (dívida do Bureau) aparece, mas o script não ajusta.
-3. Não crie repasse (`create_payout`) antes do ajuste.
-4. Grave os ajustes:
-   `node scripts/db/zero-legacy-bureau-payables.mjs --apply`
+3. Não crie repasse (`create_payout`) antes do ajuste. Rode logo depois do deploy.
+4. Grave os ajustes. O `--yes` é obrigatório junto com `--apply`:
+   `node scripts/db/zero-legacy-bureau-payables.mjs --apply --yes`
    Cada Bureau recebe um lançamento `reversal`, com o motivo "Saldo anterior repassado fora do sistema (zerado por script)". Cada ajuste gera o evento `payable.legacy_zeroed`.
-5. Rode o `--dry-run` de novo. Depois do ajuste, a lista fica vazia. Uma segunda execução de `--apply` não grava nada.
+5. Rode o `--dry-run` de novo. Depois do ajuste, a lista fica vazia. Uma segunda execução de `--apply --yes` não grava nada.
+
+Regras que o operador precisa saber:
+
+- O script só zera lançamentos sem `pix_charge_id`. Qualquer lançamento com cobrança é dívida ou crédito novo e nunca é perdoado: o accrual da entrada, o estorno ligado a ele e o clawback do estorno de cobrança.
+- O `reversal` conta no saldo a repassar na hora, com qualquer data. O accrual só conta depois de `payable_retention_days` (migração 046 e 047). Por isso o ajuste não volta a data do lançamento e cobre só o que já está liberado.
+- Accrual antigo ainda dentro da retenção não é zerado. Ele aparece na coluna "aguardando retenção". Se isso acontecer, rode o script de novo depois que a janela passar. Se o legado já tem mais de `payable_retention_days`, nada fica aguardando.
 
 O usuário executa este script em produção, só depois de conferir a lista.
 

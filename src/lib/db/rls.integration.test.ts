@@ -2496,9 +2496,10 @@ describe("affiliates (026)", () => {
 			expect(await count(ctxOf(actor), "affiliate_commissions")).toBe(1);
 			expect(await count(ctxOf(actor), "bureau_affiliate_settings")).toBe(1);
 			expect(await count(ctxOf(actor), "affiliate_rates")).toBe(1);
-			// A carteira e o livro-razão do afiliado não são do Bureau. O admin lê só modo e walletId (066): a linha existe, o saldo não passa pela tela.
+			// A carteira do afiliado não é do Bureau. O admin lê só modo e walletId (066): a linha existe, o saldo não passa pela tela.
+			// O livro-razão: só o admin lê, só do próprio Bureau (076, relatório de prejuízo por cliente); a equipe não.
 			expect(await count(ctxOf(actor), "affiliate_wallets")).toBe(actor === T.bureauAdmin ? 4 : 0);
-			expect(await count(ctxOf(actor), "affiliate_ledger_entries")).toBe(0);
+			expect(await count(ctxOf(actor), "affiliate_ledger_entries")).toBe(actor === T.bureauAdmin ? 1 : 0);
 		}
 		for (const actor of [foreign.bureauAdmin, foreign.operator, foreign.client]) {
 			for (const table of TABLES) expect(await count(ctxOf(actor), table, "bureau_id = $1", [T.bureau.id])).toBe(0);

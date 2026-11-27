@@ -351,6 +351,88 @@ describe("estorno do accrual do bureau sem walletId", () => {
 	});
 });
 
+// Clawback antigo do valor a repassar (055/058): só vale para o que o Bureau recebeu na captura, isto é, pedido reservado
+// antes da 072 (commission_on_cash_in falso). Pedido novo não gera accrual na captura: o Bureau só perde o que recebeu na
+// entrada (o estorno ligado ao accrual).
+describe("clawback do valor a repassar no estorno de cobrança de cliente", () => {
+	// Cliente recarrega 1000 (Bureau a 20% recebe 200 de accrual) e gasta tudo em pedidos já capturados: carteira zerada.
+	// O Bureau ainda tem 500 de outro accrual em aberto.
+	async function spentClient(name: string, orders: { price: number; onCashIn: boolean }[]) {
+		const t = await seedTenant(owner, name);
+		await setBureauPct(t, 20);
+		const id = await checkoutClientPix(t);
+		await pay(id);
+		const client = await owner.connect();
+		try {
+			await client.query("begin");
+			await client.query("set local session_replication_role = replica");
+			await client.query("update client_wallets set available = 0, reserved = 0 where client_profile_id = $1", [t.client.userId]);
+			const refs: string[] = [];
+			for (const o of orders) {
+				const ref = randomUUID();
+				refs.push(ref);
+				await client.query(
+					`insert into order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost, status, closed_at, commission_on_cash_in)
+					 values ($1, $2, 'online', $3, $4, 0, 'captured', now(), $5)`,
+					[ref, t.bureau.id, t.client.userId, o.price, o.onCashIn],
+				);
+			}
+			await client.query("insert into bureau_payable_entries (bureau_id, kind, amount, order_ref) values ($1, 'accrual', 500, $2)", [t.bureau.id, refs[0]]);
+			await client.query("commit");
+		} catch (error) {
+			await client.query("rollback");
+			throw error;
+		} finally {
+			client.release();
+		}
+		return { t, id };
+	}
+	const entries = async (bureauId: string, chargeId: string) =>
+		(await owner.query<{ kind: string; amount: string; linked: boolean }>(
+			"select kind, amount, reverses_entry_id is not null as linked from bureau_payable_entries where bureau_id = $1 and pix_charge_id = $2 and kind = 'reversal' order by amount",
+			[bureauId, chargeId],
+		)).rows;
+	const net = async (bureauId: string) =>
+		(await owner.query("select sum(amount) as s from bureau_payable_entries where bureau_id = $1", [bureauId])).rows[0].s;
+
+	it("pedido da entrada (commission_on_cash_in): o Bureau perde só o accrual da recarga, sem clawback", async () => {
+		const { t, id } = await spentClient("Reversal Clawback Novo", [{ price: 1000, onCashIn: true }]);
+
+		await refund(id);
+
+		expect(await entries(t.bureau.id, id)).toEqual([{ kind: "reversal", amount: "-200.00", linked: true }]);
+		expect(await net(t.bureau.id)).toBe("500.00");
+		expect((await owner.query("select refund_shortfall from pix_charges where id = $1", [id])).rows[0].refund_shortfall).toBe("1000.00");
+	});
+
+	it("pedido reservado antes da 072: mantém o clawback antigo, até o valor a repassar", async () => {
+		const { t, id } = await spentClient("Reversal Clawback Antigo", [{ price: 1000, onCashIn: false }]);
+
+		await refund(id);
+
+		expect(await entries(t.bureau.id, id)).toEqual([
+			{ kind: "reversal", amount: "-500.00", linked: false },
+			{ kind: "reversal", amount: "-200.00", linked: true },
+		]);
+		expect(await net(t.bureau.id)).toBe("0.00");
+	});
+
+	it("cliente com pedido antigo e novo: o clawback não passa do que foi gasto em pedido antigo", async () => {
+		const { t, id } = await spentClient("Reversal Clawback Misto", [
+			{ price: 300, onCashIn: false },
+			{ price: 700, onCashIn: true },
+		]);
+
+		await refund(id);
+
+		expect(await entries(t.bureau.id, id)).toEqual([
+			{ kind: "reversal", amount: "-300.00", linked: false },
+			{ kind: "reversal", amount: "-200.00", linked: true },
+		]);
+		expect(await net(t.bureau.id)).toBe("200.00");
+	});
+});
+
 describe("estorno em modo asaas", () => {
 	it("só atualiza o status: REFUNDED vira refunded; DONE no evento de estorno vira reversal_failed com auditoria", async () => {
 		const t = await seedTenant(owner, "Reversal Asaas");
