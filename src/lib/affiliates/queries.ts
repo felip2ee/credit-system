@@ -3,12 +3,13 @@
 // nem resultado de consulta.
 import type { PoolClient } from "pg";
 
-import type {
-	AffiliateCommissionRow,
-	AffiliateReferralRow,
-	AffiliateWallet,
-	ChargeSplitStatus,
-	CommissionStatus,
+import {
+	ASAAS_RECEIVED_STATUSES,
+	type AffiliateCommissionRow,
+	type AffiliateReferralRow,
+	type AffiliateWallet,
+	type ChargeSplitStatus,
+	type CommissionStatus,
 } from "./types";
 
 type SummaryRow = { code: string; pending: string; available: string };
@@ -34,6 +35,8 @@ const CASH_IN_COMMISSIONS = `affiliate_commissions c
 export async function getMyAffiliateSummary(client: PoolClient): Promise<{
 	code: string;
 	wallet: AffiliateWallet;
+	// Modo conta Asaas: total pago pelo split, em centavos, e a parte que o estorno não devolveu.
+	asaasReceived: { cents: number; reversalFailedCents: number };
 	referrals: AffiliateReferralRow[];
 	commissions: AffiliateCommissionRow[];
 } | null> {
@@ -78,9 +81,17 @@ export async function getMyAffiliateSummary(client: PoolClient): Promise<{
 		  order by created_at desc
 		  limit 200`,
 	);
+	// Soma toda a função, sem o limite de 200 linhas da lista.
+	const received = await client.query<{ cents: string; reversal_failed_cents: string }>(
+		`select coalesce(sum(round(amount * 100)) filter (where status = any($1::text[])), 0)::text as cents,
+		        coalesce(sum(round(amount * 100)) filter (where status = 'reversal_failed'), 0)::text as reversal_failed_cents
+		   from affiliate_my_asaas_commissions()`,
+		[ASAAS_RECEIVED_STATUSES],
+	);
 	return {
 		code: summary.code,
 		wallet: { pending: summary.pending, available: summary.available },
+		asaasReceived: { cents: Number(received.rows[0].cents), reversalFailedCents: Number(received.rows[0].reversal_failed_cents) },
 		referrals: referrals.rows.map((r) => ({
 			name: r.name,
 			createdAt: r.created_at.toISOString(),

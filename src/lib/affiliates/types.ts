@@ -23,3 +23,7 @@ export type PayoutMethod = "asaas" | "pix";
 export type BeneficiaryKind = "partner" | "bureau" | "bureau_referrer" | "affiliate";
 
 export type ChargeSplitStatus = "pending" | "done" | "refused" | "refunded" | "reversal_failed";
+
+// Repasse Asaas que conta como "recebido": o dinheiro saiu (ou vai sair). reversal_failed entra porque o estorno não
+// devolveu o valor. refused e refunded ficam fora. Única fonte da regra: painel do afiliado e total do Bureau.
+export const ASAAS_RECEIVED_STATUSES: readonly ChargeSplitStatus[] = ["pending", "done", "reversal_failed"];

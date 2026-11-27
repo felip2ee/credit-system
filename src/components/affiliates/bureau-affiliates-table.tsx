@@ -45,7 +45,14 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
                 <TableCell className="font-medium">{a.name}</TableCell>
                 <TableCell className="font-mono text-sm">{a.code}</TableCell>
                 <TableCell>{a.referrals}</TableCell>
-                <TableCell>{formatCurrency(Number(a.totalCommission))}</TableCell>
+                <TableCell>
+                  {formatCurrency(Number(a.totalCommission))}
+                  {Number(a.reversalFailed) > 0 && (
+                    <span className="block text-xs text-muted-foreground">
+                      Inclui {formatCurrency(Number(a.reversalFailed))} de repasses estornados sem devolução
+                    </span>
+                  )}
+                </TableCell>
                 <TableCell>
                   <AffiliatePayoutDialog
                     profileId={a.profileId}
