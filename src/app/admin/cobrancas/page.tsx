@@ -1,8 +1,12 @@
+import { Receipt } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { GenerateLinkButton } from "@/components/admin/generate-link-button";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { StateTone } from "@/components/ui/state-tone";
 import { getRequiredSession } from "@/lib/auth/session";
@@ -31,38 +35,43 @@ export default async function AdminChargesPage() {
     <div className="space-y-5">
       <PageHeader title="Cobranças" description="Links de pagamento enviados aos clientes" />
       {links.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhum link de pagamento ainda. Abra uma consulta em &ldquo;Nova consulta&rdquo;.</p>
+        <EmptyState
+          icon={Receipt}
+          title="Nenhum link de pagamento ainda"
+          description="Abra uma consulta para gerar o primeiro link e enviá-lo ao cliente."
+          action={
+            <Button asChild>
+              <Link href="/admin/consulta">Nova consulta</Link>
+            </Button>
+          }
+        />
       ) : (
-        <ul className="space-y-3">
-          {links.map((l) => {
-            const view = viewOf(l, now);
-            return (
-              <li key={l.id}>
-                <Card>
-                  <CardContent className="space-y-3 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">{l.holderName}</p>
-                        <p className="text-sm text-muted-foreground">{l.maskedDocument}</p>
-                      </div>
-                      <StatusBadge tone={view.tone} label={view.label} className="shrink-0" />
-                    </div>
-                    <p className="text-sm">
-                      {l.productName}
-                      {l.amount !== null && <span className="font-bold tabular-nums"> · {formatCurrency(Number(l.amount))}</span>}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {l.status === "paid" ? "Criado" : "Vence"} em {formatDateTime(l.status === "paid" ? l.createdAt : l.expiresAt)}
-                    </p>
-                    {view.renewable && (
-                      <GenerateLinkButton orderId={l.orderId} bureauName={bureau?.name ?? "Bureau"} productName={l.productName} label="Gerar novo link" />
-                    )}
-                  </CardContent>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
+        <Card>
+          <ul className="divide-y divide-border">
+            {links.map((l) => {
+              const view = viewOf(l, now);
+              return (
+                <li key={l.id} className="space-y-2 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="break-words font-bold">{l.holderName}</p>
+                    <p className="text-sm text-muted-foreground">{l.maskedDocument}</p>
+                  </div>
+                  <StatusBadge tone={view.tone} label={view.label} />
+                  <p className="text-sm">
+                    {l.productName}
+                    {l.amount !== null && <span className="font-bold tabular-nums"> · {formatCurrency(Number(l.amount))}</span>}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {l.status === "paid" ? "Criado" : "Vence"} em {formatDateTime(l.status === "paid" ? l.createdAt : l.expiresAt)}
+                  </p>
+                  {view.renewable && (
+                    <GenerateLinkButton orderId={l.orderId} bureauName={bureau?.name ?? "Bureau"} productName={l.productName} label="Gerar novo link" />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
       )}
     </div>
   );

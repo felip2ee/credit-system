@@ -23,7 +23,7 @@ export default async function AdminLinksPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Links" description="Seus links de divulgação" />
-      {links.length === 0 && <p className="text-sm text-muted-foreground">Bureau não encontrado.</p>}
+      {links.length === 0 && <p className="text-sm text-muted-foreground">Não foi possível carregar os links do seu Bureau. Atualize a página; se continuar, fale com a plataforma.</p>}
       <div className="space-y-3">
         {links.map((l) => (
           <Card key={l.url}>

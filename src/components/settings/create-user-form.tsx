@@ -9,7 +9,7 @@ import { inviteTeamMember } from "@/actions/users";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { refineOptionalNewPassword } from "@/lib/validators/password";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -71,61 +71,49 @@ export function CreateUserForm() {
 
   return (
     <div className="space-y-4">
-      <form
-        onSubmit={handleSubmit(onSubmit)}
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end"
-      >
-        <div className="space-y-2">
-          <Label htmlFor="fullName">Nome completo</Label>
-          <Input id="fullName" {...register("fullName")} />
-          {errors.fullName && (
-            <p className="text-sm text-destructive">{errors.fullName.message}</p>
-          )}
-        </div>
+      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field id="fullName" label="Nome completo" error={errors.fullName?.message}>
+          {(a11y) => <Input {...a11y} {...register("fullName")} />}
+        </Field>
 
-        <div className="space-y-2">
-          <Label htmlFor="email">E-mail</Label>
-          <Input id="email" type="email" {...register("email")} />
-          {errors.email && (
-            <p className="text-sm text-destructive">{errors.email.message}</p>
-          )}
-        </div>
+        <Field id="email" label="E-mail" error={errors.email?.message}>
+          {(a11y) => <Input {...a11y} type="email" {...register("email")} />}
+        </Field>
 
-        <div className="space-y-2">
-          <Label htmlFor="role">Perfil</Label>
-          <Select value={watch("role")} onValueChange={(value) => setValue("role", value as FormValues["role"])}>
-            <SelectTrigger id="role">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="operator">Operador</SelectItem>
-              <SelectItem value="bureau_admin">Administrador</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="password">Senha (opcional)</Label>
-          <PasswordInput id="password" {...register("password")} />
-          {errors.password && (
-            <p className="text-sm text-destructive">{errors.password.message}</p>
+        <Field
+          id="role"
+          label="Perfil"
+          className="sm:col-span-2"
+          helper="Operador faz consultas e atende titulares. Administrador faz o mesmo e também gerencia a equipe, vê a auditoria e recarrega a carteira. Depois do convite, só é possível promover Operador a Administrador."
+        >
+          {(a11y) => (
+            <Select value={watch("role")} onValueChange={(value) => setValue("role", value as FormValues["role"])}>
+              <SelectTrigger {...a11y}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="operator">Operador</SelectItem>
+                <SelectItem value="bureau_admin">Administrador</SelectItem>
+              </SelectContent>
+            </Select>
           )}
-        </div>
+        </Field>
 
-        <div className="space-y-2">
-          <Label htmlFor="confirm">Confirmar senha</Label>
-          <PasswordInput id="confirm" {...register("confirm")} />
-          {errors.confirm && (
-            <p className="text-sm text-destructive">{errors.confirm.message}</p>
-          )}
-        </div>
+        <Field id="password" label="Senha (opcional)" error={errors.password?.message}>
+          {(a11y) => <PasswordInput {...a11y} {...register("password")} />}
+        </Field>
+
+        <Field id="confirm" label="Confirmar senha" error={errors.confirm?.message}>
+          {(a11y) => <PasswordInput {...a11y} {...register("confirm")} />}
+        </Field>
 
         <p className="text-sm text-muted-foreground sm:col-span-2">
-          Deixe em branco para enviar o convite por e-mail. Com senha, o usuário troca
-          a senha no primeiro acesso.
+          O que acontece depois: sem senha, enviamos um e-mail com um link para a pessoa criar a senha. Com senha, não
+          enviamos e-mail; a pessoa entra com a senha que você definiu e a troca no primeiro acesso. Informe a senha por
+          um canal seguro.
         </p>
 
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" disabled={isPending} className="w-full sm:col-span-2 sm:w-auto sm:justify-self-start">
           {isPending ? "Enviando..." : "Cadastrar"}
         </Button>
       </form>
