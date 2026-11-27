@@ -35,6 +35,19 @@ describe("wizardSteps", () => {
 		expect(ids(wizardSteps(null, "PF"))).toEqual(["product"]);
 	});
 
+	it("sócios: avisa que o valor fica reservado ao confirmar", () => {
+		expect(wizardSteps("dossie_empresarial", "PJ")[2].after).toBe(
+			"Você revisa o pedido e confirma. O valor fica reservado no seu saldo e só é cobrado quando a consulta roda.",
+		);
+	});
+
+	it.each([
+		["dossie_pf", "PF"],
+		["dossie_empresarial", "PJ"],
+	] as const)("revisão (%s): e-mail só para quem não tem autorização válida", (code, holder) => {
+		expect(wizardSteps(code, holder).at(-1)?.after).toMatch(/^Quem ainda não tem autorização válida recebe um pedido por e-mail\. /);
+	});
+
 	it("cada etapa diz o que acontece depois", () => {
 		for (const step of wizardSteps("dossie_empresarial", "PJ")) expect(step.after.length).toBeGreaterThan(0);
 	});

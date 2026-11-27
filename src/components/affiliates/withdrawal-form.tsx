@@ -16,7 +16,15 @@ import { isStepSettled, STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
 import { formatCurrency } from "@/lib/utils";
 
 import { withdrawalPreview, type WithdrawalFee } from "./affiliate-rules";
-import { amountStepError, isAmountFailure, keyStepErrors, WITHDRAWAL_STEPS, type KeyStepErrors, type WithdrawalStepId } from "./withdrawal-steps";
+import {
+  amountStepError,
+  isAmountFailure,
+  keyStepErrors,
+  WITHDRAWAL_STEPS,
+  withdrawalFailure,
+  type KeyStepErrors,
+  type WithdrawalStepId,
+} from "./withdrawal-steps";
 
 const KEY_TYPES = [
   { value: "document", label: "CPF ou CNPJ" },
@@ -87,7 +95,14 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
     setError(null);
     setDone(false);
     startTransition(async () => {
-      const result = await requestWithdrawalAction({ amount, pixKeyType, pixKey, ownKeyDeclaration: ownKey });
+      let result: Awaited<ReturnType<typeof requestWithdrawalAction>>;
+      try {
+        result = await requestWithdrawalAction({ amount, pixKeyType, pixKey, ownKeyDeclaration: ownKey });
+      } catch {
+        // Sem resposta: o saque pode ter sido criado. O texto cai no aviso neutro.
+        setError("Falha ao solicitar o saque.");
+        return;
+      }
       if (result.error) {
         if (isAmountFailure(result.error)) {
           // Recusa por valor: volta à etapa do valor, com a mensagem no campo.
@@ -201,6 +216,10 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
                   }}
                   disabled={pending}
                   autoComplete="off"
+                  // Enter não pede o saque (dinheiro): nesta etapa, só o botão confirma.
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.preventDefault();
+                  }}
                 />
               )}
             </Field>
@@ -232,7 +251,7 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
       </div>
       <p className="text-sm text-muted-foreground">O que acontece depois: {current.after}</p>
       {error && <WithdrawalFailure what={error} />}
-      {done && <StatusBanner tone="success" title="Saque solicitado." description="Você será avisado quando o pagamento sair." />}
+      {done && <StatusBanner tone="success" title="Saque solicitado." description='O pedido entra na fila. Acompanhe o status em "Seus saques".' />}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         {step === "key" && (
           <Button type="button" variant="outline" onClick={() => moveTo("amount")} disabled={pending}>
@@ -254,15 +273,15 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
 }
 
 function WithdrawalFailure({ what }: { what: string }) {
-  const msg = failureMessage({ what, money: "not_charged", next: "Confira os dados e tente de novo." });
+  const msg = failureMessage({ what, ...withdrawalFailure(what) });
   return (
     <StatusBanner
       tone="attention"
       title={msg.title}
       description={
         <>
-          <p>{msg.money}</p>
-          <p>{msg.next}</p>
+          {msg.money && <p>{msg.money}</p>}
+          {msg.next && <p>{msg.next}</p>}
         </>
       }
     />

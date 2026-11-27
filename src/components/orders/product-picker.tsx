@@ -31,8 +31,9 @@ export function ProductPicker({ products, value, onChange, holderType }: Product
 	return (
 		<RadioGroup aria-label="Para quem é a pesquisa?" value={value} onValueChange={(v) => onChange(v as OrderProductCode)}>
 			{products.map((p) => {
-				const copy = productCopy(p.code);
-				const rules = productRules(p.code, isSelfOrder(p.code, holderType));
+				const self = isSelfOrder(p.code, holderType);
+				const copy = productCopy(p.code, self);
+				const rules = productRules(p.code, self);
 				return (
 					<div
 						key={p.code}

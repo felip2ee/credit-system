@@ -114,6 +114,7 @@ test("referred client buys, commission waits the hold, then converts to credits 
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Valor a converter (R$)").fill(CONVERTED.toFixed(2));
   await page.getByRole("button", { name: "Usar como crédito" }).click();
+  await page.getByRole("alertdialog", { name: "Converter em créditos" }).getByRole("button", { name: "Converter", exact: true }).click();
   await expect(page.getByText("Valor convertido em créditos.")).toBeVisible();
   expect(await creditsOf(affiliate.userId)).toBeCloseTo(creditsBefore + CONVERTED, 2);
 
@@ -129,6 +130,9 @@ test("referred client buys, commission waits the hold, then converts to credits 
   await page.getByLabel("A chave PIX está no meu nome").check();
   // The confirm button stays disabled until the double-click guard has passed.
   const confirm = page.getByRole("button", { name: "Solicitar saque" });
+  await expect(confirm).toBeEnabled();
+  // Enter in the PIX key field must not request the withdrawal: only the click below does.
+  await page.getByLabel("Chave PIX", { exact: true }).press("Enter");
   await expect(confirm).toBeEnabled();
   await confirm.click();
   await expect(page.getByText("Saque solicitado.")).toBeVisible();
