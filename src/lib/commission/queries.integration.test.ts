@@ -38,7 +38,28 @@ beforeAll(async () => {
 	SA = await seedSuperadmin(owner);
 });
 
+// Tira a configuração de comissão que estes testes deixaram nos bureaus semeados (a soma <= 100 olha todos os bureaus).
+// Gatilhos append-only ficam de fora, como em cash-in.integration.test.ts.
+const seededBureauIds: string[] = [];
+
 afterAll(async () => {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		await client.query("set local session_replication_role = replica");
+		await client.query("delete from bureau_commission_rates where bureau_id = any($1)", [seededBureauIds]);
+		await client.query(
+			"delete from bureau_referrals where referred_bureau_id = any($1) or referrer_bureau_id = any($1)",
+			[seededBureauIds],
+		);
+		await client.query("delete from bureau_affiliate_settings where bureau_id = any($1)", [seededBureauIds]);
+		await client.query("commit");
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
 	await Promise.all([owner.end(), pool.end()]);
 });
 
@@ -46,6 +67,7 @@ describe("trava da soma bureau% + afiliados% <= 100", () => {
 	it("duas escritas concorrentes cuja soma passa de 100: exatamente uma falha", async () => {
 		for (let round = 0; round < 5; round++) {
 			const T = await seedTenant(owner, `Race ${round}`);
+		seededBureauIds.push(T.bureau.id);
 			const results = await Promise.all([
 				setBureauCommissionOverride(SA, T.bureau.id, 60),
 				setBureauDefaultPct(SA, T.bureau.id, "50"),
@@ -59,6 +81,7 @@ describe("trava da soma bureau% + afiliados% <= 100", () => {
 describe("sessão de suporte barrada no RLS", () => {
 	it("override, bloqueio e % de afiliados falham no banco com a sessão de suporte no contexto", async () => {
 		const T = await seedTenant(owner, "Support write");
+		seededBureauIds.push(T.bureau.id);
 		const product = (await owner.query<{ id: string }>("select id from products limit 1")).rows[0];
 		const session = await seedSupportSession(owner, { superadminId: SA.userId, bureauId: T.bureau.id });
 		const inSupport = { ...SA, bureauId: T.bureau.id, supportSessionId: session };

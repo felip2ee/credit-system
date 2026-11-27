@@ -1,4 +1,5 @@
 import { StackedList, StackedRow } from "@/components/dashboard/stacked-list";
+import { AffiliatePayoutDialog } from "@/components/affiliates/affiliate-payout-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { BureauAffiliate } from "@/lib/affiliates/rates";
@@ -22,7 +23,8 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
         </CardHeader>
         <CardContent>
           <p className="font-bold">
-            {defaultPct}% <span className="font-normal text-muted-foreground">de comissão para cada afiliado</span>
+            {Number(defaultPct).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}%{" "}
+            <span className="font-normal text-muted-foreground">de comissão para cada afiliado</span>
           </p>
         </CardContent>
       </Card>
@@ -39,10 +41,21 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
                   meta={
                     <>
                       Código <span className="font-mono">{a.code}</span> · {a.referrals} {a.referrals === 1 ? "indicado" : "indicados"}
+                      {Number(a.reversalFailed) > 0 && (
+                        <span className="block text-xs">
+                          Inclui {formatCurrency(Number(a.reversalFailed))} de repasses estornados sem devolução
+                        </span>
+                      )}
                     </>
                   }
                   aside={formatCurrency(Number(a.totalCommission))}
-                />
+                >
+                  <AffiliatePayoutDialog
+                    profileId={a.profileId}
+                    name={a.name}
+                    current={{ method: a.payoutMethod, walletIdMasked: a.walletIdMasked }}
+                  />
+                </StackedRow>
               ))}
             </StackedList>
           </Card>
@@ -54,6 +67,7 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
                   <TableHead>Código</TableHead>
                   <TableHead>Indicados</TableHead>
                   <TableHead>Total de comissão</TableHead>
+                  <TableHead>Recebe por</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -62,7 +76,21 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
                     <TableCell className="font-medium">{a.name}</TableCell>
                     <TableCell className="font-mono text-sm">{a.code}</TableCell>
                     <TableCell>{a.referrals}</TableCell>
-                    <TableCell>{formatCurrency(Number(a.totalCommission))}</TableCell>
+                    <TableCell>
+                      {formatCurrency(Number(a.totalCommission))}
+                      {Number(a.reversalFailed) > 0 && (
+                        <span className="block text-xs text-muted-foreground">
+                          Inclui {formatCurrency(Number(a.reversalFailed))} de repasses estornados sem devolução
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <AffiliatePayoutDialog
+                        profileId={a.profileId}
+                        name={a.name}
+                        current={{ method: a.payoutMethod, walletIdMasked: a.walletIdMasked }}
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

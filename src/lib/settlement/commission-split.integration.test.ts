@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
+	seedLegacyOnlineOrder,
 	seedOrderDossierForSession,
 	seedTenant,
 	seedWalletTopup,
@@ -164,76 +165,46 @@ async function bureauWallet(t: SeededTenant) {
 		"select available, reserved from wallets where bureau_id = $1", [t.bureau.id]);
 	return rows[0];
 }
-const sum = (...v: string[]) => v.reduce((a, b) => a + Math.round(Number(b) * 100), 0) / 100;
 
 beforeAll(async () => {
 	// Estes testes controlam a % global: sem ela, só o override do Bureau vale.
 	await setGlobal(null);
 });
 
-describe("divisão do preço bruto: Bureau, afiliado e plataforma", () => {
-	it("400,00 com Bureau 20% e afiliado 10%: Bureau 80,00, afiliado 40,00, plataforma 280,00", async () => {
+describe("pedido online novo (077): a captura não divide o preço", () => {
+	it("400,00 com Bureau 20% e afiliado 10%: nada de comissão gravada, accrual ou comissão de afiliado", async () => {
 		await setPrice("400.00");
 		const { t } = await scenario("Split 400", { override: "20", affPct: "10" });
 		const { orderRef, result } = await reserveOnline(t, "400.00");
 		expect(result).toEqual({ ok: true, reason: null, status: "reserved" });
 		expect(await settlementOf(orderRef)).toMatchObject({
-			price: "400.00", cost: "320.00", commission_pct: "20.00", bureau_commission: "80.00", status: "reserved",
+			price: "400.00", cost: "0.00", commission_pct: null, bureau_commission: null, status: "reserved",
 		});
 
 		expect(await capture(t, orderRef)).toMatchObject({ ok: true, status: "captured" });
 
-		const [bureau] = await accrual(orderRef);
-		const [aff] = await commissionOf(orderRef);
-		expect(bureau).toBe("80.00");
-		expect(aff).toEqual({ pct: "10.00", margin: "400.00", amount: "40.00" });
-		expect(400 - Number(bureau) - Number(aff.amount)).toBe(280);
+		// Bureau e afiliado recebem pelo split da entrada de dinheiro (073/074), não aqui.
+		expect(await accrual(orderRef)).toEqual([]);
+		expect(await commissionOf(orderRef)).toEqual([]);
+		expect(await owner.query("select 1 from bureau_payable_entries where bureau_id = $1", [t.bureau.id])).toMatchObject({ rowCount: 0 });
 	});
 
-	it("sem afiliado: accrual de 80,00 e nenhuma comissão", async () => {
+	it("sem afiliado também não há accrual", async () => {
 		await setPrice("400.00");
 		const { t } = await scenario("Split sem afiliado", { override: "20", affPct: "10", linked: false });
 		const { orderRef } = await reserveOnline(t, "400.00");
 		await capture(t, orderRef);
 
-		expect(await accrual(orderRef)).toEqual(["80.00"]);
+		expect(await accrual(orderRef)).toEqual([]);
 		expect(await commissionOf(orderRef)).toEqual([]);
 	});
 
-	it("arredondamento: 10,01 com 15% e 10% dá 1,50 + 1,00 + 7,51 = 10,01", async () => {
-		await setPrice("10.01");
-		const { t } = await scenario("Split arredonda", { override: "15", affPct: "10" });
-		const { orderRef } = await reserveOnline(t, "10.01");
-		await capture(t, orderRef);
-
-		const [bureau] = await accrual(orderRef);
-		const [aff] = await commissionOf(orderRef);
-		expect(bureau).toBe("1.50");
-		expect(aff.amount).toBe("1.00");
-		const platform = sum("10.01") - sum(bureau, aff.amount);
-		expect(Math.round(platform * 100) / 100).toBe(7.51);
-		expect(sum(bureau, aff.amount, "7.51")).toBe(10.01);
-	});
-
-	it("teto: 10,01 com 50% e 50% dá Bureau 5,01, afiliado 5,00 e plataforma 0,00", async () => {
-		await setPrice("10.01");
-		const { t } = await scenario("Split teto", { override: "50", affPct: "50" });
-		const { orderRef } = await reserveOnline(t, "10.01");
-		await capture(t, orderRef);
-
-		const [bureau] = await accrual(orderRef);
-		const [aff] = await commissionOf(orderRef);
-		expect(bureau).toBe("5.01");
-		expect(aff.amount).toBe("5.00");
-		expect(sum(bureau, aff.amount)).toBe(10.01);
-	});
-
-	it("0,01 com 5%: comissão do Bureau 0,00 e nenhum accrual", async () => {
+	it("0,01 com 5%: o pedido é aceito (sem a regra de arredondamento da comissão) e não gera accrual", async () => {
 		await setPrice("0.01");
 		const { t } = await scenario("Split centavo", { override: "5", affPct: "0", linked: false });
 		const { orderRef, result } = await reserveOnline(t, "0.01");
 		expect(result).toMatchObject({ ok: true });
-		expect(await settlementOf(orderRef)).toMatchObject({ cost: "0.01", commission_pct: "5.00", bureau_commission: "0.00" });
+		expect(await settlementOf(orderRef)).toMatchObject({ cost: "0.00", commission_pct: null, bureau_commission: null });
 		await capture(t, orderRef);
 
 		expect(await accrual(orderRef)).toEqual([]);
@@ -280,20 +251,21 @@ describe("balcão", () => {
 });
 
 describe("precedência da % do Bureau", () => {
-	it("override vale mais que a global; override nulo volta à global; sem nenhuma, commission_not_configured", async () => {
+	it("override vale mais que a global; override nulo volta à global; sem nenhuma, só o balcão recusa (commission_not_configured)", async () => {
 		await setPrice("400.00");
 		await setGlobal("12");
-		const { t } = await scenario("Precedência", { linked: false });
+		const { t } = await scenario("Precedência", { linked: false, bureauFunds: "1000.00" });
 		const resolve = async () =>
 			(await owner.query<{ pct: string | null }>("select resolve_bureau_commission_pct($1) as pct", [t.bureau.id])).rows[0].pct;
 
 		expect(await resolve()).toBe("12");
-		const global = await reserveOnline(t, "400.00");
+		// Online (077): a % não é gravada no pedido; o balcão ainda grava (a % define o custo da carteira).
+		const global = await reserveCounter(t, "400.00", "352.00");
 		expect(await settlementOf(global.orderRef)).toMatchObject({ commission_pct: "12.00", bureau_commission: "48.00" });
 
 		await setOverride(t, "30");
 		expect(await resolve()).toBe("30.00");
-		const overridden = await reserveOnline(t, "400.00");
+		const overridden = await reserveCounter(t, "400.00", "280.00");
 		expect(await settlementOf(overridden.orderRef)).toMatchObject({ commission_pct: "30.00", bureau_commission: "120.00" });
 
 		await setOverride(t, null);
@@ -303,17 +275,13 @@ describe("precedência da % do Bureau", () => {
 		await setOverride(t, null);
 		await setGlobal(null);
 		expect(await resolve()).toBeNull();
-		const before = await owner.query("select count(*)::int as n from order_settlements where bureau_id = $1", [t.bureau.id]);
-		const walletOf = async () =>
-			(await owner.query("select available, reserved from client_wallets where client_profile_id = $1", [t.client.userId])).rows[0];
-		const walletBefore = await walletOf();
+		// Sem nenhuma %: o pedido online é aceito (não depende dela); o de balcão não, porque a % define o custo.
 		const none = await reserveOnline(t, "400.00");
-		expect(none.result).toEqual({ ok: false, reason: "commission_not_configured", status: null });
-		expect(await settlementOf(none.orderRef)).toBeUndefined();
-		expect((await owner.query("select count(*)::int as n from order_settlements where bureau_id = $1", [t.bureau.id])).rows[0])
-			.toEqual(before.rows[0]);
-		// O saldo do comprador não se mexe.
-		expect(await walletOf()).toEqual(walletBefore);
+		expect(none.result).toEqual({ ok: true, reason: null, status: "reserved" });
+		expect(await settlementOf(none.orderRef)).toMatchObject({ commission_pct: null, bureau_commission: null, cost: "0.00" });
+		const noCounter = await reserveCounter(t, "400.00", "400.00");
+		expect(noCounter.result).toEqual({ ok: false, reason: "commission_not_configured", status: null });
+		expect(await settlementOf(noCounter.orderRef)).toBeUndefined();
 	});
 });
 
@@ -364,7 +332,7 @@ describe("produto à venda", () => {
 		await setBlock(t, true);
 
 		expect(await capture(t, orderRef)).toMatchObject({ ok: true, status: "captured" });
-		expect(await accrual(orderRef)).toEqual(["80.00"]);
+		expect(await accrual(orderRef)).toEqual([]);
 	});
 
 	it("o catálogo público devolve o preço da última versão", async () => {
@@ -376,8 +344,8 @@ describe("produto à venda", () => {
 	});
 });
 
-describe("snapshot do pedido e pedido antigo", () => {
-	it("mudar preço, % global, override e % de afiliados depois da reserva não muda o pedido nem o accrual", async () => {
+describe("snapshot do pedido e transição para a 077", () => {
+	it("mudar preço, % global, override e % de afiliados depois da reserva não muda o pedido e a captura não gera comissão", async () => {
 		await setPrice("400.00");
 		await setGlobal("5");
 		const { t } = await scenario("Snapshot", { override: "20", affPct: "10" });
@@ -390,14 +358,32 @@ describe("snapshot do pedido e pedido antigo", () => {
 		await capture(t, orderRef);
 
 		expect(await settlementOf(orderRef)).toEqual({ ...before, status: "captured" });
-		expect(await accrual(orderRef)).toEqual(["80.00"]);
-		const [aff] = await commissionOf(orderRef);
-		expect(aff.amount).toBe("40.00");
-
-		// A comissão já gravada não muda quando a % de afiliados muda depois.
-		await setAffiliatePct(t, "30");
-		expect(await commissionOf(orderRef)).toEqual([aff]);
+		expect(await accrual(orderRef)).toEqual([]);
+		expect(await commissionOf(orderRef)).toEqual([]);
 		await setGlobal(null);
+	});
+
+	it("transição: pedido reservado antes da 077 (commission_pct gravado) captura com a regra antiga; o novo não gera comissão", async () => {
+		await setPrice("400.00");
+		const { t } = await scenario("Transição", { override: "20", affPct: "10" });
+		// Reserva feita antes do deploy da 077: comissão do Bureau 20% (80,00) gravada.
+		const legacy = await seedLegacyOnlineOrder(owner, {
+			bureauId: t.bureau.id, clientProfileId: t.client.userId, price: "400.00", commissionPct: "20",
+		});
+		expect(await settlementOf(legacy)).toMatchObject({ cost: "320.00", commission_pct: "20.00", bureau_commission: "80.00" });
+		const fresh = await reserveOnline(t, "400.00");
+		expect(await settlementOf(fresh.orderRef)).toMatchObject({ commission_pct: null, bureau_commission: null });
+
+		expect(await capture(t, legacy)).toMatchObject({ ok: true, status: "captured" });
+		expect(await capture(t, fresh.orderRef)).toMatchObject({ ok: true, status: "captured" });
+		// Capturar de novo (retentativa) não duplica nada em nenhum dos dois.
+		expect(await capture(t, legacy)).toMatchObject({ ok: true, status: "captured" });
+		expect(await capture(t, fresh.orderRef)).toMatchObject({ ok: true, status: "captured" });
+
+		expect(await accrual(legacy)).toEqual(["80.00"]);
+		expect(await commissionOf(legacy)).toEqual([{ pct: "10.00", margin: "400.00", amount: "40.00" }]);
+		expect(await accrual(fresh.orderRef)).toEqual([]);
+		expect(await commissionOf(fresh.orderRef)).toEqual([]);
 	});
 
 	it("pedido antigo (commission_pct nulo) captura pelo ramo antigo: accrual = margem menos comissão, com affiliate_rates", async () => {

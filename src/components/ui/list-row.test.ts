@@ -14,4 +14,12 @@ describe("ListRow", () => {
     expect(html.match(/class="[^"]*\btruncate\b[^"]*"/g)).toHaveLength(2);
     expect(html).toContain("min-w-0");
   });
+
+  it("com wrap, quebra o texto em vez de cortar e desce o valor no celular", () => {
+    const html = renderToStaticMarkup(createElement(ListRow, { icon: Wallet, title: "T", subtitle: "S", value: "R$ 1,00", wrap: true }));
+
+    expect(html).not.toMatch(/class="[^"]*\btruncate\b/);
+    expect(html).toContain("break-words");
+    expect(html).toContain("max-sm:basis-full");
+  });
 });

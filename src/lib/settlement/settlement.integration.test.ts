@@ -15,6 +15,7 @@ import {
 	seedClientProfile,
 	seedClientWalletTopup,
 	seedDossier,
+	seedLegacyOnlineOrder,
 	seedOrderCatalog,
 	seedOrderDossier,
 	seedOrderDossierForSession,
@@ -218,8 +219,20 @@ const counter = (price = "50.00", cost = "30.00", orderRef: string = randomUUID(
 	cost,
 });
 
+// Pedido online reservado antes da 077: a captura ainda gera o acréscimo antigo (price - cost). Pedido novo não gera.
+async function legacyCaptured(t: SeededTenant, price = "50.00", cost = "30.00"): Promise<{ orderRef: string }> {
+	const orderRef = await seedLegacyOnlineOrder(owner, {
+		bureauId: t.bureau.id,
+		clientProfileId: t.client.userId,
+		price,
+		cost,
+	});
+	await committed(adminCtx(t), (c) => capture(c, orderRef));
+	return { orderRef };
+}
+
 describe("reserve_order / capture_order / release_order (online)", () => {
-	it("reserves the price from the client wallet, captures it and accrues price minus cost", async () => {
+	it("reserves the price from the client wallet and captures it with no accrual (commission comes from the cash-in split, 077)", async () => {
 		const t = await setup("100.00", "0");
 		const order = online(t, "50.00", "30.00");
 
@@ -232,7 +245,7 @@ describe("reserve_order / capture_order / release_order (online)", () => {
 		expect(await settlement(order.orderRef)).toMatchObject({
 			status: "reserved",
 			price: "50.00",
-			cost: "30.00",
+			cost: "0.00",
 			mode: "online",
 		});
 		expect(await accruals(order.orderRef)).toEqual([]);
@@ -245,9 +258,7 @@ describe("reserve_order / capture_order / release_order (online)", () => {
 			available: "50.00",
 			reserved: "0.00",
 		});
-		expect(await accruals(order.orderRef)).toEqual([
-			{ kind: "accrual", amount: "20.00" },
-		]);
+		expect(await accruals(order.orderRef)).toEqual([]);
 		expect((await settlement(order.orderRef)).closed_at).not.toBeNull();
 		// A carteira do Bureau não se mexe no modo online.
 		expect(await bureauBalance(t.bureau.id)).toEqual({
@@ -696,9 +707,7 @@ describe("concorrência", () => {
 			if (final === "captured") {
 				expect(Number(before.reserved) - Number(balance.reserved)).toBe(50);
 				expect(Number(balance.available)).toBe(Number(before.available));
-				expect(await accruals(order.orderRef)).toEqual([
-					{ kind: "accrual", amount: "20.00" },
-				]);
+				expect(await accruals(order.orderRef)).toEqual([]);
 			} else {
 				expect(Number(balance.available) - Number(before.available)).toBe(50);
 				expect(await accruals(order.orderRef)).toEqual([]);
@@ -721,9 +730,7 @@ describe("concorrência", () => {
 			available: "140.00",
 			reserved: "0.00",
 		});
-		expect(await accruals(order.orderRef)).toEqual([
-			{ kind: "accrual", amount: "50.00" },
-		]);
+		expect(await accruals(order.orderRef)).toEqual([]);
 	});
 
 	it("never lets the client wallet go negative with concurrent reservations", async () => {
@@ -800,9 +807,7 @@ describe("valores gravados na reserva", () => {
 			available: "50.00",
 			reserved: "0.00",
 		});
-		expect(await accruals(order.orderRef)).toEqual([
-			{ kind: "accrual", amount: "20.00" },
-		]);
+		expect(await accruals(order.orderRef)).toEqual([]);
 	});
 
 	it("keeps settlements append-only except for the close transition", async () => {
@@ -897,12 +902,19 @@ describe("conciliação", () => {
 			[t.client.userId],
 		);
 		expect(rows[0]).toEqual({ net: "359.50", total: "359.50" });
-		// 500 - 50 - 80.50 - 10.00 = 359.50; acréscimos 20 + 60.25 + 0.
+		// 500 - 50 - 80.50 - 10.00 = 359.50; pedido novo não gera acréscimo na captura (077).
 		const payable = await owner.query<{ balance: string }>(
 			"select coalesce(sum(amount), 0) as balance from bureau_payable_entries where bureau_id = $1",
 			[t.bureau.id],
 		);
-		expect(payable.rows[0].balance).toBe("80.25");
+		expect(payable.rows[0].balance).toBe("0");
+
+		// Pedido reservado antes da 077: o acréscimo antigo (preço - custo) segue valendo na captura.
+		await legacyCaptured(t, "40.00", "10.00");
+		expect(
+			(await owner.query("select coalesce(sum(amount), 0) as balance from bureau_payable_entries where bureau_id = $1", [t.bureau.id]))
+				.rows[0].balance,
+		).toBe("30.00");
 	});
 
 	it("balances the Bureau wallet with counter orders", async () => {
@@ -933,9 +945,7 @@ describe("conciliação", () => {
 describe("bureau_payable_entries", () => {
 	it("blocks UPDATE, DELETE and TRUNCATE for every role", async () => {
 		const t = await setup("100.00", "0");
-		const order = online(t);
-		await committed(clientCtx(t), (c) => reserve(c, order));
-		await committed(adminCtx(t), (c) => capture(c, order.orderRef));
+		const order = await legacyCaptured(t);
 
 		for (const sql of [
 			"update bureau_payable_entries set amount = 1 where order_ref = $1",
@@ -955,9 +965,7 @@ describe("bureau_payable_entries", () => {
 
 	it("allows one accrual per order and checks the sign of each kind", async () => {
 		const t = await setup("100.00", "0");
-		const order = online(t);
-		await committed(clientCtx(t), (c) => reserve(c, order));
-		await committed(adminCtx(t), (c) => capture(c, order.orderRef));
+		const order = await legacyCaptured(t);
 		const insert = (kind: string, amount: string, orderRef: string | null) =>
 			owner.query(
 				"insert into bureau_payable_entries (bureau_id, kind, amount, order_ref) values ($1, $2, $3, $4)",
@@ -993,12 +1001,8 @@ describe("bureau_payable_entries", () => {
 	it("shows entries to the admin and operator of the Bureau and to the superadmin, never to a client or another Bureau", async () => {
 		const a = await setup("100.00", "0");
 		const b = await setup("100.00", "0");
-		const orderA = online(a);
-		const orderB = online(b);
-		await committed(clientCtx(a), (c) => reserve(c, orderA));
-		await committed(adminCtx(a), (c) => capture(c, orderA.orderRef));
-		await committed(clientCtx(b), (c) => reserve(c, orderB));
-		await committed(adminCtx(b), (c) => capture(c, orderB.orderRef));
+		await legacyCaptured(a);
+		await legacyCaptured(b);
 
 		for (const ctx of [adminCtx(a), operatorCtx(a)]) {
 			await withDbContext(app, ctx, async (c) => {
@@ -1486,7 +1490,7 @@ describe("018: custo fora do alcance do cliente", () => {
 				).rows,
 			);
 		for (const ctx of [adminCtx(t), operatorCtx(t), superadminCtx()]) {
-			expect(await read(ctx), ctx.role).toEqual([{ cost: "30.00", quote }]);
+			expect(await read(ctx), ctx.role).toEqual([{ cost: "0.00", quote }]);
 		}
 		for (const ctx of [clientCtx(t), adminCtx(foreign), operatorCtx(foreign), ctxOf(foreign.client)]) {
 			expect(await read(ctx), ctx.role).toEqual([]);

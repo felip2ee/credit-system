@@ -30,6 +30,7 @@ vi.mock("next/headers", () => ({
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL, TEST_DATABASE_WEBHOOK_URL } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
+	seedLegacyOnlineOrder,
 	seedOrderCatalog,
 	seedOrderDossier,
 	seedOrderDossierForSession,
@@ -107,16 +108,22 @@ async function seedCoupon(t: SeededTenant, value: string, maxUses: number | null
 	return code;
 }
 
-// Pedido online reservado com cupom; devolve a ordem.
-async function placeOnline(t: SeededTenant, o: { list: string; cost: string; paid: string; code: string }): Promise<string> {
-	const orderRef = randomUUID();
-	await seedOrderDossier(owner, { orderRef, bureauId: t.bureau.id, clientProfileId: t.client.userId });
-	const res = await committed(clientCtx(t), async (c) => {
-		await seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: o.list, cost: o.cost });
-		return reserveCall(c, { orderRef, clientId: t.client.userId, price: o.paid, cost: o.cost, code: o.code });
+const couponIdOf = async (code: string) =>
+	(await rows<{ id: string }>("select id from coupons where code = $1", [code]))[0].id;
+
+// Pedido online com cupom reservado antes da 077: o Bureau cobriu a falta (custo - preço pago) pela carteira. Desde a 077
+// reserve_order não cobre mais a falta; esse caminho segue valendo para os pedidos que já estavam reservados.
+async function placeLegacyCoupon(
+	t: SeededTenant,
+	o: { list: string; commissionPct: string; paid: string; code: string; fundedWallet: string },
+): Promise<string> {
+	return seedLegacyOnlineOrder(owner, {
+		bureauId: t.bureau.id,
+		clientProfileId: t.client.userId,
+		price: o.paid,
+		commissionPct: o.commissionPct,
+		coupon: { couponId: await couponIdOf(o.code), discount: (Number(o.list) - Number(o.paid)).toFixed(2), fundedWallet: o.fundedWallet },
 	});
-	expect(res).toMatchObject({ ok: true, status: "reserved" });
-	return orderRef;
 }
 
 // Estorno (Pix pago) de uma recarga do Bureau do valor dado.
@@ -129,13 +136,13 @@ async function refundBureauTopup(t: SeededTenant, amount: string) {
 	expect(out.rows[0].apply_asaas_payment).toBe("refunded");
 }
 
-// Cliente com 50, carteira do Bureau com 100, cupom de 50%: paga 50, o Bureau cobre 10 da carteira.
+// Cliente com 50, carteira do Bureau com 100, cupom de 50%: paga 50, o Bureau cobre 10 da carteira (pedido legado).
 async function stuckSetup(label: string) {
 	const t = await seedTenant(owner, label);
 	await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "50.00", createdBy: t.client.userId });
 	await seedWalletTopup(owner, { bureauId: t.bureau.id, amount: "100.00", createdBy: t.bureauAdmin.userId });
 	const code = await seedCoupon(t, "50");
-	const orderRef = await placeOnline(t, { list: "100.00", cost: "60.00", paid: "50.00", code });
+	const orderRef = await placeLegacyCoupon(t, { list: "100.00", commissionPct: "40", paid: "50.00", code, fundedWallet: "10.00" });
 	expect(await bureauWallet(t.bureau.id)).toEqual({ available: "90.00", reserved: "10.00" });
 	return { t, orderRef };
 }
@@ -193,7 +200,7 @@ describe("pedido de balcão com cupom aberto na mesma carteira", () => {
 		});
 		// Online com cupom de 100%: o Bureau cobre os 30 do custo pela carteira.
 		const code = await seedCoupon(t, "100");
-		const couponRef = await placeOnline(t, { list: "40.00", cost: "30.00", paid: "0.00", code });
+		const couponRef = await placeLegacyCoupon(t, { list: "40.00", commissionPct: "25", paid: "0.00", code, fundedWallet: "30.00" });
 		expect(await redemption(couponRef)).toMatchObject({ status: "reserved", funded_wallet: "30.00" });
 		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "0.00", reserved: "100.00" });
 

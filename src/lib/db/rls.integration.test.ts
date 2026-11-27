@@ -2424,10 +2424,11 @@ describe("affiliates (026)", () => {
 	const PUBLIC_FUNCTIONS = [
 		"affiliate_my_referrals()",
 		"affiliate_my_commissions()",
+		"affiliate_my_asaas_commissions()",
 		"register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text, text)",
 	];
 	const INTERNAL_FUNCTIONS = [
-		"affiliate_wallet_post_entry(uuid, text, numeric, text, text, uuid)",
+		"affiliate_wallet_post_entry(uuid, text, numeric, text, text, uuid, text)",
 		"affiliate_provision(uuid, uuid)",
 		"affiliate_provision_for_client()",
 	];
@@ -2496,16 +2497,17 @@ describe("affiliates (026)", () => {
 			expect(await count(ctxOf(actor), "affiliate_commissions")).toBe(1);
 			expect(await count(ctxOf(actor), "bureau_affiliate_settings")).toBe(1);
 			expect(await count(ctxOf(actor), "affiliate_rates")).toBe(1);
-			// A carteira e o livro-razão do afiliado não são do Bureau.
-			expect(await count(ctxOf(actor), "affiliate_wallets")).toBe(0);
-			expect(await count(ctxOf(actor), "affiliate_ledger_entries")).toBe(0);
+			// A carteira do afiliado não é do Bureau. O admin lê só modo e walletId (071): a linha existe, o saldo não passa pela tela.
+			// O livro-razão: só o admin lê, só do próprio Bureau (081, relatório de prejuízo por cliente); a equipe não.
+			expect(await count(ctxOf(actor), "affiliate_wallets")).toBe(actor === T.bureauAdmin ? 4 : 0);
+			expect(await count(ctxOf(actor), "affiliate_ledger_entries")).toBe(actor === T.bureauAdmin ? 1 : 0);
 		}
 		for (const actor of [foreign.bureauAdmin, foreign.operator, foreign.client]) {
 			for (const table of TABLES) expect(await count(ctxOf(actor), table, "bureau_id = $1", [T.bureau.id])).toBe(0);
 		}
-		// O superadmin (sem suporte) lê só a % de afiliados do Bureau (055): é ele quem a define.
+		// O superadmin (sem suporte) lê a % de afiliados do Bureau (055: é ele quem a define) e o modo de repasse das carteiras (071).
 		for (const table of TABLES) {
-			const expected = table === "bureau_affiliate_settings" ? 1 : 0;
+			const expected = table === "bureau_affiliate_settings" ? 1 : table === "affiliate_wallets" ? 4 : 0;
 			expect(await count(ctxOf(sa), table, "bureau_id = $1", [T.bureau.id])).toBe(expected);
 		}
 	});
@@ -2542,7 +2544,8 @@ describe("affiliates (026)", () => {
 				const rates = await client.query("update affiliate_rates set pct = 12 where bureau_id = $1", [bureauId]);
 				return { rates: rates.rowCount, settings: settings.rows[0]?.default_pct };
 			});
-		expect(await write(ctxOf(T.bureauAdmin), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
+		// 080: o bureau_admin escreve a linha (interruptor), mas o gatilho barra a mudança de default_pct.
+		await expect(write(ctxOf(T.bureauAdmin), T.bureau.id)).rejects.toMatchObject({ code: "42501" });
 		expect(await write(ctxOf(T.operator), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
 		expect(await write(ctxOf(foreign.bureauAdmin), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
 		expect(await write(ctxOf(sa), T.bureau.id)).toEqual({ rates: 0, settings: "7.00" });
@@ -2600,6 +2603,50 @@ describe("affiliates (026)", () => {
 		for (const actor of [referred, stranger, T.bureauAdmin, T.operator, foreign.client, sa]) {
 			expect(await rows(ctxOf(actor), "affiliate_my_referrals")).toBe(0);
 			expect(await rows(ctxOf(actor), "affiliate_my_commissions")).toBe(0);
+		}
+	});
+
+	it("affiliate_my_asaas_commissions returns only the own affiliate lines, with no walletId, and follows the switch", async () => {
+		const chargeId = randomUUID();
+		await owner.query("insert into client_wallets (bureau_id, client_profile_id) values ($1, $2) on conflict do nothing", [T.bureau.id, referred.userId]);
+		await owner.query(
+			`insert into pix_charges (id, bureau_id, client_profile_id, requested_by, asaas_payment_id, amount, status, pix_payload, expires_at)
+			 values ($1, $2, $3, $3, $4, 100, 'paid', 'payload', now())`,
+			[chargeId, T.bureau.id, referred.userId, `pay_rls_${chargeId}`],
+		);
+		// Minha linha, a de outro afiliado, a de um sócio e uma linha minha em modo Pix (já vem de affiliate_commissions).
+		const lines: [kind: string, beneficiary: string, method: string][] = [
+			["affiliate", affiliate.userId, "asaas"],
+			["affiliate", stranger.userId, "asaas"],
+			["partner", randomUUID(), "asaas"],
+			["bureau_referrer", affiliate.userId, "asaas"],
+		];
+		for (const [kind, beneficiary, method] of lines) {
+			await owner.query(
+				`insert into charge_splits (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, asaas_wallet_id, pct, amount_cents, status)
+				 values ($1, $2, $3, $4, $5, 'wallet-rls-secret', 10, 1000, 'done')`,
+				[chargeId, T.bureau.id, kind, beneficiary, method],
+			);
+		}
+		const rows = (actor: Actor) =>
+			withDbContext(app, actor, async (client) => (await client.query("select * from affiliate_my_asaas_commissions()")).rows);
+		const setSwitch = (enabled: boolean) =>
+			owner.query("update bureau_affiliate_settings set affiliate_enabled = $2 where bureau_id = $1", [T.bureau.id, enabled]);
+
+		expect(await rows(ctxOf(affiliate))).toEqual([]);
+		await setSwitch(true);
+		try {
+			const own = await rows(ctxOf(affiliate));
+			expect(own).toHaveLength(1);
+			expect(Object.keys(own[0]).sort()).toEqual(["amount", "base_value", "created_at", "referred_at", "referred_name", "status"]);
+			expect(own[0]).toMatchObject({ amount: "10.00", base_value: "100.00", status: "done" });
+			expect(await rows(ctxOf(stranger))).toHaveLength(1);
+			for (const actor of [referred, T.bureauAdmin, T.operator, foreign.client, sa]) expect(await rows(ctxOf(actor))).toEqual([]);
+			// Mesmo usuário com o contexto de outro Bureau: nada.
+			expect(await rows({ ...ctxOf(affiliate), bureauId: foreign.bureau.id })).toEqual([]);
+			expect(await count(ctxOf(affiliate), "charge_splits")).toBe(0);
+		} finally {
+			await setSwitch(false);
 		}
 	});
 });

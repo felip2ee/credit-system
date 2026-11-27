@@ -10,6 +10,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { getRequiredSession } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
+import { isAffiliateSectionOpen } from "@/lib/affiliates/enabled";
 import { getMyAffiliateSummary } from "@/lib/affiliates/queries";
 import { listMyOrders } from "@/lib/orders/client-queries";
 import { formatCurrency } from "@/lib/utils";
@@ -21,7 +22,7 @@ export default async function PortalHomePage() {
   if (!hasPermission(session, "portal:read")) return null;
   const profile = await getCurrentProfile();
   const firstName = profile?.full_name.split(" ")[0] ?? "";
-  const showAffiliate = hasPermission(session, "affiliates:read");
+  const showAffiliate = await isAffiliateSectionOpen(session);
   const { orders, affiliate } = await withUserTransaction(session, async (client) => ({
     orders: await listMyOrders(client, RECENT_ORDERS),
     affiliate: showAffiliate ? await getMyAffiliateSummary(client) : null,

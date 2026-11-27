@@ -15,6 +15,8 @@ interface ListRowProps {
   boxed?: boolean;
   // Cor do ícone (ex.: entrada/saída no extrato); padrão text-primary.
   iconClassName?: string;
+  // Linha com texto longo: título e subtítulo quebram em vez de cortar, e no celular o valor desce para baixo do texto.
+  wrap?: boolean;
   className?: string;
 }
 
@@ -22,7 +24,7 @@ interface ListRowProps {
 const LARGE_TEXT_WRAP = "[@container_(max-width:12rem)]:whitespace-normal [@container_(max-width:12rem)]:[overflow-wrap:anywhere]";
 
 // Linha de lançamento/transação: ícone circular cinza, título, subtítulo e valor à direita.
-export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = false, iconClassName, className }: ListRowProps) {
+export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = false, iconClassName, wrap = false, className }: ListRowProps) {
   const cls = cn(
     "flex min-h-14 flex-wrap items-center gap-3 px-4 py-3 [container-type:inline-size] admin:min-h-12 admin:py-2.5",
     boxed && "rounded-card bg-muted",
@@ -35,10 +37,10 @@ export function ListRow({ icon: Icon, title, subtitle, value, href, boxed = fals
         <Icon className="size-5 admin:size-[18px]" />
       </span>
       <span className="min-w-0 flex-[1_1_6rem]">
-        <span className={cn("block truncate text-base font-bold admin:text-sm", LARGE_TEXT_WRAP)}>{title}</span>
-        {subtitle && <span className={cn("block truncate text-base text-muted-foreground admin:text-[13px]", LARGE_TEXT_WRAP)}>{subtitle}</span>}
+        <span className={cn("block text-base font-bold admin:text-sm", wrap ? "break-words" : cn("truncate", LARGE_TEXT_WRAP))}>{title}</span>
+        {subtitle && <span className={cn("block text-base text-muted-foreground admin:text-[13px]", wrap ? "break-words" : cn("truncate", LARGE_TEXT_WRAP))}>{subtitle}</span>}
       </span>
-      {value && <span className="ml-auto shrink-0 whitespace-nowrap text-right text-base font-bold admin:text-sm tabular-nums">{value}</span>}
+      {value && <span className={cn("ml-auto shrink-0 whitespace-nowrap text-right text-base font-bold admin:text-sm tabular-nums", wrap && "max-sm:basis-full max-sm:pl-14 max-sm:text-left")}>{value}</span>}
     </>
   );
   return href ? (
