@@ -20,7 +20,7 @@
     "db:reset": "node scripts/db/reset.mjs",
     "db:migrate:test": "node --test scripts/db/migrate.test.mjs scripts/db/reset.test.mjs",
     "setup:test": "python3 -m unittest discover -s scripts/setup -p 'test_*.py'",
-    "ops:test": "node --test scripts/notifications-cron.test.mjs scripts/check-production-env.test.mjs && if command -v restic >/dev/null 2>&1; then bash docker/backup/backup.test.sh; else echo 'backup.test.sh: restic ausente, pulado'; fi",
+    "ops:test": "node --test scripts/notifications-cron.test.mjs scripts/check-production-env.test.mjs scripts/db/zero-legacy-bureau-payables.test.mjs && if command -v restic >/dev/null 2>&1; then bash docker/backup/backup.test.sh; else echo 'backup.test.sh: restic ausente, pulado'; fi",
     "verify:release": "node scripts/verify-release.mjs",
     "check": "npm run lint && npm run type-check && npm run test"
   },

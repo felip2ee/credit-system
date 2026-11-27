@@ -121,7 +121,7 @@ async function auditRows(settlementId: string, action: string) {
 }
 
 describe("online settlement", () => {
-	it("reserves the price, captures it and accrues price minus cost", async () => {
+	it("reserves the price and captures it with no accrual (commission comes from the cash-in split, 072)", async () => {
 		const { tenant, client, operator } = await setup("Settle O1", { client: "100.00" });
 		const orderRef = randomUUID();
 
@@ -139,7 +139,7 @@ describe("online settlement", () => {
 			"select kind, amount from bureau_payable_entries where bureau_id = $1",
 			[tenant.bureau.id],
 		);
-		expect(rows).toEqual([{ kind: "accrual", amount: "20.00" }]);
+		expect(rows).toEqual([]);
 	});
 
 	it("releases the reservation without accrual", async () => {
@@ -170,7 +170,7 @@ describe("online settlement", () => {
 			mode: "online",
 			clientProfileId: client.userId,
 			price: "45.90",
-			cost: "12.30",
+			cost: "0.00",
 			status: "reserved",
 			// A cotação gravada é a que o banco montou do catálogo: o código vem do produto, não do chamador.
 			quote: { lines: [expect.objectContaining({ priceCents: 4590 })] },
@@ -189,11 +189,11 @@ describe("online settlement", () => {
 		expect(asClient).toMatchObject({ orderRef, price: "45.90", status: "reserved", cost: null, quote: null });
 		const asAdmin = await withUserTransaction({ ...tenant.bureauAdmin }, (c) => getSettlement(c, orderRef));
 		expect(asAdmin).toMatchObject({
-			cost: "12.30",
+			cost: "0.00",
 			quote: { lines: [expect.objectContaining({ priceCents: 4590 })] },
 		});
 		const asOperator = await withUserTransaction(operator, (c) => getSettlement(c, orderRef));
-		expect(asOperator).toMatchObject({ cost: "12.30" });
+		expect(asOperator).toMatchObject({ cost: "0.00" });
 		const outsider = await setup("Settle O3c");
 		expect(await withUserTransaction(outsider.operator, (c) => getSettlement(c, orderRef))).toBeNull();
 	});
@@ -376,7 +376,7 @@ describe("settlement audit", () => {
 		expect(capture).toHaveLength(1);
 		expect(reserve[0].user_id).toBe(client.userId);
 		expect(capture[0].user_id).toBe(operator.userId);
-		expect(capture[0].metadata).toMatchObject({ order_ref: orderRef, status: "captured", price: "50.00", cost: "30.00" });
+		expect(capture[0].metadata).toMatchObject({ order_ref: orderRef, status: "captured", price: "50.00", cost: "0.00" });
 		const raw = JSON.stringify([reserve, capture]);
 		expect(raw).not.toContain(tenant.holder.document);
 		expect(raw).not.toContain(tenant.holder.document.replace(/\D/g, ""));

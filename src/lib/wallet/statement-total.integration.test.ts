@@ -30,7 +30,7 @@ vi.mock("next/headers", () => ({
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
-import { seedClientWalletTopup, seedPayableEntry, seedTenant, seedWalletTopup } from "@/test/seed";
+import { seedCashInAccrual, seedClientWalletTopup, seedPayableEntry, seedTenant, seedWalletTopup } from "@/test/seed";
 
 import { adjustClientBalance } from "./client-adjustment";
 import { listWalletStatement, type StatementLine } from "./statement-total";
@@ -88,6 +88,17 @@ describe("listWalletStatement", () => {
 		expect(lines.map((l) => [l.title, l.amount, l.tone]).sort()).toEqual([
 			["Cobertura de cupom", "-3.00", "out"],
 			["Devolução de cobertura de cupom", "3.00", "in"],
+		]);
+	});
+
+	it("o acréscimo da entrada de dinheiro (sem pedido, com cobrança) aparece no extrato, separado do acréscimo por pedido", async () => {
+		const t = await seedTenant(owner, "StmtCashIn");
+		await seedCashInAccrual(owner, {
+			bureauId: t.bureau.id, requestedBy: t.client.userId, clientProfileId: t.client.userId, chargeAmount: "100.00", amount: "7.50",
+		});
+		const { lines } = await read(t.bureauAdmin, t.bureau.id, { source: "payable" });
+		expect(lines.map((l) => [l.title, l.detail, l.amount, l.tone])).toEqual([
+			["Sua parte entrou em A receber", "Pagamento recebido de um cliente. A Rainha Cred repassa essa parte a você.", "7.50", "in"],
 		]);
 	});
 

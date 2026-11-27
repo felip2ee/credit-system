@@ -8,8 +8,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { TEST_DATABASE_OWNER_URL, TEST_DATABASE_URL, TEST_DATABASE_WEBHOOK_URL } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
-	seedOrderCatalog,
-	seedOrderDossier,
+	seedLegacyOnlineOrder,
 	seedPayableEntry,
 	seedPixCharge,
 	seedTenant,
@@ -25,7 +24,6 @@ afterAll(async () => {
 });
 
 type Ctx = { userId: string; role: string; bureauId: string };
-const clientCtx = (t: SeededTenant): Ctx => ({ userId: t.client.userId, role: "client", bureauId: t.bureau.id });
 const adminCtx = (t: SeededTenant): Ctx => ({ userId: t.bureauAdmin.userId, role: "bureau_admin", bureauId: t.bureau.id });
 
 async function committed<T>(ctx: Ctx, work: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -50,25 +48,23 @@ async function committed<T>(ctx: Ctx, work: (client: PoolClient) => Promise<T>):
 
 type SettleRow = { ok: boolean; reason: string | null; status: string | null };
 
-// Cupom fixo de `value` num pedido online de preço de tabela 100 e custo 60; reserva e captura.
+// Cupom fixo de `couponValue` num pedido online de preço de tabela 100 e Bureau a 40% (custo 60), reservado antes da 072: o
+// Bureau cobriu a falta (custo - preço pago) pelo valor a repassar (coupon_cost). Pedido novo não cria coupon_cost; o
+// estorno ainda precisa tratar os que já existem. Captura o pedido.
 async function placeAndCapture(t: SeededTenant, couponValue: string, paid: string) {
 	const code = `C${randomBytes(4).toString("hex").toUpperCase()}`;
-	await owner.query(
+	const { rows } = await owner.query<{ id: string }>(
 		`insert into coupons (bureau_id, code, kind, value, all_products, valid_from, active, created_by)
-		 values ($1, $2, 'fixed', $3, true, now() - interval '1 hour', true, $4)`,
+		 values ($1, $2, 'fixed', $3, true, now() - interval '1 hour', true, $4) returning id`,
 		[t.bureau.id, code, couponValue, t.bureauAdmin.userId],
 	);
-	const orderRef = randomUUID();
-	await seedOrderDossier(owner, { orderRef, bureauId: t.bureau.id, clientProfileId: t.client.userId });
-	await committed(clientCtx(t), (c) => seedOrderCatalog(owner, c, { productCode: "dossie_pf", price: "100.00", cost: "60.00" }));
-	const reserved = await committed(clientCtx(t), (c) =>
-		c
-			.query<SettleRow>("select * from reserve_order($1, 'online', $2, $3, $4, $5::jsonb, $6)", [
-				orderRef, t.client.userId, paid, "60.00", JSON.stringify({ lines: [] }), code,
-			])
-			.then((r) => r.rows[0]),
-	);
-	expect(reserved).toMatchObject({ ok: true });
+	const orderRef = await seedLegacyOnlineOrder(owner, {
+		bureauId: t.bureau.id,
+		clientProfileId: t.client.userId,
+		price: paid,
+		commissionPct: "40",
+		coupon: { couponId: rows[0].id, discount: couponValue, fundedPayable: Math.max(60 - Number(paid), 0).toFixed(2) },
+	});
 	const captured = await committed(adminCtx(t), (c) =>
 		c.query<SettleRow>("select * from capture_order($1)", [orderRef]).then((r) => r.rows[0]),
 	);

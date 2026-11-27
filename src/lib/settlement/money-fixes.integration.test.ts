@@ -14,6 +14,7 @@ import {
 	ageBureauPayableEntries,
 	seedCatalogItem,
 	seedClientWalletTopup,
+	seedLegacyOnlineOrder,
 	seedOrderCatalog,
 	seedOrderDossierForSession,
 	seedPixCharge,
@@ -186,9 +187,16 @@ async function setup(label: string, funds: string, chargeAmount: string) {
 	return { t, charge };
 }
 
+// Pedido reservado antes da 072 e capturado: só ele ainda gera o acréscimo (price - cost) que o estorno reverte.
 async function placeAndCapture(t: SeededTenant, price: string, cost: string) {
 	const order = onlineOrder(t, price, cost);
-	expect(await committed(clientCtx(t), (c) => reserve(c, order))).toMatchObject({ ok: true });
+	await seedLegacyOnlineOrder(owner, {
+		bureauId: t.bureau.id,
+		clientProfileId: t.client.userId,
+		price,
+		cost,
+		orderRef: order.orderRef,
+	});
 	expect(await committed(adminCtx(t), (c) => capture(c, order.orderRef))).toMatchObject({ ok: true });
 	return order;
 }
@@ -401,7 +409,8 @@ describe("A2: a reserva restante é por pedido", () => {
 			status: "captured",
 		});
 		expect(await clientBalance(t.client.userId)).toEqual({ available: "0.00", reserved: "0.00" });
-		expect((await payable(t.bureau.id)).map((r) => [r.kind, r.amount])).toEqual([["accrual", "10.00"]]);
+		// Pedido novo (072): a captura não gera acréscimo.
+		expect((await payable(t.bureau.id)).map((r) => [r.kind, r.amount])).toEqual([]);
 	});
 
 	it("gives each order only what is left of its own reservation after a partial claw back", async () => {
@@ -509,7 +518,7 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 		expect(await bureauBalance(t.bureau.id)).toEqual({ available: "70.00", reserved: "30.00" });
 	});
 
-	it("gives a client probe the same answer for every cost and stores the catalog cost", async () => {
+	it("gives a client probe the same answer for every cost and stores cost 0 for the online order", async () => {
 		const t = await seedTenant(owner, "A3 oráculo");
 		await seedClientWalletTopup(owner, { clientProfileId: t.client.userId, amount: "500.00", createdBy: t.client.userId });
 		const refs = [randomUUID(), randomUUID(), randomUUID()];
@@ -539,7 +548,7 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 			return out;
 		});
 		for (const r of results) expect(r).toEqual({ ok: true, reason: null, status: "reserved" });
-		for (const ref of refs) expect(await settlementRow(ref)).toMatchObject({ cost: "30.00" });
+		for (const ref of refs) expect(await settlementRow(ref)).toMatchObject({ cost: "0.00", commission_pct: null, bureau_commission: null });
 	});
 
 	it("prices by the order's product and ignores the quote lines the caller sends", async () => {
@@ -624,7 +633,8 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 		expect(results[0]).toEqual({ ok: true, reason: null, status: "reserved" });
 		// 130,00 é o total de 1 sócio: o banco conta 2.
 		expect(results[1]).toEqual({ ok: false, reason: "price_mismatch", status: null });
-		expect(await settlementRow(good.orderRef)).toMatchObject({ price: "160.00", cost: "96.00", commission_pct: "40.00", bureau_commission: "64.00" });
+		// Online (072): sem comissão gravada; ela vem do split da entrada.
+		expect(await settlementRow(good.orderRef)).toMatchObject({ price: "160.00", cost: "0.00", commission_pct: null, bureau_commission: null });
 		expect(await settlementRow(stale.orderRef)).toBeUndefined();
 		expect(await clientBalance(t.client.userId)).toEqual({ available: "340.00", reserved: "160.00" });
 

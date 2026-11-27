@@ -63,7 +63,16 @@ export const COUPON_PREPAID_TEXT: Partial<Record<Kind, StatementText>> = {
 	release: { title: "Liberação de cobertura de cupom", detail: "O pedido foi cancelado e a cobertura do cupom voltou para o saldo.", signed: "in" },
 };
 
-export const PAYABLE_STATEMENT_TEXT: Record<"accrual" | "reversal" | "payout" | "coupon_cost" | "coupon_refund", StatementText> = {
+// accrual_cash_in: o acréscimo da entrada de dinheiro (sem pedido), que o extrato separa do acréscimo antigo por pedido.
+export const PAYABLE_STATEMENT_TEXT: Record<
+	"accrual" | "accrual_cash_in" | "reversal" | "payout" | "coupon_cost" | "coupon_refund",
+	StatementText
+> = {
+	accrual_cash_in: {
+		title: "Sua parte entrou em A receber",
+		detail: "Pagamento recebido de um cliente. A Rainha Cred repassa essa parte a você.",
+		signed: "in",
+	},
 	accrual: {
 		title: "Sua parte entrou em A receber",
 		detail: "Venda online concluída. A Rainha Cred repassa essa parte a você.",

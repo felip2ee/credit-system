@@ -532,6 +532,73 @@ export async function seedOrderCatalog(
 	return { lines: [{ code: input.productCode }] };
 }
 
+// Pedido online reservado antes da migração 072 (commission_on_cash_in falso): preço e custo gravados direto, sem
+// commission_pct (formato anterior à 055) ou, com `commissionPct`, no formato da 055 (custo = preço + desconto - comissão
+// do Bureau). A reserva do preço pago sai da carteira do cliente (que o teste abasteceu); capture_order segue o ramo
+// antigo. Com `coupon`, grava a redenção e o que o Bureau cobriu da falta: `fundedWallet` reserva da carteira do Bureau
+// (motivo "cupom") e `fundedPayable` lança coupon_cost no valor a repassar.
+export async function seedLegacyOnlineOrder(
+	owner: Pool,
+	input: {
+		bureauId: string;
+		clientProfileId: string;
+		price: string;
+		cost?: string;
+		commissionPct?: string;
+		orderRef?: string;
+		coupon?: { couponId: string; discount: string; fundedWallet?: string; fundedPayable?: string };
+	},
+): Promise<string> {
+	const orderRef = input.orderRef ?? randomUUID();
+	const discount = input.coupon?.discount ?? "0.00";
+	await seedOrderDossier(owner, { orderRef, bureauId: input.bureauId, clientProfileId: input.clientProfileId });
+	if (input.commissionPct !== undefined) {
+		await owner.query(
+			`insert into order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost, commission_pct, bureau_commission,
+                                      coupon_id, discount)
+       values ($1, $2, 'online', $3, $4::numeric, $4::numeric + $6::numeric - round(($4::numeric + $6::numeric) * $5::numeric / 100, 2),
+               $5::numeric, round(($4::numeric + $6::numeric) * $5::numeric / 100, 2), $7, $6::numeric)`,
+			[orderRef, input.bureauId, input.clientProfileId, input.price, input.commissionPct, discount, input.coupon?.couponId ?? null],
+		);
+	} else {
+		await owner.query(
+			`insert into order_settlements (order_ref, bureau_id, mode, client_profile_id, price, cost, coupon_id, discount)
+       values ($1, $2, 'online', $3, $4, $5, $6, $7)`,
+			[orderRef, input.bureauId, input.clientProfileId, input.price, input.cost ?? "0.00", input.coupon?.couponId ?? null, discount],
+		);
+	}
+	if (Number(input.price) > 0) {
+		const { rows } = await owner.query<{ ok: boolean; reason: string | null }>(
+			"select ok, reason from client_wallet_post_entry($1, 'reserve', $2::numeric, $3, $4, null, $1)",
+			[input.clientProfileId, input.price, `order:reserve:${orderRef}`, `order:${orderRef}`],
+		);
+		if (!rows[0].ok) throw new Error(`seedLegacyOnlineOrder: client reserve refused (${rows[0].reason})`);
+	}
+	if (input.coupon) {
+		const fundedWallet = input.coupon.fundedWallet ?? "0.00";
+		const fundedPayable = input.coupon.fundedPayable ?? "0.00";
+		await owner.query(
+			`insert into coupon_redemptions (coupon_id, bureau_id, client_profile_id, order_ref, discount, funded_wallet, funded_payable)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
+			[input.coupon.couponId, input.bureauId, input.clientProfileId, orderRef, discount, fundedWallet, fundedPayable],
+		);
+		if (Number(fundedWallet) > 0) {
+			const { rows } = await owner.query<{ ok: boolean; reason: string | null }>(
+				"select ok, reason from wallet_post_entry($1, 'reserve', $2::numeric, $3, $4, 'cupom', $5)",
+				[input.bureauId, fundedWallet, `coupon:${orderRef}:wallet`, `order:${orderRef}`, input.clientProfileId],
+			);
+			if (!rows[0].ok) throw new Error(`seedLegacyOnlineOrder: Bureau reserve refused (${rows[0].reason})`);
+		}
+		if (Number(fundedPayable) > 0) {
+			await owner.query(
+				"insert into bureau_payable_entries (bureau_id, kind, amount, order_ref) values ($1, 'coupon_cost', -$2::numeric, $3)",
+				[input.bureauId, fundedPayable, orderRef],
+			);
+		}
+	}
+	return orderRef;
+}
+
 // Lançamento de valor a repassar já assinado (acréscimo +, estorno −). O acréscimo exige order_ref (FK para
 // order_settlements): cria a liquidação mínima, de balcão e já capturada, e liga o lançamento a ela.
 export async function seedPayableEntry(
@@ -558,6 +625,31 @@ export async function seedPayableEntry(
 		[input.bureauId, input.kind, input.amount, orderRef, input.createdAt ?? null],
 	);
 	return rows[0].id;
+}
+
+// Entrada de dinheiro paga cuja parte do Bureau virou lançamento a repassar (bureau sem walletId, 069): cobrança paga,
+// linha de charge_splits `accrual` já feita e o acréscimo com pix_charge_id e sem order_ref.
+export async function seedCashInAccrual(
+	owner: Pool,
+	input: { bureauId: string; requestedBy: string; clientProfileId?: string; chargeAmount: string; amount: string; pct?: string },
+): Promise<{ chargeId: string; entryId: string }> {
+	const charge = await seedPixCharge(owner, {
+		bureauId: input.bureauId,
+		requestedBy: input.requestedBy,
+		amount: input.chargeAmount,
+		status: "paid",
+		clientProfileId: input.clientProfileId,
+	});
+	await owner.query(
+		`insert into charge_splits (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, pct, amount_cents, status)
+     values ($1, $2, 'bureau', $2, 'accrual', $3, round($4::numeric * 100), 'done')`,
+		[charge.id, input.bureauId, input.pct ?? "0.00", input.amount],
+	);
+	const { rows } = await owner.query<{ id: string }>(
+		`insert into bureau_payable_entries (bureau_id, kind, amount, pix_charge_id) values ($1, 'accrual', $2, $3) returning id`,
+		[input.bureauId, input.amount, charge.id],
+	);
+	return { chargeId: charge.id, entryId: rows[0].id };
 }
 
 // Envelhece os lançamentos a repassar do Bureau: a tabela é só de inserção e o repasse só paga o que passou da retenção.

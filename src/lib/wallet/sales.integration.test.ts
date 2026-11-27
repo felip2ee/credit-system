@@ -29,7 +29,9 @@ import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
 	seedClientWalletTopup,
 	seedOrderCatalog,
+	seedCashInAccrual,
 	seedOrderDossier,
+	seedPixCharge,
 	seedTenant,
 	seedWalletTopup,
 	type SeededTenant,
@@ -93,16 +95,17 @@ describe("listSales", () => {
 
 		const online = await withUserTransaction(admin, (c) => listSales(c, { mode: "online", range: WIDE }));
 		expect(online.rows).toHaveLength(1);
+		// Pedido online novo (072): sem parte do Bureau por pedido; ela vem do split da entrada (teste abaixo).
 		expect(online.rows[0]).toMatchObject({
 			orderRef: onlineRef,
 			mode: "online",
 			paid: "50.00",
-			cost: "30.00",
-			bureauShare: "20.00",
+			cost: "0.00",
+			bureauShare: "0.00",
 			status: "paid",
 			productName: expect.any(String),
 		});
-		expect(online.totals).toEqual({ paid: "50.00", cost: "30.00", bureauShare: "20.00" });
+		expect(online.totals).toEqual({ paid: "50.00", cost: "0.00", bureauShare: "0.00" });
 
 		const counter = await withUserTransaction(admin, (c) => listSales(c, { mode: "counter", range: WIDE }));
 		expect(counter.rows.map((r) => r.orderRef)).toEqual([counterRef]);
@@ -150,7 +153,33 @@ describe("listSales", () => {
 		const { rows, totals } = await withUserTransaction(admin, (c) => listSales(c, { mode: "online", range: WIDE }));
 		expect(rows).toHaveLength(2);
 		expect(rows.find((r) => r.orderRef === refunded)).toMatchObject({ status: "refunded", bureauShare: "0.00" });
-		expect(totals).toEqual({ paid: "50.00", cost: "30.00", bureauShare: "20.00" });
+		expect(totals).toEqual({ paid: "50.00", cost: "0.00", bureauShare: "0.00" });
+	});
+
+	it("online totals add the Bureau share of the paid cash-ins (split lines), and the counter tab does not", async () => {
+		const { tenant, admin } = await setup("Sales CashIn");
+		await seedCashInAccrual(owner, {
+			bureauId: tenant.bureau.id,
+			requestedBy: tenant.client.userId,
+			clientProfileId: tenant.client.userId,
+			chargeAmount: "100.00",
+			amount: "12.34",
+		});
+		// Entrada ainda pendente e entrada estornada não contam.
+		const pending = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.client.userId, status: "pending" });
+		const refunded = await seedPixCharge(owner, { bureauId: tenant.bureau.id, requestedBy: tenant.client.userId, status: "refunded" });
+		for (const charge of [pending, refunded]) {
+			await owner.query(
+				`insert into charge_splits (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, pct, amount_cents, status)
+				 values ($1, $2, 'bureau', $2, 'accrual', 10, 1000, 'pending')`,
+				[charge.id, tenant.bureau.id],
+			);
+		}
+
+		const online = await withUserTransaction(admin, (c) => listSales(c, { mode: "online", range: WIDE }));
+		expect(online.totals).toEqual({ paid: "0.00", cost: "0.00", bureauShare: "12.34" });
+		const counter = await withUserTransaction(admin, (c) => listSales(c, { mode: "counter", range: WIDE }));
+		expect(counter.totals).toEqual({ paid: "0.00", cost: "0.00", bureauShare: "0.00" });
 	});
 
 	it("a tampered cursor throws RangeError", async () => {

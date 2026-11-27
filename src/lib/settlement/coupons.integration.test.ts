@@ -1,5 +1,5 @@
 // Cupons de desconto (migração 049): reserva, captura e liberação com dinheiro no SQL. Postgres real, sob RLS.
-// Preço de tabela 100, custo 60 salvo indicação. A falta do cupom é custo - preço pago.
+// Preço de tabela 100. Desde a 072 o cupom só baixa o valor pago: o Bureau não cobre nenhuma falta.
 import { randomBytes, randomUUID } from "node:crypto";
 
 import { Pool, type PoolClient } from "pg";
@@ -193,34 +193,34 @@ const seedReleased = (t: SeededTenant, amount: string) =>
 	seedPayableEntry(owner, { bureauId: t.bureau.id, kind: "accrual", amount, createdAt: OLD });
 
 describe("desconto e preço pago", () => {
-	it("percent: 50% of 100 pays 50 and the Bureau covers the 10 missing from its wallet", async () => {
+	it("percent: 50% of 100 pays 50 and the Bureau covers nothing (072)", async () => {
 		const t = await tenant("cup pct", { client: "100.00", wallet: "100.00" });
 		const c = await seedCoupon(t, { value: "50" });
 		const { orderRef, res } = await place(t, { paid: "50.00", code: c.code });
 		expect(res).toEqual({ ok: true, reason: null, status: "reserved" });
 		expect(await clientWallet(t.client.userId)).toEqual({ available: "50.00", reserved: "50.00" });
-		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "90.00", reserved: "10.00" });
-		expect(await redemption(orderRef)).toEqual({ status: "reserved", discount: "50.00", funded_wallet: "10.00", funded_payable: "0.00" });
+		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "100.00", reserved: "0.00" });
+		expect(await redemption(orderRef)).toEqual({ status: "reserved", discount: "50.00", funded_wallet: "0.00", funded_payable: "0.00" });
 		expect(await payableKinds(t.bureau.id)).toEqual([]);
 
 		expect(await capture(t, orderRef)).toMatchObject({ ok: true, status: "captured" });
 		expect(await clientWallet(t.client.userId)).toEqual({ available: "50.00", reserved: "0.00" });
-		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "90.00", reserved: "0.00" });
+		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "100.00", reserved: "0.00" });
 		expect((await redemption(orderRef)).status).toBe("consumed");
-		// Margem -10: nenhum acréscimo.
+		// Nenhum acréscimo na captura (a comissão vem do split da entrada).
 		expect(await payableKinds(t.bureau.id)).toEqual([]);
 		const audit = await rows("select 1 from audit_logs where action = 'coupon.redeem' and metadata->>'order_ref' = $1", [orderRef]);
 		expect(audit).toHaveLength(1);
 	});
 
-	it("percent with price above cost needs no funds and the margin only shrinks", async () => {
+	it("percent: 10% off needs no funds and creates no accrual at capture", async () => {
 		const t = await tenant("cup pct margin", { client: "100.00" });
 		const c = await seedCoupon(t, { value: "10" });
 		const { orderRef, res } = await place(t, { paid: "90.00", code: c.code });
 		expect(res.ok).toBe(true);
 		expect(await redemption(orderRef)).toMatchObject({ discount: "10.00", funded_wallet: "0.00", funded_payable: "0.00" });
 		await capture(t, orderRef);
-		expect(await payableKinds(t.bureau.id)).toEqual([{ kind: "accrual", amount: "30.00" }]);
+		expect(await payableKinds(t.bureau.id)).toEqual([]);
 	});
 
 	it("fixed: value 20 off pays 80; fixed above the base is capped at it (paid 0)", async () => {
@@ -233,7 +233,7 @@ describe("desconto e preço pago", () => {
 		const big = await seedCoupon(t, { kind: "fixed", value: "500.00" });
 		const b = await place(t, { paid: "0.00", code: big.code });
 		expect(b.res.ok).toBe(true);
-		expect(await redemption(b.orderRef)).toMatchObject({ discount: "100.00", funded_wallet: "60.00" });
+		expect(await redemption(b.orderRef)).toMatchObject({ discount: "100.00", funded_wallet: "0.00" });
 	});
 
 	it("100% runs with zero client balance: no client wallet entry on reserve, capture or release", async () => {
@@ -241,16 +241,16 @@ describe("desconto e preço pago", () => {
 		const c = await seedCoupon(t, { value: "100" });
 		const { orderRef, res } = await place(t, { paid: "0.00", code: c.code });
 		expect(res).toEqual({ ok: true, reason: null, status: "reserved" });
-		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "140.00", reserved: "60.00" });
+		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "200.00", reserved: "0.00" });
 		expect(await capture(t, orderRef)).toMatchObject({ ok: true, status: "captured" });
-		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "140.00", reserved: "0.00" });
+		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "200.00", reserved: "0.00" });
 		expect(await clientLedgerCount(t.client.userId)).toBe(0);
 		expect(await payableKinds(t.bureau.id)).toEqual([]);
 
 		const other = await place(t, { paid: "0.00", code: c.code, clientId: (await seedOtherClient(t, "1.00")).userId });
 		expect(other.res.ok).toBe(true);
 		expect(await release(t, other.orderRef)).toMatchObject({ ok: true, status: "released" });
-		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "140.00", reserved: "0.00" });
+		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "200.00", reserved: "0.00" });
 	});
 
 	it("rejects a wrong paid price with price_mismatch and keeps nothing", async () => {
@@ -351,43 +351,26 @@ describe("escopo, limites e validade", () => {
 	});
 });
 
-describe("quem paga a falta", () => {
-	it("wallet + payable: wallet covers part, released payable covers the rest (coupon_cost)", async () => {
-		const t = await tenant("cup mix", { client: "100.00", wallet: "4.00" });
-		await seedReleased(t, "100.00");
-		const c = await seedCoupon(t, { value: "50" }); // paid 50, falta 10
-		const { orderRef, res } = await place(t, { paid: "50.00", code: c.code });
-		expect(res.ok).toBe(true);
-		expect(await redemption(orderRef)).toMatchObject({ funded_wallet: "4.00", funded_payable: "6.00" });
-		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "0.00", reserved: "4.00" });
-		expect(await payableKinds(t.bureau.id)).toEqual([
-			{ kind: "accrual", amount: "100.00" },
-			{ kind: "coupon_cost", amount: "-6.00" },
-		]);
-		// O saldo liberado fica em 94 e conta no repasse.
-		const { rows: buckets } = await committed(adminCtx(t), (cl) => cl.query<{ released: string }>("select released from payable_buckets($1)", [t.bureau.id]));
-		expect(buckets[0].released).toBe("94.00");
-	});
-
-	it("refuses with coupon_funds_insufficient and leaves no trace; retained accrual does not count", async () => {
+describe("quem paga a falta (072: ninguém; o cupom só baixa o valor pago)", () => {
+	it("the Bureau funds nothing: wallet and payable balance stay untouched, even with released balance and an empty wallet", async () => {
 		const t = await tenant("cup nofunds", { client: "100.00", wallet: "4.00" });
-		await seedPayableEntry(owner, { bureauId: t.bureau.id, kind: "accrual", amount: "100.00" }); // recente: retido
-		const c = await seedCoupon(t, { value: "50" });
-		const { orderRef, res } = await place(t, { paid: "50.00", code: c.code });
-		expect(res).toMatchObject({ ok: false, reason: "coupon_funds_insufficient" });
-		expect(await clientWallet(t.client.userId)).toEqual({ available: "100.00", reserved: "0.00" });
+		await seedReleased(t, "100.00");
+		const c = await seedCoupon(t, { value: "100" });
+		const { orderRef, res } = await place(t, { paid: "0.00", code: c.code });
+		expect(res).toEqual({ ok: true, reason: null, status: "reserved" });
+		expect(await redemption(orderRef)).toMatchObject({ discount: "100.00", funded_wallet: "0.00", funded_payable: "0.00" });
 		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "4.00", reserved: "0.00" });
-		expect(await redemption(orderRef)).toBeUndefined();
-		expect(await settlements(t.client.userId)).toBe(0);
-		expect((await payableKinds(t.bureau.id)).map((k) => k.kind)).toEqual(["accrual"]);
+		expect(await capture(t, orderRef)).toMatchObject({ ok: true, status: "captured" });
+		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "4.00", reserved: "0.00" });
+		expect(await payableKinds(t.bureau.id)).toEqual([{ kind: "accrual", amount: "100.00" }]);
 	});
 
-	it("a payout concurrent with a coupon reservation never spends the same money twice", async () => {
+	it("a payout concurrent with a coupon reservation takes the whole released balance (the coupon spends none of it)", async () => {
 		const cutoff = new Date(Date.now() - 35 * 86400_000).toISOString();
-		for (let round = 0; round < 4; round += 1) {
+		for (let round = 0; round < 2; round += 1) {
 			const t = await tenant(`cup payout ${round}`);
 			await seedReleased(t, "100.00");
-			const c = await seedCoupon(t, { value: "100" }); // paid 0, falta 60 (todo do repasse)
+			const c = await seedCoupon(t, { value: "100" });
 			const orderRef = randomUUID();
 			await seedOrderDossier(owner, { orderRef, bureauId: t.bureau.id, clientProfileId: t.client.userId });
 			await committed(clientCtx(t), (cl) => seedOrderCatalog(owner, cl, { productCode: "dossie_pf", price: "100.00", cost: "60.00" }));
@@ -398,11 +381,9 @@ describe("quem paga a falta", () => {
 						"select ok, reason, amount from create_payout($1, $2)", [t.bureau.id, cutoff]).then((r) => r.rows[0]),
 				),
 			]);
+			expect(reserved.ok).toBe(true);
 			expect(payout.ok).toBe(true);
-			const spentByCoupon = reserved.ok ? 60 : 0;
-			// Ou o repasse leva 100 e o cupom é recusado, ou o cupom leva 60 antes e o repasse leva 40.
-			expect(Number(payout.amount) + spentByCoupon).toBe(100);
-			if (!reserved.ok) expect(reserved.reason).toBe("coupon_funds_insufficient");
+			expect(Number(payout.amount)).toBe(100);
 		}
 	});
 });
@@ -420,17 +401,13 @@ describe("devolução", () => {
 		expect(await redemption(orderRef)).toMatchObject({ status: "released" });
 		expect(await clientWallet(t.client.userId)).toEqual({ available: "100.00", reserved: "0.00" });
 		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "4.00", reserved: "0.00" });
-		expect(await payableKinds(t.bureau.id)).toEqual([
-			{ kind: "accrual", amount: "100.00" },
-			{ kind: "coupon_cost", amount: "-6.00" },
-			{ kind: "coupon_refund", amount: "6.00" },
-		]);
+		expect(await payableKinds(t.bureau.id)).toEqual([{ kind: "accrual", amount: "100.00" }]);
 		expect(await rows("select 1 from audit_logs where action = 'coupon.release' and metadata->>'order_ref' = $1", [orderRef])).toHaveLength(1);
 		// O uso voltou: o mesmo cupom (limite 1) vale de novo.
 		expect((await place(t, { paid: "50.00", code: c.code })).res.ok).toBe(true);
 	}
 
-	it("release_order gives usage and funds back, once", async () => {
+	it("release_order gives the usage back, once", async () => {
 		const { t, c, orderRef } = await reservedWithMix("cup rel");
 		expect(await release(t, orderRef)).toMatchObject({ ok: true, status: "released" });
 		expect(await release(t, orderRef)).toMatchObject({ ok: true, status: "released" });
@@ -479,7 +456,7 @@ describe("devolução", () => {
 });
 
 describe("depois da captura", () => {
-	it("a PIX refund after capture does not undo coupon_cost, the Bureau wallet capture or the redemption", async () => {
+	it("a PIX refund after capture does not undo the redemption and moves nothing of the Bureau", async () => {
 		const t = await tenant("cup refund", { client: "50.00", wallet: "4.00" });
 		await seedReleased(t, "100.00");
 		const charge = await seedPixCharge(owner, {
@@ -490,14 +467,14 @@ describe("depois da captura", () => {
 		expect(await capture(t, orderRef)).toMatchObject({ ok: true, status: "captured" });
 		await hook.query("select apply_asaas_payment($1, 'PAYMENT_REFUNDED', $2, '{}'::jsonb)", [`evt-${randomBytes(6).toString("hex")}`, charge.asaasPaymentId]);
 
-		expect(await redemption(orderRef)).toMatchObject({ status: "consumed", funded_wallet: "4.00", funded_payable: "6.00" });
-		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "0.00", reserved: "0.00" });
+		expect(await redemption(orderRef)).toMatchObject({ status: "consumed", funded_wallet: "0.00", funded_payable: "0.00" });
+		expect(await bureauWallet(t.bureau.id)).toEqual({ available: "4.00", reserved: "0.00" });
 		const kinds = (await payableKinds(t.bureau.id)).map((k) => k.kind);
-		expect(kinds).toContain("coupon_cost");
+		expect(kinds).not.toContain("coupon_cost");
 		expect(kinds).not.toContain("coupon_refund");
 	});
 
-	it("affiliate commission is on the gross price: a coupon that wipes the Bureau commission does not remove it", async () => {
+	it("the capture creates no affiliate commission and no Bureau accrual, with or without a coupon", async () => {
 		const t = await tenant("cup affiliate", { client: "500.00", wallet: "100.00" });
 		const affiliate = await seedClientProfile(owner, t.bureau.id);
 		await owner.query("insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $2, $3)", [
@@ -516,28 +493,15 @@ describe("depois da captura", () => {
 			"insert into bureau_affiliate_settings (bureau_id, default_pct) values ($1, 10) on conflict (bureau_id) do update set default_pct = 10",
 			[t.bureau.id],
 		);
-		// Preço bruto 100, comissão do Bureau 40%, afiliado 10% do bruto (sai da parte da plataforma, que o cupom não muda).
-		// Paga 60 = parte da plataforma: o Bureau fica com 0. Paga 50: o Bureau cobre 10 (a carteira) e fica com 0.
-		const zero = await seedCoupon(t, { value: "40" });
-		const a = await place(t, { paid: "60.00", code: zero.code });
+		// Pedido novo (072): a captura não cria comissão de afiliado nem acréscimo do Bureau, com ou sem cupom. As duas vêm
+		// do split da entrada de dinheiro.
+		const coupon = await seedCoupon(t, { value: "40" });
+		const a = await place(t, { paid: "60.00", code: coupon.code });
 		expect(await capture(t, a.orderRef)).toMatchObject({ ok: true });
-		const neg = await seedCoupon(t, { value: "50" });
-		const b = await place(t, { paid: "50.00", code: neg.code });
-		expect(await capture(t, b.orderRef)).toMatchObject({ ok: true });
-		const commissions = await rows<{ amount: string; margin: string }>(
-			"select amount, margin from affiliate_commissions where bureau_id = $1",
-			[t.bureau.id],
-		);
-		expect(commissions).toHaveLength(2);
-		for (const c of commissions) expect({ amount: c.amount, margin: c.margin }).toEqual({ amount: "10.00", margin: "100.00" });
-		// O Bureau não recebe acréscimo (a comissão dele foi toda para o desconto).
-		expect(await payableKinds(t.bureau.id)).toEqual([]);
-
-		// Sem cupom o Bureau recebe os 40 inteiros e o afiliado, os mesmos 10.
 		const plain = await place(t, { paid: "100.00" });
 		await capture(t, plain.orderRef);
-		expect(await rows("select 1 from affiliate_commissions where bureau_id = $1", [t.bureau.id])).toHaveLength(3);
-		expect(await payableKinds(t.bureau.id)).toEqual([{ kind: "accrual", amount: "40.00" }]);
+		expect(await rows("select 1 from affiliate_commissions where bureau_id = $1", [t.bureau.id])).toHaveLength(0);
+		expect(await payableKinds(t.bureau.id)).toEqual([]);
 	});
 });
 

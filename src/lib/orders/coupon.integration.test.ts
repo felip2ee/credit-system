@@ -179,16 +179,15 @@ describe("placeOrder with a coupon", () => {
 		expect(await placeOrder(staff(t), counterInput, await quote(t), { couponCode: code })).toEqual({ ok: false, reason: "coupon_invalid" });
 	});
 
-	it("without Bureau funds to cover the shortfall: coupon_funds_insufficient and nothing is kept", async () => {
+	it("a coupon only lowers the price paid: the Bureau funds nothing, even with no Bureau balance", async () => {
 		const t = await newTenant("pcp funds", { client: "200.00" });
 		const code = await seedCoupon(t, { value: "100" });
 
-		expect(await placeOrder(buyerOf(t), input, await quote(t), { couponCode: code })).toEqual({
-			ok: false,
-			reason: "coupon_funds_insufficient",
-		});
-		expect(await redemptions(t)).toHaveLength(0);
-		expect(await orders(t)).toBe(0);
+		expect(await placeOrder(buyerOf(t), input, await quote(t), { couponCode: code })).toMatchObject({ ok: true });
+		expect(await redemptions(t)).toEqual([{ status: "reserved", discount: "50.00" }]);
+		const [funded] = await rows("select funded_wallet, funded_payable from coupon_redemptions where bureau_id = $1", [t.bureau.id]);
+		expect(funded).toEqual({ funded_wallet: "0.00", funded_payable: "0.00" });
+		expect(await rows("select 1 from bureau_payable_entries where bureau_id = $1", [t.bureau.id])).toEqual([]);
 	});
 });
 

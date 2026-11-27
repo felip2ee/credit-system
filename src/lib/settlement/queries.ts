@@ -63,6 +63,8 @@ async function auditTransition(
 	});
 }
 
+// Pedido online (072): reserve_order ignora a parte da plataforma e a % do Bureau; capture_order não cria comissão. Só o
+// balcão usa `platformShareCents` (custo debitado da carteira do Bureau).
 export async function reserveOrder(client: PoolClient, input: ReserveOrderInput): Promise<SettlementResult> {
 	const { quote, coupon } = input;
 	// Com cupom, p_price é o preço pago (tabela menos desconto). fromCents recusa valor negativo.

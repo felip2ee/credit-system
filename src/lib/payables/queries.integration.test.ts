@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { Pool, type PoolClient } from "pg";
+import { Pool } from "pg";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
@@ -35,13 +35,12 @@ vi.mock("next/headers", () => ({
 import { fromCents } from "@/lib/catalog/money";
 import { pool } from "@/lib/db/pool";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
-import { captureOrder, reserveOrder as reserveOrderRaw } from "@/lib/settlement/queries";
-import type { OrderQuote, ReserveOrderInput } from "@/lib/settlement/types";
+import { captureOrder } from "@/lib/settlement/queries";
 import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
 import {
+	seedCashInAccrual,
 	seedClientWalletTopup,
-	seedOrderCatalog,
-	seedOrderDossierForSession,
+	seedLegacyOnlineOrder,
 	seedPayableEntry,
 	seedSuperadmin,
 	seedSupportSession,
@@ -66,41 +65,15 @@ afterAll(async () => {
 	await Promise.all([owner.end(), pool.end()]);
 });
 
-// reserve_order exige um Dossiê do Bureau com o id do pedido.
-// reserve_order confere preço e custo no catálogo do Bureau: o produto criado aqui casa com a cotação.
-const reserveOrder = async (c: PoolClient, input: ReserveOrderInput) => {
-	await seedOrderDossierForSession(owner, c, { orderRef: input.orderRef, clientProfileId: input.clientProfileId });
-	const { lines } = await seedOrderCatalog(owner, c, {
-		productCode: "dossie_pf",
-		price: fromCents(input.quote.totalPriceCents),
-		cost: fromCents(input.quote.platformShareCents),
-	});
-	const quoted = lines.length ? [{ ...input.quote.lines[0], code: lines[0].code }] : input.quote.lines;
-	return reserveOrderRaw(c, { ...input, quote: { ...input.quote, lines: quoted } });
-};
-
-const quoteOf = (priceCents: number, costCents: number): OrderQuote => ({
-	ok: true,
-	lines: [{
-				productVersionId: randomUUID(),
-				code: "smart_pf",
-				part: "base" as const,
-				quantity: 1,
-				unitPriceCents: priceCents,
-				priceCents,
-			}],
-	platformShareCents: costCents,
-	bureauCommissionCents: priceCents - costCents,
-	totalPriceCents: priceCents,
-});
-
-// Vende online e captura: grava o acréscimo price - cost. Devolve o order_ref.
+// Vende online e captura um pedido reservado antes da 072 (o acréscimo antigo, price - cost, que ainda nasce na captura
+// desses pedidos). Pedido novo não gera acréscimo na captura. Devolve o order_ref.
 async function sell(tenant: SeededTenant, priceCents: number, costCents: number): Promise<string> {
-	const client: DbIdentity = { ...tenant.client };
-	const orderRef = randomUUID();
-	await withUserTransaction(client, (c) =>
-		reserveOrder(c, { orderRef, mode: "online", clientProfileId: client.userId, quote: quoteOf(priceCents, costCents) }),
-	);
+	const orderRef = await seedLegacyOnlineOrder(owner, {
+		bureauId: tenant.bureau.id,
+		clientProfileId: tenant.client.userId,
+		price: fromCents(priceCents),
+		cost: fromCents(costCents),
+	});
 	await withUserTransaction({ ...tenant.operator }, (c) => captureOrder(c, orderRef));
 	return orderRef;
 }
@@ -192,11 +165,15 @@ describe("listPayableEntries", () => {
 	it("pages newest first without repeating rows, even with the same created_at", async () => {
 		const tenant = await tenantWithClientFunds("Payable P");
 		const admin: DbIdentity = { ...tenant.bureauAdmin };
-		const client: DbIdentity = { ...tenant.client };
-		const refs = Array.from({ length: 5 }, () => randomUUID());
-		for (const orderRef of refs) {
-			await withUserTransaction(client, (c) =>
-				reserveOrder(c, { orderRef, mode: "online", clientProfileId: client.userId, quote: quoteOf(2000, 1000) }),
+		const refs: string[] = [];
+		for (let i = 0; i < 5; i++) {
+			refs.push(
+				await seedLegacyOnlineOrder(owner, {
+					bureauId: tenant.bureau.id,
+					clientProfileId: tenant.client.userId,
+					price: "20.00",
+					cost: "10.00",
+				}),
 			);
 		}
 		// Uma transação só: os cinco acréscimos têm o mesmo created_at e o id desempata.
@@ -220,6 +197,26 @@ describe("listPayableEntries", () => {
 
 		expect(ids).toEqual(expected.rows.map((r) => r.id));
 		expect(ids).toHaveLength(5);
+	});
+
+	it("lists a cash-in accrual (charge link, no order_ref) next to the order accruals", async () => {
+		const tenant = await tenantWithClientFunds("Payable CI");
+		const admin: DbIdentity = { ...tenant.bureauAdmin };
+		const orderRef = await sell(tenant, 5000, 3000);
+		await seedCashInAccrual(owner, {
+			bureauId: tenant.bureau.id,
+			requestedBy: tenant.client.userId,
+			clientProfileId: tenant.client.userId,
+			chargeAmount: "100.00",
+			amount: "12.34",
+		});
+
+		const page = await withUserTransaction(admin, (c) => listPayableEntries(c, tenant.bureau.id));
+		expect(page.rows.map((r) => ({ kind: r.kind, amount: r.amount, orderRef: r.orderRef })).sort((x, y) => x.amount.localeCompare(y.amount))).toEqual([
+			{ kind: "accrual", amount: "12.34", orderRef: null },
+			{ kind: "accrual", amount: "20.00", orderRef },
+		]);
+		expect(await withUserTransaction(admin, (c) => getPayableBalance(c, tenant.bureau.id))).toBe("32.34");
 	});
 
 	it("maps the columns, caps the limit and rejects a malformed cursor", async () => {

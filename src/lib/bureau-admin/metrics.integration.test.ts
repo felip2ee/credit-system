@@ -135,6 +135,25 @@ describe("getBureauAdminMetrics", () => {
 		expect(Object.keys(m.ranking[0]).sort()).toEqual(["commission", "name", "sales"]);
 	});
 
+	it("ranking commission includes the cash-in commission (order_ref = charge), also for an affiliate with no captured order", async () => {
+		const t = await seedTenant(owner, "metrics-cashin");
+		const withOrder = await affiliateWith(t);
+		const ref = await settle(t, withOrder.referred.userId, "10.00", 0);
+		await owner.query(
+			`insert into affiliate_commissions (order_ref, bureau_id, affiliate_profile_id, referred_profile_id, pct, margin, amount, release_at)
+			 values ($1, $2, $3, $4, 10, 10, 1.50, now()), ($5, $2, $3, $4, 10, 100, 10.00, now())`,
+			[ref, t.bureau.id, withOrder.affiliate.userId, withOrder.referred.userId, randomUUID()],
+		);
+		const onlyCashIn = await affiliateWith(t);
+		await owner.query(
+			`insert into affiliate_commissions (order_ref, bureau_id, affiliate_profile_id, referred_profile_id, pct, margin, amount, release_at)
+			 values ($1, $2, $3, $4, 10, 50, 5.00, now())`,
+			[randomUUID(), t.bureau.id, onlyCashIn.affiliate.userId, onlyCashIn.referred.userId],
+		);
+		const m = await getBureauAdminMetrics(t.bureauAdmin, "hoje");
+		expect(m.ranking.map((r) => [r.sales, r.commission])).toEqual([[1, 11.5], [0, 5]]);
+	});
+
 	it("does not mix data between bureaus", async () => {
 		const a = await seedTenant(owner, "iso-a");
 		const b = await seedTenant(owner, "iso-b");

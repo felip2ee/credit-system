@@ -144,13 +144,13 @@ describe("coupon code attempts through placeOrder (slots)", () => {
 		}
 	});
 
-	it("a successful order clears its slot, and a Bureau funds shortfall does not count", async () => {
+	it("a successful order clears its slot, also a coupon that would have needed Bureau funds before 072", async () => {
 		const ok = await newTenant("cm ok");
 		expect(await order(ok, await seedCoupon(ok))).toMatchObject({ ok: true });
 		expect(await misses(ok)).toBe(0);
 
 		const poor = await newTenant("cm funds", { client: "200.00" });
-		expect(await order(poor, await seedCoupon(poor, { value: "100" }))).toEqual({ ok: false, reason: "coupon_funds_insufficient" });
+		expect(await order(poor, await seedCoupon(poor, { value: "100" }))).toMatchObject({ ok: true });
 		expect(await misses(poor)).toBe(0);
 	});
 
