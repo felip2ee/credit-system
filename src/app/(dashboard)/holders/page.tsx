@@ -64,10 +64,10 @@ export default async function HoldersPage({
                 meta={[
                   `${h.type === "PJ" ? "Pessoa jurídica" : "Pessoa física"} · ${h.type === "PJ" ? formatCNPJ(h.document) : formatCPF(h.document)}`,
                   h.city ? `${h.city}${h.state ? "/" + h.state : ""}` : null,
+                  `Última atividade ${formatDate(h.updated_at)}`,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
-                aside={formatDate(h.updated_at)}
               />
             ))}
             {holders.length === 0 && (
@@ -75,45 +75,45 @@ export default async function HoldersPage({
             )}
           </StackedList>
           <div className="hidden md:block">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Documento</TableHead>
-                <TableHead>Cidade/UF</TableHead>
-                <TableHead>Última atividade</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {holders.map((h) => (
-                <TableRow key={h.id}>
-                  <TableCell className="font-medium">
-                    <Link href={`/holders/${h.id}`} className="hover:underline">
-                      {h.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{h.type}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {h.type === "PJ" ? formatCNPJ(h.document) : formatCPF(h.document)}
-                  </TableCell>
-                  <TableCell>
-                    {h.city ? `${h.city}${h.state ? "/" + h.state : ""}` : "—"}
-                  </TableCell>
-                  <TableCell>{formatDate(h.updated_at)}</TableCell>
-                </TableRow>
-              ))}
-              {holders.length === 0 && (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    Nenhum titular encontrado.
-                  </TableCell>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Documento</TableHead>
+                  <TableHead>Cidade/UF</TableHead>
+                  <TableHead>Última atividade</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {holders.map((h) => (
+                  <TableRow key={h.id}>
+                    <TableCell className="font-medium">
+                      <Link href={`/holders/${h.id}`} className="hover:underline">
+                        {h.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{h.type}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {h.type === "PJ" ? formatCNPJ(h.document) : formatCPF(h.document)}
+                    </TableCell>
+                    <TableCell>
+                      {h.city ? `${h.city}${h.state ? "/" + h.state : ""}` : "—"}
+                    </TableCell>
+                    <TableCell>{formatDate(h.updated_at)}</TableCell>
+                  </TableRow>
+                ))}
+                {holders.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      Nenhum titular encontrado.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>

@@ -75,7 +75,7 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
   const { state } = order;
   const canRelease = state === "completed" && order.mode === "counter" && order.aiStatus !== "pending";
 
-  const now = orderNowText({ state, mode: order.mode, aiStatus: order.aiStatus, canRegisterPayment });
+  const now = orderNowText({ state, mode: order.mode, aiStatus: order.aiStatus, reason: order.reason, canWrite, canRegisterPayment });
   const actionClass = "w-full sm:w-auto";
 
   return (
@@ -118,14 +118,14 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
               </ActionWithEffect>
             )}
             {state === "ready" && (
-              <ActionWithEffect effect="Inicia a consulta agora, sem esperar a fila.">
+              <ActionWithEffect effect="Pede para iniciar a consulta agora, sem esperar a fila. Se uma nova tentativa já estiver agendada, ela só começa no horário previsto.">
                 <Button className={actionClass} onClick={() => run(runOrderNowAction)} disabled={isPending}>
                   {isPending ? "Executando..." : "Executar agora"}
                 </Button>
               </ActionWithEffect>
             )}
             {canRelease && (
-              <ActionWithEffect effect="O cliente passa a ver o resultado da pesquisa.">
+              <ActionWithEffect effect="O cliente passa a ver o resultado e recebe um aviso.">
                 <Button className={actionClass} onClick={() => run(releaseOrderAction)} disabled={isPending}>
                   {isPending ? "Liberando..." : "Liberar ao cliente"}
                 </Button>
@@ -139,7 +139,7 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
               </ActionWithEffect>
             )}
             {CANCELLABLE.includes(state) && (
-              <ActionWithEffect effect="Encerra o pedido e libera a reserva do pagamento. Não dá para desfazer.">
+              <ActionWithEffect effect={`Encerra o pedido e invalida os links de autorização já enviados.${order.mode === "online" ? " A reserva do pagamento volta ao saldo do cliente." : ""} Não dá para desfazer.`}>
                 <Button variant="outline" className={actionClass} onClick={() => setConfirmingCancel(true)} disabled={isPending}>
                   Cancelar pedido
                 </Button>
@@ -163,7 +163,7 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
         dismissible={!isPending}
       >
         <p className="text-sm text-muted-foreground">
-          O pedido será cancelado e a reserva do pagamento liberada. Esta ação não pode ser desfeita.
+          {`O pedido será cancelado e os links de autorização já enviados deixam de valer.${order.mode === "online" ? " A reserva do pagamento volta ao saldo do cliente." : ""} Esta ação não pode ser desfeita.`}
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setConfirmingCancel(false)} disabled={isPending}>

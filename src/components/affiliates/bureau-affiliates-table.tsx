@@ -21,7 +21,9 @@ export function BureauAffiliatesTable({ defaultPct, affiliates }: BureauAffiliat
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="font-semibold">{defaultPct}%</p>
+          <p className="font-bold">
+            {defaultPct}% <span className="font-normal text-muted-foreground">de comissão para cada afiliado</span>
+          </p>
         </CardContent>
       </Card>
       {affiliates.length === 0 ? (

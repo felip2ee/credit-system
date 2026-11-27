@@ -2,6 +2,7 @@ import Link from "next/link";
 import { HandCoins, Search, TrendingUp, Users, Wallet } from "lucide-react";
 import { redirect } from "next/navigation";
 
+import { HideableStat } from "@/components/dashboard/hideable-stat";
 import { Stat } from "@/components/dashboard/stat";
 import { PageHeader } from "@/components/layout/page-header";
 import { LineChart } from "@/components/reports/line-chart";
@@ -141,7 +142,7 @@ export default async function DashboardPage({
         <SectionHeader title="Números principais" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {revenue && (
-            <Stat
+            <HideableStat
               label="Faturamento total"
               value={formatCurrency(revenue.total.amount)}
               hint={`${orders} ${orders === 1 ? "pedido concluído" : "pedidos concluídos"} desde o início`}

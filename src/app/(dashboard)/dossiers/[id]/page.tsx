@@ -119,43 +119,43 @@ export default async function DossierDetailPage({
             )}
           </StackedList>
           <div className="hidden md:block">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Papel</TableHead>
-                <TableHead>Documento</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Consultado em</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ordered.map((m) => (
-                <TableRow key={m.id}>
-                  <TableCell className="font-medium">
-                    <Link href={`/consultations/${m.id}`} className="hover:underline">
-                      {m.document_name ?? "—"}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{roleOf(m.type)}</TableCell>
-                  <TableCell className="font-mono">
-                    {m.type === "PJ" ? formatCNPJ(m.document) : formatCPF(m.document)}
-                  </TableCell>
-                  <TableCell>
-                    <QueryStatusBadge status={m.status} />
-                  </TableCell>
-                  <TableCell>{formatDate(m.consulted_at)}</TableCell>
-                </TableRow>
-              ))}
-              {ordered.length === 0 && (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    Nenhuma consulta nesta pesquisa.
-                  </TableCell>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Papel</TableHead>
+                  <TableHead>Documento</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Consultado em</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {ordered.map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell className="font-medium">
+                      <Link href={`/consultations/${m.id}`} className="hover:underline">
+                        {m.document_name ?? "—"}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{roleOf(m.type)}</TableCell>
+                    <TableCell className="font-mono">
+                      {m.type === "PJ" ? formatCNPJ(m.document) : formatCPF(m.document)}
+                    </TableCell>
+                    <TableCell>
+                      <QueryStatusBadge status={m.status} />
+                    </TableCell>
+                    <TableCell>{formatDate(m.consulted_at)}</TableCell>
+                  </TableRow>
+                ))}
+                {ordered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      Nenhuma consulta nesta pesquisa.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>

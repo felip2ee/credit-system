@@ -62,7 +62,7 @@ export default async function ScrPage({
             key={t.key}
             href={`/scr?tab=${t.key}`}
             className={cn(
-              "inline-flex min-h-11 items-center border-b-2 px-4 text-sm font-medium",
+              "inline-flex min-h-11 items-center border-b-2 px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               tab === t.key
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -87,16 +87,20 @@ export default async function ScrPage({
                     </p>
                     <div className="flex flex-wrap items-center gap-1">
                       <ScrSendHistory status={r.status} />
-                      {tab === "pending" && r.lastNotificationStatus && (
-                        <NotificationStatusBadge status={r.lastNotificationStatus} />
-                      )}
                     </div>
+                    {tab === "pending" && r.lastNotificationStatus && (
+                      <div className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
+                        Último envio:
+                        <NotificationStatusBadge status={r.lastNotificationStatus} />
+                      </div>
+                    )}
                     <p className="text-sm text-muted-foreground">
                       {tab === "pending" && (
                         <>
                           Enviado em {formatDate(r.requested_at)} ·{" "}
                           <span className={cn(waiting > 3 && "font-bold text-destructive")}>
                             aguardando {waiting} {waiting === 1 ? "dia" : "dias"}
+                            {waiting > 3 && " (atrasado)"}
                           </span>
                         </>
                       )}
@@ -123,100 +127,100 @@ export default async function ScrPage({
             {rows.length === 0 && <li className="p-4 text-center text-sm text-muted-foreground">Nenhum registro.</li>}
           </StackedList>
           <div className="hidden md:block">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Documento</TableHead>
-                <TableHead>Nome</TableHead>
-                <TableHead>Tipo</TableHead>
-                {tab === "pending" && (
-                  <>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Enviado em</TableHead>
-                    <TableHead>Aguardando</TableHead>
-                    <TableHead>Último envio</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </>
-                )}
-                {tab === "granted" && (
-                  <>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Aceite em</TableHead>
-                    <TableHead>Validade</TableHead>
-                  </>
-                )}
-                {tab === "history" && (
-                  <>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Enviado em</TableHead>
-                    <TableHead>Última verificação</TableHead>
-                  </>
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => {
-                const waiting = daysSince(r.requested_at);
-                return (
-                  <ScrHistoryRow key={r.id} id={r.id}>
-                    <TableCell className="font-mono">
-                      {fmtDoc(r.type, r.document)}
-                    </TableCell>
-                    <TableCell>{r.name ?? "—"}</TableCell>
-                    <TableCell>{r.type}</TableCell>
-
-                    {tab === "pending" && (
-                      <>
-                        <TableCell><ScrSendHistory status={r.status} /></TableCell>
-                        <TableCell>{formatDate(r.requested_at)}</TableCell>
-                        <TableCell
-                          className={cn(waiting > 3 && "text-destructive")}
-                        >
-                          {waiting} {waiting === 1 ? "dia" : "dias"}
-                        </TableCell>
-                        <TableCell>
-                          {r.lastNotificationStatus && (
-                            <NotificationStatusBadge status={r.lastNotificationStatus} />
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <ScrRowActions id={r.id} />
-                        </TableCell>
-                      </>
-                    )}
-
-                    {tab === "granted" && (
-                      <>
-                        <TableCell><ScrSendHistory status={r.status} /></TableCell>
-                        <TableCell>{formatDate(r.authorized_at)}</TableCell>
-                        <TableCell>{formatDate(r.expires_at)}</TableCell>
-                      </>
-                    )}
-
-                    {tab === "history" && (
-                      <>
-                        <TableCell>
-                          <ScrSendHistory status={r.status} />
-                        </TableCell>
-                        <TableCell>{formatDate(r.requested_at)}</TableCell>
-                        <TableCell>{formatDate(r.last_checked_at)}</TableCell>
-                      </>
-                    )}
-                  </ScrHistoryRow>
-                );
-              })}
-              {rows.length === 0 && (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell
-                    colSpan={7}
-                    className="text-center text-muted-foreground"
-                  >
-                    Nenhum registro.
-                  </TableCell>
+                  <TableHead>Documento</TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  {tab === "pending" && (
+                    <>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Enviado em</TableHead>
+                      <TableHead>Aguardando</TableHead>
+                      <TableHead>Último envio</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </>
+                  )}
+                  {tab === "granted" && (
+                    <>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Aceite em</TableHead>
+                      <TableHead>Validade</TableHead>
+                    </>
+                  )}
+                  {tab === "history" && (
+                    <>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Enviado em</TableHead>
+                      <TableHead>Última verificação</TableHead>
+                    </>
+                  )}
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => {
+                  const waiting = daysSince(r.requested_at);
+                  return (
+                    <ScrHistoryRow key={r.id} id={r.id}>
+                      <TableCell className="font-mono">
+                        {fmtDoc(r.type, r.document)}
+                      </TableCell>
+                      <TableCell>{r.name ?? "—"}</TableCell>
+                      <TableCell>{r.type}</TableCell>
+
+                      {tab === "pending" && (
+                        <>
+                          <TableCell><ScrSendHistory status={r.status} /></TableCell>
+                          <TableCell>{formatDate(r.requested_at)}</TableCell>
+                          <TableCell
+                            className={cn(waiting > 3 && "text-destructive")}
+                          >
+                            {waiting} {waiting === 1 ? "dia" : "dias"}
+                          </TableCell>
+                          <TableCell>
+                            {r.lastNotificationStatus && (
+                              <NotificationStatusBadge status={r.lastNotificationStatus} />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <ScrRowActions id={r.id} />
+                          </TableCell>
+                        </>
+                      )}
+
+                      {tab === "granted" && (
+                        <>
+                          <TableCell><ScrSendHistory status={r.status} /></TableCell>
+                          <TableCell>{formatDate(r.authorized_at)}</TableCell>
+                          <TableCell>{formatDate(r.expires_at)}</TableCell>
+                        </>
+                      )}
+
+                      {tab === "history" && (
+                        <>
+                          <TableCell>
+                            <ScrSendHistory status={r.status} />
+                          </TableCell>
+                          <TableCell>{formatDate(r.requested_at)}</TableCell>
+                          <TableCell>{formatDate(r.last_checked_at)}</TableCell>
+                        </>
+                      )}
+                    </ScrHistoryRow>
+                  );
+                })}
+                {rows.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="text-center text-muted-foreground"
+                    >
+                      Nenhum registro.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>
