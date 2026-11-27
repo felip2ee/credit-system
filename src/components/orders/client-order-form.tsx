@@ -261,7 +261,8 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 						{current.after}
 					</p>
 				</section>
-				<div className={`sticky bottom-[calc(4.5rem+1px+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background px-screen py-3 md:bottom-0 ${BLEED}`}>
+				{/* 3.5rem = altura da barra inferior em bottom-nav.tsx (min-h-14); os dois valores mudam juntos. */}
+					<div className={`sticky bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background px-screen py-3 md:bottom-0 ${BLEED}`}>
 					{!isLast ? (
 						<Button key="next" type="submit" size="lg" glow className="w-full" onClick={ignoreRepeatedClick}>
 							Continuar

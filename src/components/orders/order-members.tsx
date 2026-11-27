@@ -18,8 +18,8 @@ const ROLE_LABEL: Record<OrderMemberRole, string> = {
 export function OrderMembers({ members, mode }: { members: OrderMember[]; mode: OrderMode }) {
 	if (members.length === 0) return null;
 	return (
-		<section aria-labelledby="order-members-title" className="space-y-3">
-			<h2 id="order-members-title" className="text-xl font-bold">
+		<section aria-labelledby="order-members-title" className="space-y-2">
+			<h2 id="order-members-title" className="text-lg font-bold">
 				Autorizações
 			</h2>
 			<Card>
