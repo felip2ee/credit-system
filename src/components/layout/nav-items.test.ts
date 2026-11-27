@@ -37,7 +37,7 @@ describe("SUPERADMIN_NAV_ITEMS", () => {
 
   it("agrupa em Operação, Catálogo e Configurações, com a comissão dos bureaus", () => {
     expect(groupNavItems(SUPERADMIN_NAV_ITEMS).map((g) => [g.title, g.items.map((i) => i.label)])).toEqual([
-      ["Operação", ["Bureaus", "Saques", "Repasses", "NFS-e", "Notificações"]],
+      ["Operação", ["Bureaus", "Saques", "Repasses", "Split da entrada", "NFS-e", "Notificações"]],
       ["Catálogo", ["Produtos"]],
       ["Configurações", ["Todas as configurações", "Comissão dos Bureaus", "Prazo dos repasses", "Afiliados", "Termo SCR", "Prompts da IA"]],
     ]);
