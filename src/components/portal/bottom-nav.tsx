@@ -15,28 +15,29 @@ function isActive(pathname: string, href: string): boolean {
 }
 
 // A altura min-h-14 (56 px) também vale em client-order-form.tsx (rodapé fixo do assistente); os dois valores mudam juntos.
+// O rótulo cresce com a fonte só até caber numa linha (4,4vw): barra mais alta cobriria o rodapé preso das etapas.
 // Celular: barra fixa embaixo. Item ativo = círculo verde com ícone branco; o rótulo fica sempre visível.
 export function BottomNav({ items }: { items: PortalNavItem[] }) {
 	const pathname = usePathname() ?? "";
 	return (
-		<nav aria-label="Principal" className="fixed inset-x-0 bottom-0 z-40 rounded-t-hero border-t border-border bg-background pb-[env(safe-area-inset-bottom)] shadow-lg md:hidden">
+		<nav data-bottom-nav aria-label="Principal" className="fixed inset-x-0 bottom-0 z-40 rounded-t-hero border-t border-border bg-background pb-[env(safe-area-inset-bottom)] shadow-lg md:hidden">
 			<ul className="mx-auto flex max-w-3xl">
 				{items.map(({ href, label, icon }) => {
 					const Icon = ICONS[icon];
 					const active = isActive(pathname, href);
 					return (
-						<li key={href} className="flex-1">
+						<li key={href} className="min-w-0 flex-1">
 							<Link
 								href={href}
 								aria-current={active ? "page" : undefined}
 								className={cn(
-									"flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+									"flex min-h-14 flex-col items-center justify-center gap-0.5 px-0.5 py-1 text-center text-[length:min(0.75rem,4.4vw)] leading-tight [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
 									active ? "font-bold text-primary" : "text-muted-foreground",
 								)}
 							>
 								<span
 									className={cn(
-										"flex h-7 w-12 items-center justify-center rounded-full duration-fast ease-out motion-safe:transition-colors",
+										"flex h-7 w-12 max-w-full items-center justify-center rounded-full duration-fast ease-out motion-safe:transition-colors",
 										active && "bg-primary text-primary-foreground",
 									)}
 								>

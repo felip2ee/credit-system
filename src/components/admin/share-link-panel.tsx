@@ -21,7 +21,7 @@ export function ShareLinkPanel({ url, bureauName, productName }: { url: string; 
           </a>
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Vale por 7 dias. Gerar outro link cancela este.</p>
+      <p className="text-sm text-muted-foreground">Vale por 7 dias. Gerar outro link cancela este.</p>
     </div>
   );
 }

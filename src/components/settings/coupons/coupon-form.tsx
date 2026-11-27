@@ -74,10 +74,18 @@ export function CouponForm({ coupon, onDone }: CouponFormProps) {
         save();
       }}
     >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">Salvar vale para os próximos pedidos dos seus clientes.</p>
+        <Button type="button" variant="outline" className="min-h-11 shrink-0" onClick={onDone} disabled={isPending}>
+          Cancelar
+        </Button>
+      </div>
+
       <Field id="coupon-code" label="Código" helper="De 6 a 32 letras, números, _ ou -." error={errors.code}>
         {(a11y) => (
           <Input
             {...a11y}
+            autoFocus
             value={draft.code}
             onChange={(e) => set("code", e.target.value)}
             disabled={isPending}
@@ -229,10 +237,7 @@ export function CouponForm({ coupon, onDone }: CouponFormProps) {
         </p>
       )}
 
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" className="min-h-11" onClick={onDone} disabled={isPending}>
-          Cancelar
-        </Button>
+      <div className="flex flex-wrap justify-end gap-2">
         <Button type="submit" className="min-h-11" disabled={isPending}>
           {isPending ? "Salvando..." : "Salvar"}
         </Button>

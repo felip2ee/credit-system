@@ -23,6 +23,8 @@ export const markdownComponents: Components = {
   strong: ({ children }) => (
     <strong className="font-semibold text-foreground">{children}</strong>
   ),
+  // Endereço longo (e-mail, URL) quebra a linha em vez de abrir rolagem horizontal com fonte ampliada.
+  a: ({ node: _node, ...props }) => <a {...props} className="break-words" />,
   table: ({ children }) => (
     <div className="my-3 overflow-x-auto">
       <table className="w-full border-collapse text-base">{children}</table>

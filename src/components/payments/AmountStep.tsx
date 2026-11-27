@@ -37,9 +37,9 @@ export function AmountStep({ priceRows, amount, onAmountChange, onPick, error, d
                     type="button"
                     disabled={disabled || !ok}
                     onClick={() => onPick(fromCents(row.cents).replace(".", ","))}
-                    className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-background disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex min-h-11 w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-background disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <span className="min-w-0 flex-1">
+                    <span className="min-w-0 flex-[1_1_6rem]">
                       <span className="block font-bold">{row.label}</span>
                       <span className="block text-muted-foreground">
                         {ok ? formatCurrency(row.cents / 100) : "Fora do limite de recarga (R$ 10,00 a R$ 5.000,00)"}

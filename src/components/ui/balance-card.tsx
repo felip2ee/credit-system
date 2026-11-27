@@ -24,6 +24,7 @@ interface BalanceCardProps {
   className?: string;
 }
 
+// O valor cresce com a fonte só até caber numa linha (10vw): quebrar no meio do número atrapalha a leitura do saldo.
 // Cartão de saldo: fundo amarelo forte (#FFC400), texto verde escuro em negrito (10:1). tone="dark": verde #0B3A2E, texto branco.
 export function BalanceCard({ label = "Saldo", value, hideable = false, hint, action, storageKey, tone = "brand", className }: BalanceCardProps) {
   const dark = tone === "dark";
@@ -51,10 +52,10 @@ export function BalanceCard({ label = "Saldo", value, hideable = false, hint, ac
 
   return (
     <Card variant={dark ? "dark" : "hero"} className={cn("space-y-4 p-5", dark && "space-y-3 p-5", className)}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-[6rem] flex-1">
           <p className={cn("text-base font-bold", dark && "text-[13px] text-primary")}>{label}</p>
-          <p className={cn("mt-1 break-words text-4xl font-bold tabular-nums leading-tight", dark && "font-heading text-[2rem]")}>
+          <p className={cn("mt-1 break-words text-[length:min(2.25rem,10vw)] font-bold tabular-nums leading-tight", dark && "font-heading text-[length:min(2rem,10vw)]")}>
             <span aria-hidden={hidden || undefined}>{displayBalance(value, hidden)}</span>
             {hidden && <span className="sr-only">{label} oculto</span>}
           </p>
@@ -64,7 +65,7 @@ export function BalanceCard({ label = "Saldo", value, hideable = false, hint, ac
             type="button"
             onClick={toggle}
             aria-label={hidden ? `Mostrar ${label.toLowerCase()}` : `Ocultar ${label.toLowerCase()}`}
-            className={cn("-m-1 flex size-12 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2", dark ? "size-10 hover:bg-white/15 focus-visible:ring-primary" : "hover:bg-primary-foreground/15 focus-visible:ring-primary-foreground")}
+            className={cn("-m-1 ml-auto flex size-12 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2", dark ? "size-10 hover:bg-white/15 focus-visible:ring-primary" : "hover:bg-primary-foreground/15 focus-visible:ring-primary-foreground")}
           >
             {/* O ícone mostra a ação, como no chip do cabeçalho: olho = mostrar, olho riscado = ocultar. */}
             {hidden ? <Eye aria-hidden className="size-6" /> : <EyeOff aria-hidden className="size-6" />}

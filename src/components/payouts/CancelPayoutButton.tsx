@@ -54,6 +54,7 @@ export function CancelPayoutButton({
         title="Cancelar repasse?"
         role="alertdialog"
         dismissible={!isPending}
+        className="max-h-[92vh] overflow-y-auto"
       >
         <p className="text-sm">
           Repasse: {summary}. Os lançamentos voltam a ficar disponíveis para um
@@ -62,7 +63,7 @@ export function CancelPayoutButton({
         {error && (
           <StatusBanner tone="danger" title={error} />
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button
             size="sm"
             variant="outline"

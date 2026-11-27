@@ -237,6 +237,36 @@
   }
 }
 
+/* Foco por teclado nunca fica sob uma barra fixa: a rolagem até o controle desconta a altura dela (em rem, acompanha o
+   tamanho da fonte). A ordem importa: a regra de baixo vence. */
+html:has([data-portal-header]) {
+  scroll-padding-top: 7rem;
+}
+html:has([data-screen-header]) {
+  scroll-padding-top: 8rem;
+}
+/* Duas barras no topo se sobrepunham: com o cabeçalho de tela, o do portal rola junto com a página. */
+html:has([data-screen-header]) [data-portal-header] {
+  position: static;
+}
+@media (max-width: 767px) {
+  /* Painéis: barra superior (3,5rem) mais o cabeçalho de tela logo abaixo. */
+  html:has(.theme-admin [data-screen-header]) {
+    scroll-padding-top: 11.5rem;
+  }
+  html:has([data-bottom-nav]) {
+    scroll-padding-bottom: 5.5rem;
+  }
+}
+html:has([data-sticky-footer]) {
+  scroll-padding-bottom: 5.5rem;
+}
+@media (max-width: 767px) {
+  html:has([data-sticky-footer]) {
+    scroll-padding-bottom: 9.5rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,

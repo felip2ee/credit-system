@@ -4,20 +4,23 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { revokeOrderAction } from "@/actions/orders";
+import { revokeEffectText } from "@/components/dossiers/order-now";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { OrderMode } from "@/lib/orders/types";
 
 interface RevokeOrderDialogProps {
   dossierId: string;
+  mode: OrderMode;
   open: boolean;
   onClose: () => void;
 }
 
 const MAX_REASON = 500;
 
-export function RevokeOrderDialog({ dossierId, open, onClose }: RevokeOrderDialogProps) {
+export function RevokeOrderDialog({ dossierId, mode, open, onClose }: RevokeOrderDialogProps) {
   const router = useRouter();
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -45,9 +48,7 @@ export function RevokeOrderDialog({ dossierId, open, onClose }: RevokeOrderDialo
   return (
     <Dialog open={open} onClose={onClose} title="Revogar entrega" role="alertdialog" dismissible={!isPending}>
       <form onSubmit={submit} noValidate className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          O cliente perde o acesso à pesquisa. O pedido volta para &quot;Pronto, aguardando liberação do Bureau&quot; e o cliente não é avisado.
-        </p>
+        <p className="text-sm text-muted-foreground">{revokeEffectText(mode)}</p>
         <div className="space-y-2">
           <Label htmlFor="revoke-reason">Motivo da revogação</Label>
           <Input
@@ -66,7 +67,7 @@ export function RevokeOrderDialog({ dossierId, open, onClose }: RevokeOrderDialo
             {error}
           </p>
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
             Voltar
           </Button>

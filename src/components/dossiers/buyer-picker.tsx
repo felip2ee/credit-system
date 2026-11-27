@@ -61,6 +61,10 @@ export function BuyerPicker({ value, onChange, disabled }: BuyerPickerProps) {
             placeholder="Buscar titular com conta no portal..."
             value={term}
             onChange={(e) => setTerm(e.target.value)}
+            // Enter na busca não envia o formulário do assistente: a busca já roda sozinha ao digitar.
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
             disabled={disabled}
             aria-describedby="buyer-hint"
           />
@@ -81,7 +85,7 @@ export function BuyerPicker({ value, onChange, disabled }: BuyerPickerProps) {
                       onChange({ profileId: h.clientProfileId, name: h.name, document: h.document });
                       setTerm("");
                     }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
+                    className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className="font-medium">{h.name}</span>
                     <span className="text-muted-foreground">

@@ -1,13 +1,13 @@
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
-import { CLIENT_STATE, dbQuery, E2E, openNewOrderAtStep, openOrder, resetRateLimit, runTick, STAFF_STATE, SUPERADMIN_STATE, TICK_POLL_TIMEOUT_MS } from "./fixtures";
+import { ADMIN_STATE, CLIENT_STATE, dbQuery, E2E, openNewOrderAtStep, openOrder, resetRateLimit, runTick, STAFF_STATE, SUPERADMIN_STATE, TICK_POLL_TIMEOUT_MS } from "./fixtures";
 
 // The 10 critical client screens and the first screen of each panel (spec "Telas críticas do cliente").
 // Shared by a11y.spec.ts and mobile.spec.ts.
 export type Ids = { dossierId: string; scrToken: string };
 export type Screen = {
   name: string;
-  auth: "none" | "client" | "staff" | "superadmin";
+  auth: "none" | "client" | "staff" | "admin" | "superadmin";
   open: (page: Page, ids: Ids) => Promise<void>;
 };
 
@@ -48,7 +48,7 @@ export const SCREENS: Screen[] = [
   { name: "painel do superadmin", auth: "superadmin", open: goto(() => "/superadmin") },
 ];
 
-const STATE = { none: undefined, client: CLIENT_STATE, staff: STAFF_STATE, superadmin: SUPERADMIN_STATE } as const;
+const STATE = { none: undefined, client: CLIENT_STATE, staff: STAFF_STATE, admin: ADMIN_STATE, superadmin: SUPERADMIN_STATE } as const;
 
 export async function newPage(browser: Browser, auth: Screen["auth"], options: Parameters<Browser["newContext"]>[0] = {}) {
   const context: BrowserContext = await browser.newContext({ ...options, storageState: STATE[auth] });

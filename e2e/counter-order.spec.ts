@@ -12,19 +12,28 @@ test("staff opens a counter Dossiê Empresarial with 2 partners, registers the p
   test.setTimeout(TICK_POLL_TIMEOUT_MS * 2);
   const stamp = Date.now();
   await page.goto("/dossiers/new");
-  // Select do Radix: abre pelo rótulo e escolhe a opção pelo nome do produto.
-  await page.getByLabel("Produto").click();
-  await page.getByRole("option", { name: /Dossiê Empresarial/ }).click();
+  const next = async (title: string) => {
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await expect(page.getByRole("heading", { level: 2, name: title })).toBeVisible();
+  };
+  // Grupo de radio "Produto": escolhe o produto pelo nome.
+  await expect(page.getByRole("heading", { level: 2, name: "Produto e comprador" })).toBeVisible();
+  await page.getByRole("radiogroup", { name: "Produto" }).getByRole("radio", { name: /Dossiê Empresarial/ }).click();
+  await next("Titular");
   await page.getByLabel("CNPJ").fill(validCnpj());
   await page.getByLabel("Razão social").fill("e2e Empresa Balcão");
   await page.getByLabel("E-mail do titular").fill(`e2e-holder-${stamp}@example.test`);
+  await next("Sócios");
   for (let i = 0; i < PARTNER_COUNT; i++) {
     await page.getByRole("button", { name: "Adicionar sócio" }).click();
     await page.locator(`#partner-doc-${i}`).fill(validCpf());
     await page.locator(`#partner-name-${i}`).fill(`e2e Sócio ${i + 1}`);
     await page.locator(`#partner-email-${i}`).fill(`e2e-partner-${stamp}-${i}@example.test`);
   }
+  await next("Revisar e abrir pedido");
   await expect(page.getByText("Total:")).toContainText(TOTAL.replace(".", ","));
+  // O botão só habilita depois do tempo de guarda contra duplo clique.
+  await expect(page.getByRole("button", { name: "Abrir pedido" })).toBeEnabled();
   await page.getByRole("button", { name: "Abrir pedido" }).click();
   await expect(page).toHaveURL(/\/dossiers\/[0-9a-f-]{36}$/);
   const dossierId = page.url().split("/").pop() as string;

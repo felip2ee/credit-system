@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { saveScrTermSettings, type ScrTermSettings } from "@/actions/settings";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -16,6 +16,10 @@ import {
 } from "@/components/ui/card";
 import { StatusBanner } from "@/components/ui/status-banner";
 
+// Mesma frase de saveScrTermSettings (src/actions/settings.ts): só ela vai para o campo; outro erro vai para o banner.
+const REQUIRED_ERROR = "Preencha nome, instituição e cidade do termo.";
+const REQUIRED_FIELDS = ["authorizedName", "institutionName", "city"] as const;
+
 export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
   const router = useRouter();
   const [values, setValues] = useState<ScrTermSettings>(initial);
@@ -23,8 +27,10 @@ export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const set = (k: keyof ScrTermSettings) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const set = (k: keyof ScrTermSettings) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError(null);
     setValues((v) => ({ ...v, [k]: e.target.value }));
+  };
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,53 +46,49 @@ export function ScrTermForm({ initial }: { initial: ScrTermSettings }) {
     });
   };
 
+  const emptyField = error === REQUIRED_ERROR ? REQUIRED_FIELDS.find((k) => values[k].trim() === "") : undefined;
+  const fieldError = (k: keyof ScrTermSettings) => (emptyField === k ? error : null);
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Termo de consentimento SCR</CardTitle>
+        <CardTitle>Termo de consentimento SCR</CardTitle>
         <CardDescription>
           Estes valores entram no termo enviado ao titular na autogestão de SCR e valem para todos os Bureaus.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={onSubmit} className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="authorizedName">Autorizado a consultar</Label>
-            <Input
-              id="authorizedName"
-              value={values.authorizedName}
-              onChange={set("authorizedName")}
-            />
-            <p className="text-sm text-muted-foreground">
-              Quem o titular autoriza a consultar o SCR (ex.: o escritório/consultor).
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="authorizedDocument">CNPJ de quem opera</Label>
-            <Input
-              id="authorizedDocument"
-              value={values.authorizedDocument}
-              onChange={set("authorizedDocument")}
-              placeholder="00.000.000/0000-00"
-            />
-            <p className="text-sm text-muted-foreground">
-              Opcional — quando preenchido, entra no termo junto ao nome.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="institutionName">Instituição</Label>
-            <Input
-              id="institutionName"
-              value={values.institutionName}
-              onChange={set("institutionName")}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="city">Cidade / UF</Label>
-            <Input id="city" value={values.city} onChange={set("city")} />
-          </div>
+        <form onSubmit={onSubmit} className="space-y-4" noValidate>
+          <Field
+            id="authorizedName"
+            label="Autorizado a consultar"
+            helper="Quem o titular autoriza a consultar o SCR (ex.: o escritório/consultor). Obrigatório."
+            error={fieldError("authorizedName")}
+          >
+            {(a11y) => <Input {...a11y} value={values.authorizedName} onChange={set("authorizedName")} />}
+          </Field>
+          <Field
+            id="authorizedDocument"
+            label="CNPJ de quem opera"
+            helper="Se ficar vazio, o termo usa o CNPJ padrão da plataforma."
+          >
+            {(a11y) => (
+              <Input
+                {...a11y}
+                value={values.authorizedDocument}
+                onChange={set("authorizedDocument")}
+                placeholder="00.000.000/0000-00"
+              />
+            )}
+          </Field>
+          <Field id="institutionName" label="Instituição" helper="Obrigatório." error={fieldError("institutionName")}>
+            {(a11y) => <Input {...a11y} value={values.institutionName} onChange={set("institutionName")} />}
+          </Field>
+          <Field id="city" label="Cidade / UF" helper="Obrigatório." error={fieldError("city")}>
+            {(a11y) => <Input {...a11y} value={values.city} onChange={set("city")} />}
+          </Field>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && !emptyField && <StatusBanner tone="danger" title={error} />}
           {msg && <StatusBanner tone="success" title={msg} />}
 
           <Button type="submit" disabled={isPending}>

@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 
 import { NewConsultationFlow } from "@/components/admin/new-consultation-flow";
-import { PageHeader } from "@/components/layout/page-header";
 import { getRequiredSession } from "@/lib/auth/session";
 import { getBureau } from "@/lib/bureaus/queries";
 import { listCatalog } from "@/lib/catalog/queries";
@@ -15,10 +14,6 @@ export default async function AdminNewConsultationPage() {
   // O catálogo já só traz o que está à venda; o preço vem da plataforma, nunca do operador.
   const products = onSale.flatMap((e) => (e.salePrice === null ? [] : [{ code: e.code, name: e.name, price: e.salePrice }]));
 
-  return (
-    <div className="space-y-5">
-      <PageHeader title="Nova consulta" description="Escolha o cliente e o produto, depois envie o link de pagamento" />
-      <NewConsultationFlow bureauName={bureau?.name ?? "Bureau"} products={products} />
-    </div>
-  );
+  // O título e a saída ficam no cabeçalho do assistente (ScreenHeader): sem PageHeader, para não duplicar o h1.
+  return <NewConsultationFlow bureauName={bureau?.name ?? "Bureau"} products={products} />;
 }

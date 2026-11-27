@@ -2,19 +2,19 @@ import Link from "next/link";
 import { HandCoins, Search, TrendingUp, Users, Wallet } from "lucide-react";
 import { redirect } from "next/navigation";
 
+import { HideableStat } from "@/components/dashboard/hideable-stat";
 import { Stat } from "@/components/dashboard/stat";
 import { PageHeader } from "@/components/layout/page-header";
 import { LineChart } from "@/components/reports/line-chart";
 import { HUE } from "@/components/reports/palette";
 import { PieChart } from "@/components/reports/pie-chart";
 import { Button } from "@/components/ui/button";
-import { BalanceCard } from "@/components/ui/balance-card";
 import { SectionHeader } from "@/components/ui/section-header";
 import { SegmentedNav } from "@/components/ui/segmented-nav";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { getRequiredSession } from "@/lib/auth/session";
-import { cn, formatCurrency } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { canViewRevenue } from "@/lib/dashboard/access";
@@ -128,43 +128,38 @@ export default async function DashboardPage({
   }
 
   const orders = revenue?.total.orders ?? 0;
-  const indicatorCount = 2 + (revenue ? 1 : 0) + (balances ? 1 : 0);
   return (
     <div className="space-y-5">
-      <PageHeader title="Dashboard" description={showRevenue ? "Vendas, faturamento e repasse do seu Bureau" : "Consultas e carteira do seu Bureau"}>
+      <PageHeader title="Início" description={showRevenue ? "Vendas, faturamento e repasse do seu Bureau" : "Consultas e carteira do seu Bureau"}>
         {hasPermission(session, "consultations:write") && (
           <Button asChild variant="cta">
-            <Link href="/dossiers/new">Novo pedido PF/PJ</Link>
+            <Link href="/dossiers/new">Novo pedido de balcão</Link>
           </Button>
         )}
       </PageHeader>
 
-      {revenue && (
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <BalanceCard
-          tone="dark"
-          className={payable !== null ? "lg:col-span-2" : "lg:col-span-3"}
-          label="Faturamento total"
-          value={formatCurrency(revenue.total.amount)}
-          hideable
-          hint={`${orders} ${orders === 1 ? "pedido concluído" : "pedidos concluídos"} desde o início`}
-        />
-        {payable !== null && (
-          <Link href="/settings/wallet?aba=receber" className="rounded-[18px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <Card className="flex h-full flex-col justify-between gap-3 p-4 transition-shadow hover:shadow-md">
-              <div className="flex items-center gap-3">
-                <span aria-hidden className="flex size-9 items-center justify-center rounded-[10px] bg-brand-soft text-brand-soft-foreground">
-                  <HandCoins className="size-[18px]" />
-                </span>
-                <p className="text-[13px] text-muted-foreground">A receber</p>
-              </div>
-              <p className="text-2xl font-bold tabular-nums">{formatCurrency(Number(payable))}</p>
-              <p className="text-xs text-muted-foreground">Repasse pendente da Rainha Cred</p>
-            </Card>
-          </Link>
-        )}
-      </div>
-      )}
+      <section className="space-y-3">
+        <SectionHeader title="Números principais" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {revenue && (
+            <HideableStat
+              label="Faturamento total"
+              value={formatCurrency(revenue.total.amount)}
+              hint={`${orders} ${orders === 1 ? "pedido concluído" : "pedidos concluídos"} desde o início`}
+              icon={<TrendingUp className="size-[18px]" />}
+            />
+          )}
+          {payable !== null && (
+            <Stat label="A receber" value={formatCurrency(Number(payable))} hint="Repasse pendente da Rainha Cred" icon={HandCoins} href="/settings/wallet?aba=receber" />
+          )}
+          <Stat label="Consultas hoje" value={String(counts.today)} hint="Criadas hoje" icon={Search} href="/dossiers" />
+          <Stat label="Consultas no mês" value={String(counts.month)} hint="Mês corrente" icon={Search} href="/dossiers" />
+          {balances && (
+            <Stat label="Saldo da carteira" value={formatCurrency(Number(balances.wallet?.available ?? 0))} hint="Créditos pré-pagos" icon={Wallet} href="/settings/wallet" />
+          )}
+          {revenue && <Stat label="Clientes" value={String(revenue.clients)} hint="Cadastrados no portal" icon={Users} />}
+        </div>
+      </section>
 
       {revenue && (
       <section className="space-y-3">
@@ -187,18 +182,6 @@ export default async function DashboardPage({
         </div>
       </section>
       )}
-
-      <section className="space-y-3">
-        <SectionHeader title="Indicadores" />
-        <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2", indicatorCount === 4 ? "lg:grid-cols-4" : indicatorCount === 3 ? "lg:grid-cols-3" : "")}>
-          {revenue && <Stat label="Clientes" value={String(revenue.clients)} hint="Cadastrados no portal" icon={Users} />}
-          <Stat label="Consultas hoje" value={String(counts.today)} hint="Criadas hoje" icon={Search} href="/dossiers" />
-          <Stat label="Consultas no mês" value={String(counts.month)} hint="Mês corrente" icon={Search} href="/dossiers" />
-          {balances && (
-            <Stat label="Saldo da carteira" value={formatCurrency(Number(balances.wallet?.available ?? 0))} hint="Créditos pré-pagos" icon={Wallet} href="/settings/wallet" />
-          )}
-        </div>
-      </section>
 
       <Card>
         <CardHeader>

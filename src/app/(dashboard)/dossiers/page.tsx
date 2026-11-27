@@ -87,22 +87,22 @@ export default async function DossiersPage({
       <Card>
         <CardContent className="p-0">
           {dossiers.length === 0 ? (
-            <p className="p-6 text-center text-base text-muted-foreground">Nenhuma pesquisa encontrada.</p>
+            <p className="p-4 text-center text-base text-muted-foreground">Nenhuma pesquisa encontrada.</p>
           ) : (
             <ul className="divide-y">
               {dossiers.map((d) => (
                 <li key={d.id}>
                   <details className="group">
                     <summary className="flex cursor-pointer list-none flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 hover:bg-accent sm:items-center">
-                      <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90 sm:mt-0" />
+                      <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground motion-safe:transition-transform group-open:rotate-90 sm:mt-0" />
                       <div className="min-w-0 flex-1 basis-[calc(100%-1.75rem)] sm:basis-0">
-                        <p className="truncate text-base font-bold">{d.holder_name}</p>
+                        <p className="text-base font-bold [overflow-wrap:anywhere]">{d.holder_name}</p>
                         <p className="text-sm text-muted-foreground">
                           {DOSSIER_KIND_LABEL[d.kind]} · {d.members.length}{" "}
                           {d.members.length === 1 ? "consulta" : "consultas"} · {formatDate(d.created_at)}
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0">
+                      <div className="flex max-w-full flex-wrap items-center gap-2 pl-7 sm:pl-0">
                         {d.kind === "PJ_FULL" && d.report_status === "completed" && (
                           <AptitudeBadge status={d.aptitude_status} />
                         )}
@@ -120,7 +120,7 @@ export default async function DossiersPage({
                             <Link href={`/consultations/${m.id}`} className="min-w-0 flex-1 truncate hover:underline">
                               {m.document_name ?? "—"}
                             </Link>
-                            <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+                            <span className="break-all font-mono sm:whitespace-nowrap text-sm text-muted-foreground">
                               {maskDocument(m.type, m.document)}
                             </span>
                             <span className="justify-self-start">
@@ -129,7 +129,7 @@ export default async function DossiersPage({
                           </li>
                         ))}
                       </ul>
-                      <Link href={`/dossiers/${d.id}`} className="inline-block text-sm underline">
+                      <Link href={`/dossiers/${d.id}`} className="inline-flex min-h-11 items-center text-sm underline">
                         Abrir pesquisa
                       </Link>
                     </div>

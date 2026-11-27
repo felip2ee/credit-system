@@ -25,8 +25,8 @@ export function PartnersStep({ form, pricePerPartner }: PartnersStepProps) {
 	return (
 		<div className="space-y-4">
 			<p className="text-base text-muted-foreground">
-				Esta etapa é opcional. Cada sócio custa {formatCurrency(pricePerPartner)} e autoriza a consulta pelo próprio e-mail. Sócio sem CPF completo ainda não
-				entra no valor.
+				Esta etapa é opcional. Cada sócio custa {formatCurrency(pricePerPartner)} e autoriza a própria consulta. Preencha nome, CPF e e-mail de cada sócio, ou
+				remova a linha.
 			</p>
 			{fields.map((field, i) => (
 				<div key={field.id} className="space-y-3 rounded-card border border-border bg-muted p-3">

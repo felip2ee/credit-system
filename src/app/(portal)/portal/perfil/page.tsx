@@ -29,13 +29,13 @@ export default async function ClientProfilePage() {
           <CardTitle>Dados da conta</CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
             <dt className="text-muted-foreground">Nome</dt>
-            <dd>{session.name}</dd>
+            <dd className="break-words">{session.name}</dd>
             <dt className="text-muted-foreground">E-mail</dt>
             <dd className="break-all">{session.email}</dd>
             <dt className="text-muted-foreground">Documento</dt>
-            <dd>{status.documentMasked ?? "Não informado"}</dd>
+            <dd className="break-all">{status.documentMasked ?? "Não informado"}</dd>
           </dl>
         </CardContent>
       </Card>

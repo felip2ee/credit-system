@@ -26,10 +26,17 @@ async function registerThroughLink(page: Page, link: string, email: string) {
   await resetRateLimit();
   await page.goto(`${url.pathname}${url.search}`);
   await page.waitForLoadState("networkidle");
+  // Each step change moves focus to the step title (h2).
+  const next = async (title: string) => {
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await expect(page.getByRole("heading", { level: 2, name: title })).toBeFocused();
+  };
   await page.getByLabel("Nome completo").fill("e2e Indicado");
   await page.getByLabel("CPF").fill(validCpf());
+  await next("Contato");
   await page.getByLabel("E-mail").fill(email);
   await page.getByLabel("Celular (com DDD)").fill(`11 9${Math.floor(10_000_000 + Math.random() * 89_999_999)}`);
+  await next("Senha e termos");
   await page.getByLabel("Senha", { exact: true }).fill("e2e-referred-password-123");
   await page.getByLabel("Confirmar senha").fill("e2e-referred-password-123");
   await page.getByLabel(/Li e aceito os/).check();
@@ -107,6 +114,7 @@ test("referred client buys, commission waits the hold, then converts to credits 
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Valor a converter (R$)").fill(CONVERTED.toFixed(2));
   await page.getByRole("button", { name: "Usar como crédito" }).click();
+  await page.getByRole("alertdialog", { name: "Converter em créditos" }).getByRole("button", { name: "Converter", exact: true }).click();
   await expect(page.getByText("Valor convertido em créditos.")).toBeVisible();
   expect(await creditsOf(affiliate.userId)).toBeCloseTo(creditsBefore + CONVERTED, 2);
 
@@ -123,7 +131,13 @@ test("referred client buys, commission waits the hold, then converts to credits 
   // The confirm button stays disabled until the double-click guard has passed.
   const confirm = page.getByRole("button", { name: "Solicitar saque" });
   await expect(confirm).toBeEnabled();
+  // Enter in the PIX key field must not request the withdrawal: only the click below does.
+  await page.getByLabel("Chave PIX", { exact: true }).press("Enter");
+  await expect(confirm).toBeEnabled();
   await confirm.click();
+  await expect(page.getByText("Saque solicitado.")).toBeVisible();
+  // O refresh traz o saldo novo; a confirmação continua na tela (o remonte da página a apagava).
+  await expect(page.getByText(/Disponível para saque: R\$\s*0,00/)).toBeVisible();
   await expect(page.getByText("Saque solicitado.")).toBeVisible();
   expect(await walletOf(affiliate.userId)).toBe(0);
 

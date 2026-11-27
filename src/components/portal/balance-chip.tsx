@@ -34,7 +34,7 @@ export function BalanceChip({ value }: { value: string }) {
 			<Link
 				href="/portal/credits"
 				aria-label={hidden ? "Saldo oculto, abrir Créditos" : `Abrir Créditos, saldo ${value}`}
-				className="min-w-0 truncate py-2 text-lg font-bold tabular-nums">
+				className="min-w-0 py-2 text-lg font-bold tabular-nums [overflow-wrap:anywhere]">
 				{hidden ? "R$ ••••" : value}
 			</Link>
 			<button

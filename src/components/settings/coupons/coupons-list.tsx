@@ -31,7 +31,7 @@ function validityLabel(coupon: CouponRow): string {
   return coupon.validUntil ? `${from} a ${formatDateSP(coupon.validUntil)}` : `Desde ${from}`;
 }
 
-function CouponRowView({ coupon }: { coupon: CouponRow }) {
+function CouponActions({ coupon }: { coupon: CouponRow }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +45,42 @@ function CouponRowView({ coupon }: { coupon: CouponRow }) {
       else router.refresh();
     });
 
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="min-h-11"
+          aria-label={`Editar cupom ${coupon.code}`}
+          onClick={() => setEditing(true)}
+        >
+          Editar
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="min-h-11"
+          aria-label={`${coupon.active ? "Desativar" : "Ativar"} cupom ${coupon.code}`}
+          onClick={toggle}
+          disabled={isPending}
+        >
+          {coupon.active ? "Desativar" : "Ativar"}
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-1 text-sm font-bold text-destructive">
+          {error}
+        </p>
+      )}
+      <Dialog open={editing} onClose={() => setEditing(false)} title={`Editar cupom ${coupon.code}`}>
+        <CouponForm coupon={coupon} onDone={() => setEditing(false)} />
+      </Dialog>
+    </>
+  );
+}
+
+function CouponRowView({ coupon }: { coupon: CouponRow }) {
   return (
     <TableRow>
       <TableCell className="font-mono font-bold">{coupon.code}</TableCell>
@@ -66,37 +102,42 @@ function CouponRowView({ coupon }: { coupon: CouponRow }) {
         <Badge variant={coupon.active ? "brand" : "muted"}>{coupon.active ? "Ativo" : "Inativo"}</Badge>
       </TableCell>
       <TableCell>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11"
-            aria-label={`Editar cupom ${coupon.code}`}
-            onClick={() => setEditing(true)}
-          >
-            Editar
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11"
-            aria-label={`${coupon.active ? "Desativar" : "Ativar"} cupom ${coupon.code}`}
-            onClick={toggle}
-            disabled={isPending}
-          >
-            {coupon.active ? "Desativar" : "Ativar"}
-          </Button>
-        </div>
-        {error && (
-          <p role="alert" className="mt-1 text-sm font-bold text-destructive">
-            {error}
-          </p>
-        )}
-        <Dialog open={editing} onClose={() => setEditing(false)} title={`Editar cupom ${coupon.code}`}>
-          <CouponForm coupon={coupon} onDone={() => setEditing(false)} />
-        </Dialog>
+        <CouponActions coupon={coupon} />
       </TableCell>
     </TableRow>
+  );
+}
+
+function CouponCardView({ coupon }: { coupon: CouponRow }) {
+  return (
+    <li className="space-y-2 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-mono font-bold">{coupon.code}</p>
+          <p className="text-sm text-muted-foreground">
+            {valueLabel(coupon)} · {coupon.kind === "percent" ? "Percentual" : "Valor fixo"}
+          </p>
+        </div>
+        <Badge variant={coupon.active ? "brand" : "muted"}>{coupon.active ? "Ativo" : "Inativo"}</Badge>
+      </div>
+      <dl className="space-y-1 text-sm">
+        <div>
+          <dt className="inline text-muted-foreground">Produtos: </dt>
+          <dd className="inline">{productsLabel(coupon)}</dd>
+        </div>
+        <div className="tabular-nums">
+          <dt className="inline text-muted-foreground">Usos / limite: </dt>
+          <dd className="inline">
+            {coupon.uses} / {limitLabel(coupon.maxUses)} (por cliente: {limitLabel(coupon.maxUsesPerClient)})
+          </dd>
+        </div>
+        <div>
+          <dt className="inline text-muted-foreground">Validade: </dt>
+          <dd className="inline">{validityLabel(coupon)}</dd>
+        </div>
+      </dl>
+      <CouponActions coupon={coupon} />
+    </li>
   );
 }
 
@@ -112,7 +153,7 @@ export function CouponsList({ coupons }: { coupons: CouponRow[] }) {
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-        <CardTitle className="text-lg">Cupons de desconto</CardTitle>
+        <CardTitle>Cupons de desconto</CardTitle>
         {coupons.length > 0 && createButton}
       </CardHeader>
       <CardContent>
@@ -124,6 +165,13 @@ export function CouponsList({ coupons }: { coupons: CouponRow[] }) {
             action={createButton}
           />
         ) : (
+          <>
+            <ul className="divide-y rounded-card border md:hidden">
+              {coupons.map((coupon) => (
+                <CouponCardView key={coupon.id} coupon={coupon} />
+              ))}
+            </ul>
+            <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -144,6 +192,8 @@ export function CouponsList({ coupons }: { coupons: CouponRow[] }) {
               ))}
             </TableBody>
           </Table>
+            </div>
+          </>
         )}
         <Dialog open={creating} onClose={() => setCreating(false)} title="Novo cupom">
           <CouponForm onDone={() => setCreating(false)} />

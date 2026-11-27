@@ -14,8 +14,9 @@ test.beforeAll(async ({ browser }) => {
   ids = await ensureOrder(browser);
 });
 
+// Sem `isMobile` nos testes de rolagem: no modo celular o viewport de layout cresce junto com o conteúdo e esconde o estouro.
 const overflow = (page: Page) =>
-  page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+  page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
 
 // Visible controls smaller than 44 x 44. Exception: a link inside running text (its parent holds other text).
 function smallTargets(page: Page) {
@@ -48,11 +49,11 @@ function smallTargets(page: Page) {
 
 for (const screen of SCREENS) {
   test(`360x740: ${screen.name}`, async ({ browser }) => {
-    const { context, page } = await newPage(browser, screen.auth, { viewport: PHONE, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const { context, page } = await newPage(browser, screen.auth, { viewport: PHONE, deviceScaleFactor: 2, hasTouch: true });
     try {
       await screen.open(page, ids);
-      const { scrollWidth, innerWidth } = await overflow(page);
-      expect(scrollWidth, "no horizontal scroll").toBeLessThanOrEqual(innerWidth);
+      const { scrollWidth, clientWidth } = await overflow(page);
+      expect(scrollWidth, "no horizontal scroll").toBeLessThanOrEqual(clientWidth);
       expect(await smallTargets(page), `touch targets under ${MIN_TARGET}x${MIN_TARGET}`).toEqual([]);
     } finally {
       await context.close();
@@ -60,12 +61,12 @@ for (const screen of SCREENS) {
   });
 
   test(`360x740 with 200% font: ${screen.name}`, async ({ browser }) => {
-    const { context, page } = await newPage(browser, screen.auth, { viewport: PHONE, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const { context, page } = await newPage(browser, screen.auth, { viewport: PHONE, deviceScaleFactor: 2, hasTouch: true });
     try {
       await screen.open(page, ids);
       await page.addStyleTag({ content: "html{font-size:200%}" });
-      const { scrollWidth, innerWidth } = await overflow(page);
-      expect(scrollWidth, "no horizontal scroll at 200% font").toBeLessThanOrEqual(innerWidth);
+      const { scrollWidth, clientWidth } = await overflow(page);
+      expect(scrollWidth, "no horizontal scroll at 200% font").toBeLessThanOrEqual(clientWidth);
     } finally {
       await context.close();
     }
@@ -86,3 +87,68 @@ test("360x740: Bureau panel shows Menu and the drawer opens", async ({ browser }
     await context.close();
   }
 });
+
+// Sem `isMobile`: no modo celular o viewport de layout cresce junto com o conteúdo e esconde o que sai da tela.
+test("360x740 com fonte 200%: barra inferior, título da etapa e nome do pedido continuam legíveis", async ({ browser }) => {
+  const { context, page } = await newPage(browser, "client", { viewport: PHONE });
+  try {
+    await page.goto("/portal/pesquisas");
+    await page.addStyleTag({ content: "html{font-size:200%}" });
+    for (const link of await page.getByRole("navigation", { name: "Principal" }).getByRole("link").all()) {
+      await expect(link).toBeInViewport({ ratio: 0.99 });
+    }
+    // Nome espremido pelo valor virava uma letra por linha.
+    const name = page.locator('main a[href^="/portal/pesquisas/"] span.font-bold').first();
+    expect((await name.boundingBox())?.width).toBeGreaterThan(120);
+    await page.goto("/portal/pesquisas/nova");
+    await page.addStyleTag({ content: "html{font-size:200%}" });
+    for (const text of [page.getByRole("heading", { level: 1 }), page.getByText("Passo 1 de", { exact: false }).first()]) {
+      expect(await text.evaluate((el) => el.scrollWidth - el.clientWidth), "texto do cabeçalho sem corte").toBeLessThanOrEqual(0);
+    }
+    // A barra inferior não pode crescer por cima do rodapé preso da etapa.
+    const next = await page.getByRole("button", { name: "Continuar" }).boundingBox();
+    const bar = await page.getByRole("navigation", { name: "Principal" }).boundingBox();
+    expect((next?.y ?? 0) + (next?.height ?? 0), "Continuar acima da barra inferior").toBeLessThanOrEqual(bar?.y ?? 0);
+    // O saldo não pode quebrar no meio do número: uma linha de até 2,5rem mede menos de 80 px.
+    await page.goto("/portal/credits");
+    await page.addStyleTag({ content: "html{font-size:200%}" });
+    expect((await page.locator("main p.tabular-nums").first().boundingBox())?.height, "saldo em uma linha").toBeLessThan(80);
+  } finally {
+    await context.close();
+  }
+});
+
+// Controle focado cujo centro está debaixo de uma barra fixa ou presa (sticky).
+const coveredFocus = (page: Page) =>
+  page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return null;
+    const box = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    if (hit && (el.contains(hit) || hit.contains(el))) return null;
+    let bar: Element | null = hit;
+    while (bar && !["fixed", "sticky"].includes(getComputedStyle(bar).position)) bar = bar.parentElement;
+    return bar && !bar.contains(el) ? (el.getAttribute("aria-label") ?? el.textContent ?? el.tagName).trim().slice(0, 40) : null;
+  });
+
+for (const path of ["/portal/pesquisas/nova", "/portal/perfil"]) {
+  test(`320x640: o foco do teclado não fica sob barras fixas em ${path}`, async ({ browser }) => {
+    const { context, page } = await newPage(browser, "client", { viewport: { width: 320, height: 640 } });
+    try {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+      const controls = await page.locator("a[href]:visible, button:visible, input:visible, summary:visible").count();
+      const covered: string[] = [];
+      for (const key of ["Tab", "Shift+Tab"]) {
+        for (let i = 0; i < controls; i++) {
+          await page.keyboard.press(key);
+          const found = await coveredFocus(page);
+          if (found !== null) covered.push(`${key}: ${found}`);
+        }
+      }
+      expect(covered).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+}

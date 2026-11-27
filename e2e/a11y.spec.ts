@@ -21,6 +21,10 @@ for (const screen of SCREENS) {
     const { context, page } = await newPage(browser, screen.auth);
     try {
       await screen.open(page, ids);
+      // axe lê o contraste com a opacidade do momento: espera acabarem os fades de entrada (os infinitos, como o esqueleto, ficam de fora).
+      await page.evaluate(() =>
+        Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished)),
+      );
       const { violations } = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
       const summary = violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.map((n) => n.target.join(" ")) }));
       await testInfo.attach("axe-violations.json", { body: JSON.stringify(summary, null, 2), contentType: "application/json" });

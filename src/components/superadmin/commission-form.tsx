@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { saveBureauCommissionAction } from "@/actions/settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { parsePctInput, pctToInput } from "./price-input";
 
@@ -43,7 +43,7 @@ export function CommissionForm({ initialPct }: { initialPct: number | null }) {
       )}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Comissão do Bureau</CardTitle>
+          <CardTitle>Comissão do Bureau</CardTitle>
           <CardDescription>
             % do preço bruto de cada venda que fica com o Bureau. Vale para todo Bureau sem override. A plataforma fica
             com o resto, menos a comissão do afiliado.
@@ -51,12 +51,14 @@ export function CommissionForm({ initialPct }: { initialPct: number | null }) {
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="space-y-5" noValidate>
-            <div className="space-y-2">
-              <Label htmlFor="commission-pct">Comissão (%)</Label>
-              <Input id="commission-pct" inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value)} disabled={isPending} />
-              <p className="text-sm text-muted-foreground">De 0 a 99,99, com até 2 casas. Vale só para vendas futuras.</p>
-            </div>
-            {error && <StatusBanner tone="danger" title={error} />}
+            <Field
+              id="commission-pct"
+              label="Comissão (%)"
+              helper="De 0 a 99,99, com até 2 casas. Vale só para vendas futuras."
+              error={error}
+            >
+              {(a11y) => <Input {...a11y} inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value)} disabled={isPending} />}
+            </Field>
             {saved && !error && <StatusBanner tone="success" title="Comissão salva." />}
             <Button type="submit" disabled={isPending}>
               {isPending ? "Salvando..." : "Salvar"}

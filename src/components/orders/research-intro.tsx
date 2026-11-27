@@ -17,9 +17,9 @@ export function ResearchIntro() {
 			<Dialog open={open} onClose={() => setOpen(false)} title="O que é uma pesquisa?">
 				<ul className="space-y-2 text-base">
 					<li>Um diagnóstico de crédito de uma pessoa ou empresa: dívidas e histórico no sistema financeiro.</li>
-					<li>Antes, você autoriza a consulta. Ela é só do seu CPF ou dos CNPJs das suas empresas.</li>
+					<li>Antes, cada pessoa pesquisada autoriza a consulta.</li>
 					<li>Depois, você vê o relatório na tela e em PDF. Avisamos por e-mail e WhatsApp.</li>
-					<li>O valor sai do seu saldo só quando a consulta roda.</li>
+					<li>Ao confirmar, o valor fica reservado. Ele só é cobrado quando a consulta roda. Se o pedido não rodar, volta ao seu saldo.</li>
 				</ul>
 				<Button type="button" className="w-full" onClick={() => setOpen(false)}>
 					Entendi

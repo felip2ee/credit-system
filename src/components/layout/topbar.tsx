@@ -15,12 +15,12 @@ interface TopbarProps {
 
 export function Topbar({ email, navItems, permissions }: TopbarProps) {
   return (
-    <header className="flex min-h-14 items-center justify-between gap-2 border-b border-sidebar-border bg-sidebar px-4 md:px-6">
+    <header className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-sidebar-border bg-sidebar px-4 md:px-6">
       <div className="flex items-center gap-3 md:hidden">
         <MobileBrand />
       </div>
       <div className="hidden truncate text-sm text-muted-foreground md:block">{email}</div>
-      <div className="flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-2">
         <div className="md:hidden">
           <MobileNav items={navItems} permissions={permissions} />
         </div>
