@@ -60,7 +60,7 @@ export function Dialog({
         else ref.current?.showModal();
       }}
       className={cn(
-        "m-auto w-full max-w-md rounded-modal border border-border bg-card p-6 text-card-foreground shadow-lg backdrop:bg-background/80",
+        "m-auto w-full max-w-md rounded-modal border border-border bg-card p-6 text-card-foreground shadow-lg backdrop:bg-background/80 motion-safe:animate-dialog-in",
         className,
       )}
     >

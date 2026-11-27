@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 import { Button, type ButtonProps } from "./button";
 
-// Botão circular de 48 px só com ícone. O rótulo acessível é obrigatório.
+// Botão circular de 44 px (40 px de md) só com ícone. O rótulo acessível é obrigatório.
 export interface IconButtonProps extends Omit<ButtonProps, "size" | "children"> {
   "aria-label": string;
   children: React.ReactNode;
