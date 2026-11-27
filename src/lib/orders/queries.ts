@@ -10,6 +10,7 @@ import { previewCoupon } from "@/lib/coupons/queries";
 import { refreshDossierStatus } from "@/lib/dossiers/queries";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { recordHolderEvent } from "@/lib/holders/queries";
+import { bindIdempotencyKey, claimIdempotencyKey } from "@/lib/idempotency/queries";
 import { enqueueNotification } from "@/lib/notifications/queries";
 import { captureOrder, releaseOrder, reserveOrder } from "@/lib/settlement/queries";
 import type { OrderQuote, SettlementFailure } from "@/lib/settlement/types";
@@ -71,12 +72,17 @@ export async function openOrder(client: PoolClient, input: OpenOrderInput): Prom
 	throw new Error("unexpected openOrder reason");
 }
 
-export type PlaceOrderFailure = OpenOrderFailure | SettlementFailure | "declaration_outdated";
+export type PlaceOrderFailure = OpenOrderFailure | SettlementFailure | "declaration_outdated" | "idempotency_conflict";
 export type PlaceOrderOptions = {
 	declaration?: { version: number; ip: string | null; userAgent: string | null };
 	// Só pedido online. O desconto é calculado aqui, na mesma transação da reserva; o banco confere o preço pago.
 	couponCode?: string;
+	// Uuid do envio do formulário (063). Chave repetida devolve o pedido que já existe, sem reservar saldo de novo.
+	idempotencyKey?: string;
 };
+export type PlaceOrderResult =
+	| { ok: true; dossierId: string; state: OrderState; duplicate?: true }
+	| { ok: false; reason: PlaceOrderFailure };
 
 // Carrega o motivo da reserva recusada para fora da transação: lançar desfaz Titular, Dossiê, pedido e autorizações.
 class PlaceOrderAbort extends Error {
@@ -109,7 +115,7 @@ export async function placeOrder(
 	input: OpenOrderInput,
 	quote: OrderQuote,
 	options: PlaceOrderOptions = {},
-): Promise<{ ok: true; dossierId: string; state: OrderState } | { ok: false; reason: PlaceOrderFailure }> {
+): Promise<PlaceOrderResult> {
 	const mode: OrderMode = identity.role === "client" ? "online" : "counter";
 	// Cupom no pedido online: a tentativa é contada antes de avaliar o código (054). No limite ou com erro, recusa sem tocar no pedido.
 	const slot = options.couponCode && mode === "online" ? await beginCouponAttempt(identity) : undefined;
@@ -117,8 +123,26 @@ export async function placeOrder(
 	try {
 		const placed = await withUserTransaction(identity, async (client) => {
 			if (slot) await holdCouponSlot(client, slot);
+			const { idempotencyKey } = options;
+			if (idempotencyKey) {
+				// O corpo comparado é o que o cliente enviou: o preço da cotação vem do servidor e pode mudar entre dois envios.
+				const claim = await claimIdempotencyKey(client, {
+					scope: "order",
+					key: idempotencyKey,
+					payload: { input, couponCode: options.couponCode ?? null, declarationVersion: options.declaration?.version ?? null },
+				});
+				if (claim.status === "duplicate") {
+					if (!claim.sameRequest) throw new PlaceOrderAbort("idempotency_conflict");
+					const existing = await client.query<{ state: OrderState }>("select state from dossier_orders where dossier_id = $1", [
+						claim.recordId,
+					]);
+					if (!existing.rows[0]) throw new Error("idempotent order not found");
+					return { ok: true as const, dossierId: claim.recordId, state: existing.rows[0].state, duplicate: true as const };
+				}
+			}
 			const opened = await openOrder(client, input);
 			if (!opened.ok) throw new PlaceOrderAbort(opened.reason);
+			if (idempotencyKey) await bindIdempotencyKey(client, { scope: "order", key: idempotencyKey, recordId: opened.dossierId });
 			if (options.declaration) {
 				const declared = await recordOrderDeclaration(client, { dossierId: opened.dossierId, ...options.declaration });
 				if (!declared.ok) throw new PlaceOrderAbort(declared.reason === "outdated" ? "declaration_outdated" : "not_found");
@@ -140,8 +164,8 @@ export async function placeOrder(
 		return placed;
 	} catch (error) {
 		if (error instanceof PlaceOrderAbort) {
-			// Só o sucesso e a falta de saldo do Bureau (que não é erro de código) devolvem a vaga; o resto conta.
-			if (slot && error.reason === "coupon_funds_insufficient") await clearCouponAttempt(identity, slot);
+			// Só o sucesso, a falta de saldo do Bureau e o conflito de chave (nenhum é erro de código) devolvem a vaga; o resto conta.
+			if (slot && (error.reason === "coupon_funds_insufficient" || error.reason === "idempotency_conflict")) await clearCouponAttempt(identity, slot);
 			return { ok: false, reason: error.reason };
 		}
 		throw error;

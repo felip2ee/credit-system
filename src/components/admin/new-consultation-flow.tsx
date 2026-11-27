@@ -69,6 +69,8 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shownStep = useRef(0);
   const submitting = useRef(false);
+  // Um uuid por consulta (063): o servidor devolve a consulta já aberta em vez de abrir outra e cobrar de novo.
+  const idempotencyKey = useRef<string | null>(null);
 
   const options = products.filter((p) => p.code === PRODUCT_BY_TYPE[client.type]);
   const product = products.find((p) => p.code === productCode) ?? null;
@@ -128,8 +130,10 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
     if (!confirmReady) return;
     submitting.current = true;
     setError(null);
+    idempotencyKey.current ??= crypto.randomUUID();
     startTransition(async () => {
       const res = await openCounterOrderAction({
+        idempotencyKey: idempotencyKey.current,
         productCode: product.code,
         buyerProfileId: null,
         subject: { name: client.name, document: client.document },
@@ -149,6 +153,7 @@ export function NewConsultationFlow({ bureauName, products }: { bureauName: stri
 
   const restart = () => {
     submitting.current = false;
+    idempotencyKey.current = null;
     setClient(EMPTY_CLIENT);
     setPicked(false);
     setProductCode(null);

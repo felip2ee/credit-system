@@ -4,11 +4,11 @@ Source of truth for the Postgres 18 schema. Security-sensitive: roles, grants an
 
 ## Responsibility
 
-Holds `NNN_snake_case.sql` files (001–005, 008–035, 038–062 today): roles, Better Auth tables, business tables, RLS, indexes, public SCR authorization, and the grant boundary for cross-tenant functions. It does NOT hold application queries (`src/lib/<domain>/queries.ts`) or the runner (`scripts/db/migrate.mjs`).
+Holds `NNN_snake_case.sql` files (001–005, 008–035, 038–063 today): roles, Better Auth tables, business tables, RLS, indexes, public SCR authorization, and the grant boundary for cross-tenant functions. It does NOT hold application queries (`src/lib/<domain>/queries.ts`) or the runner (`scripts/db/migrate.mjs`).
 
 ## Key patterns
 
-- File name must match `^\d{3}_[a-z0-9_]+\.sql$` (enforced by `loadMigrations`); next number is 063.
+- File name must match `^\d{3}_[a-z0-9_]+\.sql$` (enforced by `loadMigrations`); next number is 064.
 - Policy: until the first production deploy the directory is an editable base. From the first production deploy (date: fill in at deploy) it is forward-only with checksum.
 - Applied files are immutable: `schema_migrations` stores a sha256 checksum and the runner throws on a mismatch or a missing file. Fix by adding a new migration. A forward-only migration adds a new file and never edits an old one.
 - `021_client_accounts.sql` holds the client self-registration gateway (`register_client`, verification and legal-acceptance functions) and the `protect_profile_contact` trigger.
@@ -39,6 +39,7 @@ Holds `NNN_snake_case.sql` files (001–005, 008–035, 038–062 today): roles,
 - `060_payment_link_hardening.sql` fixes the payment-link Pix after review: the charge is the remaining amount (price minus non-voided counter payments); `payment_link_charge_reserve` returns `stale_asaas_payment_id` for a rotated charge; `apply_payment_link_charge` returns `link_refund_ignored` for refund/chargeback events; `payment_link_mark_paid` is revoked from `app_webhook`.
 - `061_payment_link_double_pay.sql` redefines `apply_payment_link_charge`: a Pix equal to the charge amount on an `awaiting_payment` order is always booked as a counter payment and `refresh_order_state` decides the state; the link turns `paid` only when the order left `awaiting_payment` or the sum covers the price; a sum above the price returns the new result `link_overpaid`; `amount_mismatch` is only for paid value <> charge amount; a refund/chargeback before RECEIVED also covers `expired` and `cancelled` charges. Lock order: charge, then order (counter code locks the order first).
 - `062_client_register_no_email.sql` redefines `register_client` (no e-mail challenge, no notification; the user starts with `email_verified = false`) and `request_phone_verification` (no `email_not_verified` refusal). `request_email_verification` and `confirm_email_verification` stay for links already sent.
+- `063_idempotency_keys.sql` adds `idempotency_keys` (PK `user_id, scope, key`; `scope` is `order` or `counter_payment`; `request_hash`; `record_id` bound in the same transaction; forced RLS, own rows only; `app_runtime` selects, inserts and updates only `record_id`). `placeOrder` and `registerCounterPayment` claim the key before any charge: a repeated key returns the existing record.
 - `001_roles.sql` defines `schema_owner`, `app_runtime` (NOBYPASSRLS), `backup_reader` (BYPASSRLS, read-only) and `auth_profile_lookup` (NOLOGIN, BYPASSRLS). `009` removes BYPASSRLS from `auth_profile_lookup` and sets NOINHERIT.
 - `004_rls.sql` defines `app_user_id()`, `app_user_role()`, `app_bureau_id()`, `app_support_session_id()`, `app_context_present()`, `app_support_active()` and `app_is_staff()`. Each table gets `enable row level security` and `force row level security`, then named policies (e.g. `profiles_select`, `holders_staff`).
 - `004_rls.sql` also defines `auth_profile_for_session` (returns `must_change_password`) and the `protect_profile_identity` trigger. The trigger allows only an operator-to-bureau_admin role change. It gates `must_change_password`: only the gateway or the user's own true-to-false update may change it.

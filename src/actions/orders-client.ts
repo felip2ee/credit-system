@@ -95,9 +95,11 @@ export async function openClientOrderAction(values: unknown): Promise<ActionResu
 		};
 		const { declarationVersion } = parsed.data;
 		const declaration = withMembers && declarationVersion !== null ? await declarationOptions(declarationVersion) : {};
-		const { couponCode } = parsed.data;
+		const { couponCode, idempotencyKey } = parsed.data;
 		const options: PlaceOrderOptions | undefined =
-			declaration.declaration || couponCode ? { ...declaration, ...(couponCode && { couponCode }) } : undefined;
+			declaration.declaration || couponCode || idempotencyKey
+				? { ...declaration, ...(couponCode && { couponCode }), ...(idempotencyKey && { idempotencyKey }) }
+				: undefined;
 		const result = await placeOrder(session, input, quote, options);
 		if (!result.ok) {
 			const message = CLIENT_ORDER_MESSAGES[result.reason];

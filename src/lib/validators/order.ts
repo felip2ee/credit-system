@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 
 import { percentageSchema } from "./holder";
-import { uuidSchema } from "./id";
+import { idempotencyKeySchema, uuidSchema } from "./id";
 
 export const MAX_PARTNERS = 20;
 const MAX_REASON = 500;
@@ -96,6 +96,7 @@ export const clientOrderSchema = z
 		declarationVersion: z.number().int().positive().nullish().transform((v) => v ?? null),
 		// Formato solto de propósito: código inválido e código de formato errado dão a mesma resposta ("Cupom inválido ou indisponível").
 		couponCode: z.string().max(64).nullish().transform((v) => v?.trim().toUpperCase() || null),
+		idempotencyKey: idempotencyKeySchema,
 		}),
 	)
 	.superRefine((v, ctx) => {
@@ -122,6 +123,7 @@ export const clientOrderSchema = z
 		declarationAccepted: v.declarationAccepted,
 		declarationVersion: v.declarationVersion,
 		couponCode: v.couponCode,
+		idempotencyKey: v.idempotencyKey,
 	}));
 
 // Pedido de balcão (equipe). Sócios só no Dossiê Empresarial.
@@ -133,6 +135,7 @@ export const counterOrderSchema = z
 		contactEmail: optionalEmail,
 		contactPhone: optionalPhone,
 		partners: z.array(partnerSchema).max(MAX_PARTNERS, `No máximo ${MAX_PARTNERS} sócios.`).default([]),
+		idempotencyKey: idempotencyKeySchema,
 	})
 	.superRefine((v, ctx) => {
 		checkSubject(v.subject, v.productCode, ctx, ["subject"]);
@@ -147,6 +150,7 @@ export const counterOrderSchema = z
 		contactEmail: v.contactEmail,
 		contactPhone: v.contactPhone,
 		partners: toPartners(v.partners),
+		idempotencyKey: v.idempotencyKey,
 	}));
 
 export const orderIdSchema = uuidSchema;

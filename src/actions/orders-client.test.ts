@@ -123,6 +123,22 @@ describe("openClientOrderAction", () => {
 		expect(revalidatePath).toHaveBeenCalledWith("/portal/pesquisas");
 	});
 
+	it("passes the idempotency key to placeOrder, and a duplicate answers as the same success", async () => {
+		state.placeOrder.mockResolvedValue({ ok: true, dossierId: DOSSIER_ID, state: "awaiting_authorization", duplicate: true });
+
+		const result = await openClientOrderAction({ ...ownOrder, idempotencyKey: "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10" });
+
+		expect(result).toEqual({ error: null, id: DOSSIER_ID });
+		expect(state.placeOrder.mock.calls[0][3]).toEqual({ idempotencyKey: "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10" });
+		expect((await openClientOrderAction({ ...ownOrder, idempotencyKey: "abc" })).error).toBe("Chave de envio inválida.");
+	});
+
+	it("maps an idempotency conflict to a message", async () => {
+		state.placeOrder.mockResolvedValue({ ok: false, reason: "idempotency_conflict" });
+
+		expect((await openClientOrderAction({ ...ownOrder, idempotencyKey: "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10" })).error).toMatch(/Este envio já foi registrado com outros dados/);
+	});
+
 	it("quotes base plus the per-partner value and sends the partners", async () => {
 		const partner = (document: string) => ({ document, name: "Sócio", email: `${document}@example.test` });
 		await openClientOrderAction({
