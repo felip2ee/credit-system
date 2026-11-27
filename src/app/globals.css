@@ -11,9 +11,9 @@
     --duration-base: 250ms;
     --radius: 0.75rem;                     /* 12 px: cartão (lg); md 10, sm 8 */
   }
-  /* Página clara: raiz e painel (.theme-admin). */
-  :root,
-  .theme-admin {
+  /* Página clara: raiz e painel (.theme-admin). `html:root` dá a mesma especificidade que o seletor por atributo tinha: vence utilitário de uma classe no mesmo elemento (Tailwind 3 não usa @layer nativo). */
+  html:root,
+  html:root .theme-admin {
     color-scheme: light;
     --background: 40 53% 97%;              /* #FBF8F2 */
     --foreground: 166 45% 13%;             /* #123029 */
@@ -115,11 +115,10 @@
    volta às variáveis claras, mesmo dentro de um bloco escuro. Escala compacta (só de md para cima): variante
    `admin:` do Tailwind (tailwind.config.ts). Hex de referência em BRAND_COLORS e THEME_COLORS (src/lib/brand/tokens.ts). */
 @layer base {
-  /* :where: um bloco escuro no mesmo elemento mantém a cor de texto dele. */
-  :where(.theme-admin) {
+  .theme-admin {
     color: hsl(var(--foreground));
   }
-  .theme-admin .bg-secondary {
+  html:root .theme-admin .bg-secondary {
     color-scheme: light;
     color: hsl(var(--foreground));
     --background: 40 53% 97%;
@@ -147,8 +146,8 @@
     --chart-4: 157 25% 39%;
     --chart-5: 166 23% 26%;
   }
-  /* Blocos de verde profundo (menu lateral, hero, botão escuro): dourado como destaque, texto creme/branco. :where mantém especificidade zero (utilitários de cor vencem). */
-  :where(.card-dark, .bg-sidebar, .bg-ink, .on-dark) {
+  /* Blocos de verde profundo (menu lateral, hero, botão escuro): dourado como destaque, texto creme/branco. `html:root` (0,1,1) vence utilitário de cor de uma classe no mesmo elemento. */
+  html:root :where(.card-dark, .bg-sidebar, .bg-ink, .on-dark) {
     color-scheme: dark;
     color: hsl(var(--card-foreground));
     --background: 167 77% 8%;              /* #05261F */
@@ -182,7 +181,7 @@
 }
 
 @layer utilities {
-  /* Amarelo como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
+  /* Dourado como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
   .theme-admin .text-primary {
     color: hsl(var(--link));
   }
@@ -212,9 +211,9 @@
     background: var(--landing-offwhite);
     color: var(--landing-green);
   }
-  /* Anel de duas cores: o contorno verde lê sobre claro, o halo amarelo lê sobre verde escuro. */
+  /* Anel dourado: contorno e halo da mesma cor (lê sobre o verde escuro das faixas e do hero). */
   .landing :focus-visible {
-    outline: 3px solid var(--landing-green);
+    outline: 3px solid var(--landing-yellow);
     outline-offset: 2px;
     box-shadow: 0 0 0 6px var(--landing-yellow);
   }
@@ -223,22 +222,6 @@
 @layer utilities {
   .lp-serif {
     font-family: var(--landing-serif);
-  }
-}
-
-@layer utilities {
-  /* Amarelo como texto/borda só em bloco verde; na página clara vira verde escuro (var --link). */
-  .theme-admin .text-primary {
-    color: hsl(var(--link));
-  }
-  .theme-admin .border-primary {
-    border-color: hsl(var(--link));
-  }
-}
-
-@layer base {
-  .landing :focus-visible {
-    outline-color: var(--landing-yellow);
   }
 }
 

@@ -172,6 +172,7 @@ describe("tema: página creme, cartões brancos", () => {
 		["texto do botão destrutivo", b.primaryForeground, k.destructive, 4.5],
 		["erro como texto no fundo", k.destructive, b.background, 4.5],
 		["erro como texto no cartão", k.destructive, k.card, 4.5],
+		["erro como texto no creme (accent, hover de linha)", k.destructive, b.cream, 4.5],
 		["texto na tag de item ativo", b.brandSoftForeground, b.brandSoft, 4.5],
 		["foco no fundo", b.focus, b.background, 3],
 		["foco no cartão", b.focus, k.card, 3],
@@ -190,6 +191,10 @@ describe("tema: página creme, cartões brancos", () => {
 	it.each(Object.entries(STATE_COLORS))("estado %s: texto 4,5:1 no tom e no creme; borda >= 3:1 no cartão (exceto sucesso, decorativa)", (name, s) => {
 		expect(contrastRatio(s.fg, s.bg)).toBeGreaterThanOrEqual(4.5);
 		if (name !== "success") expect(contrastRatio(s.border, k.card)).toBeGreaterThanOrEqual(3);
+	});
+
+	it("o cartão branco destaca da página creme só pela borda: página e cartão são quase iguais (< 1,2:1)", () => {
+		expect(contrastRatio(k.card, b.background)).toBeLessThan(1.2);
 	});
 
 	it("prova que o dourado NÃO lê como texto no creme nem no branco (por isso só fundo de botão e faixa escura)", () => {
