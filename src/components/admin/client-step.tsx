@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { searchHolders, type HolderPick } from "@/actions/consultations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { isValidCNPJ, isValidCPF, onlyDigits } from "@/lib/utils";
 import type { EntityKind } from "@/types/app";
 
@@ -23,13 +23,27 @@ export interface ConsultationClient {
 const SEARCH_DELAY_MS = 300;
 const MIN_TERM = 2;
 
-// Erro de formulário do cliente novo ou escolhido, ou null se pode seguir.
-export function clientError(c: ConsultationClient): string | null {
-  if (c.name.trim().length < 2) return "Informe o nome.";
-  const valid = c.type === "PF" ? isValidCPF(c.document) : isValidCNPJ(c.document);
-  if (!valid) return c.type === "PF" ? "CPF inválido." : "CNPJ inválido.";
-  return null;
+export interface ClientErrors {
+  name?: string;
+  document?: string;
 }
+
+// Erros do cliente novo ou escolhido, por campo. Objeto vazio = pode seguir.
+export function clientErrors(c: ConsultationClient): ClientErrors {
+  const errors: ClientErrors = {};
+  if (c.name.trim().length < 2) errors.name = "Informe o nome.";
+  const valid = c.type === "PF" ? isValidCPF(c.document) : isValidCNPJ(c.document);
+  if (!valid) errors.document = c.type === "PF" ? "CPF inválido." : "CNPJ inválido.";
+  return errors;
+}
+
+// Foco no primeiro campo com erro; sem campo de texto na tela (busca), vai para a caixa de busca.
+export function focusFirstInvalid(errors: ClientErrors): void {
+  const id = errors.name ? "client-name" : "client-document";
+  (document.getElementById(id) ?? document.getElementById("client-search"))?.focus();
+}
+
+const SEARCH_ERROR = "Escolha um cliente da lista ou use \u201cNovo cliente\u201d.";
 
 interface ClientStepProps {
   value: ConsultationClient;
@@ -37,9 +51,10 @@ interface ClientStepProps {
   // Cliente escolhido na busca: o documento não é digitado nem mostrado inteiro.
   picked: boolean;
   onPicked: (picked: boolean) => void;
+  errors?: ClientErrors;
 }
 
-export function ClientStep({ value, onChange, picked, onPicked }: ClientStepProps) {
+export function ClientStep({ value, onChange, picked, onPicked, errors = {} }: ClientStepProps) {
   const [term, setTerm] = useState("");
   const [results, setResults] = useState<HolderPick[]>([]);
   const [searching, setSearching] = useState(false);
@@ -87,15 +102,16 @@ export function ClientStep({ value, onChange, picked, onPicked }: ClientStepProp
         </div>
       ) : (
         <>
-          <div role="group" aria-label="Como informar o cliente" className="flex gap-2">
+          <div role="group" aria-label="Como informar o cliente" className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant={mode === "search" ? "secondary" : "ghost"} onClick={() => setMode("search")}>Buscar cadastrado</Button>
             <Button type="button" size="sm" variant={mode === "new" ? "secondary" : "ghost"} onClick={() => setMode("new")}>Novo cliente</Button>
           </div>
 
           {mode === "search" ? (
             <div className="space-y-2">
-              <Label htmlFor="client-search">Nome ou documento</Label>
-              <Input id="client-search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Digite ao menos 2 letras ou números" autoComplete="off" />
+              <Field id="client-search" label="Nome ou documento" error={errors.name || errors.document ? SEARCH_ERROR : null}>
+                {(a11y) => <Input {...a11y} value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Digite ao menos 2 letras ou números" autoComplete="off" />}
+              </Field>
               <div aria-live="polite">
                 {searching && <p className="text-sm text-muted-foreground">Buscando...</p>}
                 {!searching && term.trim().length >= MIN_TERM && results.length === 0 && (
@@ -124,14 +140,12 @@ export function ClientStep({ value, onChange, picked, onPicked }: ClientStepProp
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="space-y-1">
-                <Label htmlFor="client-name">{isPf ? "Nome completo" : "Razão social"}</Label>
-                <Input id="client-name" value={value.name} onChange={(e) => set({ name: e.target.value })} autoComplete="off" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="client-document">{isPf ? "CPF" : "CNPJ"}</Label>
-                <Input id="client-document" inputMode="numeric" value={value.document} onChange={(e) => set({ document: e.target.value })} placeholder={isPf ? "000.000.000-00" : "00.000.000/0000-00"} autoComplete="off" />
-              </div>
+              <Field id="client-name" label={isPf ? "Nome completo" : "Razão social"} error={errors.name}>
+                {(a11y) => <Input {...a11y} value={value.name} onChange={(e) => set({ name: e.target.value })} autoComplete="off" />}
+              </Field>
+              <Field id="client-document" label={isPf ? "CPF" : "CNPJ"} error={errors.document}>
+                {(a11y) => <Input {...a11y} inputMode="numeric" value={value.document} onChange={(e) => set({ document: e.target.value })} placeholder={isPf ? "000.000.000-00" : "00.000.000/0000-00"} autoComplete="off" />}
+              </Field>
             </div>
           )}
         </>
@@ -139,14 +153,12 @@ export function ClientStep({ value, onChange, picked, onPicked }: ClientStepProp
 
       {(picked || mode === "new") && (
         <div className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="client-email">E-mail (opcional)</Label>
-            <Input id="client-email" type="email" value={value.email} onChange={(e) => set({ email: e.target.value })} placeholder="contato@exemplo.com" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="client-phone">Celular (opcional)</Label>
-            <Input id="client-phone" type="tel" value={value.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="(11) 99999-9999" />
-          </div>
+          <Field id="client-email" label="E-mail (opcional)" helper="Sem e-mail, o pedido só abre se a pessoa já tiver autorização válida ou um pedido de autorização no prazo.">
+            {(a11y) => <Input {...a11y} type="email" value={value.email} onChange={(e) => set({ email: e.target.value })} placeholder="contato@exemplo.com" />}
+          </Field>
+          <Field id="client-phone" label="Celular (opcional)">
+            {(a11y) => <Input {...a11y} type="tel" value={value.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="(11) 99999-9999" />}
+          </Field>
         </div>
       )}
     </div>

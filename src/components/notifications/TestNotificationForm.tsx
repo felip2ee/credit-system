@@ -33,19 +33,19 @@ export function TestNotificationForm() {
 
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-3" aria-label="Enviar teste">
-      <div className="space-y-1">
+      <div className="w-full space-y-1 sm:w-auto">
         <Label htmlFor="test-channel">Canal</Label>
         <select
           id="test-channel"
           value={channel}
           onChange={(e) => setChannel(e.target.value as "email" | "whatsapp")}
-          className="flex h-11 rounded-md border border-input bg-background px-3 text-sm"
+          className="flex h-11 w-full rounded-input border border-input bg-background px-3 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm admin:h-10 admin:text-sm"
         >
           <option value="email">E-mail</option>
           <option value="whatsapp">WhatsApp</option>
         </select>
       </div>
-      <div className="min-w-64 flex-1 space-y-1">
+      <div className="w-full flex-1 space-y-1 sm:min-w-64">
         <Label htmlFor="test-recipient">Destinatário</Label>
         <Input
           id="test-recipient"
@@ -54,13 +54,15 @@ export function TestNotificationForm() {
           placeholder={channel === "email" ? "nome@exemplo.com" : "+5511999999999"}
           autoComplete="off"
           required
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? "test-error" : undefined}
         />
       </div>
       <Button type="submit" disabled={isPending}>
         {isPending ? "Enviando..." : "Enviar teste"}
       </Button>
       {error && (
-        <p role="alert" className="w-full text-sm text-destructive">
+        <p id="test-error" role="alert" className="w-full text-sm text-destructive">
           {error}
         </p>
       )}

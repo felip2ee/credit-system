@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { expect, test as setup, type Page } from "@playwright/test";
 
-import { CLIENT_NO_BALANCE_STATE, CLIENT_STATE, E2E, resetRateLimit, STAFF_SECRET_FILE, STAFF_STATE, SUPERADMIN_SECRET_FILE, SUPERADMIN_STATE } from "./fixtures";
+import { ADMIN_SECRET_FILE, ADMIN_STATE, CLIENT_NO_BALANCE_STATE, CLIENT_STATE, E2E, resetRateLimit, STAFF_SECRET_FILE, STAFF_STATE, SUPERADMIN_SECRET_FILE, SUPERADMIN_STATE } from "./fixtures";
 import { totp } from "./totp";
 
 async function enrollAndSave(
@@ -42,6 +42,10 @@ async function enrollAndSave(
 
 setup("staff: enroll MFA (or verify on retry) and save the session", async ({ page }) => {
   await enrollAndSave(page, E2E.staff, STAFF_SECRET_FILE, STAFF_STATE);
+});
+
+setup("bureau admin: enroll MFA (or verify on retry) and save the session", async ({ page }) => {
+  await enrollAndSave(page, E2E.admin, ADMIN_SECRET_FILE, ADMIN_STATE);
 });
 
 setup("superadmin: enroll MFA (or verify on retry) and save the session", async ({ page }) => {

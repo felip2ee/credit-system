@@ -67,14 +67,17 @@ export function OrderContactDialogList({ dossierId, contacts, canResend }: ListP
       <h3 id="pending-auth-title" className="text-sm font-medium">
         Autorizações pendentes
       </h3>
+      <p className="text-sm text-muted-foreground">
+        Trocar o contato invalida o link antigo.{canResend ? " Reenviar manda um link novo ao contato atual." : ""}
+      </p>
       <ul className="space-y-2">
         {contacts.map((c) => (
           <li key={c.consultationId} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span>
+            <span className="min-w-0 break-words">
               <span className="font-medium">{c.name}</span> ({c.role})
               <span className="block text-muted-foreground">{c.maskedEmail ?? "Sem e-mail informado"}</span>
             </span>
-            <span className="flex gap-2">
+            <span className="flex flex-wrap gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -145,7 +148,7 @@ export function OrderContactDialogList({ dossierId, contacts, canResend }: ListP
               {error}
             </p>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={close} disabled={isPending}>
               Voltar
             </Button>

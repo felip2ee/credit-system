@@ -44,7 +44,7 @@ export default async function AdminAppLayout({ children }: { children: React.Rea
         <form action={signOut}>
           <button
             type="submit"
-            className="inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-bold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:min-h-9"
+            className="inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-bold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:min-h-11"
           >
             <LogOut aria-hidden className="size-[18px]" />
             Sair

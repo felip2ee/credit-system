@@ -9,10 +9,9 @@ import { RECEIPT_ACCEPT, validateReceiptFile } from "@/components/payouts/payout
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { WithdrawalStatus } from "@/lib/affiliates/withdrawals";
-import { StatusBanner } from "@/components/ui/status-banner";
 import { Textarea } from "@/components/ui/textarea";
 
 const MAX_REASON_LENGTH = 500;
@@ -84,23 +83,24 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
     <div className="grid gap-6 md:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Marcar como pago</CardTitle>
+          <CardTitle>Marcar como pago</CardTitle>
           <CardDescription>Anexe o comprovante do PIX (PDF, PNG ou JPEG, até 5 MB).</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={reviewPay} className="space-y-3" noValidate>
-            <Input
-              ref={inputRef}
-              type="file"
-              accept={RECEIPT_ACCEPT}
-              aria-label="Comprovante do pagamento (PDF, PNG ou JPEG, até 5 MB)"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              disabled={isPending}
-              className="h-auto"
-            />
-            {payError && (
-              <StatusBanner tone="danger" title={payError} />
-            )}
+            <Field id="withdrawal-receipt" label="Comprovante do pagamento (PDF, PNG ou JPEG, até 5 MB)" error={payError}>
+              {(a11y) => (
+                <Input
+                  {...a11y}
+                  ref={inputRef}
+                  type="file"
+                  accept={RECEIPT_ACCEPT}
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  disabled={isPending}
+                  className="h-auto"
+                />
+              )}
+            </Field>
             <Button type="submit" disabled={isPending}>
               Marcar como pago
             </Button>
@@ -110,23 +110,23 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Cancelar saque</CardTitle>
+          <CardTitle>Cancelar saque</CardTitle>
           <CardDescription>O valor volta ao saldo da afiliada. O motivo aparece para ela.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={reviewCancel} className="space-y-3" noValidate>
-            <Label htmlFor="cancel-reason">Motivo do cancelamento</Label>
-            <Textarea
-              id="cancel-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              maxLength={MAX_REASON_LENGTH}
-              rows={3}
-              disabled={isPending}
-            />
-            {cancelError && (
-              <StatusBanner tone="danger" title={cancelError} />
-            )}
+            <Field id="cancel-reason" label="Motivo do cancelamento" error={cancelError}>
+              {(a11y) => (
+                <Textarea
+                  {...a11y}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  maxLength={MAX_REASON_LENGTH}
+                  rows={3}
+                  disabled={isPending}
+                />
+              )}
+            </Field>
             <Button type="submit" variant="outline" disabled={isPending}>
               Cancelar saque
             </Button>
@@ -140,6 +140,7 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
         title="Marcar saque como pago?"
         role="alertdialog"
         dismissible={!isPending}
+        className="max-h-[92vh] overflow-y-auto"
       >
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between gap-4">
@@ -152,7 +153,7 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
           </div>
         </dl>
         <p className="text-sm">Esta ação não pode ser desfeita.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" size="sm" variant="outline" autoFocus onClick={() => setConfirmingPay(false)} disabled={isPending}>
             Voltar
           </Button>
@@ -168,9 +169,10 @@ export function WithdrawalActions({ withdrawalId, status, net }: WithdrawalActio
         title="Cancelar saque?"
         role="alertdialog"
         dismissible={!isPending}
+        className="max-h-[92vh] overflow-y-auto"
       >
         <p className="text-sm">O valor volta ao saldo da afiliada.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" size="sm" variant="outline" autoFocus onClick={() => setConfirmingCancel(false)} disabled={isPending}>
             Voltar
           </Button>

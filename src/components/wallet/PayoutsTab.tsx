@@ -11,7 +11,7 @@ function Bucket({ title, value, note }: { title: string; value: string; note: st
   return (
     <Card className="space-y-1 p-4">
       <h2 className="text-base text-muted-foreground">{title}</h2>
-      <p className="text-2xl font-bold leading-tight tabular-nums">{formatMoney(value)}</p>
+      <p className="text-xl font-bold md:text-2xl leading-tight tabular-nums">{formatMoney(value)}</p>
       <p className="text-sm text-muted-foreground">{note}</p>
     </Card>
   );

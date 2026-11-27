@@ -23,20 +23,34 @@ const COPY: Record<string, ProductCopy> = {
 	},
 };
 
+// Dossiê PF em conta PJ: a pesquisa é de outra pessoa, então o texto não fala em "seu".
+const THIRD_PARTY_PF: ProductCopy = {
+	summary: "Tudo o que pesa no CPF pesquisado na hora de pedir crédito, e o plano para destravar.",
+	includes: [
+		"O raio-x do CPF no sistema financeiro: dívidas, atrasos e o histórico que o banco vê no Banco Central (SCR)",
+		"Os pontos cegos: o que está travando o crédito hoje, inclusive o que ninguém sabia",
+		"O teto de crédito: até onde o banco tende a ir hoje com essa pessoa",
+		"O plano da Rainha Cred, em ordem: o que resolver primeiro e o que fazer depois",
+		"Tudo na tela e em PDF, com aviso por e-mail e WhatsApp quando fica pronto",
+	],
+};
+
 // "O que você pode e não pode": as regras reais do pedido, por produto e tipo de conta.
 export function productRules(code: string, self: boolean): string[] {
 	if (code === "dossie_empresarial") {
 		return [
 			"Inclui a empresa e os sócios que você adicionar.",
-			"Cada sócio custa o valor por sócio e autoriza a consulta pelo próprio e-mail.",
+			"Cada sócio custa o valor por sócio.",
+			"Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail.",
 			"A consulta só roda depois da autorização de todos.",
 		];
 	}
 	return self
 		? ["A pesquisa é só do CPF do dono da conta.", "Você não pode pesquisar outra pessoa por aqui."]
-		: ["A pesquisa é do responsável pela empresa, que autoriza por e-mail.", "A consulta só roda depois da autorização."];
+		: ["A pesquisa é do CPF que você informar, como o do responsável pela empresa.", "A consulta só roda depois da autorização da pessoa pesquisada."];
 }
 
-export function productCopy(code: string): ProductCopy | null {
+export function productCopy(code: string, self = true): ProductCopy | null {
+	if (code === "dossie_pf" && !self) return THIRD_PARTY_PF;
 	return COPY[code] ?? null;
 }

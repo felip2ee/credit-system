@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,6 +8,7 @@ import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
 import { Mail } from "lucide-react";
 
+import { BackToLogin } from "@/components/auth/auth-exit";
 import { AuthHeading } from "@/components/auth/auth-heading";
 import { IconInput } from "@/components/auth/icon-input";
 import { Field } from "@/components/ui/field";
@@ -38,18 +38,17 @@ export default function ResetPasswordPage() {
     setSent(true);
   };
   return (
-    <section className="w-full max-w-md space-y-8">
+    <section className="w-full max-w-md space-y-6">
+      <BackToLogin />
       <AuthHeading title="Recuperar senha" description="Enviaremos um link de redefinição por e-mail" />
       <div>
         {sent ? (
           <div className="space-y-4 text-center">
-            <p className="text-lg text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Se houver uma conta com esse e-mail, um link de redefinição foi
               enviado. Verifique sua caixa de entrada.
             </p>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/login">Voltar ao login</Link>
-            </Button>
+            <BackToLogin />
           </div>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -57,11 +56,8 @@ export default function ResetPasswordPage() {
               {(a) => <IconInput icon={Mail} type="email" autoComplete="email" {...a} {...register("email")} />}
             </Field>
             {error && <StatusBanner tone="attention" title={error} />}
-            <Button type="submit" size="lg" glow className="w-full" disabled={isSubmitting}>
+            <Button type="submit" glow className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Enviando..." : "Enviar link"}
-            </Button>
-            <Button asChild variant="ghost" className="w-full">
-              <Link href="/login">Voltar ao login</Link>
             </Button>
           </form>
         )}

@@ -35,6 +35,19 @@ describe("wizardSteps", () => {
 		expect(ids(wizardSteps(null, "PF"))).toEqual(["product"]);
 	});
 
+	it("pessoas: avisa que o PIX vem na tela seguinte se faltar crédito", () => {
+		expect(wizardSteps("dossie_empresarial", "PJ")[2].after).toBe(
+			"Você revisa o pedido e confirma. Se faltar crédito, o pagamento por PIX vem na tela seguinte.",
+		);
+	});
+
+	it.each([
+		["dossie_pf", "PF"],
+		["dossie_empresarial", "PJ"],
+	] as const)("revisão (%s): e-mail só para quem não tem autorização válida nem pedido em aberto", (code, holder) => {
+		expect(wizardSteps(code, holder).at(-1)?.after).toMatch(/^Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail\. /);
+	});
+
 	it("cada etapa diz o que acontece depois", () => {
 		for (const step of wizardSteps("dossie_empresarial", "PJ")) expect(step.after.length).toBeGreaterThan(0);
 	});

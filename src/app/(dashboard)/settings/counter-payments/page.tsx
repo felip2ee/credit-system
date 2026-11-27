@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { CounterPaymentForm } from "@/components/counter-payments/CounterPaymentForm";
 import { CounterPaymentList } from "@/components/counter-payments/CounterPaymentList";
+import { counterSituation } from "@/components/counter-payments/situation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import { listCounterPayments } from "@/lib/counter-payments/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getDossierDetail } from "@/lib/dossiers/queries";
+import { getStaffOrder } from "@/lib/orders/staff-queries";
 import { formatCurrency } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
 import { StatusBanner } from "@/components/ui/status-banner";
@@ -52,7 +54,10 @@ export default async function CounterPaymentsPage({
     );
   }
 
-  const view = await withUserTransaction(session, (client) => listCounterPayments(client, dossierId));
+  const { view, order } = await withUserTransaction(session, async (client) => ({
+    view: await listCounterPayments(client, dossierId),
+    order: await getStaffOrder(client, dossierId),
+  }));
   const online = view.mode === "online";
   const remaining = view.price === null ? null : toCents(view.price) - toCents(view.paidTotal);
   const payments = view.payments.map((p) => ({
@@ -71,11 +76,7 @@ export default async function CounterPaymentsPage({
       : view.price === null
         ? "Sem liquidação ainda"
         : "Sem cobrança"
-    : remaining === null
-      ? "Sem liquidação ainda"
-      : remaining > 0
-        ? `Falta ${formatCurrency(remaining / 100)}`
-        : "Quitado";
+    : counterSituation(remaining, order?.state ?? null);
 
   return (
     <div className="space-y-6">
@@ -88,29 +89,36 @@ export default async function CounterPaymentsPage({
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <p className="text-sm text-muted-foreground">{online ? "Pago pelo app (saldo do cliente)" : "Pago no balcão"}</p>
-            <p className="text-2xl font-semibold">
+            <p className="font-semibold">
               {online ? money(view.paidOnline) : formatCurrency(Number(view.paidTotal))}
             </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Preço da liquidação</p>
-            <p className="text-2xl font-semibold">{money(view.price)}</p>
+            <p className="font-semibold">{money(view.price)}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Repasse à plataforma</p>
-            <p className="text-2xl font-semibold">{money(view.cost)}</p>
+            <p className="font-semibold">{money(view.cost)}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Parte do Bureau</p>
-            <p className="text-2xl font-semibold">{money(view.bureauShare)}</p>
+            <p className="font-semibold">{money(view.bureauShare)}</p>
           </div>
           <div className="sm:col-span-2 lg:col-span-4">
             <p className="text-sm text-muted-foreground">Situação</p>
-            <p className="text-lg">{situation}</p>
+            <p>{situation}</p>
           </div>
         </CardContent>
       </Card>
-      {canWrite && !online && <CounterPaymentForm dossierId={dossierId} />}
+      {canWrite && !online && (
+        <CounterPaymentForm
+          dossierId={dossierId}
+          holderName={detail.dossier.holder_name}
+          remainingCents={remaining}
+          orderState={order?.state ?? null}
+        />
+      )}
       {!online && <CounterPaymentList key={payments[0]?.id ?? "empty"} payments={payments} canWrite={canWrite} />}
     </div>
   );

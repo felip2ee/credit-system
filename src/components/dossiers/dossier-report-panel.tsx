@@ -65,7 +65,7 @@ export function DossierReportPanel({ dossierId, canGenerate, report }: Props) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5" /> Parecer consolidado do quadro societário
           </CardTitle>
         </CardHeader>
@@ -101,7 +101,7 @@ export function DossierReportPanel({ dossierId, canGenerate, report }: Props) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5" /> Parecer consolidado do quadro societário
           </CardTitle>
         </CardHeader>
@@ -126,7 +126,7 @@ export function DossierReportPanel({ dossierId, canGenerate, report }: Props) {
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2 text-lg">
+        <CardTitle className="flex items-center gap-2">
           <Bot className="h-5 w-5" /> Parecer consolidado do quadro societário
         </CardTitle>
         <div className="flex flex-wrap items-center gap-2">

@@ -39,11 +39,11 @@ export function OrderMembers({
 					const { tone, label } = statusInfo("member", m.scrStatus, "client");
 					const hint = memberActionHint(m);
 					return (
-						<li key={m.consultationId} className="flex items-start gap-3 px-4 py-3">
+						<li key={m.consultationId} className="flex flex-wrap items-start gap-3 px-4 py-3">
 							<span aria-hidden className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
 								{m.role === "company" ? <Building2 className="size-5" /> : <UserRound className="size-5" />}
 							</span>
-							<span className="min-w-0 flex-1 space-y-1">
+							<span className="min-w-0 flex-[1_1_8rem] space-y-1">
 								<span className="block break-words font-bold">{m.name ?? ROLE_LABEL[m.role]}</span>
 								<span className="block text-muted-foreground">
 									{ROLE_LABEL[m.role]} · {m.documentMasked}

@@ -123,7 +123,7 @@ Primitivos em `src/components/ui/` (Radix + `cva` + `cn()`). Não crie botão, c
 - Cartões de produto mostram nome e descrição completos (sem corte); o bloco "O que você recebe" é um `<details>` com seta (chevron) que gira ao abrir.
 - Saldo e atalhos: `BalanceCard` (valor grande com `tabular-nums`, `hideable` mostra o olho; `displayBalance` em `balance.ts`), `QuickActions` + `QuickAction` (tile de 56 px com ícone, rótulo embaixo, `active` para a ação principal, link ou botão), `ListRow` (ícone circular cinza, título, subtítulo, valor à direita), `SectionHeader` (título e link).
 - Estado: `StatusBadge`, `Badge` (pílula; `variant="brand"` para tag positiva), `StatusBanner`, `EmptyState`, `Skeleton`, `Stepper` (círculos, "Agora:"), toast (`Toaster`, `role="status"`).
-- Telas de sistema: `LoadingScreen`, `ErrorScreen`, e `loading.tsx`, `error.tsx`, `not-found.tsx`, `global-error.tsx` em `src/app/`.
+- Telas de sistema: `LoadingScreen`, `ErrorScreen`, e `loading.tsx` (nos segmentos `(portal)`, `(dashboard)`, `(superadmin)` e `admin`), `error.tsx`, `not-found.tsx`, `global-error.tsx` em `src/app/`. Não crie `src/app/loading.tsx`: no Next 14.2, `router.refresh()` e Server Action com `revalidatePath` perdem o `loading` da raiz, a árvore remonta e o estado local dos formulários (a confirmação de sucesso) some.
 - Layout: `PageHeader` (quebra linha no celular), `MobileNav` (gaveta "Menu" nos painéis, em `src/components/layout/`), `BottomNav` e `PortalHeader` (portal, em `src/components/portal/`).
 - Dados: `Table`.
 
@@ -137,7 +137,8 @@ Regras:
 
 - **Portal (celular):** cabeçalho com a logo e o chip de saldo (só com `credits:read` e carteira; sem saldo, o cabeçalho não mostra nada). Barra inferior com ícone e texto; o item ativo é um círculo verde-escuro (`--primary`) com ícone branco e rótulo visível: Início, Pesquisas, Créditos (com `credits:read`) e Conta. No computador, logo completa e os mesmos itens em linha.
 - **Saldo:** aparece só no chip do cabeçalho e na tela Créditos. Nenhuma outra tela repete o saldo.
-- **Texto em lista:** corta com "…" (uma linha). Exceção: o nome do Bureau no `PublicShell` quebra em várias linhas.
+- **Texto em lista:** corta com "…" (uma linha). Exceções: o nome do Bureau no `PublicShell` quebra em várias linhas; no `ListRow`, a fonte ampliada (linha menor que 12rem) quebra o texto em vez de cortar. Título e etapa do `ScreenHeader` nunca são cortados.
+- **Barras fixas:** barra inferior (`data-bottom-nav`), cabeçalho (`data-screen-header`, `data-portal-header`) e rodapé preso (`data-sticky-footer`) levam esses atributos. `globals.css` usa `scroll-padding` para o controle focado não ficar sob elas. Barra nova leva o atributo.
 - **Créditos:** o extrato fica agrupado por data. A tela não tem tabela de movimentos nem a seção "Recargas recentes".
 - **Explicações:** Nova pesquisa tem a introdução "como funciona" (`ResearchIntro`). Afiliação tem "Como funciona" (`HowItWorks`). A página pública do Bureau tem a mesma explicação em `PublicHowItWorks`.
 - **Páginas públicas:** logo completa no topo, nome do Bureau, uma coluna.
@@ -174,6 +175,7 @@ Primeiras telas dos painéis: `/` (Bureau) e `/superadmin`.
 
 - `e2e/a11y.spec.ts`: axe (WCAG 2.1 A e AA) nas telas acima. Falha com violação de `color-contrast`, `label`, `button-name` ou `link-name`. As outras violações ficam no anexo `axe-violations.json` do teste.
 - `e2e/mobile.spec.ts`: 360 × 740, sem rolagem horizontal (também com `html{font-size:200%}`), alvos de toque de pelo menos 44 × 44, e a gaveta "Menu" do Bureau.
+- `e2e/reflow.spec.ts`: reflow (WCAG 1.4.10) em 36 páginas de todos os papéis, a 360 px com fonte a 100% e 200%, e três diálogos a 200%. Mede `scrollWidth` contra `clientWidth` sem `isMobile` (no modo celular o viewport de layout cresce e esconde o estouro). Páginas em `e2e/reflow-routes.ts`.
 - Exceções de alvo: link dentro de texto corrido; elemento de 1 px só para leitor de tela; campo oculto do Radix (`aria-hidden`); `Checkbox`, cuja área de 44 px vem do `::after`.
 - Lista das telas: `e2e/critical-screens.ts`. Acrescente aqui toda tela nova crítica.
 - Comandos: `npm run build`, depois `npm run test:e2e`. Detalhes de ambiente: `docs/quality.md` e README.

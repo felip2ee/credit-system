@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { setProductBlockAction } from "@/actions/catalog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import type { ProductBlockRow } from "@/lib/commission/queries";
 
 function BlockRow({ bureauId, row, canWrite }: { bureauId: string; row: ProductBlockRow; canWrite: boolean }) {
@@ -13,10 +14,13 @@ function BlockRow({ bureauId, row, canWrite }: { bureauId: string; row: ProductB
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   const toggle = () => {
     setError(null);
     startTransition(async () => {
       const res = await setProductBlockAction({ bureauId, productId: row.productId, blocked: !row.blocked });
+      setConfirmOpen(false);
       if (res.error) return setError(res.error);
       router.refresh();
     });
@@ -32,12 +36,29 @@ function BlockRow({ bureauId, row, canWrite }: { bureauId: string; row: ProductB
           {row.blocked ? "Bloqueado" : "Liberado"}
         </Badge>
         {canWrite && (
-          <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={toggle}>
+          <Button type="button" variant="outline" disabled={isPending} onClick={row.blocked ? toggle : () => setConfirmOpen(true)}>
             {isPending ? "Salvando..." : row.blocked ? "Liberar" : "Bloquear"}
           </Button>
         )}
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p role="alert" className="text-sm font-bold text-destructive">
+          {error}
+        </p>
+      )}
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Bloquear produto?" role="alertdialog" dismissible={!isPending} className="max-h-[92vh] overflow-y-auto">
+        <p className="text-base">
+          Este Bureau deixa de vender {row.name} nos pedidos novos. Pedidos já reservados seguem até a captura.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={isPending}>
+            Voltar
+          </Button>
+          <Button type="button" variant="destructive" onClick={toggle} disabled={isPending}>
+            {isPending ? "Bloqueando..." : "Bloquear"}
+          </Button>
+        </div>
+      </Dialog>
       {row.history.length > 0 && (
         <details className="text-sm">
           <summary className="cursor-pointer text-muted-foreground">Histórico</summary>

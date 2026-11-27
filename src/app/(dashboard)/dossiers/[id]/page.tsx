@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Download } from "lucide-react";
 
-import { PageHeader } from "@/components/layout/page-header";
+import { DetailHeader } from "@/components/dashboard/detail-header";
+import { StackedList, StackedRow } from "@/components/dashboard/stacked-list";
 import { QueryStatusBadge } from "@/components/consultations/query-status-badge";
 import { DossierStatusBadge, DOSSIER_KIND_LABEL } from "@/components/dossiers/dossier-badges";
 import { DossierReportPanel } from "@/components/dossiers/dossier-report-panel";
@@ -47,30 +48,41 @@ export default async function DossierDetailPage({
   const canGenerate = members.some((m) => m.type === "PJ" && m.status === "completed");
   const hasCompleted = members.some((m) => m.status === "completed");
 
+  const roleOf = (type: "PJ" | "PF") => (type === "PJ" ? "Empresa" : d.kind === "PF" ? "Titular" : "Sócio");
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title={d.holder_name}
-        description={`${DOSSIER_KIND_LABEL[d.kind]} · ${completedCount}/${members.length} consultas concluídas`}
-      >
-        <DossierStatusBadge status={d.status} />
-        <Button asChild variant="outline">
-          <Link href={`/holders/${d.holder_id}`}>Ver titular</Link>
-        </Button>
-        {hasPermission(session, "counter:read") && (
+    <div className="space-y-4">
+      <DetailHeader title="Pesquisa" backHref="/dossiers" backLabel="Voltar para Pesquisas" />
+
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <h2 className="break-words text-xl font-bold">{d.holder_name}</h2>
+          <p className="text-sm text-muted-foreground">
+            {DOSSIER_KIND_LABEL[d.kind]} · {completedCount}/{members.length} consultas concluídas
+          </p>
+        </div>
+        <div>
+          <DossierStatusBadge status={d.status} />
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Button asChild variant="outline">
-            <Link href={`/settings/counter-payments?dossier=${d.id}`}>Pagamentos de balcão</Link>
+            <Link href={`/holders/${d.holder_id}`}>Ver titular</Link>
           </Button>
-        )}
-        {hasCompleted && (
-          <Button asChild variant="outline">
-            <a href={`/dossiers/${d.id}/pdf`} target="_blank" rel="noopener noreferrer">
-              <Download className="h-4 w-4" />
-              Baixar PDF da pesquisa
-            </a>
-          </Button>
-        )}
-      </PageHeader>
+          {hasPermission(session, "counter:read") && (
+            <Button asChild variant="outline">
+              <Link href={`/settings/counter-payments?dossier=${d.id}`}>Pagamentos de balcão</Link>
+            </Button>
+          )}
+          {hasCompleted && (
+            <Button asChild variant="outline">
+              <a href={`/dossiers/${d.id}/pdf`} target="_blank" rel="noopener noreferrer">
+                <Download className="h-4 w-4" />
+                Baixar PDF da pesquisa
+              </a>
+            </Button>
+          )}
+        </div>
+      </div>
 
       {/* Sem pedido (dados antigos de desenvolvimento): o painel não aparece */}
       {order && (
@@ -78,6 +90,7 @@ export default async function DossierDetailPage({
           order={order}
           canWrite={canWrite && !session.supportSessionId}
           canRegisterPayment={hasPermission(session, "counter:write")}
+          hasPartners={members.length > 1}
           pendingContacts={ordered
             .filter((m) => m.status === "pending_authorization")
             .map((m) => ({
@@ -92,43 +105,59 @@ export default async function DossierDetailPage({
       {/* Consultas da pesquisa */}
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Papel</TableHead>
-                <TableHead>Documento</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Consultado em</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ordered.map((m) => (
-                <TableRow key={m.id}>
-                  <TableCell className="font-medium">
-                    <Link href={`/consultations/${m.id}`} className="hover:underline">
-                      {m.document_name ?? "—"}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{m.type === "PJ" ? "Empresa" : d.kind === "PF" ? "Titular" : "Sócio"}</TableCell>
-                  <TableCell className="font-mono">
-                    {m.type === "PJ" ? formatCNPJ(m.document) : formatCPF(m.document)}
-                  </TableCell>
-                  <TableCell>
-                    <QueryStatusBadge status={m.status} />
-                  </TableCell>
-                  <TableCell>{formatDate(m.consulted_at)}</TableCell>
-                </TableRow>
-              ))}
-              {ordered.length === 0 && (
+          <StackedList>
+            {ordered.map((m) => (
+              <StackedRow
+                key={m.id}
+                href={`/consultations/${m.id}`}
+                title={m.document_name ?? "—"}
+                meta={`${roleOf(m.type)} · ${m.type === "PJ" ? formatCNPJ(m.document) : formatCPF(m.document)} · ${formatDate(m.consulted_at)}`}
+                status={<QueryStatusBadge status={m.status} />}
+              />
+            ))}
+            {ordered.length === 0 && (
+              <li className="p-4 text-center text-sm text-muted-foreground">Nenhuma consulta nesta pesquisa.</li>
+            )}
+          </StackedList>
+          <div className="hidden md:block">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    Nenhuma consulta nesta pesquisa.
-                  </TableCell>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Papel</TableHead>
+                  <TableHead>Documento</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Consultado em</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {ordered.map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell className="font-medium">
+                      <Link href={`/consultations/${m.id}`} className="hover:underline">
+                        {m.document_name ?? "—"}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{roleOf(m.type)}</TableCell>
+                    <TableCell className="font-mono">
+                      {m.type === "PJ" ? formatCNPJ(m.document) : formatCPF(m.document)}
+                    </TableCell>
+                    <TableCell>
+                      <QueryStatusBadge status={m.status} />
+                    </TableCell>
+                    <TableCell>{formatDate(m.consulted_at)}</TableCell>
+                  </TableRow>
+                ))}
+                {ordered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      Nenhuma consulta nesta pesquisa.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

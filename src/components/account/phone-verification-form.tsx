@@ -56,7 +56,7 @@ export function PhoneVerificationForm({ phoneE164, phoneVerified }: PhoneVerific
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 text-base">
+      <div className="flex flex-wrap items-center gap-2 text-base">
         <span>{phoneE164 ?? "Nenhum telefone cadastrado"}</span>
         {phoneE164 && (
           <StatusBadge tone={phoneVerified ? "success" : "waiting"} label={phoneVerified ? "Confirmado" : "Não confirmado"} />

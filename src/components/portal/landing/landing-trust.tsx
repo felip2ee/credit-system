@@ -3,7 +3,7 @@ import { H2, CONTAINER, EYEBROW, SECTION_X } from "./landing-styles";
 const STEPS = [
   {
     title: "Crie sua conta",
-    text: ["Realize seu cadastro na plataforma Rainha Cred e confirme seu número de celular por meio do código enviado pelo WhatsApp."],
+    text: ["Faça seu cadastro na plataforma Rainha Cred e entre no portal. Depois, em Conta, você pode confirmar o celular por um código enviado pelo WhatsApp."],
   },
   {
     title: "Adicione saldo à sua conta",

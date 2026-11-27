@@ -41,7 +41,7 @@ function SaleRowBody({ row: r }: { row: SaleRow }) {
         </div>
         <StatusBadge tone={pay.tone} label={pay.label} />
       </div>
-      <dl className="grid grid-cols-3 gap-3">
+      <dl className="grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] gap-3">
         <Money label="Cliente pagou" value={r.paid} />
         <Money label="Repasse à plataforma" value={r.cost} />
         <Money label="Sua parte" value={r.bureauShare} strong />
@@ -75,7 +75,7 @@ export function SalesTab({
       <FilterChips label="Período" chips={periodChips} active={period} />
       <Card className="p-4">
         <h2 className="text-base text-muted-foreground">Total do período</h2>
-        <dl className="mt-2 grid grid-cols-3 gap-3">
+        <dl className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] gap-3">
           <Money label="Cliente pagou" value={totals.paid} />
           <Money label="Repasse à plataforma" value={totals.cost} />
           <Money label="Sua parte" value={totals.bureauShare} strong />

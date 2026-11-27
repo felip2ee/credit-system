@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { voidCounterPaymentAction } from "@/actions/counter-payments";
@@ -65,15 +66,61 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
     });
   };
 
+  const voidButton = (p: CounterPaymentRow) => (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="min-h-11 md:min-h-0"
+      onClick={() => {
+        cancel();
+        setVoiding(p);
+      }}
+      disabled={isPending}
+      aria-label={`Anular pagamento de ${dateFormat.format(new Date(p.receivedAt))}, ${formatCurrency(Number(p.amount))}`}
+    >
+      Anular
+    </Button>
+  );
+
+  const statusOf = (p: CounterPaymentRow) =>
+    p.voidedAt ? (
+      <span className="space-y-1">
+        <Badge variant="secondary">Anulado</Badge>
+        {p.voidReason && <span className="block text-sm text-muted-foreground">{p.voidReason}</span>}
+      </span>
+    ) : (
+      <Badge variant="outline">Válido</Badge>
+    );
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Pagamentos registrados</CardTitle>
+        <CardTitle>Pagamentos registrados</CardTitle>
       </CardHeader>
       <CardContent>
         {payments.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nenhum pagamento de balcão neste Dossiê.</p>
         ) : (
+          <>
+          <ul className="divide-y rounded-card border md:hidden">
+            {payments.map((p) => (
+              <li key={p.id} className="space-y-2 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="shrink-0">
+                    <p className={p.voidedAt ? "font-bold line-through" : "font-bold"}>{formatCurrency(Number(p.amount))}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {dateFormat.format(new Date(p.receivedAt))} · {METHOD_LABEL[p.method]}
+                    </p>
+                  </div>
+                  <div className="min-w-0 break-words text-right">{statusOf(p)}</div>
+                </div>
+                {p.note && <p className="break-words text-sm text-muted-foreground">{p.note}</p>}
+                {canWrite && !p.voidedAt && voidButton(p)}
+              </li>
+            ))}
+          </ul>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -94,42 +141,21 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
                     {formatCurrency(Number(p.amount))}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{p.note ?? "—"}</TableCell>
-                  <TableCell>
-                    {p.voidedAt ? (
-                      <span className="space-y-1">
-                        <Badge variant="secondary">Anulado</Badge>
-                        {p.voidReason && <span className="block text-sm text-muted-foreground">{p.voidReason}</span>}
-                      </span>
-                    ) : (
-                      <Badge variant="outline">Válido</Badge>
-                    )}
-                  </TableCell>
+                  <TableCell>{statusOf(p)}</TableCell>
                   {canWrite && (
                     <TableCell className="text-right">
-                      {!p.voidedAt && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            cancel();
-                            setVoiding(p);
-                          }}
-                          disabled={isPending}
-                          aria-label={`Anular pagamento de ${dateFormat.format(new Date(p.receivedAt))}, ${formatCurrency(Number(p.amount))}`}
-                        >
-                          Anular
-                        </Button>
-                      )}
+                      {!p.voidedAt && voidButton(p)}
                     </TableCell>
                   )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
         {canWrite && (
-          <Dialog open={voiding !== null} onClose={cancel} title="Anular pagamento" dismissible={!isPending}>
+          <Dialog open={voiding !== null} onClose={cancel} title="Anular pagamento" dismissible={!isPending} className="max-h-[92vh] overflow-y-auto">
             {voiding && (
               <form onSubmit={confirmVoid} noValidate className="space-y-4">
                 <p className="rounded-md bg-accent p-3 text-sm">
@@ -154,7 +180,7 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
                     </p>
                   )}
                 </div>
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={cancel} disabled={isPending}>
                     Cancelar
                   </Button>
@@ -162,6 +188,16 @@ export function CounterPaymentList({ payments, canWrite }: CounterPaymentListPro
                     {isPending ? "Anulando..." : "Confirmar anulação"}
                   </Button>
                 </div>
+                {/* Depois do campo na ordem de foco; o <dialog> é o ancestral posicionado. */}
+                <button
+                  type="button"
+                  onClick={cancel}
+                  disabled={isPending}
+                  aria-label="Fechar"
+                  className="absolute right-2 top-2 inline-flex size-11 items-center justify-center rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <X className="size-5" aria-hidden="true" />
+                </button>
               </form>
             )}
           </Dialog>

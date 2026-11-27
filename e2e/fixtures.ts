@@ -22,6 +22,7 @@ export const E2E = {
     cpf: "111.444.777-35",
     phone: "+5511999990002",
   },
+  admin: { email: "e2e-admin@example.test", password: "e2e-admin-password-123" },
   superadmin: { email: "e2e-superadmin@example.test", password: "e2e-superadmin-password-123" },
   disabled: { email: "e2e-disabled@example.test", password: "e2e-disabled-password-123" },
   product: "dossie_empresarial",
@@ -38,6 +39,8 @@ export const TICK_POLL_TIMEOUT_MS = 90_000;
 export const AUTH_DIR = "e2e/.auth";
 export const STAFF_STATE = `${AUTH_DIR}/staff.json`;
 export const STAFF_SECRET_FILE = `${AUTH_DIR}/staff-secret.txt`;
+export const ADMIN_STATE = `${AUTH_DIR}/admin.json`;
+export const ADMIN_SECRET_FILE = `${AUTH_DIR}/admin-secret.txt`;
 export const CLIENT_STATE = `${AUTH_DIR}/client.json`;
 export const CLIENT_NO_BALANCE_STATE = `${AUTH_DIR}/client-no-balance.json`;
 export const SUPERADMIN_STATE = `${AUTH_DIR}/superadmin.json`;

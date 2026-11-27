@@ -11,6 +11,7 @@ import {
   type ActionResult,
 } from "@/actions/orders";
 import { OrderContactDialogList, type PendingContact } from "@/components/dossiers/order-contact-dialog";
+import { canReleaseOrder, orderNowText } from "@/components/dossiers/order-now";
 import { RevokeOrderDialog } from "@/components/dossiers/revoke-order-dialog";
 import { OrderStateBadge } from "@/components/dossiers/order-state-badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ interface OrderPanelProps {
   order: StaffOrderView;
   canWrite: boolean;
   canRegisterPayment: boolean;
+  hasPartners: boolean;
   // Membros com autorização pendente (e-mail já mascarado).
   pendingContacts?: PendingContact[];
 }
@@ -41,7 +43,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContacts = [] }: OrderPanelProps) {
+// A consequência vem antes do botão que muda o estado.
+function ActionWithEffect({ effect, children }: { effect: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm text-muted-foreground">{effect}</p>
+      {children}
+    </div>
+  );
+}
+
+export function OrderPanel({ order, canWrite, canRegisterPayment, hasPartners, pendingContacts = [] }: OrderPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -62,19 +74,42 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
   };
 
   const { state } = order;
-  const canRelease = state === "completed" && order.mode === "counter" && order.aiStatus !== "pending";
+  const hasBuyer = order.buyerName !== null;
+  const canRelease = canReleaseOrder({ state, mode: order.mode, aiStatus: order.aiStatus, hasBuyer });
+
+  const now = orderNowText({
+    state,
+    mode: order.mode,
+    aiStatus: order.aiStatus,
+    reason: order.reason,
+    canWrite,
+    canRegisterPayment,
+    hasBuyer,
+    hasPartners,
+    revoked: order.revokedAt !== null,
+  });
+  const cancelRefund =
+    order.mode === "online" ? " A reserva do pagamento volta ao saldo do cliente." : " A reserva do Bureau volta à carteira do Bureau.";
+  const actionClass = "w-full sm:w-auto";
 
   return (
+    <>
+      <section aria-labelledby="order-now-title" className="rounded-card border-2 border-primary bg-accent p-4">
+        <h2 id="order-now-title" className="text-sm font-bold text-muted-foreground">
+          O que acontece agora
+        </h2>
+        <p className="mt-1 break-words text-base font-bold">{now}</p>
+      </section>
     <Card>
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+        <CardTitle className="flex flex-wrap items-center gap-2">
           Pedido
           <OrderStateBadge state={state} />
           {order.reason && <span className="text-sm font-normal text-muted-foreground">{ORDER_REASON_LABEL[order.reason]}</span>}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Comprador">{order.buyerName ?? "Sem comprador: a entrega fica com a equipe"}</Field>
           <Field label="Preço">{formatCurrency(Number(order.price))}</Field>
           {order.paidTotal !== null && <Field label="Pago no balcão">{formatCurrency(Number(order.paidTotal))}</Field>}
@@ -88,31 +123,41 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
         </div>
 
         {canWrite && (
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-3">
             {state === "awaiting_payment" && canRegisterPayment && (
-              <Button asChild>
-                <Link href={`/settings/counter-payments?dossier=${order.dossierId}`}>Registrar pagamento</Link>
-              </Button>
+              <ActionWithEffect effect="Abre a tela de pagamentos do balcão. Depois de quitar, o pedido segue para a autorização.">
+                <Button asChild className={actionClass}>
+                  <Link href={`/settings/counter-payments?dossier=${order.dossierId}`}>Registrar pagamento</Link>
+                </Button>
+              </ActionWithEffect>
             )}
             {state === "ready" && (
-              <Button onClick={() => run(runOrderNowAction)} disabled={isPending}>
-                {isPending ? "Executando..." : "Executar agora"}
-              </Button>
+              <ActionWithEffect effect="Pede para iniciar a consulta agora, sem esperar a fila. Se uma nova tentativa já estiver agendada, ela só começa no horário previsto.">
+                <Button className={actionClass} onClick={() => run(runOrderNowAction)} disabled={isPending}>
+                  {isPending ? "Executando..." : "Executar agora"}
+                </Button>
+              </ActionWithEffect>
             )}
             {canRelease && (
-              <Button onClick={() => run(releaseOrderAction)} disabled={isPending}>
-                {isPending ? "Liberando..." : "Liberar ao cliente"}
-              </Button>
+              <ActionWithEffect effect="O cliente passa a ver o resultado e recebe um aviso.">
+                <Button className={actionClass} onClick={() => run(releaseOrderAction)} disabled={isPending}>
+                  {isPending ? "Liberando..." : "Liberar ao cliente"}
+                </Button>
+              </ActionWithEffect>
             )}
             {state === "released" && (
-              <Button variant="outline" onClick={() => setRevoking(true)} disabled={isPending}>
-                Revogar
-              </Button>
+              <ActionWithEffect effect="O cliente perde o acesso ao resultado. Você informa o motivo na próxima tela.">
+                <Button variant="outline" className={actionClass} onClick={() => setRevoking(true)} disabled={isPending}>
+                  Revogar
+                </Button>
+              </ActionWithEffect>
             )}
             {CANCELLABLE.includes(state) && (
-              <Button variant="outline" onClick={() => setConfirmingCancel(true)} disabled={isPending}>
-                Cancelar pedido
-              </Button>
+              <ActionWithEffect effect={`Encerra o pedido e invalida os links de autorização já enviados.${cancelRefund} Não dá para desfazer.`}>
+                <Button variant="outline" className={actionClass} onClick={() => setConfirmingCancel(true)} disabled={isPending}>
+                  Cancelar pedido
+                </Button>
+              </ActionWithEffect>
             )}
           </div>
         )}
@@ -132,9 +177,9 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
         dismissible={!isPending}
       >
         <p className="text-sm text-muted-foreground">
-          O pedido será cancelado e a reserva do pagamento liberada. Esta ação não pode ser desfeita.
+          {`O pedido será cancelado e os links de autorização já enviados deixam de valer.${cancelRefund} Esta ação não pode ser desfeita.`}
         </p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" onClick={() => setConfirmingCancel(false)} disabled={isPending}>
             Voltar
           </Button>
@@ -143,7 +188,8 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
           </Button>
         </div>
       </Dialog>
-      <RevokeOrderDialog dossierId={order.dossierId} open={revoking} onClose={() => setRevoking(false)} />
+      <RevokeOrderDialog dossierId={order.dossierId} mode={order.mode} open={revoking} onClose={() => setRevoking(false)} />
     </Card>
+    </>
   );
 }

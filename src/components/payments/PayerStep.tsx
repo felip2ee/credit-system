@@ -99,10 +99,10 @@ export function PayerStep(p: Props) {
     const masked = maskedValue(field, owner);
     if (masked === null) return null;
     return (
-      <div key={field} className="flex min-h-11 items-center justify-between gap-3">
+      <div key={field} className="flex min-h-11 flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{LABELS[field]}</p>
-          <p className="truncate font-bold tabular-nums">{masked}</p>
+          <p className="font-bold tabular-nums [overflow-wrap:anywhere]">{masked}</p>
         </div>
         {field !== "email" && (
           <Button
