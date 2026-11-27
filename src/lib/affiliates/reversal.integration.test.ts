@@ -1,0 +1,389 @@
+// Estorno e chargeback da comissão sobre a entrada (073-074) contra um Postgres real, sob RLS: o webhook reverte os
+// repasses que o split do Asaas não cobre, o saldo do afiliado pode ficar negativo e nada duplica.
+import { randomUUID } from "node:crypto";
+
+import { Pool } from "pg";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => {
+	Object.assign(process.env, {
+		DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://app_runtime:test@localhost:54329/credit_system_test",
+		BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
+		BETTER_AUTH_URL: "http://localhost:3000",
+		DOCUMENT_ROOT: "/tmp/reino-test-documents",
+		CLAMAV_HOST: "localhost",
+		CLAMAV_PORT: "3310",
+		SMTP_HOST: "smtp.example.test",
+		SMTP_PORT: "465",
+		SMTP_SECURE: "true",
+		SMTP_USER: "credit-system",
+		SMTP_PASS: "test-password",
+		ASAAS_DRIVER: "fake",
+		ASAAS_WEBHOOK_TOKEN: "c".repeat(32),
+		DATABASE_WEBHOOK_URL:
+			process.env.TEST_DATABASE_WEBHOOK_URL ?? "postgres://app_webhook:test@localhost:54329/credit_system_test",
+		PII_ENCRYPTION_KEY: `k1:${Buffer.alloc(32, 7).toString("base64")}`,
+	});
+});
+
+vi.mock("next/headers", () => ({
+	headers: () => {
+		throw new Error("no request scope");
+	},
+}));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
+import { POST } from "@/app/api/webhooks/asaas/route";
+import {
+	ASAAS_EVENT_PAYMENT_CHARGEBACK_REQUESTED,
+	ASAAS_EVENT_PAYMENT_REFUNDED,
+	ASAAS_WEBHOOK_TOKEN_HEADER,
+} from "@/lib/asaas/client";
+import { buildFakePaymentEvent, resetFakeChargeSplits, resetFakeCustomers } from "@/lib/asaas/fake";
+import { pool } from "@/lib/db/pool";
+import { getWebhookPool } from "@/lib/db/webhook-pool";
+import { createPaymentLink, resolvePaymentLink } from "@/lib/payment-links/queries";
+import { getOrCreateLinkPixCharge } from "@/lib/payment-links/pix";
+import { runCheckout } from "@/lib/payments/checkout";
+import { TEST_DATABASE_OWNER_URL } from "@/test/db-env";
+import {
+	seedClientProfile,
+	seedOrderDossier,
+	seedSuperadmin,
+	seedTenant,
+	type SeedSuperadmin,
+	type SeededTenant,
+} from "@/test/seed";
+
+import { convertCommission } from "./withdrawals";
+import { reverseCashInCommission } from "./reversal";
+
+const owner = new Pool({ connectionString: TEST_DATABASE_OWNER_URL, max: 4 });
+const TOKEN = "c".repeat(32);
+const CPF = "52998224725";
+const WALLET = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+
+let SA: SeedSuperadmin;
+
+beforeAll(async () => {
+	SA = await seedSuperadmin(owner);
+});
+
+// A soma das camadas olha todos os bureaus do banco: tira a configuração que estes testes deixaram.
+afterAll(async () => {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		await client.query("set local session_replication_role = replica");
+		const mine = "(select id from bureaus where name like 'Reversal %')";
+		await client.query(`delete from bureau_commission_rates where bureau_id in ${mine}`);
+		await client.query(`delete from bureau_affiliate_settings where bureau_id in ${mine}`);
+		await client.query("commit");
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
+	await Promise.all([owner.end(), pool.end(), getWebhookPool().end()]);
+});
+
+beforeEach(() => {
+	resetFakeChargeSplits();
+	resetFakeCustomers();
+	vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(async () => {
+	await owner.query("delete from platform_partners");
+	await owner.query("update settings set value = '0'::jsonb where key = 'affiliate_cash_in_hold_days'");
+});
+
+const addPartner = (pct: number, wallet: string) =>
+	owner.query("insert into platform_partners (name, asaas_wallet_id, pct) values ($1, $2, $3)", [`Sócio ${wallet.slice(-1)}`, wallet, pct]);
+
+const setBureauPct = (t: SeededTenant, pct: number) =>
+	owner.query("insert into bureau_commission_rates (bureau_id, pct, set_by) values ($1, $2, $3)", [t.bureau.id, pct, SA.userId]);
+
+async function verifyPhone(profileId: string) {
+	const client = await owner.connect();
+	try {
+		await client.query("begin");
+		await client.query("set local session_replication_role = replica");
+		await client.query("update profiles set phone_e164 = '+5563999990000', phone_verified_at = now() where id = $1", [profileId]);
+		await client.query("commit");
+	} catch (error) {
+		await client.query("rollback");
+		throw error;
+	} finally {
+		client.release();
+	}
+}
+
+async function withAffiliate(t: SeededTenant, o: { pct?: number; asaasWallet?: string } = {}) {
+	const affiliate = await seedClientProfile(owner, t.bureau.id);
+	await owner.query("insert into affiliate_referrals (referred_profile_id, affiliate_profile_id, bureau_id) values ($1, $2, $3)", [
+		t.client.userId,
+		affiliate.userId,
+		t.bureau.id,
+	]);
+	await verifyPhone(t.client.userId);
+	await verifyPhone(affiliate.userId);
+	await owner.query("insert into bureau_affiliate_settings (bureau_id, default_pct, affiliate_enabled) values ($1, $2, true)", [t.bureau.id, o.pct ?? 10]);
+	if (o.asaasWallet) {
+		await owner.query("update affiliate_wallets set payout_method = 'asaas', asaas_wallet_id = $2 where profile_id = $1", [affiliate.userId, o.asaasWallet]);
+	}
+	return affiliate;
+}
+
+function webhook(payload: unknown) {
+	return POST(
+		new Request("http://localhost/api/webhooks/asaas", {
+			method: "POST",
+			headers: new Headers({ "content-type": "application/json", [ASAAS_WEBHOOK_TOKEN_HEADER]: TOKEN }),
+			body: JSON.stringify(payload),
+		}),
+	);
+}
+
+async function chargeEvent(chargeId: string, o: { event?: string; eventId?: string; split?: unknown[] } = {}) {
+	const { rows } = await owner.query<{ asaas_payment_id: string; external_reference: string; amount: string }>(
+		"select asaas_payment_id, external_reference, amount from pix_charges where id = $1",
+		[chargeId],
+	);
+	const c = rows[0];
+	const body = buildFakePaymentEvent({
+		eventId: o.eventId ?? randomUUID(),
+		asaasPaymentId: c.asaas_payment_id,
+		externalReference: c.external_reference,
+		value: Number(c.amount),
+		...(o.event ? { event: o.event } : {}),
+	});
+	return webhook(o.split ? { ...body, payment: { ...body.payment, split: o.split } } : body);
+}
+
+const pay = (chargeId: string) => chargeEvent(chargeId);
+const refund = (chargeId: string, o: { event?: string; eventId?: string; split?: unknown[] } = {}) =>
+	chargeEvent(chargeId, { event: ASAAS_EVENT_PAYMENT_REFUNDED, ...o });
+
+async function checkoutClientPix(t: SeededTenant, amount = "1000.00") {
+	await owner.query("update holders set document = $2, zip_code = '01310100', address_number = '55' where id = $1", [t.holder.id, CPF]);
+	const res = await runCheckout(
+		t.client,
+		{ kind: "client", clientProfileId: t.client.userId },
+		{ amount, method: "PIX", payerKind: "owner", idempotencyKey: randomUUID() },
+		{ remoteIp: "10.9.9.9", description: "Recarga" },
+	);
+	return (res as { id: string }).id;
+}
+
+const splitStatus = async (chargeId: string) =>
+	(await owner.query<{ beneficiary_kind: string; status: string }>("select beneficiary_kind, status from charge_splits where pix_charge_id = $1 order by beneficiary_kind", [chargeId])).rows.map(
+		(r) => [r.beneficiary_kind, r.status],
+	);
+
+const wallet = async (profileId: string) =>
+	(await owner.query("select pending, available from affiliate_wallets where profile_id = $1", [profileId])).rows[0];
+
+const count = async (sql: string, args: unknown[]) => Number((await owner.query(sql, args)).rows[0].n);
+
+describe("estorno em modo Pix", () => {
+	it("comissão liberada vira clawback; o saldo fica negativo, saque é recusado e a próxima comissão abate", async () => {
+		const t = await seedTenant(owner, "Reversal Pix");
+		await setBureauPct(t, 0);
+		const affiliate = await withAffiliate(t, { pct: 10 });
+		const first = await checkoutClientPix(t);
+		await pay(first);
+		expect(await wallet(affiliate.userId)).toMatchObject({ pending: "0.00", available: "100.00" });
+
+		// O afiliado já gastou os R$ 100 (o dono do banco grava o saque; o livro é append-only).
+		await owner.query("select * from affiliate_wallet_post_entry($1, 'withdrawal_hold', 100, 'test:spent', 'test', $1)", [affiliate.userId]);
+		expect(await wallet(affiliate.userId)).toMatchObject({ available: "0.00" });
+
+		expect((await refund(first)).status).toBe(200);
+
+		expect(await wallet(affiliate.userId)).toMatchObject({ pending: "0.00", available: "-100.00" });
+		const ledger = await owner.query("select kind, origin, amount, available_after from affiliate_ledger_entries where profile_id = $1 order by seq", [affiliate.userId]);
+		expect(ledger.rows.at(-1)).toEqual({ kind: "commission_clawback", origin: "cash_in", amount: "100.00", available_after: "-100.00" });
+		expect((await owner.query("select status, reversed_amount from affiliate_commissions where order_ref = $1", [first])).rows[0]).toEqual({ status: "reversed", reversed_amount: "100.00" });
+		expect(await splitStatus(first)).toEqual([["affiliate", "refunded"]]);
+		expect(await count("select count(*)::int as n from audit_logs where action = 'affiliate.commission_reversal' and metadata ->> 'pix_charge_id' = $1", [first])).toBe(1);
+
+		// Saldo <= 0: saque e conversão recusados.
+		const hold = await owner.query("select ok, reason from affiliate_wallet_post_entry($1, 'withdrawal_hold', 1, 'test:more', 'test', $1)", [affiliate.userId]);
+		expect(hold.rows[0]).toEqual({ ok: false, reason: "insufficient_funds" });
+		const converted = await convertCommission(affiliate, { amount: "1.00", requestId: randomUUID() });
+		expect(converted.ok).toBe(false);
+
+		// A próxima comissão (R$ 50) é abatida do negativo; nada cai em saldo disponível.
+		const second = await checkoutClientPix(t, "500.00");
+		await pay(second);
+		expect(await wallet(affiliate.userId)).toMatchObject({ pending: "0.00", available: "-50.00" });
+	});
+
+	it("estorno repetido não duplica; reprocesso pelo TypeScript também não", async () => {
+		const t = await seedTenant(owner, "Reversal Pix Dup");
+		await setBureauPct(t, 0);
+		const affiliate = await withAffiliate(t, { pct: 10 });
+		const id = await checkoutClientPix(t);
+		await pay(id);
+
+		const eventId = randomUUID();
+		await refund(id, { eventId });
+		await refund(id, { eventId });
+		await refund(id);
+		expect(await reverseCashInCommission({ pixChargeId: id })).toBe(0);
+
+		expect(await count("select count(*)::int as n from affiliate_ledger_entries where profile_id = $1 and kind = 'commission_clawback'", [affiliate.userId])).toBe(1);
+		expect((await owner.query("select status from pix_charges where id = $1", [id])).rows[0].status).toBe("refunded");
+		// O cliente não gastou o saldo: o estorno tira os R$ 1000 dele, a comissão é revertida por inteiro.
+		expect(await wallet(affiliate.userId)).toMatchObject({ pending: "0.00", available: "0.00" });
+	});
+
+	it("comissão com carência: estorno antes da liberação tira do pendente e a liberação posterior ignora a comissão", async () => {
+		const t = await seedTenant(owner, "Reversal Hold");
+		await setBureauPct(t, 0);
+		const affiliate = await withAffiliate(t, { pct: 10 });
+		await owner.query("update settings set value = '3'::jsonb where key = 'affiliate_cash_in_hold_days'");
+		const id = await checkoutClientPix(t);
+		await pay(id);
+		expect(await wallet(affiliate.userId)).toMatchObject({ pending: "100.00", available: "0.00" });
+
+		await refund(id);
+
+		expect(await wallet(affiliate.userId)).toMatchObject({ pending: "0.00", available: "0.00" });
+		const ledger = await owner.query("select kind, origin from affiliate_ledger_entries where profile_id = $1 order by seq", [affiliate.userId]);
+		expect(ledger.rows).toEqual([
+			{ kind: "commission", origin: "cash_in" },
+			{ kind: "commission_reversal", origin: "cash_in" },
+		]);
+		await owner.query("update affiliate_commissions set release_at = now() - interval '1 day' where order_ref = $1", [id]);
+		expect((await pool.query("select release_due_commissions() as n")).rows[0].n).toBe(0);
+	});
+});
+
+describe("liberação da comissão cash_in", () => {
+	it("release_due_commissions grava o lançamento com origin cash_in", async () => {
+		const t = await seedTenant(owner, "Reversal Release");
+		await setBureauPct(t, 0);
+		const affiliate = await withAffiliate(t, { pct: 10 });
+		await owner.query("update settings set value = '3'::jsonb where key = 'affiliate_cash_in_hold_days'");
+		const id = await checkoutClientPix(t);
+		await pay(id);
+		await owner.query("update affiliate_commissions set release_at = now() - interval '1 day' where order_ref = $1", [id]);
+
+		expect((await pool.query("select release_due_commissions() as n")).rows[0].n).toBeGreaterThanOrEqual(1);
+
+		const ledger = await owner.query("select kind, origin from affiliate_ledger_entries where profile_id = $1 order by seq", [affiliate.userId]);
+		expect(ledger.rows).toEqual([
+			{ kind: "commission", origin: "cash_in" },
+			{ kind: "commission_release", origin: "cash_in" },
+		]);
+		expect(await wallet(affiliate.userId)).toMatchObject({ pending: "0.00", available: "100.00" });
+		// Depois de liberada, o estorno vira clawback.
+		await refund(id);
+		expect(await wallet(affiliate.userId)).toMatchObject({ pending: "0.00", available: "0.00" });
+	});
+});
+
+describe("estorno do accrual do bureau sem walletId", () => {
+	it("estorno grava um reversal ligado ao accrual, uma vez; chargeback depois não duplica", async () => {
+		const t = await seedTenant(owner, "Reversal Accrual");
+		await setBureauPct(t, 20);
+		const id = await checkoutClientPix(t);
+		await pay(id);
+		expect((await owner.query("select kind, amount from bureau_payable_entries where pix_charge_id = $1", [id])).rows).toEqual([{ kind: "accrual", amount: "200.00" }]);
+
+		await refund(id);
+		await chargeEvent(id, { event: ASAAS_EVENT_PAYMENT_CHARGEBACK_REQUESTED });
+
+		const rows = await owner.query<{ kind: string; amount: string; linked: boolean }>(
+			"select kind, amount, reverses_entry_id is not null as linked from bureau_payable_entries where pix_charge_id = $1 order by amount",
+			[id],
+		);
+		expect(rows.rows).toEqual([
+			{ kind: "reversal", amount: "-200.00", linked: true },
+			{ kind: "accrual", amount: "200.00", linked: false },
+		]);
+		expect(await splitStatus(id)).toEqual([["bureau", "refunded"]]);
+		expect(await count("select count(*)::int as n from audit_logs where action = 'payable.cash_in_reversal' and metadata ->> 'pix_charge_id' = $1", [id])).toBe(1);
+		// O estorno do accrual entra no saldo lido pelo clawback: o líquido a repassar é zero, sem desconto em dobro.
+		const net = await owner.query("select coalesce(sum(amount), 0) as s from bureau_payable_entries where bureau_id = $1", [t.bureau.id]);
+		expect(net.rows[0].s).toBe("0.00");
+	});
+
+	it("chargeback chega primeiro: reverte e grava o evento na auditoria", async () => {
+		const t = await seedTenant(owner, "Reversal Chargeback");
+		await setBureauPct(t, 10);
+		const id = await checkoutClientPix(t);
+		await pay(id);
+
+		await chargeEvent(id, { event: ASAAS_EVENT_PAYMENT_CHARGEBACK_REQUESTED });
+
+		expect(await splitStatus(id)).toEqual([["bureau", "refunded"]]);
+		const audit = await owner.query("select metadata ->> 'event' as event from audit_logs where action = 'charge_split.refunded' and metadata ->> 'pix_charge_id' = $1", [id]);
+		expect(audit.rows).toEqual([{ event: ASAAS_EVENT_PAYMENT_CHARGEBACK_REQUESTED }]);
+	});
+
+	it("cobrança de link estornada reverte o accrual", async () => {
+		const t = await seedTenant(owner, "Reversal Link");
+		await setBureauPct(t, 20);
+		const orderId = randomUUID();
+		await seedOrderDossier(owner, { orderRef: orderId, bureauId: t.bureau.id, clientProfileId: null, members: 1 });
+		await owner.query("insert into order_settlements (order_ref, bureau_id, mode, price, cost) values ($1, $2, 'counter', 300, 120)", [orderId, t.bureau.id]);
+		await owner.query("update dossier_orders set state = 'awaiting_payment' where dossier_id = $1", [orderId]);
+		const link = await createPaymentLink(t.bureauAdmin, orderId);
+		if (!link.ok) throw new Error("expected link");
+		const resolved = await resolvePaymentLink(link.token);
+		if (!resolved.ok) throw new Error("expected resolved link");
+		await getOrCreateLinkPixCharge(resolved.link.id);
+		const id = (await owner.query<{ id: string }>("select id from pix_charges where payment_link_id = $1", [resolved.link.id])).rows[0].id;
+		await pay(id);
+
+		await refund(id);
+		await refund(id);
+
+		expect((await owner.query("select kind, amount from bureau_payable_entries where pix_charge_id = $1 order by amount", [id])).rows).toEqual([
+			{ kind: "reversal", amount: "-60.00" },
+			{ kind: "accrual", amount: "60.00" },
+		]);
+		expect(await splitStatus(id)).toEqual([["bureau", "refunded"]]);
+	});
+});
+
+describe("estorno em modo asaas", () => {
+	it("só atualiza o status: REFUNDED vira refunded; DONE no evento de estorno vira reversal_failed com auditoria", async () => {
+		const t = await seedTenant(owner, "Reversal Asaas");
+		await setBureauPct(t, 0);
+		await addPartner(10, WALLET(1));
+		await withAffiliate(t, { pct: 5, asaasWallet: WALLET(3) });
+		const id = await checkoutClientPix(t);
+		await pay(id);
+		expect(await splitStatus(id)).toEqual([["affiliate", "pending"], ["partner", "pending"]]);
+
+		await refund(id, {
+			split: [
+				{ id: "split_p", walletId: WALLET(1), status: "REFUNDED" },
+				{ id: "split_a", walletId: WALLET(3), status: "DONE" },
+			],
+		});
+
+		expect(await splitStatus(id)).toEqual([["affiliate", "reversal_failed"], ["partner", "refunded"]]);
+		const failed = await owner.query("select metadata ->> 'wallet' as wallet, metadata ->> 'event' as event from audit_logs where action = 'charge_split.reversal_failed' and metadata ->> 'pix_charge_id' = $1", [id]);
+		expect(failed.rows).toEqual([{ wallet: "***0003", event: ASAAS_EVENT_PAYMENT_REFUNDED }]);
+		// Nenhum lançamento local: o Asaas é quem reverte.
+		expect(await count("select count(*)::int as n from affiliate_ledger_entries where bureau_id = $1", [t.bureau.id])).toBe(0);
+	});
+
+	it("estorno sem payment.split não muda o status das linhas do Asaas", async () => {
+		const t = await seedTenant(owner, "Reversal Asaas Bare");
+		await setBureauPct(t, 0);
+		await addPartner(10, WALLET(1));
+		const id = await checkoutClientPix(t);
+		await pay(id);
+
+		await refund(id);
+
+		expect(await splitStatus(id)).toEqual([["partner", "pending"]]);
+	});
+});
