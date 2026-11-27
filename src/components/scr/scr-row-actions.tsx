@@ -27,8 +27,8 @@ export function ScrRowActions({ id }: ScrRowActionsProps) {
   };
 
   return (
-    <div className="flex items-center justify-end gap-2">
-      {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {msg && <span className="text-sm text-muted-foreground">{msg}</span>}
       <Button variant="default" size="sm" onClick={selfSend} disabled={isPending}>
         {isPending ? "Enviando..." : "Enviar autorização"}
       </Button>

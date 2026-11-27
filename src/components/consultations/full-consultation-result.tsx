@@ -28,7 +28,7 @@ export function FullConsultationResult({ view }: { view: FullConsultationView })
       {view.sections.map((section) => (
         <Card key={section.id}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">{section.title}</CardTitle>
+            <CardTitle>{section.title}</CardTitle>
             {section.id === "score" && view.scoreValue != null && <p className="text-4xl font-semibold">{view.scoreValue}</p>}
           </CardHeader>
           <CardContent className="space-y-4">
@@ -41,7 +41,7 @@ export function FullConsultationResult({ view }: { view: FullConsultationView })
       {view.generic.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Outros dados</CardTitle>
+            <CardTitle>Outros dados</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {view.generic.map((block) => (

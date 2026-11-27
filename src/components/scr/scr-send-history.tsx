@@ -23,7 +23,8 @@ interface HistoryState {
 const HistoryContext = createContext<HistoryState | null>(null);
 
 // Linha inteira abre o histórico de envios; botões e links dentro dela (ex.: "Enviar autorização") seguem com a ação própria.
-export function ScrHistoryRow({ id, children }: { id: string; children: React.ReactNode }) {
+// `stacked`: versão em lista (abaixo de `md`), com o mesmo comportamento da linha de tabela.
+export function ScrHistoryRow({ id, children, stacked = false }: { id: string; children: React.ReactNode; stacked?: boolean }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [history, setHistory] = useState<ScrSendRecord[]>([]);
@@ -39,24 +40,31 @@ export function ScrHistoryRow({ id, children }: { id: string; children: React.Re
     });
   };
 
+  const rowProps = {
+    tabIndex: 0,
+    title: "Ver histórico de envios",
+    onClick: (e: React.MouseEvent<HTMLElement>) => {
+      if (!(e.target as HTMLElement).closest("button, a, input, dialog")) show();
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        show();
+      }
+    },
+  };
+
   return (
     <HistoryContext.Provider value={{ open, close: () => setOpen(false), isPending, error, history }}>
-      <TableRow
-        tabIndex={0}
-        title="Ver histórico de envios"
-        className="cursor-pointer focus-visible:outline focus-visible:outline-2"
-        onClick={(e) => {
-          if (!(e.target as HTMLElement).closest("button, a, input, dialog")) show();
-        }}
-        onKeyDown={(e) => {
-          if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
-            e.preventDefault();
-            show();
-          }
-        }}
-      >
-        {children}
-      </TableRow>
+      {stacked ? (
+        <li {...rowProps} className="cursor-pointer px-4 py-3 focus-visible:outline focus-visible:outline-2">
+          {children}
+        </li>
+      ) : (
+        <TableRow {...rowProps} className="cursor-pointer focus-visible:outline focus-visible:outline-2">
+          {children}
+        </TableRow>
+      )}
     </HistoryContext.Provider>
   );
 }
