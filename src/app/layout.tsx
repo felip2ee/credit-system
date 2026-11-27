@@ -5,7 +5,6 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { BRAND_NAME } from "@/lib/brand/brand";
 import { BRAND_COLORS } from "@/lib/brand/tokens";
-import { resolveBrandTheme } from "@/lib/brand/theme";
 import { QueryProvider } from "@/components/providers/query-provider";
 
 const atkinson = Atkinson_Hyperlegible({
@@ -33,11 +32,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Lê BRAND_THEME a cada pedido: sem isto o Next fixaria o valor do build (a imagem é construída sem a variável).
+  // Mantém o layout dinâmico, como antes do tema único. Tirar isto muda o modo de renderização de todas as rotas: avalie à parte.
   noStore();
-  const brandTheme = resolveBrandTheme(process.env.BRAND_THEME);
   return (
-    <html lang="pt-BR" data-brand-theme={brandTheme} suppressHydrationWarning>
+    <html lang="pt-BR" suppressHydrationWarning>
       <body className={cn("min-h-screen bg-background font-sans antialiased", atkinson.variable)}>
         <QueryProvider>{children}</QueryProvider>
       </body>

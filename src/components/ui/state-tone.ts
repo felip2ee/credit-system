@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Clock, Info, Loader2, XCircle, type LucideIcon } from "lucide-react";
 import type { CSSProperties } from "react";
 
-import { APP_STATE_COLORS, type StateName } from "@/lib/brand/tokens";
+import type { StateName } from "@/lib/brand/tokens";
 
 export type StateTone = StateName;
 
@@ -19,13 +19,12 @@ export function toneRole(tone: StateTone): "alert" | "status" {
   return tone === "attention" || tone === "danger" ? "alert" : "status";
 }
 
-// Cores escuras de APP_STATE_COLORS; `.theme-admin` troca por tons claros pelas variáveis --st-<tom>-* (globals.css).
+// Tons claros de STATE_COLORS, pelas variáveis --st-<tom>-* (globals.css).
 export function toneStyle(tone: StateTone): CSSProperties {
-  const { bg, fg, border } = APP_STATE_COLORS[tone];
   return {
-    backgroundColor: `var(--st-${tone}-bg, ${bg})`,
-    color: `var(--st-${tone}-fg, ${fg})`,
-    borderColor: `var(--st-${tone}-border, ${border})`,
+    backgroundColor: `var(--st-${tone}-bg)`,
+    color: `var(--st-${tone}-fg)`,
+    borderColor: `var(--st-${tone}-border)`,
   };
 }
 

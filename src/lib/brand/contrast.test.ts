@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { contrastRatio } from "./contrast";
-import { ADMIN_COLORS, APP_COLORS, APP_STATE_COLORS, BRAND_COLORS, CLASSIC_COLORS, NEUTRAL_COLORS, STATE_COLORS } from "./tokens";
+import { BRAND_COLORS, NEUTRAL_COLORS, STATE_COLORS, THEME_COLORS } from "./tokens";
 
 describe("contrastRatio", () => {
 	it("returns 21 for black on white", () => {
@@ -148,183 +148,10 @@ describe("state colors", () => {
 	});
 });
 
-describe("paleta do app (verde escuro + amarelo)", () => {
-	const a = APP_COLORS;
-
-	it.each([
-		["texto no fundo", a.foreground, a.background, 7],
-		["texto no cartão", a.foreground, a.card, 7],
-		["texto secundário no fundo", a.mutedForeground, a.background, 7],
-		["texto secundário no cartão", a.mutedForeground, a.card, 4.5],
-		["texto do botão primário", a.primaryForeground, a.primary, 4.5],
-		["texto do botão primário no hover", a.primaryForeground, a.primaryHover, 4.5],
-		["amarelo como texto no fundo", a.primary, a.background, 4.5],
-		["amarelo como texto no cartão", a.primary, a.card, 4.5],
-		["texto do botão destrutivo", a.destructiveForeground, a.destructive, 4.5],
-		["vermelho como texto no cartão", a.destructive, a.card, 4.5],
-		["anel de foco no fundo", a.ring, a.background, 3],
-		["anel de foco no cartão", a.ring, a.card, 3],
-		["borda de controle no cartão", a.controlBorder, a.card, 3],
-	])("%s: pelo menos %s:1", (_n, fg, bg, min) => {
-		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
-	});
-
-	it.each(Object.entries(APP_STATE_COLORS))("estado %s: texto no fundo do estado é pelo menos 4,5:1", (_n, s) => {
-		expect(contrastRatio(s.fg, s.bg)).toBeGreaterThanOrEqual(4.5);
-	});
-
-	it.each(Object.entries(APP_STATE_COLORS))("estado %s: borda é pelo menos 3:1 no fundo do app", (_n, s) => {
-		expect(contrastRatio(s.border, a.background)).toBeGreaterThanOrEqual(3);
-	});
-});
-
-describe("painel admin (página clara, blocos verdes)", () => {
-	const p = ADMIN_COLORS;
-	const a = APP_COLORS;
-
-	it.each([
-		["texto na página", p.pageForeground, p.pageBackground, 7],
-		["texto secundário na página", p.pageMutedForeground, p.pageBackground, 7],
-		["texto secundário no tom claro", p.pageMutedForeground, p.pageTint, 4.5],
-		["texto secundário no botão amarelo", p.pageMutedForeground, a.primary, 4.5],
-		["texto no tom claro (hover, campo de busca)", p.pageForeground, p.pageTint, 7],
-		["erro na página", p.pageDestructive, p.pageBackground, 4.5],
-		["erro no tom claro", p.pageDestructive, p.pageTint, 4.5],
-		["texto do botão destrutivo na página", p.pageDestructiveForeground, p.pageDestructive, 4.5],
-		["texto do botão amarelo na página", a.primaryForeground, a.primary, 4.5],
-		["botão de contorno: texto verde escuro na página", p.pageForeground, p.pageBackground, 7],
-		["borda de campo na página", p.pageControlBorder, p.pageBackground, 3],
-		["borda de campo no tom claro", p.pageControlBorder, p.pageTint, 3],
-		["anel de foco na página", p.pageRing, p.pageBackground, 3],
-		["anel de foco amarelo no bloco verde", a.ring, a.card, 3],
-		["menu lateral: texto branco", a.foreground, a.background, 7],
-		["menu lateral: item ativo", a.primaryForeground, a.primary, 4.5],
-		["bloco: texto branco no cartão", a.foreground, a.card, 7],
-		["bloco: texto branco no hover de linha", a.foreground, a.cardRaised, 7],
-		["bloco: texto secundário no hover de linha", a.mutedForeground, a.cardRaised, 4.5],
-		["bloco: amarelo como texto no hover de linha", a.primary, a.cardRaised, 4.5],
-	])("%s: pelo menos %s:1", (_n, fg, bg, min) => {
-		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
-	});
-
-	it("prova que amarelo como texto na página clara NÃO tem contraste (por isso text-primary vira verde escuro)", () => {
-		expect(contrastRatio(a.primary, p.pageBackground)).toBeLessThan(2);
-	});
-
-	it("o destaque verde destaca da página clara (>= 3:1)", () => {
-		expect(contrastRatio(a.card, p.pageBackground)).toBeGreaterThanOrEqual(3);
-	});
-});
-
-describe("painel admin: cartões brancos e hero verde", () => {
-	const p = ADMIN_COLORS;
-	const a = APP_COLORS;
-
-	const rows: [string, string, string, number][] = [
-		["texto verde escuro no cartão branco", p.pageForeground, p.cardBackground, 7],
-		["texto secundário no cartão branco", p.pageMutedForeground, p.cardBackground, 7],
-		["erro no cartão branco", p.pageDestructive, p.cardBackground, 4.5],
-		["borda de campo no cartão branco", p.pageControlBorder, p.cardBackground, 3],
-		["anel de foco no cartão branco", p.pageRing, p.cardBackground, 3],
-		["ícone verde escuro no quadradinho claro", p.pageForeground, p.iconTile, 7],
-		["texto secundário no quadradinho claro", p.pageMutedForeground, p.iconTile, 4.5],
-		["segmented: texto secundário no contêiner branco", p.pageMutedForeground, p.cardBackground, 4.5],
-		["segmented: opção ativa (verde escuro no amarelo)", a.primaryForeground, a.primary, 4.5],
-		["hero: número branco no verde bloco", a.foreground, a.card, 7],
-		["hero: rótulo amarelo no verde bloco", a.primary, a.card, 4.5],
-		["hero: texto secundário no verde bloco", a.mutedForeground, a.card, 4.5],
-		["hero: foco amarelo no verde bloco", a.ring, a.card, 3],
-		...p.chart.map((hex, i): [string, string, string, number] => [`série ${i + 1} do gráfico no cartão branco (gráfico >= 3:1)`, hex, p.cardBackground, 3]),
-		["contorno âmbar da barra amarela no cartão branco", p.chart[2], p.cardBackground, 3],
-	];
-
-	it.each(rows)("%s: pelo menos %s:1", (_n, fg, bg, min) => {
-		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
-	});
-
-	it("estados claros (STATE_COLORS) leem no cartão branco: borda >= 3:1, exceto a de sucesso (decorativa)", () => {
-		for (const [name, s] of Object.entries(STATE_COLORS)) {
-			expect(contrastRatio(s.fg, s.bg), name).toBeGreaterThanOrEqual(4.5);
-			if (name !== "success") expect(contrastRatio(s.border, p.cardBackground), name).toBeGreaterThanOrEqual(3);
-		}
-	});
-
-	it("a borda fina do cartão é decorativa (< 3:1): nunca usar em campo", () => {
-		expect(contrastRatio(p.cardBorder, p.cardBackground)).toBeLessThan(3);
-	});
-
-	it("prova que o amarelo não lê sobre o cartão branco (por isso gráfico usa verde e âmbar escuro)", () => {
-		expect(contrastRatio(a.primary, p.cardBackground)).toBeLessThan(2);
-	});
-
-	it("o cartão branco destaca da página #F7F9F8 só pela borda: página e cartão são quase iguais", () => {
-		expect(contrastRatio(p.cardBackground, p.pageBackground)).toBeLessThan(1.2);
-	});
-});
-
-describe("landing pública (Editorial claro)", () => {
-	const L = {
-		green: "#05261F",
-		greenAlt: "#0B3A2E",
-		yellow: "#FFC400",
-		yellowHover: "#FFD433",
-		offwhite: "#F7F9F8",
-		white: "#FFFFFF",
-		muted: "#3D5A50",
-		soft: "#D9E6E1",
-		border: "#D5E3DC",
-		mint: "#E3EFE9",
-	};
-
-	it("os hex do teste são os tokens de .landing em globals.css", () => {
-		const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8").toLowerCase();
-		const block = css.slice(css.indexOf(".landing {"), css.indexOf(".landing :focus-visible"));
-		for (const hex of Object.values(L)) expect(block, hex).toContain(hex.toLowerCase());
-	});
-
-	it.each([
-		["branco no verde escuro (topo, hero, cartão empresarial)", L.white, L.green, 7],
-		["texto suave no verde escuro", L.soft, L.green, 7],
-		["amarelo como texto no verde escuro", L.yellow, L.green, 7],
-		["branco na faixa do diferencial", L.white, L.greenAlt, 7],
-		["texto suave na faixa do diferencial", L.soft, L.greenAlt, 7],
-		["amarelo na faixa do diferencial", L.yellow, L.greenAlt, 7],
-		["verde escuro na página off-white", L.green, L.offwhite, 7],
-		["texto secundário na página off-white", L.muted, L.offwhite, 7],
-		["verde escuro no cartão branco", L.green, L.white, 7],
-		["texto secundário no cartão branco", L.muted, L.white, 7],
-		["texto secundário no cartão menta", L.muted, L.mint, 4.5],
-		["verde escuro no cartão menta e no ícone", L.green, L.mint, 7],
-		["verde escuro no botão amarelo", L.green, L.yellow, 7],
-		["verde escuro no botão amarelo em hover", L.green, L.yellowHover, 7],
-		["amarelo no botão verde escuro da faixa final", L.yellow, L.green, 7],
-		["amarelo no botão verde escuro em hover", L.yellow, L.greenAlt, 7],
-		["etiqueta amarela no cartão verde escuro (ícone e rótulo)", L.yellow, L.green, 4.5],
-		["selo PDF: amarelo sobre verde escuro", L.yellow, L.green, 4.5],
-		["foco: contorno verde escuro na página off-white", L.green, L.offwhite, 3],
-		["foco: contorno verde escuro no cartão branco", L.green, L.white, 3],
-		["foco: contorno verde escuro na faixa amarela", L.green, L.yellow, 3],
-		["foco: halo amarelo no hero verde escuro", L.yellow, L.green, 3],
-		["foco: halo amarelo na faixa do diferencial", L.yellow, L.greenAlt, 3],
-		["foco: halo amarelo sobre o cartão menta/branco não é necessário (contorno verde lê)", L.green, L.mint, 3],
-	])("%s: pelo menos %s:1", (_n, fg, bg, min) => {
-		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
-	});
-
-	it("prova que o amarelo NÃO lê como texto sobre fundo claro (por isso vira #05261F)", () => {
-		expect(contrastRatio(L.yellow, L.offwhite)).toBeLessThan(2);
-		expect(contrastRatio(L.yellow, L.white)).toBeLessThan(2);
-	});
-
-	it("a borda do cartão é decorativa (< 3:1): o cartão não depende dela", () => {
-		expect(contrastRatio(L.border, L.white)).toBeLessThan(3);
-	});
-});
-
-// Tema clássico (BRAND_THEME=classico): mesmos pares do tema atual, com a identidade antiga.
-describe("tema clássico: página creme, cartões brancos", () => {
+// Tema único (página creme, cartões brancos, blocos de verde profundo, dourado de destaque).
+describe("tema: página creme, cartões brancos", () => {
 	const b = BRAND_COLORS;
-	const k = CLASSIC_COLORS;
+	const k = THEME_COLORS;
 
 	it.each([
 		["texto no fundo", b.foreground, b.background, 7],
@@ -345,6 +172,7 @@ describe("tema clássico: página creme, cartões brancos", () => {
 		["texto do botão destrutivo", b.primaryForeground, k.destructive, 4.5],
 		["erro como texto no fundo", k.destructive, b.background, 4.5],
 		["erro como texto no cartão", k.destructive, k.card, 4.5],
+		["erro como texto no creme (accent, hover de linha)", k.destructive, b.cream, 4.5],
 		["texto na tag de item ativo", b.brandSoftForeground, b.brandSoft, 4.5],
 		["foco no fundo", b.focus, b.background, 3],
 		["foco no cartão", b.focus, k.card, 3],
@@ -365,14 +193,18 @@ describe("tema clássico: página creme, cartões brancos", () => {
 		if (name !== "success") expect(contrastRatio(s.border, k.card)).toBeGreaterThanOrEqual(3);
 	});
 
+	it("o cartão branco destaca da página creme só pela borda: página e cartão são quase iguais (< 1,2:1)", () => {
+		expect(contrastRatio(k.card, b.background)).toBeLessThan(1.2);
+	});
+
 	it("prova que o dourado NÃO lê como texto no creme nem no branco (por isso só fundo de botão e faixa escura)", () => {
 		expect(contrastRatio(b.gold, b.background)).toBeLessThan(3);
 		expect(contrastRatio(b.gold, k.card)).toBeLessThan(3);
 	});
 });
 
-describe("tema clássico: blocos de verde profundo (menu, hero, botão escuro)", () => {
-	const d = CLASSIC_COLORS.dark;
+describe("tema: blocos de verde profundo (menu, hero, botão escuro)", () => {
+	const d = THEME_COLORS.dark;
 
 	it.each([
 		["texto branco no fundo", d.foreground, d.background, 7],
@@ -402,12 +234,12 @@ describe("tema clássico: blocos de verde profundo (menu, hero, botão escuro)",
 	});
 });
 
-describe("tema clássico: landing pública", () => {
-	const L = CLASSIC_COLORS.landing;
+describe("tema: landing pública", () => {
+	const L = THEME_COLORS.landing;
 
-	it("os hex do teste são os tokens de .landing no tema clássico em globals.css", () => {
+	it("os hex do teste são os tokens de .landing em globals.css", () => {
 		const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8").toLowerCase();
-		const block = css.slice(css.indexOf('html[data-brand-theme="classico"] .landing {'));
+		const block = css.slice(css.indexOf(".landing {"), css.indexOf(".landing :focus-visible"));
 		for (const hex of Object.values(L)) expect(block, hex).toContain(hex.toLowerCase());
 	});
 
@@ -431,8 +263,17 @@ describe("tema clássico: landing pública", () => {
 		["foco: contorno verde escuro na página creme", L.green, L.offwhite, 3],
 		["foco: contorno verde escuro na faixa dourada", L.green, L.yellow, 3],
 		["foco: halo dourado no hero verde escuro", L.yellow, L.green, 3],
+		["foco: contorno verde escuro no cartão branco", L.green, L.white, 3],
+		["foco: halo dourado na faixa do diferencial", L.yellow, L.greenAlt, 3],
+		["foco: sobre o cartão creme o contorno verde lê, sem halo", L.green, L.mint, 3],
+		["etiqueta dourada no cartão verde escuro (ícone e rótulo)", L.yellow, L.green, 4.5],
+		["selo PDF: dourado sobre verde escuro", L.yellow, L.green, 4.5],
 	])("%s: pelo menos %s:1", (_n, fg, bg, min) => {
 		expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
+	});
+
+	it("a borda do cartão é decorativa (< 3:1): o cartão não depende dela", () => {
+		expect(contrastRatio(L.border, L.white)).toBeLessThan(3);
 	});
 
 	it("prova que o dourado NÃO lê como texto sobre fundo claro", () => {
@@ -441,9 +282,8 @@ describe("tema clássico: landing pública", () => {
 	});
 });
 
-describe("tema clássico: hex ↔ CSS", () => {
+describe("tema: hex ↔ CSS", () => {
 	const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
-	const classic = css.slice(css.indexOf("Tema \"clássico\""));
 
 	function hsl(hex: string): string {
 		const n = parseInt(hex.slice(1), 16);
@@ -461,29 +301,29 @@ describe("tema clássico: hex ↔ CSS", () => {
 		["--background", BRAND_COLORS.background],
 		["--foreground", BRAND_COLORS.foreground],
 		["--primary", BRAND_COLORS.primary],
-		["--primary-hover", CLASSIC_COLORS.primaryHover],
+		["--primary-hover", THEME_COLORS.primaryHover],
 		["--cta", BRAND_COLORS.cta],
 		["--cta-foreground", BRAND_COLORS.ctaForeground],
 		["--cta-hover", BRAND_COLORS.ctaHover],
 		["--muted", BRAND_COLORS.muted],
 		["--muted-foreground", BRAND_COLORS.mutedForeground],
 		["--accent", BRAND_COLORS.cream],
-		["--destructive", CLASSIC_COLORS.destructive],
+		["--destructive", THEME_COLORS.destructive],
 		["--border", BRAND_COLORS.hairline],
-		["--input", CLASSIC_COLORS.controlBorder],
+		["--input", THEME_COLORS.controlBorder],
 		["--surface", BRAND_COLORS.surface],
-		...CLASSIC_COLORS.chart.map((hex, i): [string, string] => [`--chart-${i + 1}`, hex]),
-		["--primary", CLASSIC_COLORS.dark.primary],
-		["--primary-foreground", CLASSIC_COLORS.dark.primaryForeground],
-		["--primary-hover", CLASSIC_COLORS.dark.primaryHover],
-		["--card", CLASSIC_COLORS.dark.card],
-		["--muted-foreground", CLASSIC_COLORS.dark.mutedForeground],
-		["--accent", CLASSIC_COLORS.dark.accent],
-		["--input", CLASSIC_COLORS.dark.controlBorder],
-		["--destructive", CLASSIC_COLORS.dark.destructive],
+		...THEME_COLORS.chart.map((hex, i): [string, string] => [`--chart-${i + 1}`, hex]),
+		["--primary", THEME_COLORS.dark.primary],
+		["--primary-foreground", THEME_COLORS.dark.primaryForeground],
+		["--primary-hover", THEME_COLORS.dark.primaryHover],
+		["--card", THEME_COLORS.dark.card],
+		["--muted-foreground", THEME_COLORS.dark.mutedForeground],
+		["--accent", THEME_COLORS.dark.accent],
+		["--input", THEME_COLORS.dark.controlBorder],
+		["--destructive", THEME_COLORS.dark.destructive],
 	];
 
 	it.each(pairs)("%s = %s", (name, hex) => {
-		expect(classic).toContain(`${name}: ${hsl(hex)};`);
+		expect(css).toContain(`${name}: ${hsl(hex)};`);
 	});
 });

@@ -202,21 +202,6 @@ Antes de um deploy com migration nova, rode o backup manual do passo 4.5.
 - Migrations não voltam. Depois do primeiro deploy, `db/migrations/` é forward-only.
 - Se a imagem anterior não roda com o schema novo, o rollback do app não basta. Restaure o banco a partir do snapshot Restic. Este runbook não descreve a restauração completa. O drill (`restore-test.sh`) restaura em cluster isolado e não substitui o procedimento de recuperação (lacuna conhecida).
 
-## 7. Trocar a identidade visual
-
-A variável `BRAND_THEME` escolhe as cores e as fontes do app: `atual` (padrão: verde e amarelo forte) ou `classico` (creme, dourado e verde profundo). Valor ausente ou inválido vale `atual`, sem erro. O layout não muda. PDFs e e-mails não mudam (usam a paleta própria deles).
-
-1. Edite `BRAND_THEME=classico` em `.env.production`.
-2. Aplique: rode o instalador com `--update` (ele não reescreve o valor que você definiu), ou rode direto:
-
-   ```sh
-   docker service update --env-add BRAND_THEME=classico reino_reino_app
-   ```
-
-3. Para reverter, use o valor `atual` (mesmos comandos). Não precisa de nova imagem: o app lê a variável a cada pedido.
-
-Se você usar só o `docker service update`, grave o mesmo valor em `.env.production`. Senão o próximo `docker stack deploy` volta ao valor do arquivo.
-
 ## Referências
 
 - [Monitoramento e alertas](monitoring.md)

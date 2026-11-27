@@ -14,7 +14,6 @@ services:
       PORT: "3000"
       HOSTNAME: 0.0.0.0
       TZ: America/Sao_Paulo
-      BRAND_THEME: ${BRAND_THEME:-atual}
       BETTER_AUTH_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
       TRAEFIK_PROXY_CIDR: ${TRAEFIK_PROXY_CIDR:?TRAEFIK_PROXY_CIDR is required}
       DOCUMENT_ROOT: /var/lib/reino/documents

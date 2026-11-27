@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { BRAND_NAME } from "@/lib/brand/brand";
-import { APP_COLORS, BRAND_COLORS } from "@/lib/brand/tokens";
+import { BRAND_COLORS } from "@/lib/brand/tokens";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -9,7 +9,7 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/admin",
     scope: "/admin",
     display: "standalone",
-    background_color: APP_COLORS.background,
+    background_color: BRAND_COLORS.brand,
     theme_color: BRAND_COLORS.brand,
     icons: [
       { src: "/brand/rainha-cred/icones/icone-fundo-branco-192.png", sizes: "192x192", type: "image/png" },
