@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ArrowLeft, X } from "lucide-react";
 
+import { cn } from "@/lib/utils";
+
 export interface ScreenHeaderProps {
 	title: string;
 	onBack?: () => void;
@@ -10,6 +12,8 @@ export interface ScreenHeaderProps {
 	onClose?: () => void;
 	closeLabel?: string;
 	step?: { current: number; total: number; label: string };
+	// Ex.: margem negativa para sangrar até a borda quando a tela tem gutter.
+	className?: string;
 }
 
 // Alvo de 44 px; o foco visível vem do anel padrão.
@@ -39,11 +43,11 @@ function IconAction({ label, href, onClick, children }: IconActionProps) {
 }
 
 // Cabeçalho fixo de tela cheia: voltar à esquerda, fechar à direita e, em fluxo por etapas, "Passo N de M".
-export function ScreenHeader({ title, onBack, backHref, backLabel = "Voltar", closeHref, onClose, closeLabel = "Fechar", step }: ScreenHeaderProps) {
+export function ScreenHeader({ title, onBack, backHref, backLabel = "Voltar", closeHref, onClose, closeLabel = "Fechar", step, className }: ScreenHeaderProps) {
 	const hasBack = Boolean(onBack || backHref);
 	const hasClose = Boolean(onClose || closeHref);
 	return (
-		<header className="sticky top-0 z-30 border-b border-border bg-background pt-[env(safe-area-inset-top)]">
+		<header className={cn("sticky top-0 z-30 border-b border-border bg-background pt-[env(safe-area-inset-top)]", className)}>
 			<div className="flex min-h-11 items-center gap-1">
 				{hasBack ? (
 					<IconAction label={backLabel} href={backHref} onClick={onBack}>
@@ -55,7 +59,7 @@ export function ScreenHeader({ title, onBack, backHref, backLabel = "Voltar", cl
 				<div className="min-w-0 flex-1 text-center">
 					<h1 className="truncate text-base font-bold">{title}</h1>
 					{step && (
-						<p aria-live="polite" className="truncate text-sm text-muted-foreground">
+						<p className="truncate text-sm text-muted-foreground">
 							Passo {step.current} de {step.total}: {step.label}
 						</p>
 					)}

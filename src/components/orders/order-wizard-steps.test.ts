@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canLeaveStep, hasTypedData, wizardSteps, type WizardFormState } from "@/components/orders/order-wizard-steps";
+import { canLeaveStep, hasTypedData, isStepSettled, STEP_CLICK_GUARD_MS, wizardSteps, type WizardFormState } from "@/components/orders/order-wizard-steps";
 
 const VALID_CPF = "529.982.247-25";
 const VALID_CNPJ = "11.222.333/0001-81";
@@ -69,6 +69,17 @@ describe("canLeaveStep", () => {
 		expect(canLeaveStep("data", s)).toBe(false);
 	});
 
+	it("dados: e-mail que o zod recusa (a@b.c, 255 caracteres) bloqueia", () => {
+		const s = (email: string) => state({ subject: { name: "Empresa X", document: VALID_CNPJ }, contactEmail: email });
+		expect(canLeaveStep("data", s("a@b.c"))).toBe(false);
+		expect(canLeaveStep("data", s(`${"a".repeat(250)}@b.co`))).toBe(false);
+	});
+
+	it("dados: nome com 121 caracteres bloqueia", () => {
+		const s = state({ subject: { name: "N".repeat(121), document: VALID_CNPJ }, contactEmail: "a@b.co" });
+		expect(canLeaveStep("data", s)).toBe(false);
+	});
+
 	it("dados: tudo válido libera", () => {
 		const s = state({ subject: { name: "Empresa X", document: VALID_CNPJ }, contactEmail: "a@b.co" });
 		expect(canLeaveStep("data", s)).toBe(true);
@@ -84,6 +95,12 @@ describe("canLeaveStep", () => {
 		expect(canLeaveStep("partners", state({ partners: [{ ...row, document: "529.982" , email: "a@b.co" }] }))).toBe(false);
 	});
 
+	it("sócios: e-mail a@b.c e nome de 121 caracteres bloqueiam", () => {
+		const row = { name: "Ana Sócia", document: VALID_CPF, email: "ana@b.co" };
+		expect(canLeaveStep("partners", state({ partners: [{ ...row, email: "a@b.c" }] }))).toBe(false);
+		expect(canLeaveStep("partners", state({ partners: [{ ...row, name: "N".repeat(121) }] }))).toBe(false);
+	});
+
 	it("sócios: linhas completas liberam", () => {
 		const row = { name: "Ana Sócia", document: VALID_CPF, email: "ana@b.co" };
 		expect(canLeaveStep("partners", state({ partners: [row] }))).toBe(true);
@@ -91,6 +108,16 @@ describe("canLeaveStep", () => {
 
 	it("revisão: sempre pode seguir (a confirmação valida o resto)", () => {
 		expect(canLeaveStep("review", state({}))).toBe(true);
+	});
+});
+
+describe("isStepSettled", () => {
+	it("recusa o clique logo depois da troca de etapa (duplo clique)", () => {
+		expect(isStepSettled(1_000, 1_000 + STEP_CLICK_GUARD_MS - 1)).toBe(false);
+	});
+
+	it("aceita depois do tempo de guarda", () => {
+		expect(isStepSettled(1_000, 1_000 + STEP_CLICK_GUARD_MS)).toBe(true);
 	});
 });
 

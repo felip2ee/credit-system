@@ -1,6 +1,6 @@
 import { Controller, type UseFormReturn } from "react-hook-form";
 
-import { productLabel, type HolderType, type OrderPriceBreakdown } from "@/components/orders/order-rules";
+import { isSelfOrder, orderHasMembers, productLabel, type HolderType, type OrderPriceBreakdown } from "@/components/orders/order-rules";
 import { CouponField, type useCoupon } from "@/components/orders/coupon-field";
 import { OrderPriceSummary } from "@/components/orders/order-price-summary";
 import type { OrderFormValues } from "@/components/orders/order-wizard-steps";
@@ -16,8 +16,6 @@ interface ReviewStepProps {
 	values: OrderFormValues;
 	productName: string;
 	holderType: HolderType;
-	isSelf: boolean;
-	hasMembers: boolean;
 	selfDocumentMasked: string | null;
 	declarationBody: string;
 	breakdown: OrderPriceBreakdown | null;
@@ -46,7 +44,9 @@ function FailureBanner({ what, next }: { what: string; next: string }) {
 
 // Etapa final: resumo (documentos sempre mascarados), declaração, cupom, total e saldo.
 export function ReviewStep(props: ReviewStepProps) {
-	const { form, values, productName, holderType, isSelf, hasMembers, selfDocumentMasked, declarationBody } = props;
+	const { form, values, productName, holderType, selfDocumentMasked, declarationBody } = props;
+	const isSelf = isSelfOrder(values.productCode, holderType);
+	const hasMembers = orderHasMembers(values.productCode, holderType);
 	const { breakdown, pricePerPartner, coupon, available, insufficient, serverError } = props;
 	const empresarial = values.productCode === "dossie_empresarial";
 
@@ -72,7 +72,7 @@ export function ReviewStep(props: ReviewStepProps) {
 							) : (
 								<ul className="space-y-1">
 									{values.partners.map((p, i) => (
-										<li key={`${i}-${p.email}`} className="break-words font-bold">
+										<li key={`partner-${i}`} className="break-words font-bold">
 											{p.name} ({maskDocumentValue(p.document)})
 										</li>
 									))}

@@ -16,7 +16,7 @@ import {
 	type HolderType,
 	type ProductPrices,
 } from "@/components/orders/order-rules";
-import { canLeaveStep, hasTypedData, wizardSteps, type OrderFormValues, type WizardStepId } from "@/components/orders/order-wizard-steps";
+import { canLeaveStep, hasTypedData, isStepSettled, STEP_CLICK_GUARD_MS, wizardSteps, type OrderFormValues, type WizardStepId } from "@/components/orders/order-wizard-steps";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ScreenHeader } from "@/components/ui/screen-header";
@@ -44,13 +44,19 @@ interface ClientOrderFormProps {
 
 const EXIT_HREF = "/portal/pesquisas";
 
-// Campos que cada etapa valida ao continuar. A escolha de produto e a revisão não têm campo de texto.
-const STEP_FIELDS: Record<WizardStepId, (isSelf: boolean) => FieldPath<OrderFormValues>[]> = {
-	product: () => [],
-	data: (isSelf) => (isSelf ? [] : ["subject.document", "subject.name", "contactEmail"]),
-	partners: () => ["partners"],
-	review: () => [],
-};
+// Sangra até a borda da tela: o gutter da página é 16 px (20 px a partir de 375 px), como `.px-screen`.
+const BLEED = "-mx-4 min-[375px]:-mx-5";
+
+// Cabeçalho e rodapé fixos cobrem a tela: o foco de um campo inválido não pode ficar embaixo deles.
+const SECTION_CLASS =
+	"space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20 [&_input]:scroll-mb-44 [&_button]:scroll-mb-44";
+
+// Campos que cada etapa valida ao continuar. Só as etapas "dados" e "sócios" têm campo de texto.
+function stepFields(step: WizardStepId, isSelf: boolean): FieldPath<OrderFormValues>[] {
+	if (step === "data") return isSelf ? [] : ["subject.document", "subject.name", "contactEmail"];
+	if (step === "partners") return ["partners"];
+	return [];
+}
 
 const emptyValues = (productCode: OrderFormValues["productCode"], holderType: HolderType): OrderFormValues => ({
 	productCode,
@@ -75,8 +81,13 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const [serverError, setServerError] = useState<string | null>(null);
 	const [stepIndex, setStepIndex] = useState(0);
 	const [leaveOpen, setLeaveOpen] = useState(false);
+	// Depois de um "Continuar" que falhou, os erros da etapa são revalidados a cada digitação.
+	const [attempted, setAttempted] = useState(false);
+	// A confirmação só libera depois que a revisão foi mostrada (e passou o tempo de guarda).
+	const [reviewReady, setReviewReady] = useState(false);
 	const titleRef = useRef<HTMLHeadingElement>(null);
-	const firstRender = useRef(true);
+	const shownStep = useRef(0);
+	const stepChangedAt = useRef(Date.now());
 	const firstCode = products[0]?.code ?? "dossie_pf";
 
 	const form = useForm<OrderFormValues>({
@@ -84,7 +95,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 		resolver: zodResolver(clientOrderSchema) as unknown as Resolver<OrderFormValues>,
 		defaultValues: emptyValues(firstCode, holderType),
 	});
-	const { handleSubmit, watch, setValue, getValues, reset, trigger } = form;
+	const { handleSubmit, watch, setValue, getValues, reset, trigger, clearErrors } = form;
 
 	const values = watch();
 	const { productCode, declarationAccepted } = values;
@@ -105,14 +116,31 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 		setServerError(null);
 	}, [productCode, holderType, reset]);
 
-	// Ao trocar de etapa o foco vai para o título, para o leitor de tela anunciar onde está. Não na abertura.
+	// Ao trocar de etapa o foco vai para o título, para o leitor de tela anunciar onde está. Não na abertura
+	// (o StrictMode roda o efeito duas vezes: comparar com a etapa já mostrada evita o foco falso).
 	useEffect(() => {
-		if (firstRender.current) {
-			firstRender.current = false;
-			return;
-		}
+		if (shownStep.current === stepIndex) return;
+		shownStep.current = stepIndex;
+		stepChangedAt.current = Date.now();
 		titleRef.current?.focus();
 	}, [stepIndex]);
+
+	const onReview = current.id === "review";
+	useEffect(() => {
+		if (!onReview) {
+			setReviewReady(false);
+			return;
+		}
+		const timer = setTimeout(() => setReviewReady(true), STEP_CLICK_GUARD_MS);
+		return () => clearTimeout(timer);
+	}, [onReview]);
+
+	const fieldsKey = JSON.stringify([values.subject, values.contactEmail, values.partners]);
+	useEffect(() => {
+		if (attempted) void trigger(stepFields(current.id, isSelf));
+		// Só a digitação dispara: fieldsKey resume os valores.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [attempted, fieldsKey]);
 
 	const requestExit = () => {
 		if (hasTypedData(getValues())) setLeaveOpen(true);
@@ -120,15 +148,21 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	};
 
 	const goBack = () => {
+		setAttempted(false);
 		if (stepIndex === 0) requestExit();
 		else setStepIndex(stepIndex - 1);
 	};
 
 	const goNext = async () => {
+		if (!isStepSettled(stepChangedAt.current, Date.now())) return;
+		const fields = stepFields(current.id, isSelf);
 		if (!canLeaveStep(current.id, getValues())) {
-			await trigger(STEP_FIELDS[current.id](isSelf), { shouldFocus: true });
+			setAttempted(true);
+			await trigger(fields, { shouldFocus: true });
 			return;
 		}
+		setAttempted(false);
+		clearErrors(fields);
 		setServerError(null);
 		setStepIndex(stepIndex + 1);
 	};
@@ -159,7 +193,12 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 
 	// Enter nas etapas 1 a 3 avança; só a última etapa confirma o pedido.
 	const onFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-		if (isLast) return handleSubmit(onSubmit, onInvalid)(event);
+		if (isLast) {
+			event.preventDefault();
+			// Dinheiro: um clique que ainda faz parte do duplo clique da etapa anterior não confirma.
+			if (!reviewReady || !isStepSettled(stepChangedAt.current, Date.now())) return;
+			return handleSubmit(onSubmit, onInvalid)(event);
+		}
 		event.preventDefault();
 		return goNext();
 	};
@@ -167,14 +206,18 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	return (
 		<div className="space-y-6">
 			<ScreenHeader
+				className={BLEED}
 				title="Nova pesquisa"
 				onBack={goBack}
 				onClose={requestExit}
 				step={{ current: stepIndex + 1, total: steps.length, label: current.label }}
 			/>
 			<form onSubmit={onFormSubmit} className="space-y-6" noValidate>
-				<section key={current.id} className="space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+				<section key={current.id} className={SECTION_CLASS}>
 					<h2 ref={titleRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">
+						<span className="sr-only">
+							Passo {stepIndex + 1} de {steps.length}:{" "}
+						</span>
 						{current.title}
 					</h2>
 					{current.id === "product" && (
@@ -198,8 +241,6 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 							values={values}
 							productName={product?.name ?? ""}
 							holderType={holderType}
-							isSelf={isSelf}
-							hasMembers={hasMembers}
 							selfDocumentMasked={selfDocumentMasked}
 							declarationBody={declaration.bodyMd}
 							breakdown={breakdown}
@@ -215,7 +256,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 						{current.after}
 					</p>
 				</section>
-				<div className="sticky bottom-20 z-30 -mx-screen border-t border-border bg-background px-screen py-3 md:bottom-0">
+				<div className={`sticky bottom-[calc(4.5rem+1px+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background px-screen py-3 md:bottom-0 ${BLEED}`}>
 					{!isLast ? (
 						<Button key="next" type="submit" size="lg" glow className="w-full">
 							Continuar
@@ -225,7 +266,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 							<Link href="/portal/credits">Comprar créditos</Link>
 						</Button>
 					) : (
-						<Button key="confirm" type="submit" size="lg" glow className="w-full" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
+						<Button key="confirm" type="submit" size="lg" glow className="w-full" disabled={isPending || !reviewReady || !canConfirmOrder({ hasMembers, declarationAccepted })}>
 							{isPending && <Loader2 aria-hidden className="animate-spin" />}
 							{isPending ? "Enviando..." : "Confirmar pedido"}
 						</Button>

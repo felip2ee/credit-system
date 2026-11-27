@@ -1,7 +1,9 @@
 // Lógica pura do assistente "Nova pesquisa": quais etapas existem, quando dá para sair de uma etapa e quando a saída pede confirmação.
 import { isSelfOrder, type HolderType } from "@/components/orders/order-rules";
 import type { OrderProductCode } from "@/lib/orders/types";
-import { isValidCNPJ, isValidCPF, isValidEmail } from "@/lib/utils";
+import { isValidCNPJ, isValidCPF } from "@/lib/utils";
+import { emailSchema, MAX_PARTNERS, partnerSchema, subjectSchema } from "@/lib/validators/order";
+import { z } from "zod";
 
 export type WizardStepId = "product" | "data" | "partners" | "review";
 
@@ -28,14 +30,7 @@ export interface OrderFormValues {
 
 export type WizardFormState = Omit<OrderFormValues, "productCode"> & { productCode: OrderProductCode | null };
 
-const MIN_NAME_LENGTH = 2;
-
-const PRODUCT_STEP: WizardStep = {
-	id: "product",
-	label: "Para quem",
-	title: "Para quem é a pesquisa?",
-	after: "",
-};
+const PRODUCT_STEP = { id: "product", label: "Para quem", title: "Para quem é a pesquisa?" } as const;
 
 export function wizardSteps(productCode: OrderProductCode | null, holderType: HolderType): WizardStep[] {
 	if (!productCode) return [{ ...PRODUCT_STEP, after: "Você informa os dados da pesquisa." }];
@@ -72,12 +67,13 @@ export function wizardSteps(productCode: OrderProductCode | null, holderType: Ho
 }
 
 const isFilled = (value: string): boolean => value.trim() !== "";
-const isValidName = (value: string): boolean => value.trim().length >= MIN_NAME_LENGTH;
+const partnersSchema = z.array(partnerSchema).max(MAX_PARTNERS);
 
 function subjectIsValid(state: WizardFormState): boolean {
 	if (state.self) return true;
 	const documentIsValid = state.productCode === "dossie_pf" ? isValidCPF(state.subject.document) : isValidCNPJ(state.subject.document);
-	return documentIsValid && isValidName(state.subject.name) && isValidEmail(state.contactEmail);
+	// As mesmas regras do schema da action: uma só fonte da verdade.
+	return documentIsValid && subjectSchema.safeParse(state.subject).success && emailSchema.safeParse(state.contactEmail).success;
 }
 
 // Mesmas regras do schema zod, só dos campos da etapa. Sócio sem linha nenhuma é permitido; linha pela metade não.
@@ -88,10 +84,17 @@ export function canLeaveStep(step: WizardStepId, state: WizardFormState): boolea
 		case "data":
 			return subjectIsValid(state);
 		case "partners":
-			return state.partners.every((p) => isValidName(p.name) && isValidCPF(p.document) && isValidEmail(p.email));
+			return partnersSchema.safeParse(state.partners).success;
 		case "review":
 			return true;
 	}
+}
+
+// Um duplo clique em "Continuar" não pode atravessar a etapa seguinte, nem confirmar o pedido (cobra créditos).
+export const STEP_CLICK_GUARD_MS = 600;
+
+export function isStepSettled(changedAtMs: number, nowMs: number): boolean {
+	return nowMs - changedAtMs >= STEP_CLICK_GUARD_MS;
 }
 
 // Sair da tela perde o que foi digitado: só pede confirmação se há algo a perder.

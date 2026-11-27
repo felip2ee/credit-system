@@ -39,7 +39,7 @@ export function ProductPicker({ products, value, onChange, holderType }: Product
 						className="min-w-0 rounded-card border border-input has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-brand-soft"
 					>
 						<label htmlFor={`product-${p.code}`} className="flex min-h-12 min-w-0 cursor-pointer items-start gap-3 p-3">
-							<RadioGroupItem id={`product-${p.code}`} value={p.code} className="mt-1 shrink-0" />
+							<RadioGroupItem id={`product-${p.code}`} value={p.code} aria-describedby={`product-${p.code}-rules`} className="mt-1 shrink-0" />
 							<span className="min-w-0 flex-1 space-y-1">
 								<span className="block break-words font-bold">{SUBJECT_TITLE[p.code]}</span>
 								<span className="block break-words text-sm text-muted-foreground">{productLabel(p.name, p.code, holderType)}</span>
@@ -52,12 +52,14 @@ export function ProductPicker({ products, value, onChange, holderType }: Product
 							</span>
 						</label>
 						<div className="space-y-1 px-3 pb-3 pl-12">
-							<p className="text-sm font-bold">O que você pode e não pode</p>
-							<ul className="list-disc space-y-1 pl-5 text-sm">
-								{rules.map((line) => (
-									<li key={line}>{line}</li>
-								))}
-							</ul>
+							<div id={`product-${p.code}-rules`} className="space-y-1">
+								<p className="text-sm font-bold">O que você pode e não pode</p>
+								<ul className="list-disc space-y-1 pl-5 text-sm">
+									{rules.map((line) => (
+										<li key={line}>{line}</li>
+									))}
+								</ul>
+							</div>
 							{copy && (
 								<details className="group">
 									<summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-sm font-bold text-primary [&::-webkit-details-marker]:hidden">
