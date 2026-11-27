@@ -78,6 +78,8 @@ export function DossierForm({ products }: DossierFormProps) {
 	const titleRef = useRef<HTMLHeadingElement>(null);
 	const shownStep = useRef(0);
 	const submitting = useRef(false);
+	// Um uuid por pedido (088): o servidor devolve o pedido já aberto em vez de abrir outro e reservar saldo de novo.
+	const idempotencyKey = useRef<string | null>(null);
 	// Depois de mandar o usuário a uma etapa com erro, o foco vai para o primeiro campo inválido dela.
 	const [focusInvalid, setFocusInvalid] = useState(false);
 
@@ -232,10 +234,11 @@ export function DossierForm({ products }: DossierFormProps) {
 		}
 		submitting.current = true;
 		setServerError(null);
+		idempotencyKey.current ??= crypto.randomUUID();
 		startTransition(async () => {
 			const raw = getValues();
 			const payload = { ...raw, ...ownResearchContacts(ownResearch, { contactEmail: String(raw.contactEmail ?? ""), contactPhone: String(raw.contactPhone ?? "") }) };
-			const res = await openCounterOrderAction({ ...payload, buyerProfileId: buyer?.profileId ?? null });
+			const res = await openCounterOrderAction({ ...payload, buyerProfileId: buyer?.profileId ?? null, idempotencyKey: idempotencyKey.current });
 			if (res.error || !res.id) {
 				submitting.current = false;
 				setServerError(res.error ?? "Falha ao abrir o pedido.");

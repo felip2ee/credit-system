@@ -50,6 +50,8 @@ export function CounterPaymentForm({ dossierId, holderName, remainingCents, orde
   const [isPending, startTransition] = useTransition();
   // Barreira síncrona: dois cliques seguidos entram antes de isPending virar true.
   const sending = useRef(false);
+  // Um uuid por pagamento (088): reenvio da mesma tela não lança o valor duas vezes. Novo pagamento, nova chave.
+  const idempotencyKey = useRef<string | null>(null);
 
   const amountError = amount === "" ? null : moneyError(amount);
   const typedAmount = amount !== "" && !amountError ? formatCurrency(Number(normalizeMoney(amount))) : null;
@@ -73,8 +75,10 @@ export function CounterPaymentForm({ dossierId, holderName, remainingCents, orde
     setError(null);
     setAmountInvalid(false);
     sending.current = true;
+    idempotencyKey.current ??= crypto.randomUUID();
     startTransition(async () => {
       const res = await registerCounterPaymentAction({
+        idempotencyKey: idempotencyKey.current,
         dossierId,
         method,
         amount: normalizeMoney(amount),
@@ -87,6 +91,7 @@ export function CounterPaymentForm({ dossierId, holderName, remainingCents, orde
         setError(res.error);
         return;
       }
+      idempotencyKey.current = null;
       setAmount("");
       setNote("");
       router.refresh();

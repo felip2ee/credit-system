@@ -147,6 +147,15 @@ describe("openCounterOrderAction", () => {
 		expect(revalidatePath).toHaveBeenCalledWith("/dossiers");
 	});
 
+	it("passes the idempotency key to placeOrder; without a key there are no options", async () => {
+		await openCounterOrderAction({ ...counterOrder, idempotencyKey: "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10" });
+		expect(state.placeOrder.mock.calls[0][3]).toEqual({ idempotencyKey: "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10" });
+
+		state.placeOrder.mockClear();
+		await openCounterOrderAction(counterOrder);
+		expect(state.placeOrder.mock.calls[0][3]).toBeUndefined();
+	});
+
 	it("quotes the partner count of a dossie_empresarial", async () => {
 		const partner = (document: string) => ({ document, name: "Sócio", email: `${document}@example.test` });
 		await openCounterOrderAction({

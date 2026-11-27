@@ -229,3 +229,30 @@ describe("duplicateEmailIndexes", () => {
 		expect(duplicateEmailIndexes([{ ...row, email: "a@b.co" }, { ...row, email: "c@b.co" }])).toEqual([]);
 	});
 });
+
+describe("idempotencyKey", () => {
+	const counter = { productCode: "dossie_pf", subject: { name: "Maria Souza", document: CPF } };
+
+	it("is optional and becomes null: legacy callers keep working", () => {
+		const client = clientOrderSchema.safeParse(third());
+		expect(client.success && client.data.idempotencyKey).toBeNull();
+		const staff = counterOrderSchema.safeParse(counter);
+		expect(staff.success && staff.data.idempotencyKey).toBeNull();
+		const nulled = clientOrderSchema.safeParse(third({ idempotencyKey: null }));
+		expect(nulled.success && nulled.data.idempotencyKey).toBeNull();
+	});
+
+	it("keeps a uuid in both order schemas, also for an own order", () => {
+		const client = clientOrderSchema.safeParse(third({ idempotencyKey: UUID }));
+		expect(client.success && client.data.idempotencyKey).toBe(UUID);
+		const own = clientOrderSchema.safeParse({ productCode: "dossie_pf", self: true, idempotencyKey: UUID });
+		expect(own.success && own.data.idempotencyKey).toBe(UUID);
+		const staff = counterOrderSchema.safeParse({ ...counter, idempotencyKey: UUID });
+		expect(staff.success && staff.data.idempotencyKey).toBe(UUID);
+	});
+
+	it.each(["abc", "", 12, {}])("refuses %j", (bad) => {
+		expect(clientOrderSchema.safeParse(third({ idempotencyKey: bad })).success).toBe(false);
+		expect(counterOrderSchema.safeParse({ ...counter, idempotencyKey: bad }).success).toBe(false);
+	});
+});

@@ -123,9 +123,24 @@ describe("registerCounterPaymentAction validation", () => {
 		await registerCounterPaymentAction({ ...form, note: "  " });
 		expect(state.registerCounterPayment).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: USER_ID, role: "operator", bureauId: BUREAU_ID }),
-			{ dossierId: DOSSIER_ID, method: "cash", amount: "25.50", note: null, receivedAt: new Date("2026-10-14") },
+			{ dossierId: DOSSIER_ID, method: "cash", amount: "25.50", note: null, receivedAt: new Date("2026-10-14"), idempotencyKey: null },
 		);
 		expect(revalidatePath).toHaveBeenCalledWith("/settings/counter-payments");
+	});
+
+	it("passes the idempotency key to the query and refuses a key that is not a uuid", async () => {
+		const key = "3f1f3a52-6a4f-4d6b-9a55-2b3d6a1c9e10";
+		await registerCounterPaymentAction({ ...form, idempotencyKey: key });
+		expect(state.registerCounterPayment).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ idempotencyKey: key }),
+		);
+		expect((await registerCounterPaymentAction({ ...form, idempotencyKey: "abc" })).error).toBe("Chave de envio inválida.");
+	});
+
+	it("maps an idempotency conflict to a message", async () => {
+		state.registerCounterPayment.mockResolvedValue({ ok: false, reason: "idempotency_conflict" });
+		expect((await registerCounterPaymentAction(form)).error).toMatch(/Este pagamento já foi registrado com outros dados/);
 	});
 
 	it("maps a failure to a message without revalidating", async () => {

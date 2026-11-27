@@ -97,6 +97,8 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, buye
 	const shownStep = useRef(0);
 	// Só a confirmação usa o tempo de guarda, contado desde a troca para a revisão.
 	const stepChangedAt = useRef(0);
+	// Um uuid por pedido (088): duplo clique e retry de rede reenviam a mesma chave e o servidor não cria o pedido de novo.
+	const idempotencyKey = useRef<string | null>(null);
 	const firstCode = products[0]?.code ?? "dossie_pf";
 
 	const form = useForm<OrderFormValues>({
@@ -185,9 +187,11 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, buye
 
 	const onSubmit = () => {
 		setServerError(null);
+		idempotencyKey.current ??= crypto.randomUUID();
 		startTransition(async () => {
 			const result = await openClientOrderAction({
 				...getValues(),
+				idempotencyKey: idempotencyKey.current,
 				declarationVersion: declaration.version,
 				...(coupon.couponCode ? { couponCode: coupon.couponCode } : {}),
 			});

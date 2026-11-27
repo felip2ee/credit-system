@@ -18,6 +18,12 @@ export async function insertOrderPixQuote(
 	);
 }
 
+// Preço da cotação do PIX do pedido (null: pedido sem cotação, pago pela carteira). Reenvio idempotente (088).
+export async function readOrderPixQuoteCents(client: PoolClient, dossierId: string): Promise<number | null> {
+	const { rows } = await client.query<{ price: string }>("select price from order_pix_quotes where dossier_id = $1", [dossierId]);
+	return rows[0] ? toCents(rows[0].price) : null;
+}
+
 export type OrderPixCharge = {
 	id: string;
 	// Efetivo: pending vencida é expired.
