@@ -44,8 +44,8 @@ describe("wizardSteps", () => {
 	it.each([
 		["dossie_pf", "PF"],
 		["dossie_empresarial", "PJ"],
-	] as const)("revisão (%s): e-mail só para quem não tem autorização válida", (code, holder) => {
-		expect(wizardSteps(code, holder).at(-1)?.after).toMatch(/^Quem ainda não tem autorização válida recebe um pedido por e-mail\. /);
+	] as const)("revisão (%s): e-mail só para quem não tem autorização válida nem pedido em aberto", (code, holder) => {
+		expect(wizardSteps(code, holder).at(-1)?.after).toMatch(/^Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail\. /);
 	});
 
 	it("cada etapa diz o que acontece depois", () => {

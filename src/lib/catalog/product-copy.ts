@@ -41,7 +41,7 @@ export function productRules(code: string, self: boolean): string[] {
 		return [
 			"Inclui a empresa e os sócios que você adicionar.",
 			"Cada sócio custa o valor por sócio.",
-			"Quem ainda não tem autorização válida recebe um pedido por e-mail.",
+			"Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail.",
 			"A consulta só roda depois da autorização de todos.",
 		];
 	}

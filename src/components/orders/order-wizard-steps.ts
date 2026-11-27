@@ -37,8 +37,8 @@ export function wizardSteps(productCode: OrderProductCode | null, holderType: Ho
 	const self = isSelfOrder(productCode, holderType);
 	const empresarial = productCode === "dossie_empresarial";
 	const reviewAfter = self
-		? "Quem ainda não tem autorização válida recebe um pedido por e-mail. A consulta só roda com a sua autorização."
-		: "Quem ainda não tem autorização válida recebe um pedido por e-mail. A consulta só roda depois da autorização de todas as pessoas pesquisadas.";
+		? "Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail. A consulta só roda com a sua autorização."
+		: "Quem ainda não tem autorização válida nem um pedido em aberto recebe um pedido por e-mail. A consulta só roda depois da autorização de todas as pessoas pesquisadas.";
 
 	const steps: WizardStep[] = [
 		{
