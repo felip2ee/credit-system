@@ -19,7 +19,7 @@ export type BureauAdminMetrics = {
 // Tudo do Bureau do chamador (ctx.bureauId, mais a RLS). Cadastros = contas de cliente criadas no Bureau no período
 // (todo cadastro de cliente nasce pela página do Bureau; affiliate_referrals só cobre os indicados).
 // Vendas = pedidos capturados (order_settlements) no período, a mesma base do faturamento. A comissão do afiliado no
-// ranking soma as comissões criadas no período: a do pedido antigo (captura) e a da entrada de dinheiro (072, order_ref =
+// ranking soma as comissões criadas no período: a do pedido antigo (captura) e a da entrada de dinheiro (077, order_ref =
 // cobrança); um afiliado só com comissão da entrada (sem pedido capturado no período) também aparece.
 export async function getBureauAdminMetrics(ctx: DbIdentity, period: RevenuePeriodKey): Promise<BureauAdminMetrics> {
 	if (!ctx.bureauId) throw new Error("getBureauAdminMetrics requires a bureau context");

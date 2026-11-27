@@ -1,4 +1,4 @@
-// Plano de split de uma cobrança Asaas (migração 068). O cálculo das camadas (sócios, bureau, bureau indicador, afiliado de
+// Plano de split de uma cobrança Asaas (migração 073). O cálculo das camadas (sócios, bureau, bureau indicador, afiliado de
 // link), o teto de 100% e a gravação em charge_splits (pending) rodam no banco, a partir da cobrança: quem chama não
 // escolhe beneficiário, walletId, percentual nem valor. Aqui só se chama o banco e se separa o resultado por destino.
 // Nenhuma chamada HTTP roda aqui: o plano vem antes do Asaas, na mesma transação da reserva da cobrança.
@@ -77,6 +77,6 @@ export const buildSplitPlan = (client: PoolClient, chargeId: string): Promise<Sp
 export const buildLinkSplitPlan = (db: Queryable, chargeId: string): Promise<SplitPlan> =>
 	plan(db, "payment_link_charge_split", chargeId);
 
-// Asaas recusou o split e a cobrança segue sem ele (079): as linhas asaas pendentes viram `refused`.
+// Asaas recusou o split e a cobrança segue sem ele (084): as linhas asaas pendentes viram `refused`.
 export const markSplitRefused = (db: Queryable, chargeId: string) =>
 	db.query("select public.charge_split_mark_refused($1)", [chargeId]);

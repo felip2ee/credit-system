@@ -95,7 +95,7 @@ describe("listSales", () => {
 
 		const online = await withUserTransaction(admin, (c) => listSales(c, { mode: "online", range: WIDE }));
 		expect(online.rows).toHaveLength(1);
-		// Pedido online novo (072): sem parte do Bureau por pedido; ela vem do split da entrada (teste abaixo).
+		// Pedido online novo (077): sem parte do Bureau por pedido; ela vem do split da entrada (teste abaixo).
 		expect(online.rows[0]).toMatchObject({
 			orderRef: onlineRef,
 			mode: "online",

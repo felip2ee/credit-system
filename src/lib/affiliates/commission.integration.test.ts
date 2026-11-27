@@ -1,5 +1,5 @@
-// Comissão de afiliado (migrações 027, 055 e 072) contra um Postgres real: captura, carência, estorno e bloqueio LGPD.
-// Desde a 072 só o pedido online reservado antes dela gera comissão na captura (os testes abaixo usam esse pedido, via
+// Comissão de afiliado (migrações 027, 055 e 077) contra um Postgres real: captura, carência, estorno e bloqueio LGPD.
+// Desde a 077 só o pedido online reservado antes dela gera comissão na captura (os testes abaixo usam esse pedido, via
 // seedLegacyOnlineOrder); o pedido novo não gera, e a comissão de afiliado vem do split da entrada (cash-in.integration.test.ts).
 // Modelo da 055: o Bureau recebe uma % do preço bruto (o seed fixa 20% com preço 400,00 e custo 320,00) e o afiliado, uma
 // % única do Bureau (bureau_affiliate_settings) também sobre o preço bruto, paga pela plataforma.
@@ -143,7 +143,7 @@ async function setDefaultPct(t: SeededTenant, pct: string) {
 	);
 }
 
-// Pedido reservado antes da 072, com a % do Bureau gravada (o seed fixa 20%; custo = preço menos a comissão), e capturado.
+// Pedido reservado antes da 077, com a % do Bureau gravada (o seed fixa 20%; custo = preço menos a comissão), e capturado.
 async function placeAndCapture(s: Scenario, price = "400.00", cost = "320.00") {
 	const commissionPct = (((Number(price) - Number(cost)) / Number(price)) * 100).toFixed(2);
 	const orderRef = await seedLegacyOnlineOrder(owner, {
@@ -153,7 +153,7 @@ async function placeAndCapture(s: Scenario, price = "400.00", cost = "320.00") {
 	return { orderRef, mode: "online" as const, clientId: s.buyerId, price, cost };
 }
 
-// Pedido novo (reservado pela reserve_order da 072) e capturado.
+// Pedido novo (reservado pela reserve_order da 077) e capturado.
 async function placeNewAndCapture(s: Scenario, price = "400.00") {
 	const order: Order = { orderRef: randomUUID(), mode: "online", clientId: s.buyerId, price, cost: "0.00" };
 	expect(await committed(clientCtx(s.buyerId, s.t), (c) => reserve(c, order))).toMatchObject({ ok: true });
@@ -201,7 +201,7 @@ async function refund30(s: Scenario) {
 	]);
 }
 
-describe("pedido novo (072)", () => {
+describe("pedido novo (077)", () => {
 	it("a captura não grava comissão do afiliado, accrual do Bureau nem saldo pendente, com todas as condições atendidas", async () => {
 		const s = await scenario("Novo sem comissão");
 		const order = await placeNewAndCapture(s);
@@ -212,7 +212,7 @@ describe("pedido novo (072)", () => {
 	});
 });
 
-describe("comissão na captura (pedido reservado antes da 072)", () => {
+describe("comissão na captura (pedido reservado antes da 077)", () => {
 	it("grava 40,00 pendente (10% de 400,00), accrual 80,00 do Bureau (20%) e saldo pendente do afiliado", async () => {
 		const s = await scenario("Com 10");
 		const order = await placeAndCapture(s);

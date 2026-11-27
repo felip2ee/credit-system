@@ -105,7 +105,7 @@ async function handleInvoiceEvent(raw: unknown): Promise<Response> {
 	}
 }
 
-// Split (067, 078): evento de split, estorno ou chargeback com payment.split atualiza charge_splits. Retorna a resposta só
+// Split (072, 083): evento de split, estorno ou chargeback com payment.split atualiza charge_splits. Retorna a resposta só
 // quando o evento é apenas de split; estorno e chargeback seguem para apply_asaas_payment. 500 faz o Asaas reenviar.
 async function handleSplitEvent(event: z.infer<typeof eventSchema>, raw: unknown): Promise<Response | null> {
 	const splitOnly = SPLIT_ONLY_EVENTS.has(event.event);

@@ -18,7 +18,7 @@ export const partnerSchema = z.object({
 });
 export type PartnerInput = z.infer<typeof partnerSchema>;
 
-// app_runtime não tem delete em bureau_asaas_wallets (065): o walletId só se troca, não se remove.
+// app_runtime não tem delete em bureau_asaas_wallets (070): o walletId só se troca, não se remove.
 export const bureauWalletSchema = z.object({
 	bureauId: z.string().uuid("Bureau inválido."),
 	asaasWalletId: asaasWalletIdField,

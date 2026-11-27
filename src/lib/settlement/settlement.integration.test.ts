@@ -219,7 +219,7 @@ const counter = (price = "50.00", cost = "30.00", orderRef: string = randomUUID(
 	cost,
 });
 
-// Pedido online reservado antes da 072: a captura ainda gera o acréscimo antigo (price - cost). Pedido novo não gera.
+// Pedido online reservado antes da 077: a captura ainda gera o acréscimo antigo (price - cost). Pedido novo não gera.
 async function legacyCaptured(t: SeededTenant, price = "50.00", cost = "30.00"): Promise<{ orderRef: string }> {
 	const orderRef = await seedLegacyOnlineOrder(owner, {
 		bureauId: t.bureau.id,
@@ -232,7 +232,7 @@ async function legacyCaptured(t: SeededTenant, price = "50.00", cost = "30.00"):
 }
 
 describe("reserve_order / capture_order / release_order (online)", () => {
-	it("reserves the price from the client wallet and captures it with no accrual (commission comes from the cash-in split, 072)", async () => {
+	it("reserves the price from the client wallet and captures it with no accrual (commission comes from the cash-in split, 077)", async () => {
 		const t = await setup("100.00", "0");
 		const order = online(t, "50.00", "30.00");
 
@@ -902,14 +902,14 @@ describe("conciliação", () => {
 			[t.client.userId],
 		);
 		expect(rows[0]).toEqual({ net: "359.50", total: "359.50" });
-		// 500 - 50 - 80.50 - 10.00 = 359.50; pedido novo não gera acréscimo na captura (072).
+		// 500 - 50 - 80.50 - 10.00 = 359.50; pedido novo não gera acréscimo na captura (077).
 		const payable = await owner.query<{ balance: string }>(
 			"select coalesce(sum(amount), 0) as balance from bureau_payable_entries where bureau_id = $1",
 			[t.bureau.id],
 		);
 		expect(payable.rows[0].balance).toBe("0");
 
-		// Pedido reservado antes da 072: o acréscimo antigo (preço - custo) segue valendo na captura.
+		// Pedido reservado antes da 077: o acréscimo antigo (preço - custo) segue valendo na captura.
 		await legacyCaptured(t, "40.00", "10.00");
 		expect(
 			(await owner.query("select coalesce(sum(amount), 0) as balance from bureau_payable_entries where bureau_id = $1", [t.bureau.id]))

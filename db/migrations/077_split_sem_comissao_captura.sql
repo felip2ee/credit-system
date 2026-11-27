@@ -1,5 +1,5 @@
 -- Comissão deixa de nascer na captura do pedido online (plano afiliado-bureaus, parte 1, task 4).
--- O bureau, o bureau indicador e o afiliado de link passam a receber só pelo split da entrada de dinheiro (068/069/070).
+-- O bureau, o bureau indicador e o afiliado de link passam a receber só pelo split da entrada de dinheiro (073/074/075).
 -- 1) order_settlements.commission_on_cash_in: marca o pedido online reservado depois desta migração. Pedido reservado
 --    antes (flag falso, com ou sem commission_pct) mantém o tratamento antigo na captura: não perde nem duplica comissão.
 --    Pedido de balcão não usa a flag: a comissão dele é a diferença entre o preço e o custo debitado da carteira do Bureau.
@@ -164,8 +164,8 @@ begin
   end if;
 
   -- Preço e custo saem do pedido, não da cotação: produto do pedido, sócios = membros do Dossiê menos o Titular
-  -- principal, preço de venda da última versão do produto (valor base + valor por sócio). Pedido online (072): a
-  -- comissão do Bureau e a do afiliado não nascem aqui nem na captura; vêm do split da entrada de dinheiro (068/069).
+  -- principal, preço de venda da última versão do produto (valor base + valor por sócio). Pedido online (077): a
+  -- comissão do Bureau e a do afiliado não nascem aqui nem na captura; vêm do split da entrada de dinheiro (073/074).
   -- Por isso não há % a resolver (sem commission_not_configured), o custo gravado é 0 e o cupom só baixa o valor pago.
   -- Pedido de balcão não muda: a comissão do Bureau é a % efetiva (override ou global) sobre o preço bruto e o custo
   -- gravado é a parte da plataforma (preço bruto menos comissão). A cotação do chamador só é conferida pelo total; as
@@ -283,7 +283,7 @@ begin
     end if;
 
     -- 4º: o Bureau cobre a falta do cupom (o desconto que passa da comissão dele; a parte da plataforma não muda).
-    -- Pedido online (072) tem custo 0: a falta é sempre 0 e o cupom só baixa o valor pago. Primeiro a carteira pré-paga (reserva), depois o valor a repassar
+    -- Pedido online (077) tem custo 0: a falta é sempre 0 e o cupom só baixa o valor pago. Primeiro a carteira pré-paga (reserva), depois o valor a repassar
     -- liberado (coupon_cost). O lock é o de create_payout: um repasse e esta reserva não gastam o mesmo dinheiro, e o
     -- saldo liberado nunca fica abaixo de zero.
     if v_coupon.id is not null then
@@ -471,7 +471,7 @@ begin
     -- (affiliate_rates e bureau_affiliate_settings; margem menor ou igual a zero não gera acréscimo nem comissão).
     v_margin := case when v_s.commission_pct is null then v_s.price - v_s.cost else v_s.price + v_s.discount end;
     v_commission := 0;
-    -- 072: pedido reservado depois da virada (commission_on_cash_in) não gera comissão aqui: o bureau e o afiliado
+    -- 077: pedido reservado depois da virada (commission_on_cash_in) não gera comissão aqui: o bureau e o afiliado
     -- recebem pelo split da entrada de dinheiro. Pedido reservado antes (flag falso) segue com o tratamento de antes.
     if not v_s.commission_on_cash_in then
     select r.affiliate_profile_id into v_affiliate

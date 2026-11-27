@@ -1,5 +1,5 @@
 -- O afiliado em modo conta Asaas recebe pelo split: as linhas estão só em charge_splits, que o cliente não lê
--- (charge_splits_select, 065). Em vez de uma política na tabela (a linha tem walletId), uma função definer devolve só as
+-- (charge_splits_select, 070). Em vez de uma política na tabela (a linha tem walletId), uma função definer devolve só as
 -- linhas asaas do próprio afiliado, no Bureau da sessão, com a seção ligada, e só o que a página mostra.
 -- Linha em modo Pix fica de fora: ela já vem de affiliate_commissions (nenhuma cobrança aparece duas vezes).
 -- Cobrança não paga fica de fora (o plano nasce com a cobrança), salvo se o repasse já saiu.

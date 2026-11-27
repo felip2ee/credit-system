@@ -65,7 +65,7 @@ afterAll(async () => {
 	await Promise.all([owner.end(), pool.end()]);
 });
 
-// Vende online e captura um pedido reservado antes da 072 (o acréscimo antigo, price - cost, que ainda nasce na captura
+// Vende online e captura um pedido reservado antes da 077 (o acréscimo antigo, price - cost, que ainda nasce na captura
 // desses pedidos). Pedido novo não gera acréscimo na captura. Devolve o order_ref.
 async function sell(tenant: SeededTenant, priceCents: number, costCents: number): Promise<string> {
 	const orderRef = await seedLegacyOnlineOrder(owner, {

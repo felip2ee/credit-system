@@ -1,4 +1,4 @@
-// Configurar pagamentos do afiliado (066) contra um Postgres real: modo, walletId, quem pode mudar e auditoria sem walletId.
+// Configurar pagamentos do afiliado (071) contra um Postgres real: modo, walletId, quem pode mudar e auditoria sem walletId.
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";

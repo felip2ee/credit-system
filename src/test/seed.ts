@@ -532,7 +532,7 @@ export async function seedOrderCatalog(
 	return { lines: [{ code: input.productCode }] };
 }
 
-// Pedido online reservado antes da migração 072 (commission_on_cash_in falso): preço e custo gravados direto, sem
+// Pedido online reservado antes da migração 077 (commission_on_cash_in falso): preço e custo gravados direto, sem
 // commission_pct (formato anterior à 055) ou, com `commissionPct`, no formato da 055 (custo = preço + desconto - comissão
 // do Bureau). A reserva do preço pago sai da carteira do cliente (que o teste abasteceu); capture_order segue o ramo
 // antigo. Com `coupon`, grava a redenção e o que o Bureau cobriu da falta: `fundedWallet` reserva da carteira do Bureau
@@ -627,7 +627,7 @@ export async function seedPayableEntry(
 	return rows[0].id;
 }
 
-// Entrada de dinheiro paga cuja parte do Bureau virou lançamento a repassar (bureau sem walletId, 069): cobrança paga,
+// Entrada de dinheiro paga cuja parte do Bureau virou lançamento a repassar (bureau sem walletId, 074): cobrança paga,
 // linha de charge_splits `accrual` já feita e o acréscimo com pix_charge_id e sem order_ref.
 export async function seedCashInAccrual(
 	owner: Pool,

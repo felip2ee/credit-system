@@ -76,7 +76,7 @@ export async function readPayableRetentionDays(identity: DbIdentity): Promise<nu
 
 export const BUREAU_COMMISSION_KEY = "bureau_commission_pct";
 
-// % global do Bureau (055). Ausente ou inválida = nulo. Desde a 072 o pedido online não depende dela (a % é aplicada pelo
+// % global do Bureau (055). Ausente ou inválida = nulo. Desde a 077 o pedido online não depende dela (a % é aplicada pelo
 // split da entrada de dinheiro, que trata nulo como 0%); o pedido de balcão ainda a exige (commission_not_configured).
 export async function readBureauCommissionPct(identity: DbIdentity): Promise<number | null> {
 	const pct = await readSetting(identity, BUREAU_COMMISSION_KEY);

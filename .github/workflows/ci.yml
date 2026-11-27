@@ -74,6 +74,9 @@ jobs:
           SMTP_PASS: e2e-only-placeholder
           TRAEFIK_PROXY_CIDR: 10.0.0.0/8
           ASAAS_DRIVER: fake
+          # The affiliate spec posts a payment to the Asaas webhook.
+          ASAAS_WEBHOOK_TOKEN: e2e-only-webhook-token-0123456789abcdef
+          DATABASE_WEBHOOK_URL: postgres://app_webhook:test@localhost:54329/credit_system
           PII_ENCRYPTION_KEY: ci:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
           CARD_FEE_TABLE: 1:2.99:49,6:2.99:49,12:2.99:49
           WHATSAPP_DRIVER: fake

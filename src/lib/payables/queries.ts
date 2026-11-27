@@ -1,6 +1,6 @@
-// Valor a repassar ao Bureau (M3b). Só leitura. Os acréscimos nascem de duas formas: no pedido reservado antes da 072, em
+// Valor a repassar ao Bureau (M3b). Só leitura. Os acréscimos nascem de duas formas: no pedido reservado antes da 077, em
 // capture_order (order_ref); depois dela, na confirmação do pagamento, pelo split da entrada de dinheiro (pix_charge_id, sem
-// order_ref; record_cash_in_commission, 069). Estorno e cupom seguem como antes.
+// order_ref; record_cash_in_commission, 074). Estorno e cupom seguem como antes.
 // Os valores têm sinal: acréscimo (+), estorno (−) e repasse pago (−). O saldo é a soma. Sem view: soma direta.
 // A RLS deixa o operator ler a tabela; quem barra o operator é a permissão payout:read na Server Action.
 import type { PoolClient } from "pg";

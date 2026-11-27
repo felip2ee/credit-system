@@ -109,7 +109,7 @@ create or replace trigger affiliate_wallets_wallet_reserved
 
 -- 3) Split recusado na criação. Só quem cria a cobrança: a sessão autora (checkout) ou, sem sessão, o link de pagamento.
 -- Só cobrança recente (a criação leva segundos; 'paid' cobre o webhook que chega antes) e só linha asaas pendente que o
--- Asaas nunca confirmou (sem splitId). A auditoria usa a política charge_split.refused da 067.
+-- Asaas nunca confirmou (sem splitId). A auditoria usa a política charge_split.refused da 072.
 create or replace function charge_split_mark_refused(p_charge_id uuid)
 returns integer
 language plpgsql

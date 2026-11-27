@@ -115,7 +115,7 @@ export interface RevenueSummary {
 }
 
 // Faturamento = preço dos pedidos capturados (order_settlements.price, por data de captura). Não depende de comissão:
-// a parte do Bureau e do afiliado vem do split da entrada de dinheiro (072).
+// a parte do Bureau e do afiliado vem do split da entrada de dinheiro (077).
 // A RLS limita ao Bureau do usuário.
 export async function getRevenueSummary(
   identity: DbIdentity,

@@ -36,7 +36,7 @@ const ALERT_TONES: ReadonlySet<StateTone> = new Set<StateTone>(["attention", "da
 const PERCENT_FORMAT: Intl.NumberFormatOptions = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
 
 // "done" não quer dizer pago em todo caso: accrual só lançou o valor a repassar, e um split do Asaas em cobrança estornada
-// ainda espera a reversão (078).
+// ainda espera a reversão (083).
 function statusView(r: SplitReportRow): { tone: StateTone; label: string } {
 	if (r.status !== "done") return STATUS[r.status];
 	if (r.payoutMethod === "accrual") return { tone: "waiting", label: METHOD.accrual };

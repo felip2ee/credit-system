@@ -1,5 +1,5 @@
 // Split recusado pelo Asaas na criação da cobrança (walletId desconhecido): uma nova tentativa sem split, linhas
-// asaas marcadas `refused` (079). Checkout (Pix e cartão) e link de pagamento contra um Postgres real, Asaas fake.
+// asaas marcadas `refused` (084). Checkout (Pix e cartão) e link de pagamento contra um Postgres real, Asaas fake.
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
@@ -235,7 +235,7 @@ describe("checkout with a split that Asaas refuses", () => {
 	});
 });
 
-describe("charge_split_mark_refused (079)", () => {
+describe("charge_split_mark_refused (084)", () => {
 	const mark = (identity: DbIdentity, chargeId: string) =>
 		withUserTransaction(identity, (c) => c.query<{ n: number }>("select charge_split_mark_refused($1) as n", [chargeId])).then((r) => r.rows[0].n);
 

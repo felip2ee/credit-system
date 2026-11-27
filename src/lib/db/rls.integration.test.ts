@@ -2497,15 +2497,15 @@ describe("affiliates (026)", () => {
 			expect(await count(ctxOf(actor), "affiliate_commissions")).toBe(1);
 			expect(await count(ctxOf(actor), "bureau_affiliate_settings")).toBe(1);
 			expect(await count(ctxOf(actor), "affiliate_rates")).toBe(1);
-			// A carteira do afiliado não é do Bureau. O admin lê só modo e walletId (066): a linha existe, o saldo não passa pela tela.
-			// O livro-razão: só o admin lê, só do próprio Bureau (076, relatório de prejuízo por cliente); a equipe não.
+			// A carteira do afiliado não é do Bureau. O admin lê só modo e walletId (071): a linha existe, o saldo não passa pela tela.
+			// O livro-razão: só o admin lê, só do próprio Bureau (081, relatório de prejuízo por cliente); a equipe não.
 			expect(await count(ctxOf(actor), "affiliate_wallets")).toBe(actor === T.bureauAdmin ? 4 : 0);
 			expect(await count(ctxOf(actor), "affiliate_ledger_entries")).toBe(actor === T.bureauAdmin ? 1 : 0);
 		}
 		for (const actor of [foreign.bureauAdmin, foreign.operator, foreign.client]) {
 			for (const table of TABLES) expect(await count(ctxOf(actor), table, "bureau_id = $1", [T.bureau.id])).toBe(0);
 		}
-		// O superadmin (sem suporte) lê a % de afiliados do Bureau (055: é ele quem a define) e o modo de repasse das carteiras (066).
+		// O superadmin (sem suporte) lê a % de afiliados do Bureau (055: é ele quem a define) e o modo de repasse das carteiras (071).
 		for (const table of TABLES) {
 			const expected = table === "bureau_affiliate_settings" ? 1 : table === "affiliate_wallets" ? 4 : 0;
 			expect(await count(ctxOf(sa), table, "bureau_id = $1", [T.bureau.id])).toBe(expected);
@@ -2544,7 +2544,7 @@ describe("affiliates (026)", () => {
 				const rates = await client.query("update affiliate_rates set pct = 12 where bureau_id = $1", [bureauId]);
 				return { rates: rates.rowCount, settings: settings.rows[0]?.default_pct };
 			});
-		// 075: o bureau_admin escreve a linha (interruptor), mas o gatilho barra a mudança de default_pct.
+		// 080: o bureau_admin escreve a linha (interruptor), mas o gatilho barra a mudança de default_pct.
 		await expect(write(ctxOf(T.bureauAdmin), T.bureau.id)).rejects.toMatchObject({ code: "42501" });
 		expect(await write(ctxOf(T.operator), T.bureau.id)).toEqual({ rates: 0, settings: undefined });
 		expect(await write(ctxOf(foreign.bureauAdmin), T.bureau.id)).toEqual({ rates: 0, settings: undefined });

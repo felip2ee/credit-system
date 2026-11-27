@@ -144,7 +144,7 @@ describe("coupon code attempts through placeOrder (slots)", () => {
 		}
 	});
 
-	it("a successful order clears its slot, also a coupon that would have needed Bureau funds before 072", async () => {
+	it("a successful order clears its slot, also a coupon that would have needed Bureau funds before 077", async () => {
 		const ok = await newTenant("cm ok");
 		expect(await order(ok, await seedCoupon(ok))).toMatchObject({ ok: true });
 		expect(await misses(ok)).toBe(0);

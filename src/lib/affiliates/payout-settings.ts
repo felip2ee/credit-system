@@ -1,7 +1,7 @@
 // Como o afiliado de link recebe a comissão: conta Asaas (split na entrada) ou chave Pix (saldo + saque). O afiliado muda o
-// próprio modo; o bureau_admin do bureau dele e o superadmin fora de suporte mudam em nome dele. A RLS (066) decide quem
+// próprio modo; o bureau_admin do bureau dele e o superadmin fora de suporte mudam em nome dele. A RLS (071) decide quem
 // escreve; aqui só a regra de negócio e a auditoria na mesma transação. walletId só mascarado fora do banco.
-// O aviso ao afiliado e a recusa de walletId de sócio ou bureau são triggers (079): valem para qualquer escrita.
+// O aviso ao afiliado e a recusa de walletId de sócio ou bureau são triggers (084): valem para qualquer escrita.
 // Trocar de modo vale só para cobranças criadas depois: o plano de split de cada cobrança guarda o modo do momento.
 import { maskWalletId } from "@/lib/asaas/wallet-mask";
 import { writeAuditEvent } from "@/lib/audit/write";
@@ -18,7 +18,7 @@ type SettingsRow = { bureau_id: string; payout_method: PayoutMethod; asaas_walle
 
 const NOT_ALLOWED = "Você não tem permissão para alterar este pagamento.";
 const WALLET_RESERVED = "Este walletId não pode ser usado. Informe o walletId da conta do afiliado.";
-// Trigger da 079: walletId igual ao de um sócio ou bureau.
+// Trigger da 084: walletId igual ao de um sócio ou bureau.
 const WALLET_RESERVED_ERROR = "affiliate_wallet_reserved";
 
 export async function getPayoutSettings(identity: DbIdentity, profileId: string): Promise<PayoutSettings | null> {

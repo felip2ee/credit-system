@@ -732,7 +732,7 @@ describe("reconciliation", () => {
 			amount: "100.00",
 			createdBy: t.bureauAdmin.userId,
 		});
-		// Acréscimo real, pelo fluxo de liquidação, de um pedido reservado antes da 072: preço 80, custo 50 -> 30.
+		// Acréscimo real, pelo fluxo de liquidação, de um pedido reservado antes da 077: preço 80, custo 50 -> 30.
 		const orderRef = await seedLegacyOnlineOrder(owner, {
 			bureauId: t.bureau.id, clientProfileId: t.client.userId, price: "80.00", cost: "50.00",
 		});

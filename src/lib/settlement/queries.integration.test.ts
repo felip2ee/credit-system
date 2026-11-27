@@ -121,7 +121,7 @@ async function auditRows(settlementId: string, action: string) {
 }
 
 describe("online settlement", () => {
-	it("reserves the price and captures it with no accrual (commission comes from the cash-in split, 072)", async () => {
+	it("reserves the price and captures it with no accrual (commission comes from the cash-in split, 077)", async () => {
 		const { tenant, client, operator } = await setup("Settle O1", { client: "100.00" });
 		const orderRef = randomUUID();
 

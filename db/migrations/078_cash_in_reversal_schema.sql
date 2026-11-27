@@ -1,8 +1,8 @@
 -- Estorno e chargeback da comissão sobre a entrada (plano afiliado-bureaus, parte 1, task 6): esquema.
--- As funções vêm na 074.
+-- As funções vêm na 079.
 -- 1) Saldo do afiliado pode ficar negativo (decisão D5): estorno de comissão cash_in já liberada tira do disponível, e o
 --    que faltar é abatido das próximas comissões. Sai o check available >= 0 da carteira e do livro-razão (026). O
---    pendente continua >= 0. Quem impede saque e conversão com saldo <= 0 é affiliate_wallet_post_entry (074): só o novo
+--    pendente continua >= 0. Quem impede saque e conversão com saldo <= 0 é affiliate_wallet_post_entry (079): só o novo
 --    kind 'commission_clawback' pode deixar o disponível abaixo de zero.
 -- 2) Livro do afiliado: kind novo 'commission_clawback' (estorno de comissão já liberada; tira do disponível).
 -- 3) bureau_payable_entries: reverses_entry_id liga o estorno ao accrual que ele desfaz (um por accrual); o estorno do
@@ -45,7 +45,7 @@ create policy audit_logs_cash_in_reversal_insert on audit_logs for insert to aut
     select 1 from bureau_payable_entries e where e.id = audit_logs.record_id and e.bureau_id = audit_logs.bureau_id)
 );
 
--- Divergência: o Asaas não reverteu o repasse do split. Mesma forma da política da 067.
+-- Divergência: o Asaas não reverteu o repasse do split. Mesma forma da política da 072.
 create policy audit_logs_charge_split_reversal_failed_insert on audit_logs for insert to auth_profile_lookup with check (
   action = 'charge_split.reversal_failed'
   and support_session_id is null

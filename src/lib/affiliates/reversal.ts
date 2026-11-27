@@ -1,4 +1,4 @@
-// Estorno e chargeback da comissão sobre a entrada (migração 074): reverte os repasses que o split do Asaas não cobre.
+// Estorno e chargeback da comissão sobre a entrada (migração 079): reverte os repasses que o split do Asaas não cobre.
 // Afiliado em modo Pix: reversão no livro-razão (origin 'cash_in'); o saldo pode ficar negativo e é abatido das próximas
 // comissões. Bureau sem walletId: lançamento 'reversal' ligado ao accrual. Linhas em modo asaas: só o status (refunded,
 // ou reversal_failed quando o Asaas não reverteu o repasse).

@@ -1,4 +1,4 @@
-// Estorno e chargeback da comissão sobre a entrada (073-074) contra um Postgres real, sob RLS: o webhook reverte os
+// Estorno e chargeback da comissão sobre a entrada (078-079) contra um Postgres real, sob RLS: o webhook reverte os
 // repasses que o split do Asaas não cobre, o saldo do afiliado pode ficar negativo e nada duplica.
 import { randomUUID } from "node:crypto";
 
@@ -352,7 +352,7 @@ describe("estorno do accrual do bureau sem walletId", () => {
 });
 
 // Clawback antigo do valor a repassar (055/058): só vale para o que o Bureau recebeu na captura, isto é, pedido reservado
-// antes da 072 (commission_on_cash_in falso). Pedido novo não gera accrual na captura: o Bureau só perde o que recebeu na
+// antes da 077 (commission_on_cash_in falso). Pedido novo não gera accrual na captura: o Bureau só perde o que recebeu na
 // entrada (o estorno ligado ao accrual).
 describe("clawback do valor a repassar no estorno de cobrança de cliente", () => {
 	// Cliente recarrega 1000 (Bureau a 20% recebe 200 de accrual) e gasta tudo em pedidos já capturados: carteira zerada.
@@ -405,7 +405,7 @@ describe("clawback do valor a repassar no estorno de cobrança de cliente", () =
 		expect((await owner.query("select refund_shortfall from pix_charges where id = $1", [id])).rows[0].refund_shortfall).toBe("1000.00");
 	});
 
-	it("pedido reservado antes da 072: mantém o clawback antigo, até o valor a repassar", async () => {
+	it("pedido reservado antes da 077: mantém o clawback antigo, até o valor a repassar", async () => {
 		const { t, id } = await spentClient("Reversal Clawback Antigo", [{ price: 1000, onCashIn: false }]);
 
 		await refund(id);
@@ -470,9 +470,9 @@ describe("estorno em modo asaas", () => {
 	});
 });
 
-// Correções 078: o Asaas reverte o split de forma assíncrona; a cobrança estornada nunca vira 'refused'; parcelas e
+// Correções 083: o Asaas reverte o split de forma assíncrona; a cobrança estornada nunca vira 'refused'; parcelas e
 // cobrança ainda sem o id do pagamento não perdem o evento de split.
-describe("status do split no estorno (078)", () => {
+describe("status do split no estorno (083)", () => {
 	const item = (status: string, id = "split_x") => [{ id, walletId: WALLET(1), status }];
 	const splitEvent = (chargeId: string, event: string, status: string) => chargeEvent(chargeId, { event, split: item(status) });
 	const actions = async (chargeId: string) =>

@@ -91,7 +91,7 @@ export default async function globalSetup() {
     await client.query("set local session_replication_role = replica");
     await client.query("update profiles set phone_e164 = $2, phone_verified_at = now() where id = $1", [clientId, E2E.client.phone]);
     await client.query("update profiles set is_active = false where id = $1", [disabledId]);
-    // The affiliate section is off by default (075); the affiliate e2e tests need it on.
+    // The affiliate section is off by default (080); the affiliate e2e tests need it on.
     await client.query(
       "insert into bureau_affiliate_settings (bureau_id, default_pct, affiliate_enabled, updated_by) values ($1, $2, true, $3)",
       [bureauId, E2E_AFFILIATE_PCT, staffId],

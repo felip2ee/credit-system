@@ -1,4 +1,4 @@
-// Split na entrada (068-070) contra um Postgres real, sob RLS, com o driver Asaas fake: o plano nasce com a cobrança, o
+// Split na entrada (073-075) contra um Postgres real, sob RLS, com o driver Asaas fake: o plano nasce com a cobrança, o
 // webhook de pagamento lança o que o split do Asaas não cobre, e nada duplica.
 import { randomUUID } from "node:crypto";
 

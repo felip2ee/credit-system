@@ -1,10 +1,10 @@
 -- Correções da revisão do split no estorno (plano afiliado-bureaus, parte 1).
--- 1) apply_charge_split_event (067): ganha tipo do evento, installment e externalReference (os três com default).
+-- 1) apply_charge_split_event (072): ganha tipo do evento, installment e externalReference (os três com default).
 --    reversal_failed -> refunded (o Asaas reverte de forma assíncrona). Em cobrança estornada, CANCELLED e REFUSED viram
 --    refunded, nunca refused, e uma linha já refused também vira refunded. Parcela 2..n do cartão casa por
 --    asaas_installment_id e walletId. Cobrança nossa ainda sem o id do pagamento devolve unbound_charge (o webhook
 --    responde 500 e o Asaas reenvia); a de fora do sistema segue unknown_charge.
--- 2) reverse_cash_in_commission (074): linha asaas refused vira refunded; item CANCELLED também estorna; item DONE no
+-- 2) reverse_cash_in_commission (079): linha asaas refused vira refunded; item CANCELLED também estorna; item DONE no
 --    pedido de chargeback não vira reversal_failed (sem job de prazo: a linha fica done e o painel mostra "Reversão
 --    pendente" até o Asaas informar).
 -- 3) pix_charge_returned / charge_split_charge_state: "o dinheiro voltou" para o webhook e o painel. A cobrança de link
@@ -180,7 +180,7 @@ alter function apply_charge_split_event(text, text, jsonb, text, text, text) own
 revoke all on function apply_charge_split_event(text, text, jsonb, text, text, text) from public;
 grant execute on function apply_charge_split_event(text, text, jsonb, text, text, text) to app_webhook;
 
--- Dono e grants vêm da 074; create or replace os mantém.
+-- Dono e grants vêm da 079; create or replace os mantém.
 create or replace function reverse_cash_in_commission(p_charge_id uuid, p_event_type text, p_payload jsonb)
 returns integer
 language plpgsql

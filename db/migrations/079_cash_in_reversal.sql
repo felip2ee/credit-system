@@ -1,22 +1,177 @@
--- Correções da revisão da entrada de dinheiro (plano afiliado-bureaus, parte 1). Só create or replace; o resto das funções é o
--- da versão anterior, sem mudança.
--- 1) apply_asaas_payment (074): no estorno de cobrança de cliente, o clawback antigo do valor a repassar (055/058: "o Bureau
---    recebeu o accrual na captura") ficava com a falta inteira da carteira, mesmo para pedido da entrada (072), que não
---    gera accrual de captura. O Bureau perdia o accrual da recarga (estorno ligado) E a falta inteira. Agora o clawback tem
---    teto no gasto do cliente em pedido capturado com commission_on_cash_in falso (pedido anterior à 072).
--- 2) charge_split_plan_internal (068): a % do afiliado no plano vem só de bureau_affiliate_settings.default_pct, a mesma que
---    assertSplitWithin100 soma. A 055 aposentou affiliate_rates (sem política de escrita, sem tela): o override legado
---    deixava o plano passar de 100 sem o teto enxergar.
+-- Estorno e chargeback da comissão sobre a entrada (plano afiliado-bureaus, parte 1, task 6). Esquema na 078.
+-- 1) affiliate_wallet_post_entry (074): kind 'commission_clawback' tira do disponível e pode deixá-lo negativo (D5); os
+--    saque e conversão seguem recusados abaixo de zero (com saldo <= 0 dão insufficient_funds); liberação de comissão e
+--    devolução de saque podem somar a um saldo negativo (abatimento).
+-- 2) release_due_commissions (027): lançamento de liberação com origin 'cash_in' quando a comissão é de cobrança.
+-- 3) reverse_cash_in_commission(cobrança, evento, corpo): no estorno ou chargeback, por linha de charge_splits:
+--    pix (afiliado): comissão pendente -> commission_reversal; já liberada -> commission_clawback (saldo pode ficar
+--    negativo e é abatido das próximas comissões); ambos com origin 'cash_in'. accrual (bureau sem walletId): linha
+--    'reversal' em bureau_payable_entries ligada ao accrual. asaas (sócio, bureau, afiliado com walletId): o Asaas reverte
+--    o split; item REFUNDED vira refunded, item ainda DONE no evento de estorno vira reversal_failed (auditoria).
+--    Idempotente: só trata linha pending ou done e a marca refunded; chaves do livro-razão e reverses_entry_id são a
+--    segunda barreira. Sem chamada HTTP.
+-- 4) apply_asaas_payment (075): chama a função acima no ramo de estorno (antes do clawback do valor a repassar, para não
+--    descontar duas vezes) e no estorno de Pix de link. O laço antigo de comissão pendente pula a comissão cash_in.
 
-create or replace function charge_split_plan_internal(p_charge_id uuid)
-returns table (
-  beneficiary_kind text,
-  beneficiary_id uuid,
-  payout_method text,
-  asaas_wallet_id text,
-  pct numeric,
-  amount_cents bigint
+create or replace function affiliate_wallet_post_entry(
+  p_profile_id uuid,
+  p_kind text,
+  p_amount numeric,
+  p_idempotency_key text,
+  p_reference text,
+  p_created_by uuid,
+  p_origin text default 'order'
 )
+returns table (ok boolean, reason text, entry_id uuid, pending numeric, available numeric, replayed boolean)
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+#variable_conflict use_column
+declare
+  v_bureau_id uuid;
+  v_pending numeric;
+  v_available numeric;
+  v_pending_after numeric;
+  v_available_after numeric;
+  v_entry public.affiliate_ledger_entries;
+  v_id uuid;
+begin
+  if p_kind is null or p_kind not in (
+       'commission', 'commission_release', 'commission_reversal', 'commission_clawback', 'conversion',
+       'withdrawal_hold', 'withdrawal_paid', 'withdrawal_release') then
+    return query select false, 'not_allowed'::text, null::uuid, null::numeric, null::numeric, false;
+    return;
+  end if;
+  if p_idempotency_key is null or btrim(p_idempotency_key) = '' or length(p_idempotency_key) > 200 then
+    return query select false, 'invalid_key'::text, null::uuid, null::numeric, null::numeric, false;
+    return;
+  end if;
+  if p_amount is null or p_amount <> round(p_amount, 2) or p_amount <= 0 or p_amount > 99999999.99 then
+    return query select false, 'invalid_amount'::text, null::uuid, null::numeric, null::numeric, false;
+    return;
+  end if;
+
+  select bureau_id, pending, available into v_bureau_id, v_pending, v_available
+    from public.affiliate_wallets where profile_id = p_profile_id for update;
+  if not found then
+    return query select false, 'not_found'::text, null::uuid, null::numeric, null::numeric, false;
+    return;
+  end if;
+
+  select * into v_entry from public.affiliate_ledger_entries
+   where profile_id = p_profile_id and idempotency_key = p_idempotency_key;
+  if found then
+    if v_entry.kind = p_kind and v_entry.amount = p_amount then
+      return query select true, null::text, v_entry.id, v_entry.pending_after, v_entry.available_after, true;
+    else
+      return query select false, 'idempotency_conflict'::text, null::uuid, null::numeric, null::numeric, false;
+    end if;
+    return;
+  end if;
+
+  v_pending_after := v_pending;
+  v_available_after := v_available;
+  case p_kind
+    when 'commission' then
+      v_pending_after := v_pending + p_amount;
+    when 'commission_release' then
+      v_pending_after := v_pending - p_amount;
+      v_available_after := v_available + p_amount;
+    when 'commission_reversal' then
+      v_pending_after := v_pending - p_amount;
+    when 'commission_clawback' then
+      v_available_after := v_available - p_amount;
+    when 'conversion', 'withdrawal_hold' then
+      v_available_after := v_available - p_amount;
+    when 'withdrawal_release' then
+      v_available_after := v_available + p_amount;
+    when 'withdrawal_paid' then
+      null; -- só registro: o valor já saiu do disponível em withdrawal_hold
+  end case;
+
+  -- O disponível só fica negativo pelo clawback (estorno de comissão cash_in já liberada); liberação de comissão e
+  -- devolução de saque seguem somando a um saldo negativo (abatimento). Saque e conversão com saldo insuficiente caem aqui.
+  if v_pending_after < 0 or (v_available_after < 0 and p_kind in ('conversion', 'withdrawal_hold')) then
+    return query select false, 'insufficient_funds'::text, null::uuid, null::numeric, null::numeric, false;
+    return;
+  end if;
+
+  insert into public.affiliate_ledger_entries
+    (profile_id, bureau_id, kind, amount, pending_after, available_after, idempotency_key, reference, created_by, origin)
+  values
+    (p_profile_id, v_bureau_id, p_kind, p_amount, v_pending_after, v_available_after, p_idempotency_key,
+     p_reference, p_created_by, p_origin)
+  returning id into v_id;
+  update public.affiliate_wallets set pending = v_pending_after, available = v_available_after
+   where profile_id = p_profile_id;
+
+  return query select true, null::text, v_id, v_pending_after, v_available_after, false;
+end
+$$;
+
+create or replace function release_due_commissions(p_limit integer default 500)
+returns integer
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_affiliate uuid;
+  v_commission record;
+  v_post record;
+  v_released integer := 0;
+begin
+  if public.app_user_id() is not null or public.app_bureau_id() is not null then
+    return 0;
+  end if;
+
+  for v_affiliate in
+    select c.affiliate_profile_id
+      from public.affiliate_commissions c
+     where c.status = 'pending' and c.release_at <= now()
+     group by c.affiliate_profile_id
+     order by min(c.release_at), c.affiliate_profile_id
+  loop
+    exit when v_released >= greatest(p_limit, 0);
+    perform 1 from public.affiliate_wallets w where w.profile_id = v_affiliate for update skip locked;
+    if not found then
+      continue;
+    end if;
+
+    for v_commission in
+      select c.id, c.order_ref, c.bureau_id, c.affiliate_profile_id, c.amount - c.reversed_amount as rest,
+             exists (select 1 from public.pix_charges pc where pc.id = c.order_ref) as cash_in
+        from public.affiliate_commissions c
+       where c.affiliate_profile_id = v_affiliate and c.status = 'pending' and c.release_at <= now()
+       order by c.release_at, c.id
+       limit greatest(p_limit, 0) - v_released
+         for update skip locked
+    loop
+      select * into v_post from public.affiliate_wallet_post_entry(
+        v_commission.affiliate_profile_id, 'commission_release', v_commission.rest,
+        'release:' || v_commission.id::text, 'commission:' || v_commission.id::text,
+        v_commission.affiliate_profile_id,
+        case when v_commission.cash_in then 'cash_in' else 'order' end);
+      if not v_post.ok then
+        -- Uma comissão sem lastro na carteira (não deveria existir) não trava as outras: fica pending e vai ao log.
+        raise warning 'affiliate commission % not released: %', v_commission.id, v_post.reason;
+        continue;
+      end if;
+      update public.affiliate_commissions set status = 'released' where id = v_commission.id;
+      insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+      values (v_commission.bureau_id, v_commission.affiliate_profile_id, 'affiliate.commission_release',
+        'affiliate_commissions', v_commission.id,
+        jsonb_build_object('amount', v_commission.rest::text, 'origin', case when v_commission.cash_in then 'cash_in' else 'order' end));
+      v_released := v_released + 1;
+    end loop;
+  end loop;
+  return v_released;
+end
+$$;
+
+
+create function reverse_cash_in_commission(p_charge_id uuid, p_event_type text, p_payload jsonb)
+returns integer
 language plpgsql
 security definer
 set search_path = pg_catalog, public
@@ -24,90 +179,112 @@ as $$
 #variable_conflict use_column
 declare
   v_charge public.pix_charges;
-  v_net bigint;
-  v_topup boolean;
-  v_total numeric;
-  v_inserted integer;
+  v_line public.charge_splits;
+  v_commission public.affiliate_commissions;
+  v_accrual public.bureau_payable_entries;
+  v_post record;
+  v_items jsonb;
+  v_item jsonb;
+  v_new text;
+  v_entry_id uuid;
+  v_remaining numeric;
+  v_done integer := 0;
 begin
-  -- A trava da cobrança serializa duas chamadas: a segunda vê as linhas da primeira.
-  select * into v_charge from public.pix_charges where id = p_charge_id for update;
-  if not found then
-    raise exception 'charge_not_found' using errcode = 'no_data_found';
+  select * into v_charge from public.pix_charges where id = p_charge_id for share;
+  if not found or v_charge.status not in ('paid', 'refunded') then
+    return 0;
   end if;
+  v_items := case when jsonb_typeof(p_payload #> '{payment,split}') = 'array' then p_payload #> '{payment,split}' end;
 
-  if v_charge.asaas_payment_id is null
-     and not exists (select 1 from public.charge_splits s where s.pix_charge_id = p_charge_id) then
-    v_net := round(v_charge.amount * 100)::bigint;
-    v_topup := v_charge.client_profile_id is null and v_charge.payment_link_id is null;
+  for v_line in
+    select * from public.charge_splits s
+     where s.pix_charge_id = p_charge_id and s.status in ('pending', 'done')
+     order by s.beneficiary_id, s.id
+       for update
+  loop
+    v_new := null;
 
-    with cand as (
-      select 'partner'::text as k, p.id as bid, 'asaas'::text as m, p.asaas_wallet_id as w, p.pct as pct
-        from public.platform_partners p
-       where p.active
-      union all
-      select 'bureau', v_charge.bureau_id,
-             case when bw.asaas_wallet_id is null then 'accrual' else 'asaas' end, bw.asaas_wallet_id,
-             public.resolve_bureau_commission_pct(v_charge.bureau_id)
-        from (select 1) one
-        left join public.bureau_asaas_wallets bw on bw.bureau_id = v_charge.bureau_id
-       where not v_topup
-      union all
-      select 'bureau_referrer', r.referrer_bureau_id,
-             case when rw.asaas_wallet_id is null then 'accrual' else 'asaas' end, rw.asaas_wallet_id, r.pct
-        from public.bureau_referrals r
-        left join public.bureau_asaas_wallets rw on rw.bureau_id = r.referrer_bureau_id
-       where not v_topup and r.referred_bureau_id = v_charge.bureau_id and r.active
-      union all
-      -- Afiliado de link: o mesmo filtro da captura (019/027): afiliado ativo e não anonimizado, indicado com telefone
-      -- verificado. Só com o recurso ligado no bureau (affiliate_enabled).
-      select 'affiliate', ar.affiliate_profile_id, aw.payout_method,
-             case when aw.payout_method = 'asaas' then aw.asaas_wallet_id end,
-             coalesce(st.default_pct, 0)
-        from public.affiliate_referrals ar
-        join public.profiles a on a.id = ar.affiliate_profile_id and a.anonymized_at is null and a.is_active
-        join public.profiles b on b.id = ar.referred_profile_id and b.phone_verified_at is not null
-        join public.affiliate_wallets aw on aw.profile_id = ar.affiliate_profile_id
-        join public.bureau_affiliate_settings st on st.bureau_id = v_charge.bureau_id and st.affiliate_enabled
-       where not v_topup and ar.referred_profile_id = v_charge.client_profile_id
-         and ar.bureau_id = v_charge.bureau_id
-    )
-    insert into public.charge_splits
-      (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, asaas_wallet_id, pct, amount_cents)
-    select p_charge_id, v_charge.bureau_id, cand.k, cand.bid, cand.m, cand.w, cand.pct,
-           floor(v_net * cand.pct / 100)::bigint
-      from cand
-     where coalesce(cand.pct, 0) > 0 and floor(v_net * cand.pct / 100) > 0
-    on conflict do nothing;
-    get diagnostics v_inserted = row_count;
+    if v_line.payout_method = 'accrual' and v_line.status = 'done' then
+      -- Mesmo lock de create_payout: um repasse em curso e este estorno se enfileiram.
+      perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('payout:' || v_line.beneficiary_id::text, 0));
+      select * into v_accrual from public.bureau_payable_entries e
+       where e.pix_charge_id = p_charge_id and e.bureau_id = v_line.beneficiary_id and e.kind = 'accrual';
+      if found then
+        v_entry_id := null;
+        insert into public.bureau_payable_entries (bureau_id, kind, amount, pix_charge_id, reverses_entry_id)
+        values (v_line.beneficiary_id, 'reversal', -v_accrual.amount, p_charge_id, v_accrual.id)
+        on conflict (reverses_entry_id) where reverses_entry_id is not null do nothing
+        returning id into v_entry_id;
+        if v_entry_id is not null then
+          insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+          values (v_line.beneficiary_id, null, 'payable.cash_in_reversal', 'bureau_payable_entries', v_entry_id,
+            jsonb_build_object('pix_charge_id', p_charge_id, 'kind', v_line.beneficiary_kind,
+              'amount', (-v_accrual.amount)::text, 'event', p_event_type));
+        end if;
+      end if;
+      v_new := 'refunded';
 
-    select coalesce(sum(s.pct), 0) into v_total from public.charge_splits s where s.pix_charge_id = p_charge_id;
-    if v_total > 100 then
-      raise exception 'split_over_100' using errcode = 'check_violation';
+    elsif v_line.payout_method = 'pix' and v_line.status = 'done' then
+      -- Ordem de travas: carteira do afiliado -> comissão (a mesma de release_due_commissions).
+      perform 1 from public.affiliate_wallets w where w.profile_id = v_line.beneficiary_id for update;
+      select * into v_commission from public.affiliate_commissions c where c.order_ref = p_charge_id for update;
+      if found then
+        v_remaining := v_commission.amount - v_commission.reversed_amount;
+        if v_remaining > 0 then
+          select * into v_post from public.affiliate_wallet_post_entry(
+            v_commission.affiliate_profile_id,
+            case when v_commission.status = 'pending' then 'commission_reversal' else 'commission_clawback' end,
+            v_remaining, 'cashin:reversal:' || p_charge_id::text, 'commission:' || v_commission.id::text,
+            v_commission.affiliate_profile_id, 'cash_in');
+          if not v_post.ok then
+            raise exception 'affiliate cash-in reversal failed: %', v_post.reason;
+          end if;
+          update public.affiliate_commissions set reversed_amount = amount, status = 'reversed'
+           where id = v_commission.id;
+          insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+          values (v_commission.bureau_id, null, 'affiliate.commission_reversal', 'affiliate_commissions',
+            v_commission.id,
+            jsonb_build_object('origin', 'cash_in', 'pix_charge_id', p_charge_id, 'amount', v_remaining::text,
+              'available_after', v_post.available::text, 'event', p_event_type));
+        end if;
+      end if;
+      v_new := 'refunded';
+
+    elsif v_line.payout_method = 'asaas' and v_items is not null then
+      select i into v_item from jsonb_array_elements(v_items) i
+       where jsonb_typeof(i) = 'object'
+         and ((v_line.asaas_split_id is not null and i ->> 'id' = v_line.asaas_split_id)
+           or (v_line.asaas_split_id is null and i ->> 'walletId' = v_line.asaas_wallet_id))
+       limit 1;
+      v_new := case upper(v_item ->> 'status') when 'REFUNDED' then 'refunded' when 'DONE' then 'reversal_failed' end;
     end if;
 
-    if v_inserted > 0 then
+    if v_new is not null then
+      update public.charge_splits set status = v_new where id = v_line.id;
       insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
-      select v_charge.bureau_id, null, 'charge_split.planned', 'pix_charges', p_charge_id,
-             jsonb_build_object(
-               'net_cents', v_net,
-               'payer', case when v_topup then 'bureau' else 'client' end,
-               'lines', jsonb_agg(jsonb_build_object(
-                 'kind', s.beneficiary_kind, 'method', s.payout_method, 'pct', s.pct::text,
-                 'amount_cents', s.amount_cents,
-                 'wallet', case when s.asaas_wallet_id is null then null else '***' || right(s.asaas_wallet_id, 4) end)
-                 order by s.beneficiary_kind, s.id))
-        from public.charge_splits s where s.pix_charge_id = p_charge_id;
+      values (
+        case when v_line.beneficiary_kind = 'partner' then null else v_line.bureau_id end,
+        null, 'charge_split.' || v_new, 'charge_splits', v_line.id,
+        jsonb_build_object(
+          'pix_charge_id', p_charge_id,
+          'beneficiary_kind', v_line.beneficiary_kind,
+          'payout_method', v_line.payout_method,
+          'from_status', v_line.status,
+          'event', p_event_type,
+          'wallet', case when v_line.asaas_wallet_id is null then null else '***' || right(v_line.asaas_wallet_id, 4) end));
+      v_done := v_done + 1;
     end if;
-  end if;
-
-  return query
-    select s.beneficiary_kind, s.beneficiary_id, s.payout_method, s.asaas_wallet_id, s.pct, s.amount_cents
-      from public.charge_splits s
-     where s.pix_charge_id = p_charge_id
-     order by s.beneficiary_kind, s.created_at, s.id;
+  end loop;
+  return v_done;
 end
 $$;
 
+alter function reverse_cash_in_commission(uuid, text, jsonb) owner to auth_profile_lookup;
+revoke all on function reverse_cash_in_commission(uuid, text, jsonb) from public, app_runtime;
+grant execute on function reverse_cash_in_commission(uuid, text, jsonb) to app_webhook;
+
+-- (app_webhook) vêm da 014/043; create or replace os mantém.
 create or replace function apply_asaas_payment(
   p_event_id text,
   p_event_type text,
@@ -130,7 +307,6 @@ declare
   v_shortfall numeric;
   v_payable numeric;
   v_clawback numeric := 0;
-  v_legacy_spent numeric;
   v_left numeric;
   v_affiliate uuid;
   v_commission record;
@@ -326,16 +502,7 @@ begin
          where e.bureau_id = v_charge.bureau_id
            and e.kind in ('accrual', 'reversal', 'coupon_cost', 'coupon_refund')
            and not exists (select 1 from public.payout_items i where i.entry_id = e.id);
-        -- Teto do clawback: o que o cliente gastou em pedido capturado antes da 072 (commission_on_cash_in falso), os
-        -- únicos em que o Bureau recebeu o accrual na captura. Pedido novo (flag verdadeiro) não gera accrual de
-        -- captura: o Bureau só recebeu o accrual da entrada, que reverse_cash_in_commission já estornou acima. Sem
-        -- pedido antigo o teto é 0 e nada é cobrado em dobro; com só pedido antigo o teto não limita (a falta de uma
-        -- cobrança nunca passa do que o cliente gastou).
-        select coalesce(sum(s.price), 0) into v_legacy_spent
-          from public.order_settlements s
-         where s.client_profile_id = v_charge.client_profile_id and s.mode = 'online'
-           and s.status = 'captured' and not s.commission_on_cash_in;
-        v_clawback := least(v_left, greatest(v_payable, 0), v_legacy_spent);
+        v_clawback := least(v_left, greatest(v_payable, 0));
         v_left := v_left - v_clawback;
       end if;
       update public.pix_charges

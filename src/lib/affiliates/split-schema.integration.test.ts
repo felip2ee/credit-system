@@ -1,4 +1,4 @@
-// Schema do split na entrada (065) contra um Postgres real: sócios, indicação entre bureaus, modo de repasse e charge_splits.
+// Schema do split na entrada (070) contra um Postgres real: sócios, indicação entre bureaus, modo de repasse e charge_splits.
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";

@@ -7,7 +7,7 @@ Runbook do split na entrada de dinheiro, dos dois modos de recebimento, do estor
 1. No Asaas de produção, habilite o split: **Integrações > Segurança**. Sem isso, o Asaas recusa o `split` das cobranças.
 2. Teste um `walletId` real no sandbox antes de usar em produção. O cliente Asaas deste projeto não foi conferido em sandbox (veja o comentário em `src/lib/asaas/client.ts`). Confirme que a cobrança com split chega ao beneficiário e que o evento de split volta ao webhook.
 3. Cadastre os sócios em `/superadmin/settings/socios` (`walletId` e %). Cadastre o `walletId` de cada Bureau em `/superadmin/bureaus/<id>`.
-4. Aplique as migrações até a 079 (`npm run db:migrate`).
+4. Aplique as migrações até a 085 (`npm run db:migrate`).
 
 ## 1. Como o split funciona
 
@@ -31,7 +31,7 @@ Toda cobrança Asaas criada pelo sistema leva um `split`. O split divide o valor
   - Afiliado de link entra só se o Bureau liga o recurso (seção 3) e se o indicado tem celular verificado.
   - Soma acima de 100% recusa a cobrança (`split_over_100`).
 - **Plano gravado:** o plano fica em `charge_splits`, com status `pending`. Mudar `walletId` ou o modo depois da criação não muda a cobrança já criada.
-- **Pedido online novo:** a captura do pedido não cria comissão (migração 072). Pedido reservado antes da 072 mantém a regra antiga.
+- **Pedido online novo:** a captura do pedido não cria comissão (migração 077). Pedido reservado antes da 077 mantém a regra antiga.
 
 ## 2. Os dois modos de recebimento
 
@@ -40,7 +40,7 @@ O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indic
 - **Conta Asaas (`asaas`):** o Asaas paga o beneficiário no split, no recebimento. Conforme a spec, a taxa do Asaas sai da parte do beneficiário.
 - **Chave Pix (`pix`):** o sistema grava o saldo na confirmação do pagamento (ledger `cash_in`). A carência é `affiliate_cash_in_hold_days` (padrão 0 dia). O saldo sai pela fila de saques (seção 6). Só o afiliado de link tem este modo. O Bureau indicador recebe por `walletId` ou por accrual.
 
-- **Painel do afiliado (`/portal/afiliacao`):** mostra as comissões dos dois modos, cada cobrança uma vez. A linha `asaas` vem de `affiliate_my_asaas_commissions()` (migração 080): "Pago na conta Asaas" só com status `done`; os outros status aparecem como estão. O valor é aproximado. Recarga recusada ou estornada não entra no total do indicado.
+- **Painel do afiliado (`/portal/afiliacao`):** mostra as comissões dos dois modos, cada cobrança uma vez. A linha `asaas` vem de `affiliate_my_asaas_commissions()` (migração 085): "Pago na conta Asaas" só com status `done`; os outros status aparecem como estão. O valor é aproximado. Recarga recusada ou estornada não entra no total do indicado.
 - **Troca de `walletId` ou de modo:** o afiliado recebe um e-mail, e a auditoria guarda o `walletId` antigo e o novo, mascarados. Não há reautenticação, prazo de espera nem aprovação.
 - **`walletId` reservado:** o afiliado não pode salvar o `walletId` de um sócio ou de um Bureau.
 - **Split recusado na criação:** se o Asaas responde que o split ou a `walletId` é inválido, o sistema cria a cobrança uma vez sem split. As linhas em modo Asaas dessa cobrança ficam `refused`. Uma `walletId` ruim recusa todas as linhas Asaas da cobrança. O formato do erro do Asaas não foi conferido em sandbox.
@@ -53,7 +53,7 @@ O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indic
 
 ## 4. Estorno e chargeback
 
-- **Modo conta Asaas:** o Asaas reverte o split sozinho, de forma assíncrona. A linha segue o item de `payment.split[]` (migração 078):
+- **Modo conta Asaas:** o Asaas reverte o split sozinho, de forma assíncrona. A linha segue o item de `payment.split[]` (migração 083):
 
 | Item no evento | Linha |
 |---|---|
@@ -67,7 +67,7 @@ O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indic
 - **Estorno parcial (`PAYMENT_PARTIALLY_REFUNDED`):** o sistema não reverte comissão, accrual nem saldo. O evento fica gravado como `partial_refund_ignored`. A decisão de negócio está pendente.
 - **Cartão parcelado:** as parcelas 2 em diante casam pelo parcelamento (`asaas_installment_id`) e pelo `walletId`. Há uma linha por beneficiário: a recusa de uma parcela depois de `done` não aparece.
 - **Evento de split antes de o sistema gravar o id do pagamento:** o webhook responde 500 só se `externalReference` é de uma cobrança deste sistema, e o Asaas reenvia. Se a fila de webhooks do Asaas parar, confira no log `split de cobrança ainda sem o id do pagamento`, reative a fila no Asaas e confirme o id em `pix_charges`.
-- **Modo Pix:** o sistema lança a reversão no livro-razão (`commission_clawback`, migrações 073 e 074, `src/lib/affiliates/reversal.ts`).
+- **Modo Pix:** o sistema lança a reversão no livro-razão (`commission_clawback`, migrações 078 e 079, `src/lib/affiliates/reversal.ts`).
   - O saldo do afiliado pode ficar negativo. O que falta é abatido das próximas comissões.
   - Com saldo menor ou igual a zero, saque e conversão são recusados (`insufficient_funds`).
 - **Bureau sem `walletId`:** a reversão entra como lançamento `reversal`, ligado ao accrual.
@@ -77,7 +77,7 @@ O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indic
 
 ## 5. Runbook: split recusado, reversão pendente ou `reversal_failed`
 
-O Asaas não tem o evento `PAYMENT_SPLIT_REFUSED`. A recusa chega como item de `payment.split[]` com status `REFUSED` ou `CANCELLED`. Em cobrança não estornada, o sistema grava `refused` (migrações 067 e 078, `src/lib/asaas/split-events.ts`).
+O Asaas não tem o evento `PAYMENT_SPLIT_REFUSED`. A recusa chega como item de `payment.split[]` com status `REFUSED` ou `CANCELLED`. Em cobrança não estornada, o sistema grava `refused` (migrações 072 e 083, `src/lib/asaas/split-events.ts`).
 
 **Split recusado (`refused`):**
 
@@ -168,6 +168,4 @@ A anonimização fica bloqueada se a afiliada tem comissão disponível ou saque
 
 ## 10. Teste e2e
 
-`e2e/affiliate.spec.ts` cobre o fluxo de link, cadastro, compra, carência, tick, conversão, saque e pagamento. O teste roda com `AFFILIATE_WITHDRAWALS_ENABLED=true` (definido no `ci.yml`).
-
-Aviso: o teste ainda captura o pedido e espera a comissão na carência. Esse trecho não vale para pedido online novo (migração 072). Ele precisa de revisão em outra tarefa.
+`e2e/affiliate.spec.ts` cobre o fluxo de link, cadastro, cobrança paga pelo webhook, comissão, conversão, saque e pagamento. O teste roda com `AFFILIATE_WITHDRAWALS_ENABLED=true`, `ASAAS_DRIVER=fake`, `ASAAS_WEBHOOK_TOKEN` e `DATABASE_WEBHOOK_URL` (definidos no `ci.yml`).

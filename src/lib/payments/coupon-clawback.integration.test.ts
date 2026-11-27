@@ -48,7 +48,7 @@ async function committed<T>(ctx: Ctx, work: (client: PoolClient) => Promise<T>):
 
 type SettleRow = { ok: boolean; reason: string | null; status: string | null };
 
-// Cupom fixo de `couponValue` num pedido online de preço de tabela 100 e Bureau a 40% (custo 60), reservado antes da 072: o
+// Cupom fixo de `couponValue` num pedido online de preço de tabela 100 e Bureau a 40% (custo 60), reservado antes da 077: o
 // Bureau cobriu a falta (custo - preço pago) pelo valor a repassar (coupon_cost). Pedido novo não cria coupon_cost; o
 // estorno ainda precisa tratar os que já existem. Captura o pedido.
 async function placeAndCapture(t: SeededTenant, couponValue: string, paid: string) {
@@ -99,7 +99,7 @@ const chargeRow = async (id: string) =>
 const seedReleased = (t: SeededTenant) =>
 	seedPayableEntry(owner, { bureauId: t.bureau.id, kind: "accrual", amount: "100.00", createdAt: "2020-01-01T00:00:00Z" });
 
-// O clawback do valor a repassar só vale para o que o cliente gastou em pedido capturado antes da 072 (077: teto no gasto
+// O clawback do valor a repassar só vale para o que o cliente gastou em pedido capturado antes da 077 (082: teto no gasto
 // em pedido com commission_on_cash_in falso). Estes testes montam a falta direto na carteira, sem o gasto real: este
 // pedido capturado marca o gasto que a falta representa.
 async function seedLegacySpend(t: SeededTenant, price: string) {

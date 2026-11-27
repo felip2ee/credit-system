@@ -390,7 +390,7 @@ describe("evento 2: consulta pronta", () => {
 
 type SettleRow = { ok: boolean; reason: string | null; status: string | null };
 
-// Só o pedido reservado antes da 072 gera comissão do afiliado na captura (o push da comissão nasce dela): grava a reserva
+// Só o pedido reservado antes da 077 gera comissão do afiliado na captura (o push da comissão nasce dela): grava a reserva
 // no formato antigo (Bureau 40%, custo 600,00 sobre 1000,00). Devolve o mesmo formato de reserve_order.
 async function reserveOrder(_c: PoolClient, o: { orderRef: string; clientId: string; price: string; cost: string }) {
 	await seedLegacyOnlineOrder(owner, {

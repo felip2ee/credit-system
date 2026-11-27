@@ -32,7 +32,7 @@
 
 ## Global Constraints
 
-- Migrações: `065_afiliado_split_schema.sql` e `066_split_sem_comissao_captura.sql`. A `062` já existe em `main`. A `063` e a `064` estão reservadas pelo plano `2026-11-26-fluxo-cliente-2-pagamento-por-pedido.md`. Rode `ls db/migrations` antes e use o próximo número livre, também neste plano. Nunca editar migração aplicada. Sem Supabase.
+- Migrações: `070_afiliado_split_schema.sql` e `077_split_sem_comissao_captura.sql`. A `062` já existe em `main`. De `063` a `069` estão em uso nas branches abertas do fluxo do cliente (`2026-11-26-fluxo-cliente-*.md`); esta entrega usa `070` a `085`. Rode `ls db/migrations` antes e use o próximo número livre, também neste plano. Nunca editar migração aplicada. Sem Supabase.
 - As Tasks 2 e 3 rodam depois que a parte 2 do fluxo do cliente for mesclada (ela muda `pix-charges.ts`, `checkout.ts`, `route.ts` do webhook e `apply_asaas_payment`).
 - Soma de todas as camadas <= 100% do valor líquido. A cobrança não é criada se passar (`SplitOver100Error`). Reusar `lockCommissionSplit` e `assertSplitWithin100` (`src/lib/commission/queries.ts`).
 - Dinheiro em centavos inteiros. A sobra de arredondamento fica com a plataforma.
@@ -48,7 +48,7 @@
 - Webhook repetido (`PAYMENT_RECEIVED` duas vezes): nada duplica, em modo Pix e no `accrual` do bureau sem `walletId`.
 - Crédito manual de saldo e consumo de saldo: zero comissão, zero split.
 - Cobrança de recarga do próprio bureau: só sócios (C1).
-- Pedido já em andamento na virada: o pedido reservado antes da migração 066 não perde nem duplica a comissão do bureau.
+- Pedido já em andamento na virada: o pedido reservado antes da migração 077 não perde nem duplica a comissão do bureau.
 - Split recusado, estorno e chargeback: divergência na auditoria e visível no painel, sem saldo negativo silencioso.
 - Beneficiário muda de modo ou de `walletId` com cobrança em andamento: a cobrança já criada mantém o plano do momento da criação.
 - Cobrança de bureau sem nenhum percentual configurado: cria sem split de bureau.
@@ -58,7 +58,7 @@
 ### Task 1: Schema e tipos
 
 **Files:**
-- Create: `db/migrations/065_afiliado_split_schema.sql`
+- Create: `db/migrations/070_afiliado_split_schema.sql`
 - Modify: `src/lib/affiliates/types.ts`
 - Test: `src/lib/affiliates/split-schema.integration.test.ts`
 
@@ -124,7 +124,7 @@
 ### Task 4: Remover a comissão da captura do pedido
 
 **Files:**
-- Create: `db/migrations/066_split_sem_comissao_captura.sql`
+- Create: `db/migrations/077_split_sem_comissao_captura.sql`
 - Modify: as funções SQL `reserve_order`, `capture_order`, `open_order` (versão mais recente: migração 055) e `create_payout`/`mark_payout_paid` só se a remoção exigir; `src/lib/settlement/queries.ts`, `src/lib/payables/queries.ts`, `src/lib/commission/queries.ts`, `src/lib/bureau-admin/metrics.ts`, `src/lib/dashboard/queries.ts`, `src/lib/wallet/{sales,statement-total}.ts`, `src/lib/orders/{staff,client}-queries.ts`, `src/lib/settings/readers.ts`, `src/test/seed.ts`
 - Test: atualizar `src/lib/settlement/{commission-split,commission-rls,coupon-commission,money-fixes,settlement,queries}.integration.test.ts`, `src/lib/commission/queries.integration.test.ts`, `src/lib/affiliates/{commission,rates}.integration.test.ts`, `src/lib/payments/coupon-clawback*.test.ts`, `src/actions/settings.test.ts`
 
@@ -136,7 +136,7 @@
 
 - [ ] **Step 1:** Atualizar os testes para o novo comportamento e escrever o teste de transição: pedido reservado antes da virada captura com a regra antiga e não gera comissão dupla.
 - [ ] **Step 2:** Rodar e ver falhar.
-- [ ] **Step 3:** Escrever a migração 066 e ajustar o TypeScript e os leitores.
+- [ ] **Step 3:** Escrever a migração 077 e ajustar o TypeScript e os leitores.
 - [ ] **Step 4:** Todos os testes de dinheiro passam. `npm run check`.
 - [ ] **Step 5:** Commit `refactor(comissao): comissão deixa de nascer na captura do pedido`.
 

@@ -1,6 +1,6 @@
 // Zera os saldos antigos de comissão do bureau em bureau_payable_entries (plano afiliado-bureaus, parte 1, task 6).
 // Eles já foram repassados fora do sistema. Não apaga nada (a tabela é append-only): grava UM lançamento de ajuste por
-// bureau, kind 'reversal' (os leitores de saldo e de repasse já somam esse kind) com adjustment_reason (073), sem
+// bureau, kind 'reversal' (os leitores de saldo e de repasse já somam esse kind) com adjustment_reason (078), sem
 // cobrança nem pedido, mais um evento de auditoria 'payable.legacy_zeroed' na mesma transação.
 //   node scripts/db/zero-legacy-bureau-payables.mjs                 lista (--dry-run é o padrão), não altera nada
 //   node scripts/db/zero-legacy-bureau-payables.mjs --apply --yes   grava os ajustes (--yes é obrigatório com --apply)

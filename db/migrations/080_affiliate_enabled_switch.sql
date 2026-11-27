@@ -1,5 +1,5 @@
 -- Interruptor do afiliado de link (plano afiliado-bureaus, parte 2, task 3).
--- 068 já ignora o afiliado de link quando affiliate_enabled é falso (join com bureau_affiliate_settings): sem mudança lá.
+-- 073 já ignora o afiliado de link quando affiliate_enabled é falso (join com bureau_affiliate_settings): sem mudança lá.
 -- 1) O bureau_admin liga e desliga o recurso do próprio Bureau. O superadmin fora de suporte já escrevia (055).
 --    A % de afiliados (default_pct) continua só do superadmin: o insert do bureau_admin exige default_pct = 0 e o gatilho
 --    barra qualquer mudança de default_pct feita por ele.

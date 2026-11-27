@@ -1,5 +1,5 @@
-// Interruptor do afiliado de link (075): desligado por padrão. Desligado, a seção /portal/afiliacao some, as ações de saque e
-// de configurar pagamentos recusam e o split ignora o afiliado de link (068). O bureau_admin liga e desliga o próprio
+// Interruptor do afiliado de link (080): desligado por padrão. Desligado, a seção /portal/afiliacao some, as ações de saque e
+// de configurar pagamentos recusam e o split ignora o afiliado de link (073). O bureau_admin liga e desliga o próprio
 // Bureau; o superadmin fora de suporte, qualquer Bureau (bureauId). Auditoria na mesma transação.
 import { writeAuditEvent } from "@/lib/audit/write";
 import { hasPermission } from "@/lib/db/permissions";

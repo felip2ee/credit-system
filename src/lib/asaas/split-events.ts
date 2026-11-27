@@ -34,7 +34,7 @@ const splitItemsSchema = z.array(
 	}),
 );
 
-// unbound_charge: cobrança deste sistema que ainda não gravou o id do pagamento (078): o reenvio do Asaas a encontra.
+// unbound_charge: cobrança deste sistema que ainda não gravou o id do pagamento (083): o reenvio do Asaas a encontra.
 export type ChargeSplitEventResult = "unknown_charge" | "unbound_charge" | "updated" | "unchanged";
 
 // payment.split do corpo; null quando falta ou tem outro formato (o evento não derruba o webhook).
@@ -44,7 +44,7 @@ export function parseSplitItems(raw: unknown): z.infer<typeof splitItemsSchema> 
 	return parsed.success ? parsed.data : null;
 }
 
-// Webhook sem sessão (role app_webhook): a função SECURITY DEFINER é a única porta de escrita em charge_splits (067, 078).
+// Webhook sem sessão (role app_webhook): a função SECURITY DEFINER é a única porta de escrita em charge_splits (072, 083).
 export async function applyChargeSplitEvent(event: {
 	eventId: string;
 	eventType: string;

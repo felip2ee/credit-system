@@ -1,7 +1,7 @@
-// Cupom x comissão do Bureau (migrações 055 e 072) contra um Postgres real, sob RLS.
-// Preço de tabela 400,00. Desde a 072 o pedido online novo não gera comissão do Bureau nem do afiliado na captura (elas
+// Cupom x comissão do Bureau (migrações 055 e 077) contra um Postgres real, sob RLS.
+// Preço de tabela 400,00. Desde a 077 o pedido online novo não gera comissão do Bureau nem do afiliado na captura (elas
 // vêm do split da entrada de dinheiro) e o cupom só baixa o valor pago: o Bureau não cobre falta nenhuma. O pedido
-// reservado antes da 072 (Bureau 20% = 80,00, afiliado 10% do bruto = 40,00) segue com a regra antiga na captura.
+// reservado antes da 077 (Bureau 20% = 80,00, afiliado 10% do bruto = 40,00) segue com a regra antiga na captura.
 import { randomBytes, randomUUID } from "node:crypto";
 
 import { Pool, type PoolClient } from "pg";
@@ -128,7 +128,7 @@ const commissions = (bureauId: string) =>
 const bureauWallet = async (id: string) =>
 	(await rows<{ available: string; reserved: string }>("select available, reserved from wallets where bureau_id = $1", [id]))[0];
 
-// Pedido reservado antes da 072: Bureau 20% sobre o bruto (400,00), cupom fixo de `discount` já descontado de `paid`.
+// Pedido reservado antes da 077: Bureau 20% sobre o bruto (400,00), cupom fixo de `discount` já descontado de `paid`.
 async function legacyOrder(t: SeededTenant, paid: string, code: string | null, discount: string): Promise<string> {
 	const couponId = code ? (await rows<{ id: string }>("select id from coupons where code = $1", [code]))[0].id : null;
 	return seedLegacyOnlineOrder(owner, {
@@ -140,7 +140,7 @@ async function legacyOrder(t: SeededTenant, paid: string, code: string | null, d
 	});
 }
 
-describe("cupom x comissão (072): o cupom só baixa o valor pago", () => {
+describe("cupom x comissão (077): o cupom só baixa o valor pago", () => {
 	it("fixed 50: price paid 350, no Bureau funds, no accrual and no affiliate commission at capture", async () => {
 		const { t } = await tenant("cc fixed", { wallet: "500.00" });
 		const code = await seedCoupon(t, "fixed", "50.00");
@@ -207,7 +207,7 @@ describe("cupom x comissão (072): o cupom só baixa o valor pago", () => {
 	});
 });
 
-describe("transição: pedido com cupom reservado antes da 072", () => {
+describe("transição: pedido com cupom reservado antes da 077", () => {
 	it("keeps the old rule at capture: Bureau 80 - 50 = 30, affiliate 10% of the gross 400", async () => {
 		const { t } = await tenant("cc legacy");
 		const code = await seedCoupon(t, "fixed", "50.00");
@@ -252,7 +252,7 @@ describe("cupom x comissão: estorno de Pix depois da captura", () => {
 			])
 			.then((r) => r.rows[0].apply_asaas_payment);
 
-	it("reverts the pending affiliate commission first, then claws back the Bureau accrual of a pre-072 order", async () => {
+	it("reverts the pending affiliate commission first, then claws back the Bureau accrual of a pre-077 order", async () => {
 		const { t } = await tenant("cc refund", { client: "0.01" });
 		const charge = await seedPixCharge(owner, {
 			bureauId: t.bureau.id, requestedBy: t.client.userId, clientProfileId: t.client.userId, amount: "400.00", status: "paid",

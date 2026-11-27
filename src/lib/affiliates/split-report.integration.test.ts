@@ -1,4 +1,4 @@
-// Painel de repasses e prejuízo por cliente (076) contra um Postgres real, sob RLS.
+// Painel de repasses e prejuízo por cliente (081) contra um Postgres real, sob RLS.
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
@@ -211,7 +211,7 @@ describe("listBureauSplits", () => {
 	});
 });
 
-describe("status da cobrança no painel (078)", () => {
+describe("status da cobrança no painel (083)", () => {
 	it("ignora repasse de cobrança que não foi paga e marca a estornada", async () => {
 		const pending = await seedPixCharge(owner, { bureauId: A.bureau.id, requestedBy: clientA2.userId, status: "pending", clientProfileId: clientA2.userId });
 		const expired = await seedPixCharge(owner, { bureauId: A.bureau.id, requestedBy: clientA2.userId, status: "expired", clientProfileId: clientA2.userId });

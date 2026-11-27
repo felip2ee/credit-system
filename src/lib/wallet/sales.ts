@@ -1,7 +1,7 @@
 // Vendas da Carteira: uma linha por pedido, separadas em online e balcão. Recebe o PoolClient da transação do chamador
 // (withUserTransaction); o RLS limita à equipe do Bureau. O custo vem só de order_settlement_cost (018): a coluna
 // order_settlements.cost não é legível pelo app_runtime. Mostra o nome do titular do pedido, nunca o CPF/CNPJ.
-// Pedido online novo (commission_on_cash_in, 072) não tem parte do Bureau por pedido: ela nasce na entrada de dinheiro
+// Pedido online novo (commission_on_cash_in, 077) não tem parte do Bureau por pedido: ela nasce na entrada de dinheiro
 // (charge_splits). Por isso a linha mostra 0,00 e o total da aba online soma a parte do Bureau das cobranças pagas.
 import type { PoolClient } from "pg";
 

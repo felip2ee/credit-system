@@ -187,7 +187,7 @@ async function setup(label: string, funds: string, chargeAmount: string) {
 	return { t, charge };
 }
 
-// Pedido reservado antes da 072 e capturado: só ele ainda gera o acréscimo (price - cost) que o estorno reverte.
+// Pedido reservado antes da 077 e capturado: só ele ainda gera o acréscimo (price - cost) que o estorno reverte.
 async function placeAndCapture(t: SeededTenant, price: string, cost: string) {
 	const order = onlineOrder(t, price, cost);
 	await seedLegacyOnlineOrder(owner, {
@@ -409,7 +409,7 @@ describe("A2: a reserva restante é por pedido", () => {
 			status: "captured",
 		});
 		expect(await clientBalance(t.client.userId)).toEqual({ available: "0.00", reserved: "0.00" });
-		// Pedido novo (072): a captura não gera acréscimo.
+		// Pedido novo (077): a captura não gera acréscimo.
 		expect((await payable(t.bureau.id)).map((r) => [r.kind, r.amount])).toEqual([]);
 	});
 
@@ -633,7 +633,7 @@ describe("A3: reserve_order confere preço e custo no catálogo", () => {
 		expect(results[0]).toEqual({ ok: true, reason: null, status: "reserved" });
 		// 130,00 é o total de 1 sócio: o banco conta 2.
 		expect(results[1]).toEqual({ ok: false, reason: "price_mismatch", status: null });
-		// Online (072): sem comissão gravada; ela vem do split da entrada.
+		// Online (077): sem comissão gravada; ela vem do split da entrada.
 		expect(await settlementRow(good.orderRef)).toMatchObject({ price: "160.00", cost: "0.00", commission_pct: null, bureau_commission: null });
 		expect(await settlementRow(stale.orderRef)).toBeUndefined();
 		expect(await clientBalance(t.client.userId)).toEqual({ available: "340.00", reserved: "160.00" });

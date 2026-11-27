@@ -111,7 +111,7 @@ async function seedCoupon(t: SeededTenant, value: string, maxUses: number | null
 const couponIdOf = async (code: string) =>
 	(await rows<{ id: string }>("select id from coupons where code = $1", [code]))[0].id;
 
-// Pedido online com cupom reservado antes da 072: o Bureau cobriu a falta (custo - preço pago) pela carteira. Desde a 072
+// Pedido online com cupom reservado antes da 077: o Bureau cobriu a falta (custo - preço pago) pela carteira. Desde a 077
 // reserve_order não cobre mais a falta; esse caminho segue valendo para os pedidos que já estavam reservados.
 async function placeLegacyCoupon(
 	t: SeededTenant,

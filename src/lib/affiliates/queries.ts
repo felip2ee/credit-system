@@ -25,7 +25,7 @@ type CommissionDbRow = {
 };
 type AsaasDbRow = { created_at: Date; referred_name: string; base_value: string; amount: string; status: ChargeSplitStatus };
 
-// Comissão da entrada (069) não tem pedido: o valor da recarga é affiliate_commissions.margin, lido pela RLS do próprio
+// Comissão da entrada (074) não tem pedido: o valor da recarga é affiliate_commissions.margin, lido pela RLS do próprio
 // afiliado. A chave do lançamento diz que a comissão veio de recarga.
 const CASH_IN_COMMISSIONS = `affiliate_commissions c
 		   join affiliate_ledger_entries e
@@ -71,7 +71,7 @@ export async function getMyAffiliateSummary(client: PoolClient): Promise<{
 		   from affiliate_my_commissions() f
 		  order by f.created_at desc`,
 	);
-	// Modo conta Asaas (080): paga pelo split, fora da carteira. Cada cobrança tem uma linha só, em um dos dois modos.
+	// Modo conta Asaas (085): paga pelo split, fora da carteira. Cada cobrança tem uma linha só, em um dos dois modos.
 	const asaas = await client.query<AsaasDbRow>(
 		`select created_at, referred_name, base_value, amount, status
 		   from affiliate_my_asaas_commissions()

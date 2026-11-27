@@ -1,9 +1,7 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import { PayoutMethodCards } from "@/components/affiliates/PayoutMethodCards";
-import { PageHeader } from "@/components/layout/page-header";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { isAffiliateEnabled } from "@/lib/affiliates/enabled";
 import { getPayoutSettings } from "@/lib/affiliates/payout-settings";
@@ -22,11 +20,7 @@ export default async function AffiliatePayoutsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Configurar pagamentos" />
-      <Link href="/portal/afiliacao" className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
-        <ArrowLeft aria-hidden className="size-5" />
-        Voltar para afiliação
-      </Link>
+      <ScreenHeader className="-mx-4 min-[375px]:-mx-5" title="Configurar pagamentos" backHref="/portal/afiliacao" backLabel="Voltar para afiliação" />
       {current ? (
         <PayoutMethodCards current={current} />
       ) : (

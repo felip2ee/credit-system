@@ -1,5 +1,5 @@
 // Cupons de desconto (migração 049): reserva, captura e liberação com dinheiro no SQL. Postgres real, sob RLS.
-// Preço de tabela 100. Desde a 072 o cupom só baixa o valor pago: o Bureau não cobre nenhuma falta.
+// Preço de tabela 100. Desde a 077 o cupom só baixa o valor pago: o Bureau não cobre nenhuma falta.
 import { randomBytes, randomUUID } from "node:crypto";
 
 import { Pool, type PoolClient } from "pg";
@@ -193,7 +193,7 @@ const seedReleased = (t: SeededTenant, amount: string) =>
 	seedPayableEntry(owner, { bureauId: t.bureau.id, kind: "accrual", amount, createdAt: OLD });
 
 describe("desconto e preço pago", () => {
-	it("percent: 50% of 100 pays 50 and the Bureau covers nothing (072)", async () => {
+	it("percent: 50% of 100 pays 50 and the Bureau covers nothing (077)", async () => {
 		const t = await tenant("cup pct", { client: "100.00", wallet: "100.00" });
 		const c = await seedCoupon(t, { value: "50" });
 		const { orderRef, res } = await place(t, { paid: "50.00", code: c.code });
@@ -351,7 +351,7 @@ describe("escopo, limites e validade", () => {
 	});
 });
 
-describe("quem paga a falta (072: ninguém; o cupom só baixa o valor pago)", () => {
+describe("quem paga a falta (077: ninguém; o cupom só baixa o valor pago)", () => {
 	it("the Bureau funds nothing: wallet and payable balance stay untouched, even with released balance and an empty wallet", async () => {
 		const t = await tenant("cup nofunds", { client: "100.00", wallet: "4.00" });
 		await seedReleased(t, "100.00");
@@ -493,7 +493,7 @@ describe("depois da captura", () => {
 			"insert into bureau_affiliate_settings (bureau_id, default_pct) values ($1, 10) on conflict (bureau_id) do update set default_pct = 10",
 			[t.bureau.id],
 		);
-		// Pedido novo (072): a captura não cria comissão de afiliado nem acréscimo do Bureau, com ou sem cupom. As duas vêm
+		// Pedido novo (077): a captura não cria comissão de afiliado nem acréscimo do Bureau, com ou sem cupom. As duas vêm
 		// do split da entrada de dinheiro.
 		const coupon = await seedCoupon(t, { value: "40" });
 		const a = await place(t, { paid: "60.00", code: coupon.code });

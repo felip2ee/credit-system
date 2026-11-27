@@ -1,8 +1,113 @@
--- apply_asaas_payment (058) + comissão sobre a entrada (plano afiliado-bureaus, parte 1, task 3).
--- O corpo é o da 058 com duas chamadas a record_cash_in_commission (069): no pagamento de recarga (carteira creditada) e
--- no pagamento de link (link_paid, link_overpaid, link_order_not_payable: a cobrança ficou paga). A chamada fica na mesma
--- transação do status 'paid': se falhar, o pagamento inteiro desfaz e o Asaas reenvia o evento. Dono e grants
--- (app_webhook) vêm da 014/043; create or replace os mantém.
+-- Correções da revisão da entrada de dinheiro (plano afiliado-bureaus, parte 1). Só create or replace; o resto das funções é o
+-- da versão anterior, sem mudança.
+-- 1) apply_asaas_payment (079): no estorno de cobrança de cliente, o clawback antigo do valor a repassar (055/058: "o Bureau
+--    recebeu o accrual na captura") ficava com a falta inteira da carteira, mesmo para pedido da entrada (077), que não
+--    gera accrual de captura. O Bureau perdia o accrual da recarga (estorno ligado) E a falta inteira. Agora o clawback tem
+--    teto no gasto do cliente em pedido capturado com commission_on_cash_in falso (pedido anterior à 077).
+-- 2) charge_split_plan_internal (073): a % do afiliado no plano vem só de bureau_affiliate_settings.default_pct, a mesma que
+--    assertSplitWithin100 soma. A 055 aposentou affiliate_rates (sem política de escrita, sem tela): o override legado
+--    deixava o plano passar de 100 sem o teto enxergar.
+
+create or replace function charge_split_plan_internal(p_charge_id uuid)
+returns table (
+  beneficiary_kind text,
+  beneficiary_id uuid,
+  payout_method text,
+  asaas_wallet_id text,
+  pct numeric,
+  amount_cents bigint
+)
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+#variable_conflict use_column
+declare
+  v_charge public.pix_charges;
+  v_net bigint;
+  v_topup boolean;
+  v_total numeric;
+  v_inserted integer;
+begin
+  -- A trava da cobrança serializa duas chamadas: a segunda vê as linhas da primeira.
+  select * into v_charge from public.pix_charges where id = p_charge_id for update;
+  if not found then
+    raise exception 'charge_not_found' using errcode = 'no_data_found';
+  end if;
+
+  if v_charge.asaas_payment_id is null
+     and not exists (select 1 from public.charge_splits s where s.pix_charge_id = p_charge_id) then
+    v_net := round(v_charge.amount * 100)::bigint;
+    v_topup := v_charge.client_profile_id is null and v_charge.payment_link_id is null;
+
+    with cand as (
+      select 'partner'::text as k, p.id as bid, 'asaas'::text as m, p.asaas_wallet_id as w, p.pct as pct
+        from public.platform_partners p
+       where p.active
+      union all
+      select 'bureau', v_charge.bureau_id,
+             case when bw.asaas_wallet_id is null then 'accrual' else 'asaas' end, bw.asaas_wallet_id,
+             public.resolve_bureau_commission_pct(v_charge.bureau_id)
+        from (select 1) one
+        left join public.bureau_asaas_wallets bw on bw.bureau_id = v_charge.bureau_id
+       where not v_topup
+      union all
+      select 'bureau_referrer', r.referrer_bureau_id,
+             case when rw.asaas_wallet_id is null then 'accrual' else 'asaas' end, rw.asaas_wallet_id, r.pct
+        from public.bureau_referrals r
+        left join public.bureau_asaas_wallets rw on rw.bureau_id = r.referrer_bureau_id
+       where not v_topup and r.referred_bureau_id = v_charge.bureau_id and r.active
+      union all
+      -- Afiliado de link: o mesmo filtro da captura (019/027): afiliado ativo e não anonimizado, indicado com telefone
+      -- verificado. Só com o recurso ligado no bureau (affiliate_enabled).
+      select 'affiliate', ar.affiliate_profile_id, aw.payout_method,
+             case when aw.payout_method = 'asaas' then aw.asaas_wallet_id end,
+             coalesce(st.default_pct, 0)
+        from public.affiliate_referrals ar
+        join public.profiles a on a.id = ar.affiliate_profile_id and a.anonymized_at is null and a.is_active
+        join public.profiles b on b.id = ar.referred_profile_id and b.phone_verified_at is not null
+        join public.affiliate_wallets aw on aw.profile_id = ar.affiliate_profile_id
+        join public.bureau_affiliate_settings st on st.bureau_id = v_charge.bureau_id and st.affiliate_enabled
+       where not v_topup and ar.referred_profile_id = v_charge.client_profile_id
+         and ar.bureau_id = v_charge.bureau_id
+    )
+    insert into public.charge_splits
+      (pix_charge_id, bureau_id, beneficiary_kind, beneficiary_id, payout_method, asaas_wallet_id, pct, amount_cents)
+    select p_charge_id, v_charge.bureau_id, cand.k, cand.bid, cand.m, cand.w, cand.pct,
+           floor(v_net * cand.pct / 100)::bigint
+      from cand
+     where coalesce(cand.pct, 0) > 0 and floor(v_net * cand.pct / 100) > 0
+    on conflict do nothing;
+    get diagnostics v_inserted = row_count;
+
+    select coalesce(sum(s.pct), 0) into v_total from public.charge_splits s where s.pix_charge_id = p_charge_id;
+    if v_total > 100 then
+      raise exception 'split_over_100' using errcode = 'check_violation';
+    end if;
+
+    if v_inserted > 0 then
+      insert into public.audit_logs (bureau_id, user_id, action, table_name, record_id, metadata)
+      select v_charge.bureau_id, null, 'charge_split.planned', 'pix_charges', p_charge_id,
+             jsonb_build_object(
+               'net_cents', v_net,
+               'payer', case when v_topup then 'bureau' else 'client' end,
+               'lines', jsonb_agg(jsonb_build_object(
+                 'kind', s.beneficiary_kind, 'method', s.payout_method, 'pct', s.pct::text,
+                 'amount_cents', s.amount_cents,
+                 'wallet', case when s.asaas_wallet_id is null then null else '***' || right(s.asaas_wallet_id, 4) end)
+                 order by s.beneficiary_kind, s.id))
+        from public.charge_splits s where s.pix_charge_id = p_charge_id;
+    end if;
+  end if;
+
+  return query
+    select s.beneficiary_kind, s.beneficiary_id, s.payout_method, s.asaas_wallet_id, s.pct, s.amount_cents
+      from public.charge_splits s
+     where s.pix_charge_id = p_charge_id
+     order by s.beneficiary_kind, s.created_at, s.id;
+end
+$$;
+
 create or replace function apply_asaas_payment(
   p_event_id text,
   p_event_type text,
@@ -25,6 +130,7 @@ declare
   v_shortfall numeric;
   v_payable numeric;
   v_clawback numeric := 0;
+  v_legacy_spent numeric;
   v_left numeric;
   v_affiliate uuid;
   v_commission record;
@@ -86,6 +192,9 @@ begin
     -- Dinheiro entrou (a cobrança ficou paga): repasses que o split do Asaas não cobre. Idempotente.
     if v_result in ('link_paid', 'link_overpaid', 'link_order_not_payable') then
       perform public.record_cash_in_commission(v_charge.id);
+    elsif v_result = 'link_refund_ignored' and p_event_type in ('PAYMENT_REFUNDED', 'PAYMENT_CHARGEBACK_REQUESTED') then
+      -- O pedido não reverte sozinho, mas o dinheiro saiu: reverte os repasses cash_in. Idempotente.
+      perform public.reverse_cash_in_commission(v_charge.id, p_event_type, p_payload);
     end if;
   elsif p_event_type in ('PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED') then
     select * into v_charge from public.pix_charges where id = v_charge.id for update;
@@ -174,6 +283,7 @@ begin
             select c.id, c.amount, c.reversed_amount, c.bureau_id, c.affiliate_profile_id
               from public.affiliate_commissions c
              where c.referred_profile_id = v_charge.client_profile_id and c.status = 'pending'
+               and not exists (select 1 from public.pix_charges pc where pc.id = c.order_ref)
              order by c.created_at desc, c.id desc
                for update
           loop
@@ -201,6 +311,9 @@ begin
           end loop;
         end if;
       end if;
+      -- Repasses da entrada que o split do Asaas não cobre (afiliado em modo Pix, accrual do bureau) e status das linhas do
+      -- split. Antes do clawback: o estorno do accrual já entra no saldo a repassar lido abaixo.
+      perform public.reverse_cash_in_commission(v_charge.id, p_event_type, p_payload);
       -- O que a comissão não cobriu vira clawback do Bureau, até o saldo a repassar ainda não pago. O lock é o de
       -- create_payout: um repasse em curso e este estorno se enfileiram.
       if v_charge.client_profile_id is not null and v_left > 0 then
@@ -213,7 +326,16 @@ begin
          where e.bureau_id = v_charge.bureau_id
            and e.kind in ('accrual', 'reversal', 'coupon_cost', 'coupon_refund')
            and not exists (select 1 from public.payout_items i where i.entry_id = e.id);
-        v_clawback := least(v_left, greatest(v_payable, 0));
+        -- Teto do clawback: o que o cliente gastou em pedido capturado antes da 077 (commission_on_cash_in falso), os
+        -- únicos em que o Bureau recebeu o accrual na captura. Pedido novo (flag verdadeiro) não gera accrual de
+        -- captura: o Bureau só recebeu o accrual da entrada, que reverse_cash_in_commission já estornou acima. Sem
+        -- pedido antigo o teto é 0 e nada é cobrado em dobro; com só pedido antigo o teto não limita (a falta de uma
+        -- cobrança nunca passa do que o cliente gastou).
+        select coalesce(sum(s.price), 0) into v_legacy_spent
+          from public.order_settlements s
+         where s.client_profile_id = v_charge.client_profile_id and s.mode = 'online'
+           and s.status = 'captured' and not s.commission_on_cash_in;
+        v_clawback := least(v_left, greatest(v_payable, 0), v_legacy_spent);
         v_left := v_left - v_clawback;
       end if;
       update public.pix_charges

@@ -1,5 +1,5 @@
 -- Comissão sobre a entrada de dinheiro (plano afiliado-bureaus, parte 1, task 3).
--- 1) affiliate_wallet_post_entry ganha p_origin ('order' padrão, 'cash_in'): grava affiliate_ledger_entries.origin (065).
+-- 1) affiliate_wallet_post_entry ganha p_origin ('order' padrão, 'cash_in'): grava affiliate_ledger_entries.origin (070).
 --    Os chamadores antigos (seis argumentos) seguem valendo pelo padrão. A assinatura antiga sai (com o padrão as duas
 --    ficariam ambíguas). O corpo é o da 026 mais a coluna origin; dono e grants ficam como eram (interna, sem app_runtime).
 --    Os lançamentos de liberação e reversão feitos depois por release_due_commissions ficam com origin 'order'.
@@ -9,7 +9,7 @@
 --    afiliado em modo Pix (affiliate_commissions com order_ref = cobrança, lançamento cash_in, carência de
 --    affiliate_cash_in_hold_days; carência 0 libera na hora) e accrual de bureau sem walletId. Idempotente: só trata linha
 --    pending e a marca done; chaves únicas do livro-razão e dos accruals são a segunda barreira.
---    Roda dentro de apply_asaas_payment (070), na mesma transação que marca a cobrança como paga.
+--    Roda dentro de apply_asaas_payment (075), na mesma transação que marca a cobrança como paga.
 
 drop function affiliate_wallet_post_entry(uuid, text, numeric, text, text, uuid);
 

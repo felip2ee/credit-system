@@ -171,7 +171,7 @@ beforeAll(async () => {
 	await setGlobal(null);
 });
 
-describe("pedido online novo (072): a captura não divide o preço", () => {
+describe("pedido online novo (077): a captura não divide o preço", () => {
 	it("400,00 com Bureau 20% e afiliado 10%: nada de comissão gravada, accrual ou comissão de afiliado", async () => {
 		await setPrice("400.00");
 		const { t } = await scenario("Split 400", { override: "20", affPct: "10" });
@@ -183,7 +183,7 @@ describe("pedido online novo (072): a captura não divide o preço", () => {
 
 		expect(await capture(t, orderRef)).toMatchObject({ ok: true, status: "captured" });
 
-		// Bureau e afiliado recebem pelo split da entrada de dinheiro (068/069), não aqui.
+		// Bureau e afiliado recebem pelo split da entrada de dinheiro (073/074), não aqui.
 		expect(await accrual(orderRef)).toEqual([]);
 		expect(await commissionOf(orderRef)).toEqual([]);
 		expect(await owner.query("select 1 from bureau_payable_entries where bureau_id = $1", [t.bureau.id])).toMatchObject({ rowCount: 0 });
@@ -259,7 +259,7 @@ describe("precedência da % do Bureau", () => {
 			(await owner.query<{ pct: string | null }>("select resolve_bureau_commission_pct($1) as pct", [t.bureau.id])).rows[0].pct;
 
 		expect(await resolve()).toBe("12");
-		// Online (072): a % não é gravada no pedido; o balcão ainda grava (a % define o custo da carteira).
+		// Online (077): a % não é gravada no pedido; o balcão ainda grava (a % define o custo da carteira).
 		const global = await reserveCounter(t, "400.00", "352.00");
 		expect(await settlementOf(global.orderRef)).toMatchObject({ commission_pct: "12.00", bureau_commission: "48.00" });
 
@@ -344,7 +344,7 @@ describe("produto à venda", () => {
 	});
 });
 
-describe("snapshot do pedido e transição para a 072", () => {
+describe("snapshot do pedido e transição para a 077", () => {
 	it("mudar preço, % global, override e % de afiliados depois da reserva não muda o pedido e a captura não gera comissão", async () => {
 		await setPrice("400.00");
 		await setGlobal("5");
@@ -363,10 +363,10 @@ describe("snapshot do pedido e transição para a 072", () => {
 		await setGlobal(null);
 	});
 
-	it("transição: pedido reservado antes da 072 (commission_pct gravado) captura com a regra antiga; o novo não gera comissão", async () => {
+	it("transição: pedido reservado antes da 077 (commission_pct gravado) captura com a regra antiga; o novo não gera comissão", async () => {
 		await setPrice("400.00");
 		const { t } = await scenario("Transição", { override: "20", affPct: "10" });
-		// Reserva feita antes do deploy da 072: comissão do Bureau 20% (80,00) gravada.
+		// Reserva feita antes do deploy da 077: comissão do Bureau 20% (80,00) gravada.
 		const legacy = await seedLegacyOnlineOrder(owner, {
 			bureauId: t.bureau.id, clientProfileId: t.client.userId, price: "400.00", commissionPct: "20",
 		});

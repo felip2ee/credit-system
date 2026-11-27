@@ -1,5 +1,5 @@
 // Indicação entre bureaus (bureau_referrals): um indicador por bureau indicado, sem auto-indicação e sem ciclo.
-// Só o superadmin fora de suporte escreve (RLS 065). A auditoria vai na mesma transação, como evento da plataforma:
+// Só o superadmin fora de suporte escreve (RLS 070). A auditoria vai na mesma transação, como evento da plataforma:
 // o bureau indicado fica em target_id e na metadata (o ramo do superadmin em audit_logs_insert exige bureau nulo).
 import { writeAuditEvent } from "@/lib/audit/write";
 import { assertSplitWithin100, lockCommissionSplit, SplitOver100Error } from "@/lib/commission/queries";
@@ -57,14 +57,14 @@ export async function setBureauReferrer(identity: DbIdentity, input: BureauRefer
 		if (error instanceof SplitOver100Error) return { ok: false, reason: "split_over_100" };
 		const { code, constraint } = error as PgError;
 		if (code === FOREIGN_KEY_VIOLATION) return { ok: false, reason: "not_found" };
-		// O gatilho de ciclo (065) levanta check_violation sem nome de constraint.
+		// O gatilho de ciclo (070) levanta check_violation sem nome de constraint.
 		if (code === CHECK_VIOLATION && constraint !== PCT_CHECK) return { ok: false, reason: "cycle" };
 		if (code === UNIQUE_VIOLATION) return { ok: false, reason: "already_referred" };
 		throw error;
 	}
 }
 
-// Apaga a linha (071). `removed` falso: não havia indicador (ou o RLS escondeu a linha); nada é auditado.
+// Apaga a linha (076). `removed` falso: não havia indicador (ou o RLS escondeu a linha); nada é auditado.
 export async function clearBureauReferrer(
 	identity: DbIdentity,
 	input: ClearBureauReferrerInput,

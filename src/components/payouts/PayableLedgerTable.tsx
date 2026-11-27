@@ -18,7 +18,7 @@ const KIND_LABEL: Record<PayableEntry["kind"], string> = {
   coupon_refund: "Devolução de cobertura de cupom",
 };
 
-// Acréscimo da entrada de dinheiro (072): a parte do Bureau num pagamento recebido, sem pedido.
+// Acréscimo da entrada de dinheiro (077): a parte do Bureau num pagamento recebido, sem pedido.
 const CASH_IN_ACCRUAL_LABEL = "Sua parte de um pagamento recebido";
 
 const shortRef = (ref: string) => ref.slice(0, 8);

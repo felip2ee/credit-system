@@ -1,4 +1,4 @@
--- Webhook do Asaas atualiza charge_splits (065) a partir de payment.split[] dos eventos de split, estorno e chargeback.
+-- Webhook do Asaas atualiza charge_splits (070) a partir de payment.split[] dos eventos de split, estorno e chargeback.
 -- Função definer (dono auth_profile_lookup), EXECUTE só para app_webhook. Idempotente: só grava quando o status muda.
 -- Transições: pending -> done | refused | refunded; done -> refunded. refused, refunded e reversal_failed não mudam.
 -- O Asaas não tem evento PAYMENT_SPLIT_REFUSED: a recusa chega como item com status REFUSED (ou CANCELLED) em payment.split.

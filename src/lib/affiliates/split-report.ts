@@ -5,7 +5,7 @@
 // terminou em result = 'refunded'; é estorno se algum evento terminou em 'refunded' e não foi chargeback. Estorno antes do
 // pagamento fica 'ignored' (nunca houve dinheiro) e não entra. O período filtra por pix_charges.created_at (o pagamento
 // não grava data própria). Cartão parcelado tem um id de pagamento por parcela: o evento casa pelo id ou pelo
-// parcelamento (installment_id, 078).
+// parcelamento (installment_id, 083).
 // Repasses e total dos sócios contam só cobrança paga ou estornada (o plano nasce com a cobrança, ainda sem dinheiro).
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 
