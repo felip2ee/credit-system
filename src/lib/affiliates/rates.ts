@@ -39,8 +39,14 @@ export async function listBureauAffiliates(identity: DbIdentity): Promise<Bureau
 		const { rows } = await client.query<AffiliateDbRow>(
 			`select c.profile_id, p.full_name as name, c.code,
 			        (select count(*)::int from affiliate_referrals r where r.affiliate_profile_id = c.profile_id) as referrals,
-			        (select coalesce(sum(m.amount - m.reversed_amount), 0)::numeric(15,2)
-			           from affiliate_commissions m where m.affiliate_profile_id = c.profile_id) as total_commission,
+			        -- Carteira (reais líquidos) + split Asaas (centavos): soma em centavos inteiros. Recusado e estornado voltaram.
+			        (((select coalesce(round(sum(m.amount - m.reversed_amount) * 100), 0)
+			            from affiliate_commissions m where m.affiliate_profile_id = c.profile_id)
+			         + (select coalesce(sum(s.amount_cents), 0)
+			              from charge_splits s
+			             where s.beneficiary_kind = 'affiliate' and s.beneficiary_id = c.profile_id
+			               and s.status in ('pending', 'done', 'reversal_failed'))
+			        )::numeric / 100)::numeric(15,2) as total_commission,
 			        w.payout_method, w.asaas_wallet_id
 			   from affiliate_codes c
 			   join profiles p on p.id = c.profile_id

@@ -76,6 +76,7 @@ export function CommissionTables({ referrals, commissions }: CommissionTablesPro
                       </span>
                     }
                     value={formatCurrency(Number(c.amount))}
+                    wrap
                   />
                 </li>
               ))}

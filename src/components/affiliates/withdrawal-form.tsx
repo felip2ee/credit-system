@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StatusBanner } from "@/components/ui/status-banner";
 import { failureMessage } from "@/lib/ui/failure-message";
 import { isStepSettled, STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatPercent } from "@/lib/utils";
 
 import { withdrawalPreview, type WithdrawalFee } from "./affiliate-rules";
 import { amountStepError, isAmountFailure, keyStepErrors, WITHDRAWAL_STEPS, type KeyStepErrors, type WithdrawalStepId } from "./withdrawal-steps";
@@ -146,7 +146,7 @@ export function WithdrawalForm({ fee }: WithdrawalFormProps) {
             <Field
               id="withdraw-amount"
               label="Valor (R$)"
-              helper={`Taxa de saque: ${formatCurrency(Number(fee.fixed))} + ${fee.percent}%`}
+              helper={`Taxa de saque: ${formatCurrency(Number(fee.fixed))} + ${formatPercent(fee.percent)}`}
               error={amountError}
             >
               {(a11y) => (

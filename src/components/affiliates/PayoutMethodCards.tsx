@@ -21,11 +21,11 @@ interface PayoutMethodCardsProps {
 	current: PayoutSettings;
 	// Só quando o dono do bureau ou o superadmin cadastra em nome do afiliado.
 	profileId?: string;
-	// Dica de quem recebe: "você" (padrão) ou o nome do afiliado.
+	// Nome do afiliado, quando outra pessoa cadastra; sem ele, o texto fala "em seu nome".
 	subject?: string;
 }
 
-export function PayoutMethodCards({ current, profileId, subject = "você" }: PayoutMethodCardsProps) {
+export function PayoutMethodCards({ current, profileId, subject }: PayoutMethodCardsProps) {
 	const router = useRouter();
 	const uid = useId();
 	const [method, setMethod] = useState<PayoutMethod>(current.method);
@@ -79,7 +79,7 @@ export function PayoutMethodCards({ current, profileId, subject = "você" }: Pay
 						<ul className="list-disc space-y-1 pl-5 text-base">
 							<li>A taxa do Asaas já vem descontada.</li>
 							<li>Sem carência e sem pedido de saque.</li>
-							<li>Precisa de uma conta Asaas aberta em nome de {subject}.</li>
+							<li>Precisa de uma conta Asaas aberta {subject ? `em nome de ${subject}` : "em seu nome"}.</li>
 						</ul>
 						<div className="flex flex-wrap gap-2">
 							<Button asChild variant="outline" size="sm">

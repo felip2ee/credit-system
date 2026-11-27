@@ -13,12 +13,13 @@ import { StatusBanner } from "@/components/ui/status-banner";
 import { isAffiliateEnabled } from "@/lib/affiliates/enabled";
 import { affiliateLink } from "@/lib/affiliates/rates";
 import { getMyAffiliateSummary } from "@/lib/affiliates/queries";
+import { getPayoutSettings } from "@/lib/affiliates/payout-settings";
 import { readWithdrawalFee } from "@/lib/affiliates/withdrawals";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { readAffiliateWithdrawalsEnabled } from "@/lib/config";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatPercent } from "@/lib/utils";
 
 export const metadata = { title: "Afiliação" };
 
@@ -44,12 +45,13 @@ export default async function AffiliatePage() {
   const { code, wallet, referrals, commissions } = data.summary;
   const hasAvailable = Number(wallet.available) > 0;
   const withdrawalsEnabled = readAffiliateWithdrawalsEnabled(process.env);
+  const method = (await getPayoutSettings(session, session.userId))?.method ?? "pix";
   const fee = withdrawalsEnabled ? await readWithdrawalFee(session) : null;
 
   return (
     <div className="space-y-6">
       <PageHeader title="Afiliação" />
-      <HowItWorks fee={fee} />
+      <HowItWorks fee={fee} method={method} />
       <AffiliateLinkCard link={affiliateLink(data.slug, code)} />
       <Button asChild variant="outline" size="lg" className="w-full sm:w-auto">
         <Link href="/portal/afiliacao/pagamentos">Configurar pagamentos</Link>
@@ -70,7 +72,7 @@ export default async function AffiliatePage() {
             {fee ? (
               <>
                 <p className="text-muted-foreground">
-                  Taxa de saque: {formatCurrency(Number(fee.fixed))} + {fee.percent}%
+                  Taxa de saque: {formatCurrency(Number(fee.fixed))} + {formatPercent(fee.percent)}
                 </p>
                 <Button asChild variant="outline" className="w-full sm:w-auto">
                   <Link href="/portal/afiliacao/saque">Sacar por PIX</Link>
