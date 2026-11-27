@@ -30,7 +30,7 @@ export default async function CatalogPage() {
       <PageHeader title="Catálogo" description="Produtos à venda no seu Bureau e quanto você ganha em cada venda" />
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Sua comissão</CardTitle>
+          <CardTitle>Sua comissão</CardTitle>
           <CardDescription>
             A plataforma define os preços, a sua porcentagem e quais produtos ficam à venda. Você ganha essa
             porcentagem sobre o preço de cada venda.
@@ -42,41 +42,67 @@ export default async function CatalogPage() {
               A plataforma ainda não definiu a sua comissão. Enquanto isso, as vendas ficam indisponíveis.
             </p>
           ) : (
-            <p className="text-2xl font-semibold">{Number(commission.pct)}%</p>
+            <p className="font-bold">{Number(commission.pct)}%</p>
           )}
         </CardContent>
       </Card>
       {entries.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum produto à venda no momento. Fale com a plataforma.</p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Produto</TableHead>
-              <TableHead>Preço de venda</TableHead>
-              <TableHead>Por sócio</TableHead>
-              <TableHead>Você ganha por venda</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <>
+          <ul className="space-y-3 md:hidden">
             {entries.map((e) => {
               const perPartner = Number(e.salePricePerPartner) > 0;
               const base = earns(e.salePrice);
               const partner = perPartner ? earns(e.salePricePerPartner) : null;
               return (
-                <TableRow key={e.productId}>
-                  <TableCell className="font-medium">{e.name}</TableCell>
-                  <TableCell>{formatCurrency(Number(e.salePrice))}</TableCell>
-                  <TableCell>{perPartner ? formatCurrency(Number(e.salePricePerPartner)) : "—"}</TableCell>
-                  <TableCell>
-                    {base ?? "—"}
-                    {partner && ` + ${partner} por sócio`}
-                  </TableCell>
-                </TableRow>
+                <li key={e.productId}>
+                  <Card>
+                    <CardContent className="space-y-1 pt-4">
+                      <p className="break-words font-bold">{e.name}</p>
+                      <p className="text-sm">Preço de venda: {formatCurrency(Number(e.salePrice))}</p>
+                      {perPartner && <p className="text-sm">Por sócio: {formatCurrency(Number(e.salePricePerPartner))}</p>}
+                      <p className="text-sm font-bold">
+                        Você ganha por venda: {base ?? "—"}
+                        {partner && ` + ${partner} por sócio`}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </li>
               );
             })}
-          </TableBody>
-        </Table>
+          </ul>
+          <div className="hidden md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Produto</TableHead>
+                  <TableHead>Preço de venda</TableHead>
+                  <TableHead>Por sócio</TableHead>
+                  <TableHead>Você ganha por venda</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((e) => {
+                  const perPartner = Number(e.salePricePerPartner) > 0;
+                  const base = earns(e.salePrice);
+                  const partner = perPartner ? earns(e.salePricePerPartner) : null;
+                  return (
+                    <TableRow key={e.productId}>
+                      <TableCell className="font-medium">{e.name}</TableCell>
+                      <TableCell>{formatCurrency(Number(e.salePrice))}</TableCell>
+                      <TableCell>{perPartner ? formatCurrency(Number(e.salePricePerPartner)) : "—"}</TableCell>
+                      <TableCell>
+                        {base ?? "—"}
+                        {partner && ` + ${partner} por sócio`}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
     </div>
   );

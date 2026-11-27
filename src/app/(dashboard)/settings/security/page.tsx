@@ -25,7 +25,7 @@ export default function SecurityPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Autenticador</CardTitle>
+          <CardTitle>Autenticador</CardTitle>
           <CardDescription>
             Use um app como Google Authenticator, Authy ou 1Password. Consultores
             e administradores precisam de um autenticador ativo para acessar o
@@ -34,7 +34,11 @@ export default function SecurityPage() {
         </CardHeader>
         <CardContent>
           {done ? (
-            <StatusBanner tone="success" title="Autenticador confirmado com sucesso." />
+            <StatusBanner
+              tone="success"
+              title="Autenticador confirmado com sucesso."
+              description="Quando o login pedir o código, abra o aplicativo autenticador e digite o código que ele mostra."
+            />
           ) : (
             <MfaEnrollment onComplete={() => setDone(true)} />
           )}
