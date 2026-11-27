@@ -44,6 +44,11 @@ interface ClientOrderFormProps {
 
 const EXIT_HREF = "/portal/pesquisas";
 
+// Duplo clique: só o primeiro clique age. Teclado (detail 0) e clique simples (detail 1) sempre passam.
+const ignoreRepeatedClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+	if (event.detail > 1) event.preventDefault();
+};
+
 // Sangra até a borda da tela: o gutter da página é 16 px (20 px a partir de 375 px), como `.px-screen`.
 const BLEED = "-mx-4 min-[375px]:-mx-5";
 
@@ -87,7 +92,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const [reviewReady, setReviewReady] = useState(false);
 	const titleRef = useRef<HTMLHeadingElement>(null);
 	const shownStep = useRef(0);
-	// 0: a primeira etapa já nasce liberada; o guarda vale só depois de uma troca de etapa.
+	// Só a confirmação usa o tempo de guarda, contado desde a troca para a revisão.
 	const stepChangedAt = useRef(0);
 	const firstCode = products[0]?.code ?? "dossie_pf";
 
@@ -155,7 +160,6 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	};
 
 	const goNext = async () => {
-		if (!isStepSettled(stepChangedAt.current, Date.now())) return;
 		const fields = stepFields(current.id, isSelf);
 		if (!canLeaveStep(current.id, getValues())) {
 			setAttempted(true);
@@ -259,7 +263,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 				</section>
 				<div className={`sticky bottom-[calc(4.5rem+1px+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background px-screen py-3 md:bottom-0 ${BLEED}`}>
 					{!isLast ? (
-						<Button key="next" type="submit" size="lg" glow className="w-full">
+						<Button key="next" type="submit" size="lg" glow className="w-full" onClick={ignoreRepeatedClick}>
 							Continuar
 						</Button>
 					) : insufficient ? (
@@ -267,7 +271,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 							<Link href="/portal/credits">Comprar créditos</Link>
 						</Button>
 					) : (
-						<Button key="confirm" type="submit" size="lg" glow className="w-full" disabled={isPending || !reviewReady || !canConfirmOrder({ hasMembers, declarationAccepted })}>
+						<Button key="confirm" type="submit" size="lg" glow className="w-full" onClick={ignoreRepeatedClick} disabled={isPending || !reviewReady || !canConfirmOrder({ hasMembers, declarationAccepted })}>
 							{isPending && <Loader2 aria-hidden className="animate-spin" />}
 							{isPending ? "Enviando..." : "Confirmar pedido"}
 						</Button>
