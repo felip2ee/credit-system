@@ -84,7 +84,7 @@ export function LandingHero({ href }: { href: string }) {
             QUERO CONHECER MEU DOSSIÊ
           </Link>
         </div>
-        <div className="min-w-0 motion-safe:animate-slide-in-right lg:max-w-[460px] lg:flex-[1_1_380px]">
+        <div className="min-w-0 motion-safe:animate-fade-in lg:max-w-[460px] lg:flex-[1_1_380px]">
           <ReportPreview />
         </div>
       </div>

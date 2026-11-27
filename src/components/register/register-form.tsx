@@ -11,7 +11,7 @@ import { Building2, IdCard, Mail, Phone, UserRound } from "lucide-react";
 
 import { IconInput } from "@/components/auth/icon-input";
 import { PasswordInput } from "@/components/auth/password-input";
-import { REGISTER_STEPS, canLeaveStep, hasTypedData, stepOfField } from "@/components/register/register-wizard-steps";
+import { REGISTER_STEPS, canLeaveStep, hasTypedData, serverErrorTarget, stepOfField } from "@/components/register/register-wizard-steps";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog } from "@/components/ui/dialog";
@@ -51,6 +51,8 @@ export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode 
   const [submitReady, setSubmitReady] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const shownStep = useRef(0);
+  // Campo que recebe o foco quando a etapa do erro do servidor termina de montar.
+  const pendingFocus = useRef<"email" | "document" | null>(null);
   const {
     register,
     control,
@@ -58,6 +60,8 @@ export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode 
     watch,
     getValues,
     trigger,
+    setError,
+    setFocus,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerFormSchema),
@@ -84,8 +88,13 @@ export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode 
   useEffect(() => {
     if (shownStep.current === stepIndex) return;
     shownStep.current = stepIndex;
+    if (pendingFocus.current) {
+      setFocus(pendingFocus.current);
+      pendingFocus.current = null;
+      return;
+    }
     titleRef.current?.focus();
-  }, [stepIndex]);
+  }, [stepIndex, setFocus]);
 
   useEffect(() => {
     if (!isLast) {
@@ -102,6 +111,7 @@ export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode 
   };
 
   const goBack = () => {
+    setServerError(null);
     if (stepIndex === 0) requestExit(`/b/${slug}/entrar`);
     else setStepIndex(stepIndex - 1);
   };
@@ -125,7 +135,15 @@ export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode 
       return;
     }
     if (result.error) {
-      setServerError(result.error);
+      // E-mail ou documento em uso: vai para a etapa do campo e marca o campo.
+      const target = serverErrorTarget(result.error);
+      if (!target) {
+        setServerError(result.error);
+        return;
+      }
+      setError(target.field, { message: result.error });
+      pendingFocus.current = target.field;
+      setStepIndex(REGISTER_STEPS.findIndex((s) => s.id === target.step));
       return;
     }
     const login = await authClient.signIn.email({
@@ -143,8 +161,12 @@ export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode 
   const onInvalid = (invalid: FieldErrors<RegisterFormValues>) => {
     const target = Object.keys(invalid).map(stepOfField).find((id) => id !== null);
     const index = REGISTER_STEPS.findIndex((s) => s.id === target);
-    if (index >= 0 && index !== stepIndex) setStepIndex(index);
-    else setServerError("Revise os dados e tente novamente.");
+    if (index >= 0) {
+      if (index !== stepIndex) setStepIndex(index);
+      return;
+    }
+    // Só avisa quando nenhum campo visível carrega o erro.
+    setServerError("Revise os dados e tente novamente.");
   };
 
   // Enter nas etapas 1 e 2 avança; só a última etapa envia.
@@ -166,7 +188,7 @@ export function RegisterForm({ slug, termsVersion, privacyVersion, referralCode 
         onClose={() => requestExit(`/b/${slug}`)}
         step={{ current: stepIndex + 1, total: REGISTER_STEPS.length, label: step.label }}
       />
-      <form onSubmit={onFormSubmit} className="space-y-5" noValidate>
+      <form onSubmit={onFormSubmit} onChange={() => setServerError(null)} className="space-y-5" noValidate>
         <input type="hidden" {...register("referralCode")} />
         <div key={step.id} className="space-y-5 motion-safe:animate-fade-in">
           <h2 ref={titleRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">

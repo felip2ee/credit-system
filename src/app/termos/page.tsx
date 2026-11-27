@@ -1,5 +1,5 @@
 import { PublicShell } from "@/components/portal/public-shell";
-import { LegalBackHeader } from "@/components/register/legal-back-header";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { LegalDocumentView } from "@/components/legal/legal-document";
 import { getCurrentLegalDocuments } from "@/lib/account/queries";
 
@@ -14,7 +14,8 @@ export default async function LegalPage() {
   const { terms } = await getCurrentLegalDocuments();
   return (
     <PublicShell width="3xl">
-      <LegalBackHeader title={terms.title} />
+      <ScreenHeader className="-mx-4 min-[375px]:-mx-5" title={terms.title} />
+      <p className="text-base text-muted-foreground">Você pode fechar esta aba para voltar ao cadastro.</p>
       <LegalDocumentView document={terms} hideTitle />
     </PublicShell>
   );

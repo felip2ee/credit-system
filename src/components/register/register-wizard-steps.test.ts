@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import type { RegisterFormValues } from "@/lib/validators/register";
 
-import { canLeaveStep, hasTypedData, REGISTER_STEPS, stepOfField } from "./register-wizard-steps";
+import { canLeaveStep, hasTypedData, REGISTER_STEPS, SERVER_MESSAGES, serverErrorTarget, stepOfField } from "./register-wizard-steps";
 
 const VALID_CPF = "529.982.247-25";
 
@@ -60,5 +62,24 @@ describe("register wizard steps", () => {
 		expect(hasTypedData({ ...base, email: " " })).toBe(false);
 		expect(hasTypedData({ ...base, email: "a@b.c" })).toBe(true);
 		expect(hasTypedData({ ...base, acceptedTerms: true })).toBe(true);
+	});
+});
+
+describe("serverErrorTarget", () => {
+	it("routes e-mail and document conflicts to the step and field that own them", () => {
+		expect(serverErrorTarget(SERVER_MESSAGES.emailInUse)).toEqual({ step: "contact", field: "email" });
+		expect(serverErrorTarget(SERVER_MESSAGES.documentInUse)).toEqual({ step: "who", field: "document" });
+	});
+
+	it("leaves other answers as a banner", () => {
+		expect(serverErrorTarget("Muitas tentativas de cadastro. Tente de novo em uma hora.")).toBeNull();
+		expect(serverErrorTarget("")).toBeNull();
+	});
+
+	// "use server" files cannot export constants: the texts are copied, so this guards against drift.
+	it("uses the exact texts that registerClientAction returns", () => {
+		const action = readFileSync("src/actions/register.ts", "utf8");
+		expect(action).toContain(SERVER_MESSAGES.emailInUse);
+		expect(action).toContain(SERVER_MESSAGES.documentInUse);
 	});
 });

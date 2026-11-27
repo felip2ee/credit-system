@@ -53,6 +53,25 @@ export function stepOfField(field: string): RegisterStepId | null {
 	return REGISTER_STEPS.find((s) => (s.fields as string[]).includes(field))?.id ?? null;
 }
 
+// Textos de registerClientAction (src/actions/register.ts). Arquivo "use server" não exporta constantes:
+// a cópia é guardada por um teste que compara com o texto da action.
+export const SERVER_MESSAGES = {
+	emailInUse: "E-mail já cadastrado. Entre com sua senha ou recupere o acesso.",
+	documentInUse: "Documento já cadastrado neste Bureau. Peça o acesso ao Bureau.",
+} as const;
+
+export interface ServerErrorTarget {
+	step: RegisterStepId;
+	field: "email" | "document";
+}
+
+// Resposta da action que pertence a um campo: devolve a etapa e o campo; as demais ficam no aviso.
+export function serverErrorTarget(message: string): ServerErrorTarget | null {
+	if (message === SERVER_MESSAGES.emailInUse) return { step: "contact", field: "email" };
+	if (message === SERVER_MESSAGES.documentInUse) return { step: "who", field: "document" };
+	return null;
+}
+
 // Sair da tela perde o que foi digitado: só pede confirmação se há algo a perder.
 export function hasTypedData(values: RegisterFormValues): boolean {
 	return (

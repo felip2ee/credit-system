@@ -50,6 +50,9 @@ export default async function PublicBureauEntryPage({
             <Link href={`/b/${bureau.slug}/cadastro`}>Criar conta</Link>
           </Button>
         </div>
+        <p className="text-center text-sm text-muted-foreground">
+          Metodologia da Rainha Cred · 16 anos de mercado · mais de R$ 500 milhões em crédito aprovado
+        </p>
       </div>
     </PublicShell>
   );
