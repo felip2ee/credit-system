@@ -81,7 +81,7 @@ export function BuyerPicker({ value, onChange, disabled }: BuyerPickerProps) {
                       onChange({ profileId: h.clientProfileId, name: h.name, document: h.document });
                       setTerm("");
                     }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent"
+                    className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className="font-medium">{h.name}</span>
                     <span className="text-muted-foreground">
