@@ -1,11 +1,9 @@
 import Link from "next/link";
-import { Banknote, Bell, Building2, FileText, HandCoins, Package } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { BalanceCard } from "@/components/ui/balance-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { QuickAction, QuickActions } from "@/components/ui/quick-actions";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
   Table,
@@ -60,27 +58,13 @@ export default async function SuperadminPage() {
         />
         <div className="grid grid-cols-2 gap-4 lg:col-span-2">
           {stats.map((st) => (
-            <Card key={st.label} className="flex flex-col justify-center p-5">
-              <p className="text-3xl font-bold tabular-nums">{st.value}</p>
+            <Card key={st.label} className="flex flex-col justify-center p-4">
+              <p className="text-2xl font-bold tabular-nums">{st.value}</p>
               <p className="text-base text-muted-foreground">{st.label}</p>
             </Card>
           ))}
         </div>
       </div>
-
-      <section className="space-y-3">
-        <SectionHeader title="Ações rápidas" />
-        <Card className="p-5">
-          <QuickActions className="sm:grid-cols-6">
-            <QuickAction href="/superadmin/bureaus/new" label="Novo Bureau" icon={Building2} active />
-            <QuickAction href="/superadmin/products" label="Produtos" icon={Package} />
-            <QuickAction href="/superadmin/payouts" label="Repasses" icon={Banknote} />
-            <QuickAction href="/superadmin/saques" label="Saques" icon={HandCoins} />
-            <QuickAction href="/superadmin/nfse" label="NFS-e" icon={FileText} />
-            <QuickAction href="/superadmin/notifications" label="Notificações" icon={Bell} />
-          </QuickActions>
-        </Card>
-      </section>
 
       <SectionHeader title="Todos os Bureaus" />
       {/* Celular: um cartão por Bureau, número grande + rótulo. */}
@@ -88,7 +72,7 @@ export default async function SuperadminPage() {
         {bureaus.map((b) => (
           <li key={b.bureauId} className="space-y-4 rounded-card border border-border bg-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Link className="inline-flex min-h-11 items-center text-lg font-bold hover:underline" href={`/superadmin/bureaus/${b.bureauId}`}>
+              <Link className="inline-flex min-h-11 items-center text-base font-bold hover:underline" href={`/superadmin/bureaus/${b.bureauId}`}>
                 {b.name}
               </Link>
               <BureauStatus status={b.status} />
@@ -106,7 +90,7 @@ export default async function SuperadminPage() {
                 ["Consultas (30d)", b.consultations30d],
               ].map(([label, value]) => (
                 <div key={label}>
-                  <dd className="text-3xl font-bold tabular-nums">{value}</dd>
+                  <dd className="text-2xl font-bold tabular-nums">{value}</dd>
                   <dt className="text-sm text-muted-foreground">{label}</dt>
                 </div>
               ))}

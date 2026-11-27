@@ -59,16 +59,18 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
 ];
 
 export const SUPERADMIN_NAV_ITEMS: readonly NavItem[] = [
-  { href: "/superadmin", label: "Bureaus" },
-  { href: "/superadmin/products", label: "Produtos" },
-  { href: "/superadmin/payouts", label: "Repasses" },
-  { href: "/superadmin/saques", label: "Saques" },
-  { href: "/superadmin/nfse", label: "NFS-e" },
-  { href: "/superadmin/notifications", label: "Notificações" },
-  { href: "/superadmin/settings/prompts", label: "Prompts da IA" },
-  { href: "/superadmin/settings/scr", label: "Termo SCR" },
-  { href: "/superadmin/settings/afiliados", label: "Afiliados" },
-  { href: "/superadmin/settings/repasses", label: "Prazo dos repasses" },
+  { href: "/superadmin", label: "Bureaus", group: "Operação" },
+  { href: "/superadmin/saques", label: "Saques", group: "Operação" },
+  { href: "/superadmin/payouts", label: "Repasses", group: "Operação" },
+  { href: "/superadmin/nfse", label: "NFS-e", group: "Operação" },
+  { href: "/superadmin/notifications", label: "Notificações", group: "Operação" },
+  { href: "/superadmin/products", label: "Produtos", group: "Catálogo" },
+  { href: "/superadmin/settings", label: "Visão geral", group: "Configurações" },
+  { href: "/superadmin/settings/comissao", label: "Comissão dos Bureaus", group: "Configurações" },
+  { href: "/superadmin/settings/repasses", label: "Prazo dos repasses", group: "Configurações" },
+  { href: "/superadmin/settings/afiliados", label: "Afiliados", group: "Configurações" },
+  { href: "/superadmin/settings/scr", label: "Termo SCR", group: "Configurações" },
+  { href: "/superadmin/settings/prompts", label: "Prompts da IA", group: "Configurações" },
 ];
 
 const SETTINGS_SUBPAGES = ["/settings/catalog", "/settings/cupons", "/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
@@ -77,7 +79,10 @@ const SETTINGS_SUBPAGES = ["/settings/catalog", "/settings/cupons", "/settings/w
 const WALLET_ROUTES = ["/settings/wallet", "/settings/counter-payments", "/settings/payouts"];
 
 export function isNavActive(pathname: string, href: string): boolean {
-  if (href === "/" || href === "/superadmin") return pathname === href;
+  if (href === "/") return pathname === href;
+  // Bureaus cobre cadastro e detalhe. A visão geral das configurações não cobre as subpáginas, que têm item próprio.
+  if (href === "/superadmin") return pathname === href || pathname.startsWith("/superadmin/bureaus");
+  if (href === "/superadmin/settings") return pathname === href;
   if (href === "/settings" && SETTINGS_SUBPAGES.some((sub) => pathname.startsWith(sub))) return false;
   if (href === "/settings/wallet") return WALLET_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
   return pathname === href || pathname.startsWith(`${href}/`);

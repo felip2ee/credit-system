@@ -32,7 +32,15 @@ describe("DASHBOARD_NAV_ITEMS", () => {
 
 describe("SUPERADMIN_NAV_ITEMS", () => {
   it("tem o ajuste do prazo de retenção dos repasses", () => {
-    expect(SUPERADMIN_NAV_ITEMS).toContainEqual({ href: "/superadmin/settings/repasses", label: "Prazo dos repasses" });
+    expect(SUPERADMIN_NAV_ITEMS).toContainEqual({ href: "/superadmin/settings/repasses", label: "Prazo dos repasses", group: "Configurações" });
+  });
+
+  it("agrupa em Operação, Catálogo e Configurações, com a comissão dos bureaus", () => {
+    expect(groupNavItems(SUPERADMIN_NAV_ITEMS).map((g) => [g.title, g.items.map((i) => i.label)])).toEqual([
+      ["Operação", ["Bureaus", "Saques", "Repasses", "NFS-e", "Notificações"]],
+      ["Catálogo", ["Produtos"]],
+      ["Configurações", ["Visão geral", "Comissão dos Bureaus", "Prazo dos repasses", "Afiliados", "Termo SCR", "Prompts da IA"]],
+    ]);
   });
 });
 
@@ -67,10 +75,11 @@ describe("groupNavItems", () => {
     expect(only.map((g) => g.title)).toEqual(["Y"]);
   });
 
-  it("itens sem grupo (superadmin) ficam numa lista só, sem título", () => {
-    const groups = groupNavItems(SUPERADMIN_NAV_ITEMS);
+  it("itens sem grupo ficam numa lista só, sem título", () => {
+    const loose = [{ href: "/a", label: "A" }, { href: "/b", label: "B" }];
+    const groups = groupNavItems(loose);
     expect(groups).toHaveLength(1);
-    expect(groups[0]).toEqual({ title: null, items: SUPERADMIN_NAV_ITEMS });
+    expect(groups[0]).toEqual({ title: null, items: loose });
   });
 
   it("mantém rota e permissão de cada item", () => {
@@ -99,6 +108,31 @@ describe("isNavActive em todas as rotas do painel", () => {
     ["/settings/wallet", "Carteira"],
     ["/settings/counter-payments", "Carteira"],
     ["/settings/payouts", "Carteira"],
+  ])("%s ativa só %s", (path, label) => {
+    expect(route(path)).toEqual([label]);
+  });
+});
+
+describe("isNavActive em todas as rotas do superadmin", () => {
+  const route = (p: string) => SUPERADMIN_NAV_ITEMS.filter((i) => isNavActive(p, i.href)).map((i) => i.label);
+  it.each([
+    ["/superadmin", "Bureaus"],
+    ["/superadmin/bureaus/new", "Bureaus"],
+    ["/superadmin/bureaus/abc", "Bureaus"],
+    ["/superadmin/saques", "Saques"],
+    ["/superadmin/saques/abc", "Saques"],
+    ["/superadmin/payouts", "Repasses"],
+    ["/superadmin/nfse", "NFS-e"],
+    ["/superadmin/notifications", "Notificações"],
+    ["/superadmin/products", "Produtos"],
+    ["/superadmin/products/new", "Produtos"],
+    ["/superadmin/products/abc", "Produtos"],
+    ["/superadmin/settings", "Visão geral"],
+    ["/superadmin/settings/comissao", "Comissão dos Bureaus"],
+    ["/superadmin/settings/repasses", "Prazo dos repasses"],
+    ["/superadmin/settings/afiliados", "Afiliados"],
+    ["/superadmin/settings/scr", "Termo SCR"],
+    ["/superadmin/settings/prompts", "Prompts da IA"],
   ])("%s ativa só %s", (path, label) => {
     expect(route(path)).toEqual([label]);
   });
