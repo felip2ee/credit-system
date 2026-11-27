@@ -43,10 +43,13 @@ export default function ResetPasswordPage() {
       <AuthHeading title="Recuperar senha" description="Enviaremos um link de redefinição por e-mail" />
       <div>
         {sent ? (
-          <p className="text-center text-base text-muted-foreground">
-            Se houver uma conta com esse e-mail, um link de redefinição foi
-            enviado. Verifique sua caixa de entrada.
-          </p>
+          <div className="space-y-4 text-center">
+            <p className="text-base text-muted-foreground">
+              Se houver uma conta com esse e-mail, um link de redefinição foi
+              enviado. Verifique sua caixa de entrada.
+            </p>
+            <BackToLogin />
+          </div>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <Field id="email" label="E-mail" error={errors.email?.message}>

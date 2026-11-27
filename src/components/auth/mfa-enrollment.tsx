@@ -78,19 +78,19 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
         <StatusBanner
           tone="attention"
           title="Guarde estes códigos de recuperação agora."
-          description={
-            <>
-              <p>Eles não serão exibidos novamente. Guarde-os antes de sair desta tela.</p>
-              <ul className="mt-2 grid grid-cols-2 gap-1 font-mono">
-                {backupCodes.map((backupCode) => <li key={backupCode}>{backupCode}</li>)}
-              </ul>
-              <Button type="button" variant="outline" size="sm" className="mt-3" onClick={copyBackupCodes}>
-                Copiar códigos
-              </Button>
-              <p role="status" className="mt-2 text-sm">{copyStatus}</p>
-            </>
-          }
+          description={<p>Eles não serão exibidos novamente. Guarde-os antes de sair desta tela.</p>}
         />
+        {/* Fora do banner (role="alert"): o leitor de tela não lê os códigos em voz alta nem relê o aviso ao copiar. */}
+        <div className="space-y-2">
+          <h3 className="text-base font-bold">Códigos de recuperação</h3>
+          <ul className="grid grid-cols-2 gap-1 font-mono">
+            {backupCodes.map((backupCode) => <li key={backupCode}>{backupCode}</li>)}
+          </ul>
+          <Button type="button" variant="outline" size="sm" onClick={copyBackupCodes}>
+            Copiar códigos
+          </Button>
+          <p role="status" className="text-sm">{copyStatus}</p>
+        </div>
         <Field id="totp" label="Código de 6 dígitos">
           {(a) => <Input inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} {...a} />}
         </Field>
