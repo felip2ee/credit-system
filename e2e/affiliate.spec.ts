@@ -26,10 +26,17 @@ async function registerThroughLink(page: Page, link: string, email: string) {
   await resetRateLimit();
   await page.goto(`${url.pathname}${url.search}`);
   await page.waitForLoadState("networkidle");
+  // Each step change moves focus to the step title (h2).
+  const next = async (title: string) => {
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await expect(page.getByRole("heading", { level: 2, name: title })).toBeFocused();
+  };
   await page.getByLabel("Nome completo").fill("e2e Indicado");
   await page.getByLabel("CPF").fill(validCpf());
+  await next("Contato");
   await page.getByLabel("E-mail").fill(email);
   await page.getByLabel("Celular (com DDD)").fill(`11 9${Math.floor(10_000_000 + Math.random() * 89_999_999)}`);
+  await next("Senha e termos");
   await page.getByLabel("Senha", { exact: true }).fill("e2e-referred-password-123");
   await page.getByLabel("Confirmar senha").fill("e2e-referred-password-123");
   await page.getByLabel(/Li e aceito os/).check();

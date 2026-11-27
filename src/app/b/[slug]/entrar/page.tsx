@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { LoginForm } from "@/components/auth/login-form";
 import { PublicShell } from "@/components/portal/public-shell";
 import { Button } from "@/components/ui/button";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { resolveBureauSlug } from "@/lib/bureaus/public";
 
 // Reads the DB without cookies/headers: without this Next may cache a 404 for a new slug or a stale bureau name.
@@ -33,14 +34,19 @@ export default async function PublicBureauEntryPage({
 
   return (
     <PublicShell bureauName={bureau.name}>
-      <div className="space-y-8">
-        <h1 className="text-2xl font-bold">Entrar</h1>
+      <div className="space-y-6">
+        <ScreenHeader
+          className="-mx-4 min-[375px]:-mx-5"
+          title="Entrar"
+          backHref={`/b/${bureau.slug}`}
+          backLabel="Voltar para a página do Bureau"
+        />
         <Suspense fallback={null}>
           <LoginForm withHeading={false} />
         </Suspense>
         <div className="space-y-3 border-t pt-6">
           <p className="text-center text-muted-foreground">Ainda não tem conta?</p>
-          <Button asChild size="lg" variant="outline" className="w-full">
+          <Button asChild variant="outline" className="w-full">
             <Link href={`/b/${bureau.slug}/cadastro`}>Criar conta</Link>
           </Button>
         </div>

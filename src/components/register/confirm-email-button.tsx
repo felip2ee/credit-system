@@ -26,7 +26,7 @@ export function ConfirmEmailButton({ token }: ConfirmEmailButtonProps) {
     return (
       <div className="space-y-3">
         <StatusBanner tone="success" title="E-mail confirmado." />
-        <Button asChild size="lg" className="w-full">
+        <Button asChild className="w-full">
           <Link href="/portal">Ir para o portal</Link>
         </Button>
       </div>
@@ -37,11 +37,11 @@ export function ConfirmEmailButton({ token }: ConfirmEmailButtonProps) {
     <div className="space-y-3">
       {outcome?.error && <StatusBanner tone="attention" title={outcome.error} />}
       {outcome?.error ? (
-        <Button asChild size="lg" className="w-full">
+        <Button asChild className="w-full">
           <Link href="/login">Entrar</Link>
         </Button>
       ) : (
-        <Button type="button" size="lg" glow className="w-full" onClick={confirm} disabled={isPending}>
+        <Button type="button" glow className="w-full" onClick={confirm} disabled={isPending}>
           {isPending ? "Confirmando..." : "Confirmar e-mail"}
         </Button>
       )}
