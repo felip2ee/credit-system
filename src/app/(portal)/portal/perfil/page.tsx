@@ -26,7 +26,7 @@ export default async function ClientProfilePage() {
       <AccountMenu showAffiliates={hasPermission(session, "affiliates:read")} />
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Dados da conta</CardTitle>
+          <CardTitle>Dados da conta</CardTitle>
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
@@ -41,7 +41,7 @@ export default async function ClientProfilePage() {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Telefone</CardTitle>
+          <CardTitle>Telefone</CardTitle>
         </CardHeader>
         <CardContent>
           <PhoneVerificationForm phoneE164={status.phoneE164} phoneVerified={status.phoneVerified} />
@@ -49,7 +49,7 @@ export default async function ClientProfilePage() {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Notificações</CardTitle>
+          <CardTitle>Notificações</CardTitle>
         </CardHeader>
         <CardContent>
           <NotificationChannelForm channel={status.notificationChannel} phoneVerified={status.phoneVerified} />
@@ -57,7 +57,7 @@ export default async function ClientProfilePage() {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Segurança</CardTitle>
+          <CardTitle>Segurança</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <ChangePasswordForm />

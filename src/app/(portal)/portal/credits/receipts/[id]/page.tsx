@@ -1,8 +1,7 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
@@ -59,9 +58,10 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Recibo de recarga" description="Pagamento confirmado por PIX" />
+      <ScreenHeader className="-mx-4 min-[375px]:-mx-5" title="Recibo de recarga" backHref="/portal/credits" backLabel="Voltar para créditos" />
+      <p className="text-sm text-muted-foreground">Pagamento confirmado por PIX</p>
       <Card>
-        <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
+        <CardContent className="grid gap-4 sm:grid-cols-2">
           <div>
             <p className="text-muted-foreground">Valor</p>
             <p className="text-3xl font-bold tabular-nums">{formatCurrency(Number(receipt.amount))}</p>
@@ -86,7 +86,7 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
             <div className="sm:col-span-2">
               <p className="text-muted-foreground">Nota fiscal (NFS-e)</p>
               {note.kind === "link" ? (
-                <a href={note.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center font-bold text-primary underline">
+                <a href={note.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center font-bold text-primary underline">
                   Abrir nota fiscal
                 </a>
               ) : (
@@ -96,9 +96,6 @@ export default async function ReceiptPage({ params }: { params: { id: string } }
           )}
         </CardContent>
       </Card>
-      <Link href="/portal/credits" className="inline-flex min-h-12 items-center font-bold text-primary underline">
-        Voltar para créditos
-      </Link>
     </div>
   );
 }

@@ -17,7 +17,7 @@ export function ClientTopupDialog({ priceRows }: { priceRows: ReferencePriceRow[
 
   return (
     <>
-      <Button variant="onBrand" size="lg" onClick={() => setOpen(true)}>
+      <Button variant="onBrand" onClick={() => setOpen(true)}>
         Recarregar
       </Button>
       <Dialog open={open} onClose={close} title="Recarregar créditos" className="max-h-[92vh] max-w-lg overflow-y-auto">

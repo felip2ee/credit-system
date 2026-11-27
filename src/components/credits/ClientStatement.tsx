@@ -72,7 +72,7 @@ export function ClientStatement({ initialLedger, initialCursor, charges, extras 
                       <div className="flex flex-wrap items-center gap-x-4 pb-2 pl-4 pr-4 sm:pl-[4.5rem]">
                         {extras[r.id]}
                         {r.receiptHref && (
-                          <Link href={r.receiptHref} className="inline-flex min-h-12 items-center font-bold text-primary underline">
+                          <Link href={r.receiptHref} className="inline-flex min-h-11 items-center font-bold text-primary underline">
                             Recibo
                           </Link>
                         )}
@@ -87,7 +87,7 @@ export function ClientStatement({ initialLedger, initialCursor, charges, extras 
       )}
       {error && <p role="alert" className="text-base font-bold text-destructive">{error}</p>}
       {cursor && (
-        <Button type="button" variant="outline" size="lg" className="w-full sm:w-auto" onClick={loadMore} disabled={isPending}>
+        <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={loadMore} disabled={isPending}>
           {isPending ? "Carregando..." : "Carregar mais"}
         </Button>
       )}

@@ -114,6 +114,7 @@ test("referred client buys, commission waits the hold, then converts to credits 
   await page.goto("/portal/afiliacao/saque");
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Valor (R$)").fill(WITHDRAWN.toFixed(2));
+  await page.getByRole("button", { name: "Continuar" }).click();
   await page.getByLabel("Tipo da chave PIX").click();
   await page.getByRole("option", { name: "E-mail" }).click();
   await page.getByLabel("Chave PIX", { exact: true }).fill(E2E.client.email);

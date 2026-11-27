@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { convertCommissionAction } from "@/actions/affiliate-withdrawals";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { StatusBanner } from "@/components/ui/status-banner";
 
 interface ConvertFormProps {
@@ -40,19 +40,19 @@ export function ConvertForm({ available }: ConvertFormProps) {
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <div className="space-y-1">
-        <Label htmlFor="convert-amount">Valor a converter (R$)</Label>
-        <Input
-          id="convert-amount"
-          inputMode="decimal"
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          disabled={pending}
-        />
-      </div>
-      {error && <StatusBanner tone="attention" title={error} />}
+      <Field id="convert-amount" label="Valor a converter (R$)" helper="O valor sai da sua comissão e entra no saldo de créditos." error={error}>
+        {(a11y) => (
+          <Input
+            {...a11y}
+            inputMode="decimal"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            disabled={pending}
+          />
+        )}
+      </Field>
       {done && <StatusBanner tone="success" title="Valor convertido em créditos." />}
-      <Button type="submit" size="lg" glow className="w-full sm:w-auto" disabled={pending}>
+      <Button type="submit" glow className="w-full sm:w-auto" disabled={pending}>
         {pending ? "Convertendo..." : "Usar como crédito"}
       </Button>
     </form>

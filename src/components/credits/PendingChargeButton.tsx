@@ -71,7 +71,7 @@ export function PendingChargeButton({ pixPayload, summary, defaultOpen = false }
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex min-h-12 w-full items-center justify-center rounded-full font-bold text-primary underline sm:w-auto"
+        className="inline-flex min-h-11 w-full items-center justify-center rounded-full font-bold text-primary underline sm:w-auto"
       >
         Ver QR Code
       </button>

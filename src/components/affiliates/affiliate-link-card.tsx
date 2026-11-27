@@ -32,7 +32,7 @@ export function AffiliateLinkCard({ link }: AffiliateLinkCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-xl">Seu link de indicação</CardTitle>
+        <CardTitle>Seu link de indicação</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -43,7 +43,7 @@ export function AffiliateLinkCard({ link }: AffiliateLinkCardProps) {
             onFocus={(event) => event.currentTarget.select()}
             className="min-w-0 flex-1 bg-muted"
           />
-          <Button type="button" size="lg" glow onClick={copy} aria-label="Copiar link de indicação">
+          <Button type="button" glow onClick={copy} aria-label="Copiar link de indicação">
             {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
             {copied ? "Copiado" : "Copiar"}
           </Button>
