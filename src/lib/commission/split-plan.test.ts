@@ -43,8 +43,15 @@ describe("toSplitPlan", () => {
 		expect(plan.accrualLines).toEqual([{ kind: "bureau", beneficiaryId: "b", payoutMethod: "accrual", walletId: null, pct: 20, amountCents: 2000 }]);
 	});
 
+	it("a segunda tentativa tira só o item do afiliado", () => {
+		const plan = toSplitPlan([row({}), row({ beneficiary_kind: "affiliate", beneficiary_id: "aff", asaas_wallet_id: "wallet-aff" })]);
+
+		expect(plan.asaasSplit.map((i) => i.walletId)).toEqual(["wallet-1", "wallet-aff"]);
+		expect(plan.asaasSplitWithoutAffiliate.map((i) => i.walletId)).toEqual(["wallet-1"]);
+	});
+
 	it("plano vazio não leva split ao Asaas", () => {
-		expect(toSplitPlan([])).toEqual({ asaasSplit: [], pixLines: [], accrualLines: [] });
+		expect(toSplitPlan([])).toEqual({ asaasSplit: [], asaasSplitWithoutAffiliate: [], pixLines: [], accrualLines: [] });
 	});
 });
 

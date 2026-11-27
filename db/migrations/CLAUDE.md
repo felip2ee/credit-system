@@ -4,7 +4,7 @@ Source of truth for the Postgres 18 schema. Security-sensitive: roles, grants an
 
 ## Responsibility
 
-Holds `NNN_snake_case.sql` files (001–005, 008–035, 038–062 and 070–085 today): roles, Better Auth tables, business tables, RLS, indexes, public SCR authorization, and the grant boundary for cross-tenant functions. It does NOT hold application queries (`src/lib/<domain>/queries.ts`) or the runner (`scripts/db/migrate.mjs`).
+Holds `NNN_snake_case.sql` files (001–005, 008–035, 038–062 and 070–086 today): roles, Better Auth tables, business tables, RLS, indexes, public SCR authorization, and the grant boundary for cross-tenant functions. It does NOT hold application queries (`src/lib/<domain>/queries.ts`) or the runner (`scripts/db/migrate.mjs`).
 
 ## Key patterns
 
@@ -55,6 +55,7 @@ Holds `NNN_snake_case.sql` files (001–005, 008–035, 038–062 and 070–085 
 - `083_split_refund_status.sql` redefines `apply_charge_split_event` (new defaulted args: event type, installment, externalReference; `reversal_failed -> refunded`; a refunded charge never yields `refused`; card installments match by `asaas_installment_id`; our unbound charge returns `unbound_charge`) and `reverse_cash_in_commission` (a chargeback `DONE` item is not a failure). Adds `charge_split_charge_state` for the report and the generated `asaas_webhook_events.installment_id`.
 - `084_affiliate_wallet_security.sql`: payout-change e-mail trigger, reserved walletId trigger (an affiliate cannot save a partner or Bureau walletId), `charge_split_mark_refused` (`app_runtime`, only pending lines of that charge), LGPD anonymization erases the affiliate walletId.
 - `085_affiliate_asaas_commissions.sql` adds `affiliate_my_asaas_commissions()` (definer, `app_runtime`): only the session affiliate's `asaas` lines of its own Bureau, with the affiliate section on. Returns date, referred name and referral date, recharge amount, commission amount and status. No walletId, no ids. Unpaid charges stay out.
+- `086_split_refused_payables.sql` replaces `charge_split_mark_refused` (new defaulted args `p_affiliate_only`, `p_switch_affiliate`; `app_runtime`): a refused affiliate line becomes `pix` and a refused Bureau or referrer line becomes `accrual` (both stay `pending`; recorded at once if the charge is already paid); a partner line becomes `refused`. Optionally switches the affiliate to Pix if the walletId is still the refused one (audit `affiliate.payout_method_rejected`). The 084 payout e-mail says when the system made the change.
 - `001_roles.sql` defines `schema_owner`, `app_runtime` (NOBYPASSRLS), `backup_reader` (BYPASSRLS, read-only) and `auth_profile_lookup` (NOLOGIN, BYPASSRLS). `009` removes BYPASSRLS from `auth_profile_lookup` and sets NOINHERIT.
 - `004_rls.sql` defines `app_user_id()`, `app_user_role()`, `app_bureau_id()`, `app_support_session_id()`, `app_context_present()`, `app_support_active()` and `app_is_staff()`. Each table gets `enable row level security` and `force row level security`, then named policies (e.g. `profiles_select`, `holders_staff`).
 - `004_rls.sql` also defines `auth_profile_for_session` (returns `must_change_password`) and the `protect_profile_identity` trigger. The trigger allows only an operator-to-bureau_admin role change. It gates `must_change_password`: only the gateway or the user's own true-to-false update may change it.

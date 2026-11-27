@@ -27,6 +27,8 @@ export type BureauAccrualLine = SplitLine & { payoutMethod: "accrual" };
 
 export type SplitPlan = {
 	asaasSplit: AsaasSplitItem[];
+	// O mesmo split sem o item do afiliado: a segunda tentativa quando o Asaas recusa o split.
+	asaasSplitWithoutAffiliate: AsaasSplitItem[];
 	pixLines: PixCashInLine[];
 	accrualLines: BureauAccrualLine[];
 };
@@ -49,8 +51,11 @@ export function toSplitPlan(rows: PlanRow[]): SplitPlan {
 		pct: Number(r.pct),
 		amountCents: Number(r.amount_cents),
 	}));
+	const asaasItems = (list: SplitLine[]) =>
+		list.flatMap((l) => (l.payoutMethod === "asaas" && l.walletId ? [{ walletId: l.walletId, percentualValue: l.pct }] : []));
 	return {
-		asaasSplit: lines.flatMap((l) => (l.payoutMethod === "asaas" && l.walletId ? [{ walletId: l.walletId, percentualValue: l.pct }] : [])),
+		asaasSplit: asaasItems(lines),
+		asaasSplitWithoutAffiliate: asaasItems(lines.filter((l) => l.kind !== "affiliate")),
 		pixLines: lines.filter((l): l is PixCashInLine => l.payoutMethod === "pix"),
 		accrualLines: lines.filter((l): l is BureauAccrualLine => l.payoutMethod === "accrual"),
 	};
@@ -77,6 +82,11 @@ export const buildSplitPlan = (client: PoolClient, chargeId: string): Promise<Sp
 export const buildLinkSplitPlan = (db: Queryable, chargeId: string): Promise<SplitPlan> =>
 	plan(db, "payment_link_charge_split", chargeId);
 
-// Asaas recusou o split e a cobrança segue sem ele (084): as linhas asaas pendentes viram `refused`.
-export const markSplitRefused = (db: Queryable, chargeId: string) =>
-	db.query("select public.charge_split_mark_refused($1)", [chargeId]);
+// affiliateOnly: só o item do afiliado saiu. switchAffiliate: a cobrança foi criada com os outros itens, então a causa
+// é o walletId do afiliado e ele passa para o modo Pix.
+export type SplitRefusal = { affiliateOnly: boolean; switchAffiliate: boolean };
+
+// Asaas recusou itens do split e a cobrança segue sem eles (086): afiliado e bureau viram valor a pagar por fora (modo
+// Pix e accrual); o sócio, que não tem repasse manual no sistema, vira `refused`.
+export const markSplitRefused = (db: Queryable, chargeId: string, { affiliateOnly, switchAffiliate }: SplitRefusal) =>
+	db.query("select public.charge_split_mark_refused($1, $2, $3)", [chargeId, affiliateOnly, switchAffiliate]);

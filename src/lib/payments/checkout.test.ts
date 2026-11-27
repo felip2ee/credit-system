@@ -95,7 +95,7 @@ import { computeCardCharge } from "@/lib/wallet/card-fees";
 
 import { runCheckout } from "./checkout";
 
-const NO_SPLIT = { asaasSplit: [], pixLines: [], accrualLines: [] };
+const NO_SPLIT = { asaasSplit: [], asaasSplitWithoutAffiliate: [], pixLines: [], accrualLines: [] };
 const session = { userId: USER_ID, role: "client" as const, bureauId: BUREAU_ID, supportSessionId: null };
 const clientScope = { kind: "client" as const, clientProfileId: USER_ID };
 const bureauScope = { kind: "bureau" as const, bureauId: BUREAU_ID };
@@ -187,7 +187,7 @@ beforeEach(() => {
 });
 
 describe("runCheckout, split na entrada", () => {
-	const plan = { asaasSplit: [{ walletId: "w-1", percentualValue: 10 }], pixLines: [], accrualLines: [] };
+	const plan = { asaasSplit: [{ walletId: "w-1", percentualValue: 10 }], asaasSplitWithoutAffiliate: [], pixLines: [], accrualLines: [] };
 
 	it("Pix e cartão levam o split do plano ao Asaas; o plano nasce depois da reserva, na mesma transação", async () => {
 		s.plan.mockResolvedValue(plan);

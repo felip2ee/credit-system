@@ -115,7 +115,7 @@ export async function getOrCreateLinkPixCharge(linkId: string): Promise<LinkPixR
 			).asaasCustomerId;
 		const pix = await createWithSplitFallback(
 			chargeId,
-			split.asaasSplit,
+			split,
 			(items) =>
 				asaas.createPixCharge({
 					customerId,
@@ -124,7 +124,7 @@ export async function getOrCreateLinkPixCharge(linkId: string): Promise<LinkPixR
 					description: "Consulta - pagamento por link",
 					split: items,
 				}),
-			() => markSplitRefused(pool, chargeId),
+			(refusal) => markSplitRefused(pool, chargeId, refusal),
 		);
 		const bound = await pool
 			.query<{ bound: boolean }>("select payment_link_charge_bind($1, $2, $3) as bound", [

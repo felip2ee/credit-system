@@ -273,13 +273,13 @@ describe("plano de split da cobrança", () => {
 		expect(asaas.asaasSplit).toEqual([{ walletId: WALLET(4), percentualValue: 5 }]);
 
 		await owner.query("update bureau_referrals set active = false where referred_bureau_id = $1", [t.bureau.id]);
-		expect((await reservePlan(t, "client")).plan).toEqual({ asaasSplit: [], pixLines: [], accrualLines: [] });
+		expect((await reservePlan(t, "client")).plan).toEqual({ asaasSplit: [], asaasSplitWithoutAffiliate: [], pixLines: [], accrualLines: [] });
 	});
 
 	it("afiliado com o recurso desligado é ignorado; modo pix vira linha de confirmação", async () => {
 		const off = await seedTenant(owner, "Split Aff Off");
 		await withAffiliate(off, { enabled: false });
-		expect((await reservePlan(off, "client")).plan).toEqual({ asaasSplit: [], pixLines: [], accrualLines: [] });
+		expect((await reservePlan(off, "client")).plan).toEqual({ asaasSplit: [], asaasSplitWithoutAffiliate: [], pixLines: [], accrualLines: [] });
 
 		const on = await seedTenant(owner, "Split Aff On");
 		const affiliate = await withAffiliate(on, { pct: 10 });
@@ -290,7 +290,7 @@ describe("plano de split da cobrança", () => {
 
 	it("bureau sem walletId gera accrual; bureau sem percentual gera zero", async () => {
 		const t = await seedTenant(owner, "Split Bureau");
-		expect((await reservePlan(t, "client")).plan).toEqual({ asaasSplit: [], pixLines: [], accrualLines: [] });
+		expect((await reservePlan(t, "client")).plan).toEqual({ asaasSplit: [], asaasSplitWithoutAffiliate: [], pixLines: [], accrualLines: [] });
 
 		await setBureauPct(t, 15);
 		expect((await reservePlan(t, "client")).plan.accrualLines).toMatchObject([{ kind: "bureau", beneficiaryId: t.bureau.id, pct: 15, amountCents: 15000 }]);

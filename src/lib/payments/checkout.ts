@@ -176,7 +176,7 @@ async function enforceLimits(
 }
 
 // split: o plano gravado na criação (charge_splits pending); vazio na cobrança reusada (já foi enviado ao Asaas).
-const NO_SPLIT: SplitPlan = { asaasSplit: [], pixLines: [], accrualLines: [] };
+const NO_SPLIT: SplitPlan = { asaasSplit: [], asaasSplitWithoutAffiliate: [], pixLines: [], accrualLines: [] };
 type Reserved = { chargeId: string; expiresAt: Date; reused: boolean; source: PayerSource; split: SplitPlan };
 
 async function reserve(
@@ -295,10 +295,10 @@ async function recoverGoneCustomer(
 	}
 }
 
-// Cria a cobrança no Asaas; se ele recusar o split, tenta uma vez sem ele.
+// Cria a cobrança no Asaas; se ele recusar o split, tenta sem o afiliado e, no fim, sem split.
 const chargeWithSplit = <T>(session: DbIdentity, reserved: Reserved, create: (split: SplitPlan["asaasSplit"]) => Promise<T>) =>
-	createWithSplitFallback(reserved.chargeId, reserved.split.asaasSplit, create, () =>
-		withUserTransaction(session, (client) => markSplitRefused(client, reserved.chargeId)),
+	createWithSplitFallback(reserved.chargeId, reserved.split, create, (refusal) =>
+		withUserTransaction(session, (client) => markSplitRefused(client, reserved.chargeId, refusal)),
 	);
 
 // Cobrança criada no Asaas e não ligada à linha: o webhook a acha pela referência externa. Só ids, para a conciliação.

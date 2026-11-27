@@ -7,7 +7,7 @@ Runbook do split na entrada de dinheiro, dos dois modos de recebimento, do estor
 1. No Asaas de produção, habilite o split: **Integrações > Segurança**. Sem isso, o Asaas recusa o `split` das cobranças.
 2. Teste um `walletId` real no sandbox antes de usar em produção. O cliente Asaas deste projeto não foi conferido em sandbox (veja o comentário em `src/lib/asaas/client.ts`). Confirme que a cobrança com split chega ao beneficiário e que o evento de split volta ao webhook.
 3. Cadastre os sócios em `/superadmin/settings/socios` (`walletId` e %). Cadastre o `walletId` de cada Bureau em `/superadmin/bureaus/<id>`.
-4. Aplique as migrações até a 085 (`npm run db:migrate`).
+4. Aplique as migrações até a 086 (`npm run db:migrate`).
 
 ## 1. Como o split funciona
 
@@ -43,7 +43,33 @@ O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indic
 - **Painel do afiliado (`/portal/afiliacao`):** mostra as comissões dos dois modos, cada cobrança uma vez. A linha `asaas` vem de `affiliate_my_asaas_commissions()` (migração 085): "Pago na conta Asaas" só com status `done`; os outros status aparecem como estão. O valor é aproximado. Recarga recusada ou estornada não entra no total do indicado.
 - **Troca de `walletId` ou de modo:** o afiliado recebe um e-mail, e a auditoria guarda o `walletId` antigo e o novo, mascarados. Não há reautenticação, prazo de espera nem aprovação.
 - **`walletId` reservado:** o afiliado não pode salvar o `walletId` de um sócio ou de um Bureau.
-- **Split recusado na criação:** se o Asaas responde que o split ou a `walletId` é inválido, o sistema cria a cobrança uma vez sem split. As linhas em modo Asaas dessa cobrança ficam `refused`. Uma `walletId` ruim recusa todas as linhas Asaas da cobrança. O formato do erro do Asaas não foi conferido em sandbox.
+- **Split recusado na criação:** veja a seção abaixo.
+
+### Split recusado na criação da cobrança
+
+Se o Asaas responde que o split ou a `walletId` é inválido, o sistema tenta nesta ordem (`src/lib/payments/split-fallback.ts`):
+
+1. Cria a cobrança sem o item do afiliado. Os outros beneficiários continuam no split do Asaas.
+2. Se essa tentativa também é recusada, cria a cobrança sem split. Sem item de afiliado, ou com o afiliado como único item, o sistema vai direto a este passo.
+
+Resultado desconhecido (sem resposta, 5xx) encerra as tentativas. As linhas que não foram nessa tentativa viram valor a pagar, porque a cobrança pode existir. Recusa do cartão ou outro erro não marca nada.
+
+Cada linha que saiu do split (migração 086, `charge_split_mark_refused`):
+
+| Beneficiário | A linha vira | Como pagar |
+|---|---|---|
+| Afiliado de link | modo `pix`, `pending` | Comissão e saldo na confirmação do pagamento. Sai pela fila de saques (seção 6) ou pela conversão em créditos |
+| Bureau dono e Bureau indicador | `accrual`, `pending` | Accrual em `bureau_payable_entries` na confirmação do pagamento. Repasse manual |
+| Sócio | `refused` | Não há repasse manual de sócio no sistema. Siga o runbook da seção 5 |
+
+- O valor é gravado uma vez, quando a cobrança é paga. Se o webhook confirma o pagamento antes da marca, a própria marca grava o valor.
+- Estorno e chargeback revertem estas linhas como qualquer linha `pix` ou `accrual` (seção 4).
+- O valor é calculado sobre o valor bruto da cobrança (seção 1).
+- **Troca automática para Pix:** só quando a cobrança sem o item do afiliado é criada com outros itens no split. Esta é a prova de que a causa é o `walletId` do afiliado. O afiliado passa para o modo Pix, recebe o e-mail de troca e a auditoria grava `affiliate.payout_method_rejected`. O `walletId` continua salvo. Se o afiliado salvou outro `walletId` depois da cobrança, nada muda.
+- Quando a segunda tentativa falha, tem resultado desconhecido, ou o afiliado é o único item, o sistema não troca o modo dele. Neste último caso, cada cobrança nova tenta o `walletId` outra vez. Confira o `walletId` e a habilitação do split (seção 0).
+- A auditoria de cada linha é `charge_split.refused`, com `manual_method` (`pix`, `accrual` ou nulo).
+- **Falha na marca:** o log `[split] LINHAS não marcadas como recusadas` indica que as linhas ficaram `asaas` e `pending`. Nenhum valor a pagar é gravado e o sistema não tenta de novo. Confira a cobrança no Asaas e pague fora do sistema.
+- O formato do erro do Asaas não foi conferido em sandbox.
 
 ## 3. Ligar e desligar o afiliado de link
 
@@ -73,13 +99,13 @@ O beneficiário escolhe o modo em `/portal/afiliacao/pagamentos`. O Bureau indic
 - **Bureau sem `walletId`:** a reversão entra como lançamento `reversal`, ligado ao accrual.
 - **Status de `charge_splits`:** `pending`, `done`, `refused`, `refunded` ou `reversal_failed`.
 - **Relatórios:** `/afiliados` (Bureau) e `/superadmin/splits` (superadmin). O relatório por cliente mostra estorno, chargeback e comissão já paga sobre cobrança estornada. Os repasses e o total dos sócios contam só cobrança paga ou estornada.
-- **Rótulo "A repassar":** accrual do Bureau sem `walletId`. O valor ainda não saiu. O rótulo não muda depois do repasse manual: confira o repasse na tela de repasses.
+- **Rótulo "A repassar":** accrual do Bureau sem `walletId`, ou parte do Bureau recusada no split (seção 2). O valor ainda não saiu. O rótulo não muda depois do repasse manual: confira o repasse na tela de repasses.
 
 ## 5. Runbook: split recusado, reversão pendente ou `reversal_failed`
 
 O Asaas não tem o evento `PAYMENT_SPLIT_REFUSED`. A recusa chega como item de `payment.split[]` com status `REFUSED` ou `CANCELLED`. Em cobrança não estornada, o sistema grava `refused` (migrações 072 e 083, `src/lib/asaas/split-events.ts`).
 
-**Split recusado (`refused`):**
+**Split recusado (`refused`):** são as linhas de sócio recusadas na criação e as linhas que o evento de split do Asaas recusa depois da criação. Estas não viram accrual nem saldo. Partes de afiliado e de Bureau recusadas na criação não ficam `refused` (seção 2).
 
 1. Abra `/superadmin/splits` e filtre por "Recusado".
 2. Veja a cobrança, o beneficiário (mascarado) e o valor.
