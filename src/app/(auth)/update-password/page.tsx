@@ -9,6 +9,7 @@ import type { z } from "zod";
 import { authClient } from "@/lib/auth/client";
 import { newPasswordSchema } from "@/lib/validators/password";
 import { Button } from "@/components/ui/button";
+import { BackToLogin } from "@/components/auth/auth-exit";
 import { AuthHeading } from "@/components/auth/auth-heading";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Field } from "@/components/ui/field";
@@ -47,7 +48,8 @@ function UpdatePasswordForm() {
   };
 
   return (
-    <section className="w-full max-w-md space-y-8">
+    <section className="w-full max-w-md space-y-6">
+      <BackToLogin />
       <AuthHeading title="Definir nova senha" description="Escolha uma senha forte" />
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         <Field id="password" label="Nova senha" error={errors.password?.message}>
@@ -57,7 +59,7 @@ function UpdatePasswordForm() {
           {(a) => <PasswordInput withIcon {...a} {...register("confirm")} />}
         </Field>
         {error && <StatusBanner tone="attention" title={error} />}
-        <Button type="submit" size="lg" glow className="w-full" disabled={isSubmitting}>
+        <Button type="submit" glow className="w-full" disabled={isSubmitting}>
           {isSubmitting ? "Salvando..." : "Salvar nova senha"}
         </Button>
       </form>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 
 import { authClient } from "@/lib/auth/client";
@@ -17,6 +17,13 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const stepTitleRef = useRef<HTMLHeadingElement>(null);
+
+  // Só move o foco ao avançar para a etapa 2; na primeira exibição o foco fica onde está.
+  useEffect(() => {
+    if (qrCode) stepTitleRef.current?.focus();
+  }, [qrCode]);
 
   const start = async () => {
     setBusy(true);
@@ -47,10 +54,25 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
     onComplete?.();
   };
 
+  // Copia só quando a pessoa clica. Os códigos não vão para log nem para armazenamento.
+  const copyBackupCodes = async () => {
+    try {
+      await navigator.clipboard.writeText(backupCodes.join("\n"));
+      setCopyStatus("Códigos copiados.");
+    } catch {
+      setCopyStatus("Não foi possível copiar. Anote os códigos à mão.");
+    }
+  };
+
   if (qrCode) {
     return (
       <div className="space-y-4 rounded-card border border-border bg-card p-4">
-        <p className="text-base">Escaneie o QR code no seu app autenticador.</p>
+        <div className="space-y-1">
+          <h2 ref={stepTitleRef} tabIndex={-1} className="text-base font-bold focus-visible:outline-none">
+            Passo 2 de 2: confirme o autenticador
+          </h2>
+          <p className="text-base">Escaneie o QR code no seu app autenticador.</p>
+        </div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={qrCode} alt="QR code TOTP" className="h-44 w-44" />
         <StatusBanner
@@ -58,10 +80,14 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
           title="Guarde estes códigos de recuperação agora."
           description={
             <>
-              <p>Eles não serão exibidos novamente.</p>
+              <p>Eles não serão exibidos novamente. Guarde-os antes de sair desta tela.</p>
               <ul className="mt-2 grid grid-cols-2 gap-1 font-mono">
                 {backupCodes.map((backupCode) => <li key={backupCode}>{backupCode}</li>)}
               </ul>
+              <Button type="button" variant="outline" size="sm" className="mt-3" onClick={copyBackupCodes}>
+                Copiar códigos
+              </Button>
+              <p role="status" className="mt-2 text-sm">{copyStatus}</p>
             </>
           }
         />
@@ -69,7 +95,7 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
           {(a) => <Input inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} {...a} />}
         </Field>
         {error && <StatusBanner tone="attention" title={error} />}
-        <Button size="lg" glow className="w-full" onClick={verify} disabled={busy || code.length !== 6}>
+        <Button glow className="w-full" onClick={verify} disabled={busy || code.length !== 6}>
           {busy ? "Verificando..." : "Confirmar autenticador"}
         </Button>
       </div>
@@ -78,6 +104,14 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
 
   return (
     <div className="space-y-4">
+      <div className="space-y-1">
+        <h2 ref={stepTitleRef} tabIndex={-1} className="text-base font-bold focus-visible:outline-none">
+          Passo 1 de 2: confirme sua identidade
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Depois você escaneia um QR code e recebe códigos de recuperação.
+        </p>
+      </div>
       <Field id="current-password" label="Confirme sua senha">
         {(a) => (
           <PasswordInput
@@ -91,7 +125,7 @@ export function MfaEnrollment({ onComplete }: { onComplete?: () => void }) {
         )}
       </Field>
       {error && <StatusBanner tone="attention" title={error} />}
-      <Button size="lg" glow className="w-full" onClick={start} disabled={busy || password.length < 12}>
+      <Button glow className="w-full" onClick={start} disabled={busy || password.length < 12}>
         {busy ? "Gerando..." : "Adicionar autenticador"}
       </Button>
     </div>
