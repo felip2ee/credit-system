@@ -22,7 +22,7 @@ function OpinionReadOnly({ title, parecer }: { title: string; parecer: Parecer }
 	return (
 		<Card>
 			<CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-				<CardTitle className="text-xl">{title}</CardTitle>
+				<CardTitle>{title}</CardTitle>
 				<div className="flex flex-wrap items-center gap-2">
 					<StatusBadge tone={apt.tone} label={apt.label} />
 					<Badge variant="outline">{parecer.classificacao_perfil}</Badge>
@@ -86,7 +86,7 @@ export function DeliveryView({ delivery }: { delivery: ClientDelivery }) {
 			{dossierOpinion && <OpinionReadOnly title="Parecer consolidado" parecer={dossierOpinion} />}
 			{members.map((m) => (
 				<section key={m.consultationId} aria-label={m.name ?? "Consulta"} className="space-y-4">
-					<h2 className="text-xl font-semibold">
+					<h2 className="text-lg font-semibold">
 						{m.name ?? "Consulta"} <span className="text-base font-normal text-muted-foreground">({m.type})</span>
 					</h2>
 					{m.opinion && <OpinionReadOnly title="Parecer de IA" parecer={m.opinion} />}
@@ -95,7 +95,7 @@ export function DeliveryView({ delivery }: { delivery: ClientDelivery }) {
 			))}
 			<Card>
 				<CardHeader>
-					<CardTitle className="text-xl">Quer ver todos os detalhes?</CardTitle>
+					<CardTitle>Quer ver todos os detalhes?</CardTitle>
 				</CardHeader>
 				<CardContent className="space-y-4">
 					<p className="text-base text-muted-foreground">

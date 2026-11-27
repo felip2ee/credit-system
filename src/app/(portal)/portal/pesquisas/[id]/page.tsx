@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
-import { PageHeader } from "@/components/layout/page-header";
 import { OrderStateBadge } from "@/components/orders/client-order-list";
 import { CancelOrderButton } from "@/components/orders/cancel-order-button";
 import { DeliveryView } from "@/components/orders/delivery-view";
@@ -12,6 +10,7 @@ import { canCancelOrder } from "@/components/orders/order-rules";
 import { orderSteps } from "@/components/orders/order-steps";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { Stepper } from "@/components/ui/stepper";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { getRequiredSession, sessionErrorPath } from "@/lib/auth/session";
@@ -44,6 +43,7 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 	const { order, members, delivery } = found;
 
 	const steps = orderSteps(order.state, order.reason);
+	const nextLines = orderStepLines(order);
 	const ended = order.state === "failed" || order.state === "cancelled";
 	const money: MoneyOutcome = order.mode !== "online" || order.reason === "reservation_clawed_back" ? "none" : "refunded";
 	const failure = ended
@@ -55,15 +55,19 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 		: null;
 
 	return (
-		<div className="space-y-6">
+		<div className="space-y-4">
 			<OrderAutoRefresh orderId={order.dossierId} initialState={order.state} />
-			<Link href="/portal/pesquisas" className="inline-flex min-h-12 items-center gap-1 font-bold text-primary hover:underline">
-				<ArrowLeft aria-hidden className="size-5" />
-				Voltar às pesquisas
-			</Link>
-			<PageHeader title={order.subjectName} description={`${order.subjectDocumentMasked} · ${formatDateTime(order.createdAt)}`} />
+			<ScreenHeader
+				className="-mx-4 -mt-4 min-[375px]:-mx-5 md:mx-0"
+				title={order.subjectName}
+				backHref="/portal/pesquisas"
+				backLabel="Voltar às pesquisas"
+			/>
+			<p className="text-sm text-muted-foreground">
+				{order.subjectDocumentMasked} · {formatDateTime(order.createdAt)}
+			</p>
 			<Card>
-				<CardContent className="space-y-4 p-6">
+				<CardContent className="space-y-4 pt-4">
 					{steps && <Stepper steps={steps} />}
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<OrderStateBadge state={order.state} reason={null} />
@@ -71,7 +75,12 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 							Valor: <span className="font-bold tabular-nums">{formatCurrency(Number(order.price))}</span>
 						</p>}
 					</div>
-					{!ended && orderStepLines(order).map((line) => <p key={line}>{line}</p>)}
+					{!ended && nextLines.length > 0 && (
+						<div className="rounded-input bg-brand-soft p-3 text-brand-soft-foreground">
+							<p className="text-sm font-bold">O que acontece agora</p>
+							{nextLines.map((line) => <p key={line}>{line}</p>)}
+						</div>
+					)}
 				</CardContent>
 			</Card>
 			{failure && (
@@ -91,8 +100,13 @@ export default async function ClientOrderPage({ params }: { params: { id: string
 					}
 				/>
 			)}
+			{canCancelOrder(order.state, order.mode) && (
+				<div className="space-y-2">
+					<p className="text-sm text-muted-foreground">Se você cancelar, o valor reservado volta ao seu saldo.</p>
+					<CancelOrderButton dossierId={order.dossierId} />
+				</div>
+			)}
 			<OrderMembers members={members} mode={order.mode} />
-			{canCancelOrder(order.state, order.mode) && <CancelOrderButton dossierId={order.dossierId} />}
 			{order.state === "released" &&
 				(delivery ? (
 					<DeliveryView delivery={delivery} />

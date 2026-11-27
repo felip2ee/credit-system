@@ -29,7 +29,7 @@ export default async function PortalLayout({ children }: { children: React.React
     <div className="area-portal flex min-h-screen flex-col bg-background">
       <IdleTimeout />
       <PortalHeader items={items} balance={headerBalance(canReadCredits, wallet)} />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-screen py-6 pb-28 md:max-w-5xl md:pb-6">{children}</main>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-screen py-4 pb-24 md:max-w-5xl md:pb-6 [&_input]:scroll-mb-24 [&_input]:scroll-mt-20 [&_textarea]:scroll-mb-24 [&_textarea]:scroll-mt-20">{children}</main>
       <BottomNav items={items} />
       <Toaster />
     </div>

@@ -29,17 +29,17 @@ export function BottomNav({ items }: { items: PortalNavItem[] }) {
 								href={href}
 								aria-current={active ? "page" : undefined}
 								className={cn(
-									"flex min-h-[72px] flex-col items-center justify-center gap-1 px-1 py-1 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+									"flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
 									active ? "font-bold text-primary" : "text-muted-foreground",
 								)}
 							>
 								<span
 									className={cn(
-										"flex size-11 items-center justify-center rounded-full transition-colors",
+										"flex h-7 w-12 items-center justify-center rounded-full duration-fast ease-out motion-safe:transition-colors",
 										active && "bg-primary text-primary-foreground",
 									)}
 								>
-									<Icon aria-hidden className="size-6" />
+									<Icon aria-hidden className="size-5" />
 								</span>
 								{label}
 							</Link>
@@ -66,7 +66,7 @@ export function InlineNav({ items }: { items: PortalNavItem[] }) {
 								href={href}
 								aria-current={active ? "page" : undefined}
 								className={cn(
-									"inline-flex min-h-12 items-center gap-2 rounded-full px-4 text-base hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+									"inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-base duration-fast ease-out hover:bg-accent motion-safe:transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 									active ? "bg-brand-soft font-bold text-brand-soft-foreground" : "text-foreground",
 								)}
 							>

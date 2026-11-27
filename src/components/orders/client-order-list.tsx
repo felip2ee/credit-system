@@ -1,18 +1,17 @@
-import Link from "next/link";
 import { FileText } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
-
+import { ListRow } from "@/components/ui/list-row";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ORDER_REASON_LABEL } from "@/lib/orders/labels";
 import type { ClientOrderListItem } from "@/lib/orders/client-queries";
 import type { OrderState } from "@/lib/orders/types";
 import { statusInfo } from "@/lib/ui/status";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 
 const PRODUCT_LABEL: Record<ClientOrderListItem["productCode"], string> = {
-	dossie_pf: "Dossiê Pessoa Física",
-	dossie_empresarial: "Dossiê Empresarial",
+	dossie_pf: "Pessoa física",
+	dossie_empresarial: "Empresa",
 };
 
 export function OrderStateBadge({ state, reason }: { state: OrderState; reason: ClientOrderListItem["reason"] }) {
@@ -27,31 +26,27 @@ export function OrderStateBadge({ state, reason }: { state: OrderState; reason: 
 	);
 }
 
+// Linha compacta: nome, tipo, data e valor; o estado fica à direita. O motivo de falha aparece no andamento do pedido.
 export function ClientOrderList({ orders }: { orders: ClientOrderListItem[] }) {
 	return (
 		<Card>
 			<ul className="divide-y divide-border">
-				{orders.map((o) => (
-					<li key={o.dossierId}>
-						<Link
-							href={`/portal/pesquisas/${o.dossierId}`}
-							className="flex min-h-14 items-start gap-3 rounded-card px-4 py-3 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-						>
-							<span aria-hidden className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
-								<FileText className="size-5" />
-							</span>
-							<span className="min-w-0 flex-1 space-y-1">
-								<span className="block font-bold">{PRODUCT_LABEL[o.productCode]}</span>
-								<span className="block truncate">{o.subjectName}</span>
-								<span className="block truncate text-base text-muted-foreground">
-									{o.subjectDocumentMasked} · {formatDateTime(o.createdAt)} ·{" "}
-									<span className="tabular-nums">{o.price === null ? "—" : formatCurrency(Number(o.price))}</span>
-								</span>
-								<OrderStateBadge state={o.state} reason={o.reason} />
-							</span>
-						</Link>
-					</li>
-				))}
+				{orders.map((o) => {
+					const { tone, label } = statusInfo("order", o.state, "client");
+					const price = o.price === null ? "—" : formatCurrency(Number(o.price));
+					return (
+						<li key={o.dossierId}>
+							<ListRow
+								icon={FileText}
+								title={o.subjectName}
+								subtitle={`${PRODUCT_LABEL[o.productCode]} · ${formatDate(o.createdAt)} · ${price}`}
+								value={<StatusBadge tone={tone} label={label} />}
+								href={`/portal/pesquisas/${o.dossierId}`}
+								className="rounded-card duration-fast ease-out hover:bg-accent motion-safe:transition-colors"
+							/>
+						</li>
+					);
+				})}
 			</ul>
 		</Card>
 	);
