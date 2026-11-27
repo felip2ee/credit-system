@@ -107,7 +107,7 @@ describe("isNavActive em todas as rotas do painel", () => {
 describe("SETTINGS_PAGES", () => {
   const labels = (permissions: Parameters<typeof visibleNavItems>[1]) => visibleNavItems(SETTINGS_PAGES, permissions).map((p) => p.label);
   it("operador sem permissões extras vê só o que a página aceita", () => {
-    expect(labels(["catalog:read", "wallet:read", "counter:read"])).toEqual(["Segurança", "Catálogo", "Carteira", "Pagamentos de balcão"]);
+    expect(labels(["catalog:read", "wallet:read", "counter:read"])).toEqual(["Segurança (MFA)", "Catálogo", "Carteira", "Pagamentos de balcão"]);
   });
   it("admin vê Equipe, Auditoria e Cupons também", () => {
     expect(labels(["users:manage", "audit:read", "coupons:read", "catalog:read", "wallet:read", "counter:read"])).toHaveLength(7);

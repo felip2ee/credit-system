@@ -54,6 +54,7 @@ export default async function DashboardLayout({
           <MobileBrand />
           <MobileNav items={DASHBOARD_NAV_ITEMS} permissions={permissions} signOutAction={signOut} />
         </header>
+        {/* Posiciona os ScreenHeader sticky das telas logo abaixo da barra superior do celular. */}
         <main className="flex-1 p-4 max-md:[&_header.sticky]:top-14 md:p-6">{children}</main>
         <Toaster />
       </div>

@@ -49,12 +49,12 @@ export interface SettingsPage extends NavItem {
 
 // Central de configurações: a mesma permissão que cada página exige ao abrir.
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
-  { href: "/settings/security", label: "Segurança", description: "Cadastre um autenticador para proteger o seu acesso." },
+  { href: "/settings/security", label: "Segurança (MFA)", description: "Cadastre um autenticador para proteger o seu acesso." },
   { href: "/settings/users", label: "Equipe", permission: "users:manage", description: "Convide e gerencie operadores e administradores." },
   { href: "/settings/audit", label: "Auditoria", permission: "audit:read", description: "Veja quem consultou o quê e quando." },
   { href: "/settings/catalog", label: "Catálogo", permission: "catalog:read", description: "Consulte os produtos e os preços do bureau." },
   { href: "/settings/cupons", label: "Cupons", permission: "coupons:read", description: "Crie e acompanhe cupons de desconto." },
-  { href: "/settings/wallet", label: "Carteira", permission: "wallet:read", description: "Veja o saldo, recarregue e acompanhe os repasses." },
+  { href: "/settings/wallet", label: "Carteira", permission: "wallet:read", description: "Veja o saldo e os lançamentos da carteira." },
   { href: "/settings/counter-payments", label: "Pagamentos de balcão", permission: "counter:read", description: "Veja os pagamentos recebidos no balcão." },
 ];
 

@@ -51,11 +51,13 @@ export function Sidebar({
       <SidebarBrand label="Admin" />
       <nav aria-label="Principal" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-2.5">
         {groupNavItems(visibleNavItems(DASHBOARD_NAV_ITEMS, permissions)).map((group) => (
-          <div key={group.title}>
-            <h2 id={`${navId}-${group.title}`} className="px-3.5 pb-1 text-xs font-bold uppercase tracking-wide">
-              {group.title}
-            </h2>
-            <ul aria-labelledby={`${navId}-${group.title}`} className="space-y-0.5">
+          <div key={group.title ?? "todos"}>
+            {group.title && (
+              <h2 id={`${navId}-${group.title}`} className="px-3.5 pb-1 text-xs font-bold uppercase tracking-wide">
+                {group.title}
+              </h2>
+            )}
+            <ul aria-labelledby={group.title ? `${navId}-${group.title}` : undefined} className="space-y-0.5">
               {group.items.map((item) => {
                 const active = isNavActive(pathname, item.href);
                 const Icon = ICONS[item.href];
