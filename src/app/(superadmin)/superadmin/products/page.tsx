@@ -37,68 +37,68 @@ export default async function ProductsPage() {
         )}
       </PageHeader>
       <Card className="overflow-hidden">
-      <StackedList>
-        {products.map((p) => (
-          <StackedRow
-            key={p.id}
-            href={`/superadmin/products/${p.id}`}
-            title={p.name}
-            meta={[
-              `Código ${p.code}`,
-              `Versão vigente v${p.version}`,
-              `Custo interno ${formatBRL(p.baseCost)}`,
-              p.salePrice === null ? null : `Preço de venda ${formatBRL(p.salePrice)}`,
-              p.code === "dossie_empresarial" ? `Preço por sócio ${formatBRL(p.salePricePerPartner)}` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-            status={
-              <>
-                <Badge variant={p.active ? "success" : "muted"}>{p.active ? "Ativo" : "Inativo"}</Badge>
-                {p.salePrice === null && <Badge variant="muted">Não à venda</Badge>}
-              </>
-            }
-          />
-        ))}
-      </StackedList>
-      <div className="hidden md:block">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Código</TableHead>
-            <TableHead>Nome</TableHead>
-            <TableHead>Estado</TableHead>
-            <TableHead>Versão vigente</TableHead>
-            <TableHead className="text-right">Custo interno</TableHead>
-            <TableHead className="text-right">Preço de venda</TableHead>
-            <TableHead className="text-right">Preço por sócio</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+        <StackedList>
           {products.map((p) => (
-            <TableRow key={p.id}>
-              <TableCell>{p.code}</TableCell>
-              <TableCell>
-                <Link className="font-medium hover:underline" href={`/superadmin/products/${p.id}`}>
-                  {p.name}
-                </Link>
-              </TableCell>
-              <TableCell>
-                <Badge variant={p.active ? "success" : "muted"}>{p.active ? "Ativo" : "Inativo"}</Badge>
-              </TableCell>
-              <TableCell>v{p.version}</TableCell>
-              <TableCell className="text-right">{formatBRL(p.baseCost)}</TableCell>
-              <TableCell className="text-right">
-                {p.salePrice === null ? <Badge variant="muted">Não à venda</Badge> : formatBRL(p.salePrice)}
-              </TableCell>
-              <TableCell className="text-right">
-                {p.code === "dossie_empresarial" ? formatBRL(p.salePricePerPartner) : "—"}
-              </TableCell>
-            </TableRow>
+            <StackedRow
+              key={p.id}
+              href={`/superadmin/products/${p.id}`}
+              title={p.name}
+              meta={[
+                `Código ${p.code}`,
+                `Versão vigente v${p.version}`,
+                `Custo interno ${formatBRL(p.baseCost)}`,
+                p.salePrice === null ? null : `Preço de venda ${formatBRL(p.salePrice)}`,
+                p.code === "dossie_empresarial" ? `Preço por sócio ${formatBRL(p.salePricePerPartner)}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              status={
+                <>
+                  <Badge variant={p.active ? "success" : "muted"}>{p.active ? "Ativo" : "Inativo"}</Badge>
+                  {p.salePrice === null && <Badge variant="muted">Não à venda</Badge>}
+                </>
+              }
+            />
           ))}
-        </TableBody>
-      </Table>
-      </div>
+        </StackedList>
+        <div className="hidden md:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Código</TableHead>
+                <TableHead>Nome</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead>Versão vigente</TableHead>
+                <TableHead className="text-right">Custo interno</TableHead>
+                <TableHead className="text-right">Preço de venda</TableHead>
+                <TableHead className="text-right">Preço por sócio</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {products.map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell>{p.code}</TableCell>
+                  <TableCell>
+                    <Link className="font-medium hover:underline" href={`/superadmin/products/${p.id}`}>
+                      {p.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={p.active ? "success" : "muted"}>{p.active ? "Ativo" : "Inativo"}</Badge>
+                  </TableCell>
+                  <TableCell>v{p.version}</TableCell>
+                  <TableCell className="text-right">{formatBRL(p.baseCost)}</TableCell>
+                  <TableCell className="text-right">
+                    {p.salePrice === null ? <Badge variant="muted">Não à venda</Badge> : formatBRL(p.salePrice)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {p.code === "dossie_empresarial" ? formatBRL(p.salePricePerPartner) : "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </Card>
     </div>
   );

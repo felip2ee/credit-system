@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { formatBRL } from "./money";
 import { normalizeMoney } from "@/lib/catalog/money-input";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { buildSalePrices } from "./price-input";
@@ -51,6 +52,14 @@ export function ProductVersionForm({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const noPrice = salePrice.trim() === "";
+  // Só exibição: o payload usa os mesmos valores normalizados, sem passar por aqui.
+  const shown = (value: string) => formatBRL(normalizeMoney(value.trim() || "0"));
+  const changes: [string, string][] = [
+    [hasPartner ? "Custo interno da empresa" : "Custo interno", shown(baseCost)],
+    ...(hasPartner ? [["Custo interno por sócio", shown(baseCostPerPartner)] as [string, string]] : []),
+    [hasPartner ? "Preço de venda da empresa" : "Preço de venda", noPrice ? "sem preço (não está à venda)" : shown(salePrice)],
+    ...(hasPartner ? [["Preço de venda por sócio", shown(salePricePerPartner)] as [string, string]] : []),
+  ];
 
   // O botão não envia: valida e abre a confirmação, porque o preço da nova versão vale para os pedidos futuros.
   const onSubmit = (e: React.FormEvent) => {
@@ -123,12 +132,14 @@ export function ProductVersionForm({
         Criar nova versão
       </Button>
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Criar nova versão?" role="alertdialog" dismissible={!isPending} className="max-h-[92vh] overflow-y-auto">
-        <p className="text-base">
-          {noPrice
-            ? "A nova versão não tem preço de venda: o produto deixa de estar à venda para os pedidos futuros."
-            : `O preço de venda passa a ser R$ ${salePrice.trim()} nos pedidos futuros.`}{" "}
-          A versão anterior não muda.
-        </p>
+        <p className="text-base">Estes valores passam a valer nos pedidos futuros. A versão anterior não muda.</p>
+        <ul className="space-y-1 text-base">
+          {changes.map(([label, value]) => (
+            <li key={label}>
+              {label}: <span className="font-bold">{value}</span>
+            </li>
+          ))}
+        </ul>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={isPending}>
             Voltar

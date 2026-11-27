@@ -7,6 +7,9 @@ import { optionalPriceError, partnerPriceError } from "./price-input";
 
 export const PARTNER_CODE = "dossie_empresarial";
 
+// Texto devolvido por createProduct (src/actions/catalog.ts); a action não devolve código de motivo.
+export const CODE_TAKEN_ERROR = "Este código já está em uso.";
+
 export type ProductStepId = "identity" | "values";
 
 export interface IdentityFields {

@@ -16,6 +16,7 @@ import { normalizeMoney } from "@/lib/catalog/money-input";
 import { STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
 import { buildSalePrices } from "./price-input";
 import {
+  CODE_TAKEN_ERROR,
   hasTypedProductData,
   identityErrors,
   PARTNER_CODE,
@@ -67,6 +68,7 @@ export function ProductForm() {
   const [stepIndex, setStepIndex] = useState(0);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [reviewReady, setReviewReady] = useState(false);
+  const [focusCode, setFocusCode] = useState(false);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [depsProduct, setDepsProduct] = useState("");
@@ -88,6 +90,13 @@ export function ProductForm() {
     shownStep.current = stepIndex;
     titleRef.current?.focus();
   }, [stepIndex]);
+
+  // Código já em uso volta à etapa 1: o foco vai ao campo, depois do foco no título.
+  useEffect(() => {
+    if (!focusCode || stepIndex !== 0) return;
+    setFocusCode(false);
+    document.getElementById(IDENTITY_IDS.code)?.focus();
+  }, [focusCode, stepIndex]);
 
   // O botão final só habilita depois do tempo de guarda: um duplo clique em "Continuar" não cria o produto.
   useEffect(() => {
@@ -132,6 +141,12 @@ export function ProductForm() {
         baseCost: normalizeMoney(baseCost),
         baseCostPerPartner: hasPartner ? normalizeMoney(baseCostPerPartner) : "0.00",
       });
+      if (result.error === CODE_TAKEN_ERROR) {
+        setIdErrors({ code: result.error });
+        setStepIndex(0);
+        setFocusCode(true);
+        return;
+      }
       if (result.error) {
         setError(result.error);
         return;
@@ -280,13 +295,14 @@ export function ProductEditForm({
   const [active, setActive] = useState(product.active);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const save = () => {
     setError(null);
     setSaved(false);
     startTransition(async () => {
       const result = await updateProduct({ id: product.id, name, active });
+      setConfirmOpen(false);
       if (result.error) {
         setError(result.error);
         return;
@@ -294,6 +310,13 @@ export function ProductEditForm({
       setSaved(true);
       router.refresh();
     });
+  };
+
+  // Desativar para a venda na hora: pede confirmação. Ativar ou só renomear salva direto.
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (product.active && !active) setConfirmOpen(true);
+    else save();
   };
 
   return (
@@ -319,6 +342,19 @@ export function ProductEditForm({
       <Button type="submit" disabled={isPending}>
         {isPending ? "Salvando..." : "Salvar"}
       </Button>
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Desativar produto?" role="alertdialog" dismissible={!isPending} className="max-h-[92vh] overflow-y-auto">
+        <p className="text-base">
+          {product.name} sai do catálogo dos Bureaus e não pode mais ser vendido. Pedidos já reservados continuam. As versões e o histórico ficam guardados.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={isPending}>
+            Voltar
+          </Button>
+          <Button type="button" variant="destructive" onClick={save} disabled={isPending}>
+            {isPending ? "Desativando..." : "Desativar"}
+          </Button>
+        </div>
+      </Dialog>
     </form>
   );
 }
