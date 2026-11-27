@@ -141,9 +141,9 @@ export default async function WalletPage({
           <p className="text-sm text-muted-foreground">Carteira não encontrada.</p>
         )}
         {base.buckets && (
-          <Card className="space-y-1 self-start p-5">
+          <Card className="space-y-1 self-start p-4 md:p-5">
             <h2 className="text-base">A receber</h2>
-            <p className="text-4xl font-bold leading-tight tabular-nums">
+            <p className="text-3xl font-bold md:text-4xl leading-tight tabular-nums">
               {formatMoney(payableOwed(base.buckets))}
             </p>
             <p className="text-base text-muted-foreground">Lucro dos pedidos online que a Rainha Cred vai repassar a você.</p>
