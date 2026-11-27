@@ -4,6 +4,11 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+// showModal() põe o <dialog> na top layer: um portal em document.body fica atrás dele e inerte. Todo primitivo flutuante
+// monta o portal neste elemento. Fora de um Dialog o valor é null e o portal segue no body.
+const DialogElementContext = React.createContext<HTMLDialogElement | null>(null);
+export const useDialogElement = () => React.useContext(DialogElementContext);
+
 interface DialogProps {
   open: boolean;
   onClose: () => void;
@@ -33,6 +38,9 @@ export function Dialog({
   const titleId = React.useId();
   const descriptionId = React.useId();
   const openerRef = React.useRef<HTMLElement | null>(null);
+  const [element, setElement] = React.useState<HTMLDialogElement | null>(null);
+
+  React.useEffect(() => setElement(ref.current), []);
 
   React.useEffect(() => {
     const el = ref.current;
@@ -77,17 +85,19 @@ export function Dialog({
       )}
     >
       {open && (
-        <div className="space-y-4">
-          <h2 id={titleId} className="text-xl font-bold">
-            {title}
-          </h2>
-          {description && (
-            <p id={descriptionId} className="text-muted-foreground">
-              {description}
-            </p>
-          )}
-          {children}
-        </div>
+        <DialogElementContext.Provider value={element}>
+          <div className="space-y-4">
+            <h2 id={titleId} className="text-xl font-bold">
+              {title}
+            </h2>
+            {description && (
+              <p id={descriptionId} className="text-muted-foreground">
+                {description}
+              </p>
+            )}
+            {children}
+          </div>
+        </DialogElementContext.Provider>
       )}
     </dialog>
   );

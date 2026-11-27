@@ -4,6 +4,7 @@ import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
 
+import { useDialogElement } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const Select = SelectPrimitive.Root;
@@ -34,7 +35,7 @@ const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
 >(({ className, children, position = "popper", ...props }, ref) => (
-  <SelectPrimitive.Portal>
+  <SelectPrimitive.Portal container={useDialogElement()}>
     <SelectPrimitive.Content
       ref={ref}
       position={position}
