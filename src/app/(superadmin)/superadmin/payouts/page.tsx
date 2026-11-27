@@ -47,8 +47,8 @@ export default async function SuperadminPayoutsPage() {
         <CreatePayoutForm latestDate={latestDate} bureaus={bureaus.map((b) => ({ id: b.bureauId, name: b.name, payable: data.payable.get(b.bureauId) ?? "0.00" }))} />
       )}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Repasses</h2>
-        <PayoutTable payouts={data.payouts} bureauNames={bureauNames} canManage={canManage} />
+        <h2 className="font-semibold">Repasses</h2>
+        <PayoutTable payouts={data.payouts} bureauNames={bureauNames} canManage={canManage} stacked />
       </section>
     </div>
   );

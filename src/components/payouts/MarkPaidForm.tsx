@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { markPayoutPaidAction } from "@/actions/payouts";
@@ -33,6 +33,7 @@ export function MarkPaidForm({
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const errorId = useId();
   const summary = `${bureauName}, corte ${cutoff}`;
 
   // O servidor decide; esta checagem só poupa o envio.
@@ -69,12 +70,16 @@ export function MarkPaidForm({
         type="file"
         accept={RECEIPT_ACCEPT}
         aria-label={`Comprovante do repasse ${summary} (PDF, PNG ou JPEG, até 5 MB)`}
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={error ? true : undefined}
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         disabled={isPending}
         className="h-auto max-w-xs"
       />
       {error && (
-        <StatusBanner tone="danger" title={error} />
+        <div id={errorId}>
+          <StatusBanner tone="danger" title={error} />
+        </div>
       )}
       <Button
         type="submit"
@@ -90,6 +95,7 @@ export function MarkPaidForm({
         title="Marcar repasse como pago?"
         role="alertdialog"
         dismissible={!isPending}
+        className="max-h-[92vh] overflow-y-auto"
       >
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between gap-4">
