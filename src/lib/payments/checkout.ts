@@ -7,6 +7,8 @@ import type { PoolClient } from "pg";
 import { AsaasOutcomeUnknownError, CardDeclinedError, getAsaasClient } from "@/lib/asaas";
 import { toCents } from "@/lib/catalog/money";
 import { readCardFeeConfig, readPiiKeyring, readPixFeeConfig, type PiiKeyring } from "@/lib/config";
+import { SplitOver100Error } from "@/lib/commission/queries";
+import { buildSplitPlan, type SplitPlan } from "@/lib/commission/split-plan";
 import { withUserTransaction, type DbIdentity } from "@/lib/db/transaction";
 import { maskPayerDocument } from "@/lib/mask-document";
 import { isNfseConfigured } from "@/lib/nfse/invoice";
@@ -172,7 +174,9 @@ async function enforceLimits(
 	if (pending > MAX_PENDING_PIX_CHARGES) throw new BlockedError(TOO_MANY_PENDING);
 }
 
-type Reserved = { chargeId: string; expiresAt: Date; reused: boolean; source: PayerSource };
+// split: o plano gravado na criação (charge_splits pending); vazio na cobrança reusada (já foi enviado ao Asaas).
+const NO_SPLIT: SplitPlan = { asaasSplit: [], pixLines: [], accrualLines: [] };
+type Reserved = { chargeId: string; expiresAt: Date; reused: boolean; source: PayerSource; split: SplitPlan };
 
 async function reserve(
 	session: DbIdentity,
@@ -206,8 +210,11 @@ async function reserve(
 			requestIp: plan ? remoteIp || null : null,
 		});
 		if (!reserved.ok) throw new BlockedError(reserved.reason === "invalid_amount" ? BAD_AMOUNT : REFERENCE_TAKEN);
-		if (!reserved.reused) await enforceLimits(client, session, scope, input.method, remoteIp);
-		return { chargeId: reserved.id, expiresAt: reserved.expiresAt, reused: reserved.reused, source };
+		if (reserved.reused) return { chargeId: reserved.id, expiresAt: reserved.expiresAt, reused: true, source, split: NO_SPLIT };
+		await enforceLimits(client, session, scope, input.method, remoteIp);
+		// Plano de split na mesma transação da reserva: soma acima de 100% lança SplitOver100Error e desfaz a linha.
+		const split = await buildSplitPlan(client, reserved.id);
+		return { chargeId: reserved.id, expiresAt: reserved.expiresAt, reused: false, source, split };
 	});
 }
 
@@ -339,6 +346,7 @@ async function createPix(
 			amount: centsToReais(pix.totalCents),
 			externalReference: input.idempotencyKey,
 			description: meta.description,
+			split: reserved.split.asaasSplit,
 		});
 	} catch (error) {
 		logFailure("asaas", error);
@@ -415,6 +423,7 @@ async function createCard(
 				phone,
 			},
 			remoteIp: meta.remoteIp,
+			split: reserved.split.asaasSplit,
 		});
 	} catch (error) {
 		logFailure("asaas", error);
@@ -487,6 +496,11 @@ export async function runCheckout(
 			: await createPix(session, scope, input, reserved, summaryOf(input, charged), customerId, meta);
 	} catch (error) {
 		if (error instanceof BlockedError) return { error: error.message };
+		// Camadas do split passam de 100%: a cobrança não nasce (a transação da reserva desfez a linha).
+		if (error instanceof SplitOver100Error) {
+			logFailure("split acima de 100%", error);
+			return { error: UNAVAILABLE };
+		}
 		if (error instanceof PiiDecryptError) {
 			logFailure("pii", error);
 			return { error: UNAVAILABLE };

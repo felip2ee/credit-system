@@ -39,6 +39,7 @@ const s = vi.hoisted(() => ({
 	pendingClient: vi.fn(),
 	clientWallet: vi.fn(),
 	bureauWallet: vi.fn(),
+	plan: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -64,6 +65,7 @@ vi.mock("@/lib/payers/queries", () => ({
 	clearAsaasCustomer: s.clear,
 	markPayerSynced: s.synced,
 }));
+vi.mock("@/lib/commission/split-plan", () => ({ buildSplitPlan: s.plan }));
 vi.mock("@/lib/wallet/client-queries", () => ({ getClientWallet: s.clientWallet }));
 vi.mock("@/lib/wallet/queries", () => ({ getWallet: s.bureauWallet }));
 vi.mock("@/lib/wallet/pix-charges", () => ({
@@ -85,12 +87,14 @@ vi.mock("@/lib/wallet/pix-charges", () => ({
 }));
 
 import { AsaasHttpError, AsaasOutcomeUnknownError, CardDeclinedError } from "@/lib/asaas";
+import { SplitOver100Error } from "@/lib/commission/queries";
 import { PiiDecryptError } from "@/lib/pii/crypto";
 import type { CheckoutInput } from "@/lib/validators/checkout";
 import { computeCardCharge } from "@/lib/wallet/card-fees";
 
 import { runCheckout } from "./checkout";
 
+const NO_SPLIT = { asaasSplit: [], pixLines: [], accrualLines: [] };
 const session = { userId: USER_ID, role: "client" as const, bureauId: BUREAU_ID, supportSessionId: null };
 const clientScope = { kind: "client" as const, clientProfileId: USER_ID };
 const bureauScope = { kind: "bureau" as const, bureauId: BUREAU_ID };
@@ -159,6 +163,7 @@ beforeEach(() => {
 	s.view.mockResolvedValue(fullView);
 	s.load.mockResolvedValue(loaded());
 	s.save.mockResolvedValue({ ok: true });
+	s.plan.mockResolvedValue(NO_SPLIT);
 	s.clientWallet.mockResolvedValue({ available: "0.00" });
 	s.bureauWallet.mockResolvedValue({ available: "0.00" });
 	s.reserve.mockResolvedValue({ ok: true, id: "ch1", expiresAt: new Date("2030-01-01T00:30:00Z"), reused: false });
@@ -180,6 +185,39 @@ beforeEach(() => {
 	s.asaas.createCustomer.mockResolvedValue({ asaasCustomerId: "cus_new" });
 });
 
+describe("runCheckout, split na entrada", () => {
+	const plan = { asaasSplit: [{ walletId: "w-1", percentualValue: 10 }], pixLines: [], accrualLines: [] };
+
+	it("Pix e cartão levam o split do plano ao Asaas; o plano nasce depois da reserva, na mesma transação", async () => {
+		s.plan.mockResolvedValue(plan);
+
+		await runCheckout(session, clientScope, pixInput(), meta);
+		await runCheckout(session, clientScope, cardInput(), meta);
+
+		expect(s.plan).toHaveBeenCalledWith({}, "ch1");
+		expect(s.asaas.createPixCharge.mock.calls[0][0].split).toEqual(plan.asaasSplit);
+		expect(s.asaas.createCardCharge.mock.calls[0][0].split).toEqual(plan.asaasSplit);
+	});
+
+	it("soma acima de 100%: não cria a cobrança no Asaas e devolve o erro genérico", async () => {
+		s.plan.mockRejectedValue(new SplitOver100Error());
+
+		const result = await runCheckout(session, clientScope, pixInput(), meta);
+
+		expect(result).toEqual({ error: "Pagamento indisponível. Contate o suporte." });
+		expect(s.asaas.createPixCharge).not.toHaveBeenCalled();
+	});
+
+	it("reserva reusada: não recalcula o plano nem chama o Asaas", async () => {
+		s.reserve.mockResolvedValue({ ok: true, id: "ch1", expiresAt: new Date("2030-01-01T00:30:00Z"), reused: true });
+
+		const result = await runCheckout(session, clientScope, pixInput(), meta);
+
+		expect(result).toMatchObject({ error: null, reused: true });
+		expect(s.plan).not.toHaveBeenCalled();
+	});
+});
+
 describe("runCheckout, Pix", () => {
 	it("known owner pays Pix with no save, using the Asaas customer of the payer", async () => {
 		const result = await runCheckout(session, clientScope, pixInput(), meta);
@@ -199,6 +237,7 @@ describe("runCheckout, Pix", () => {
 			amount: "100.00",
 			externalReference: KEY,
 			description: "Recarga de créditos",
+			split: [],
 		});
 		expect(s.setCustomer).toHaveBeenCalledWith({}, "ch1", "cus_1");
 		expect(s.reserve).toHaveBeenCalledWith(

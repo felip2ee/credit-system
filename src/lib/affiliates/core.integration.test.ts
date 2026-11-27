@@ -114,6 +114,7 @@ describe("código e carteira de comissão", () => {
 			"select key, value from settings where key like 'affiliate\\_%' order by key",
 		);
 		expect(rows).toEqual([
+			{ key: "affiliate_cash_in_hold_days", value: 0 },
 			{ key: "affiliate_commission_hold_days", value: 30 },
 			{ key: "affiliate_withdrawal_fee", value: { fixed: 0, percent: 0 } },
 		]);

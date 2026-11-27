@@ -5,6 +5,7 @@
 import QRCode from "qrcode";
 
 import { getAsaasClient } from "@/lib/asaas";
+import { buildLinkSplitPlan } from "@/lib/commission/split-plan";
 import { pool } from "@/lib/db/pool";
 
 export type LinkPixCharge = { pixPayload: string; qrDataUrl: string; expiresAt: Date; amount: string };
@@ -89,6 +90,8 @@ export async function getOrCreateLinkPixCharge(linkId: string): Promise<LinkPixR
 
 	const { charge_id: chargeId, external_reference: externalReference, amount, expires_at: expiresAt } = row;
 	try {
+		// Plano de split gravado antes do Asaas (charge_splits pending). Falha (inclusive soma acima de 100%) fecha a reserva.
+		const split = await buildLinkSplitPlan(pool, chargeId);
 		const payer = (
 			await pool.query<{ payer_name: string; payer_document: string; payer_email: string; holder_id: string }>(
 				"select * from payment_link_charge_payer($1)",
@@ -114,6 +117,7 @@ export async function getOrCreateLinkPixCharge(linkId: string): Promise<LinkPixR
 			amount,
 			externalReference,
 			description: "Consulta - pagamento por link",
+			split: split.asaasSplit,
 		});
 		const bound = await pool
 			.query<{ bound: boolean }>("select payment_link_charge_bind($1, $2, $3) as bound", [

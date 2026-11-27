@@ -2427,7 +2427,7 @@ describe("affiliates (026)", () => {
 		"register_client(text, text, text, text, text, text, text, integer, integer, inet, text, text, text, text)",
 	];
 	const INTERNAL_FUNCTIONS = [
-		"affiliate_wallet_post_entry(uuid, text, numeric, text, text, uuid)",
+		"affiliate_wallet_post_entry(uuid, text, numeric, text, text, uuid, text)",
 		"affiliate_provision(uuid, uuid)",
 		"affiliate_provision_for_client()",
 	];
@@ -2496,16 +2496,16 @@ describe("affiliates (026)", () => {
 			expect(await count(ctxOf(actor), "affiliate_commissions")).toBe(1);
 			expect(await count(ctxOf(actor), "bureau_affiliate_settings")).toBe(1);
 			expect(await count(ctxOf(actor), "affiliate_rates")).toBe(1);
-			// A carteira e o livro-razão do afiliado não são do Bureau.
-			expect(await count(ctxOf(actor), "affiliate_wallets")).toBe(0);
+			// A carteira e o livro-razão do afiliado não são do Bureau. O admin lê só modo e walletId (066): a linha existe, o saldo não passa pela tela.
+			expect(await count(ctxOf(actor), "affiliate_wallets")).toBe(actor === T.bureauAdmin ? 4 : 0);
 			expect(await count(ctxOf(actor), "affiliate_ledger_entries")).toBe(0);
 		}
 		for (const actor of [foreign.bureauAdmin, foreign.operator, foreign.client]) {
 			for (const table of TABLES) expect(await count(ctxOf(actor), table, "bureau_id = $1", [T.bureau.id])).toBe(0);
 		}
-		// O superadmin (sem suporte) lê só a % de afiliados do Bureau (055): é ele quem a define.
+		// O superadmin (sem suporte) lê a % de afiliados do Bureau (055: é ele quem a define) e o modo de repasse das carteiras (066).
 		for (const table of TABLES) {
-			const expected = table === "bureau_affiliate_settings" ? 1 : 0;
+			const expected = table === "bureau_affiliate_settings" ? 1 : table === "affiliate_wallets" ? 4 : 0;
 			expect(await count(ctxOf(sa), table, "bureau_id = $1", [T.bureau.id])).toBe(expected);
 		}
 	});
