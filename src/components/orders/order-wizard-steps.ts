@@ -2,7 +2,7 @@
 import { isSelfOrder, type HolderType } from "@/components/orders/order-rules";
 import type { OrderProductCode } from "@/lib/orders/types";
 import { isValidCNPJ, isValidCPF } from "@/lib/utils";
-import { emailSchema, MAX_PARTNERS, partnerSchema, subjectSchema } from "@/lib/validators/order";
+import { duplicateEmailIndexes, emailSchema, MAX_PARTNERS, partnerSchema, subjectSchema } from "@/lib/validators/order";
 import { z } from "zod";
 
 export type WizardStepId = "product" | "data" | "partners" | "review";
@@ -50,16 +50,16 @@ export function wizardSteps(productCode: OrderProductCode | null, holderType: Ho
 			label: "Dados",
 			title: "Dados",
 			after: empresarial
-				? "Você pode adicionar os sócios da empresa."
+				? "Você pode adicionar as pessoas da empresa."
 				: "Você revisa o pedido e confirma.",
 		},
 	];
 	if (empresarial) {
 		steps.push({
 			id: "partners",
-			label: "Sócios",
-			title: "Sócios",
-			after: "Você revisa o pedido e confirma. O valor só sai do saldo quando a consulta roda.",
+			label: "Pessoas",
+			title: "Pessoas da empresa",
+			after: "Você revisa o pedido e confirma. Se faltar crédito, o pagamento por PIX vem na tela seguinte.",
 		});
 	}
 	steps.push({ id: "review", label: "Revisão", title: "Revisar e confirmar", after: reviewAfter });
@@ -76,7 +76,7 @@ function subjectIsValid(state: WizardFormState): boolean {
 	return documentIsValid && subjectSchema.safeParse(state.subject).success && emailSchema.safeParse(state.contactEmail).success;
 }
 
-// Mesmas regras do schema zod, só dos campos da etapa. Sócio sem linha nenhuma é permitido; linha pela metade não.
+// Mesmas regras do schema zod, só dos campos da etapa. Lista sem linha nenhuma é permitida; linha pela metade não.
 export function canLeaveStep(step: WizardStepId, state: WizardFormState): boolean {
 	switch (step) {
 		case "product":
@@ -84,7 +84,8 @@ export function canLeaveStep(step: WizardStepId, state: WizardFormState): boolea
 		case "data":
 			return subjectIsValid(state);
 		case "partners":
-			return partnersSchema.safeParse(state.partners).success;
+			// A mesma regra do schema do pedido: e-mail repetido na lista não passa da etapa.
+			return partnersSchema.safeParse(state.partners).success && duplicateEmailIndexes(state.partners).length === 0;
 		case "review":
 			return true;
 	}

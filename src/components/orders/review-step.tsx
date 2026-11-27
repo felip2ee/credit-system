@@ -21,8 +21,8 @@ interface ReviewStepProps {
 	breakdown: OrderPriceBreakdown | null;
 	pricePerPartner: number | null;
 	coupon: ReturnType<typeof useCoupon>;
-	available: string;
-	insufficient: boolean;
+	// Já passada por billablePartners: é a lista que o servidor cobra.
+	people: OrderFormValues["partners"];
 	serverError: string | null;
 }
 
@@ -42,12 +42,12 @@ function FailureBanner({ what, next }: { what: string; next: string }) {
 	);
 }
 
-// Etapa final: resumo (documentos sempre mascarados), declaração, cupom, total e saldo.
+// Etapa final: resumo (documentos sempre mascarados), declaração, cupom e total. Se faltar crédito, o pagamento vem na tela seguinte.
 export function ReviewStep(props: ReviewStepProps) {
 	const { form, values, productName, holderType, selfDocumentMasked, declarationBody } = props;
 	const isSelf = isSelfOrder(values.productCode, holderType);
 	const hasMembers = orderHasMembers(values.productCode, holderType);
-	const { breakdown, pricePerPartner, coupon, available, insufficient, serverError } = props;
+	const { breakdown, pricePerPartner, coupon, people, serverError } = props;
 	const empresarial = values.productCode === "dossie_empresarial";
 
 	return (
@@ -65,15 +65,15 @@ export function ReviewStep(props: ReviewStepProps) {
 				</div>
 				{empresarial && (
 					<div>
-						<dt className="text-sm text-muted-foreground">Sócios</dt>
+						<dt className="text-sm text-muted-foreground">Pessoas ({people.length})</dt>
 						<dd>
-							{values.partners.length === 0 ? (
-								"Nenhum sócio. A pesquisa é só da empresa."
+							{people.length === 0 ? (
+								"Nenhuma pessoa na lista. A pesquisa é só da empresa."
 							) : (
 								<ul className="space-y-1">
-									{values.partners.map((p, i) => (
-										<li key={`partner-${i}`} className="break-words font-bold">
-											{p.name} ({maskDocumentValue(p.document)})
+									{people.map((p, i) => (
+										<li key={`person-${i}`} className="break-words font-bold">
+											{p.name} ({maskDocumentValue(p.document)}) · {p.email}
 										</li>
 									))}
 								</ul>
@@ -109,21 +109,12 @@ export function ReviewStep(props: ReviewStepProps) {
 			)}
 			{empresarial && breakdown && pricePerPartner !== null && <OrderPriceSummary breakdown={breakdown} pricePerPartner={pricePerPartner} />}
 			<CouponField coupon={coupon} />
-			<dl className="grid grid-cols-2 gap-4">
-				<div>
-					<dt className="text-muted-foreground">Total</dt>
-					<dd className="text-2xl font-bold tabular-nums" aria-live="polite">
-						{formatCurrency(coupon.totalCents / 100)}
-					</dd>
-				</div>
-				<div>
-					<dt className="text-muted-foreground">Saldo disponível</dt>
-					<dd className="text-2xl font-bold tabular-nums">{formatCurrency(Number(available))}</dd>
-				</div>
+			<dl>
+				<dt className="text-muted-foreground">Total</dt>
+				<dd className="text-2xl font-bold tabular-nums" aria-live="polite">
+					{formatCurrency(coupon.totalCents / 100)}
+				</dd>
 			</dl>
-			{insufficient && (
-				<StatusBanner tone="attention" title="Saldo insuficiente para este pedido." description="Nada foi cobrado. Compre créditos e volte para confirmar." />
-			)}
 			{serverError && <FailureBanner what={serverError} next="Revise os dados e tente de novo." />}
 		</div>
 	);

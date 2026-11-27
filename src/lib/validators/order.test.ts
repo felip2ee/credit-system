@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_PARTNERS, clientOrderSchema, counterOrderSchema, orderIdSchema, revokeSchema, updateOrderContactSchema } from "./order";
+import { MAX_PARTNERS, clientOrderSchema, counterOrderSchema, duplicateEmailIndexes, orderIdSchema, revokeSchema, updateOrderContactSchema } from "./order";
 
 const CPF = "529.982.247-25";
 const CPF_DIGITS = "52998224725";
@@ -211,5 +211,21 @@ describe("counterOrderSchema without contact", () => {
 			contactPhone: "",
 		});
 		expect(parsed).toMatchObject({ contactEmail: null, contactPhone: null });
+	});
+});
+
+describe("duplicateEmailIndexes", () => {
+	it("finds repeated e-mails ignoring case and spaces", () => {
+		expect(duplicateEmailIndexes([{ email: "a@b.co" }, { email: "x@b.co" }, { email: " A@B.co " }])).toEqual([2]);
+	});
+
+	it("ignores rows without e-mail and an empty list", () => {
+		expect(duplicateEmailIndexes([{ email: "" }, {}, { email: "  " }])).toEqual([]);
+		expect(duplicateEmailIndexes([])).toEqual([]);
+	});
+
+	it("does not treat a repeated CPF with different e-mails as a repeat", () => {
+		const row = { document: "529.982.247-25" };
+		expect(duplicateEmailIndexes([{ ...row, email: "a@b.co" }, { ...row, email: "c@b.co" }])).toEqual([]);
 	});
 });

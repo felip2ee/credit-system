@@ -72,6 +72,18 @@ const toPartners = (partners: z.infer<typeof partnerSchema>[]) => {
 	});
 };
 
+// Índices das linhas cujo e-mail (trim, minúsculas) já apareceu antes na lista. Linha sem e-mail não conta.
+export function duplicateEmailIndexes(partners: readonly { email?: string }[]): number[] {
+	const seen = new Set<string>();
+	return partners.flatMap((p, i) => {
+		const email = (p.email ?? "").trim().toLowerCase();
+		if (!email) return [];
+		if (seen.has(email)) return [i];
+		seen.add(email);
+		return [];
+	});
+}
+
 const ORDER_PRODUCT_CODES = ["dossie_pf", "dossie_empresarial"] as const;
 const productCodeSchema = z.enum(ORDER_PRODUCT_CODES, { errorMap: () => ({ message: "Produto inválido." }) });
 const PARTNERS_ONLY_EMPRESARIAL = "Sócios só no Dossiê Empresarial.";
@@ -104,14 +116,9 @@ export const clientOrderSchema = z
 			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners"], message: PARTNERS_ONLY_EMPRESARIAL });
 		}
 		// Um consentimento por e-mail: o mesmo e-mail em duas linhas é recusado (o CPF repetido segue contando uma vez).
-		const seenEmails = new Set<string>();
-		v.partners.forEach((p, i) => {
-			const email = p.email.trim().toLowerCase();
-			if (email && seenEmails.has(email)) {
-				ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners", i, "email"], message: "Cada pessoa precisa de um e-mail próprio." });
-			}
-			seenEmails.add(email);
-		});
+		for (const i of duplicateEmailIndexes(v.partners)) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partners", i, "email"], message: "Cada pessoa precisa de um e-mail próprio." });
+		}
 		if (v.self) return;
 		if (!v.subject) {
 			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["subject"], message: "Informe quem será pesquisado." });

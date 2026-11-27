@@ -38,6 +38,15 @@ describe("wizardSteps", () => {
 	it("cada etapa diz o que acontece depois", () => {
 		for (const step of wizardSteps("dossie_empresarial", "PJ")) expect(step.after.length).toBeGreaterThan(0);
 	});
+
+	it("a etapa da lista é 'Pessoas da empresa'", () => {
+		const step = wizardSteps("dossie_empresarial", "PJ").find((s) => s.id === "partners");
+		expect(step).toMatchObject({ label: "Pessoas", title: "Pessoas da empresa" });
+	});
+
+	it("nenhuma etapa promete débito de saldo", () => {
+		for (const step of wizardSteps("dossie_empresarial", "PJ")) expect(step.after).not.toMatch(/saldo/i);
+	});
 });
 
 describe("canLeaveStep", () => {
@@ -99,6 +108,13 @@ describe("canLeaveStep", () => {
 		const row = { name: "Ana Sócia", document: VALID_CPF, email: "ana@b.co" };
 		expect(canLeaveStep("partners", state({ partners: [{ ...row, email: "a@b.c" }] }))).toBe(false);
 		expect(canLeaveStep("partners", state({ partners: [{ ...row, name: "N".repeat(121) }] }))).toBe(false);
+	});
+
+	it("sócios: dois e-mails iguais bloqueiam, mesmo com caixa diferente", () => {
+		const row = { name: "Ana Sócia", document: VALID_CPF, email: "ana@b.co" };
+		const other = { name: "Beto Sócio", document: "111.444.777-35", email: " ANA@b.co" };
+		expect(canLeaveStep("partners", state({ partners: [row, other] }))).toBe(false);
+		expect(canLeaveStep("partners", state({ partners: [row, { ...other, email: "beto@b.co" }] }))).toBe(true);
 	});
 
 	it("sócios: linhas completas liberam", () => {

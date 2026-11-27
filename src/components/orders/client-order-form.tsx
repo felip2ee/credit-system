@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm, type FieldErrors, type FieldPath, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,10 +8,14 @@ import { Loader2 } from "lucide-react";
 
 import { openClientOrderAction } from "@/actions/orders-client";
 import {
+	billablePartners,
+	canAddSelf,
 	canConfirmOrder,
+	hasBuyerRow,
 	isSelfOrder,
 	orderHasMembers,
 	orderPriceBreakdown,
+	reviewActionLabel,
 	type HolderType,
 	type ProductPrices,
 } from "@/components/orders/order-rules";
@@ -26,7 +29,6 @@ import { ProductPicker } from "@/components/orders/product-picker";
 import { ResearchIntro } from "@/components/orders/research-intro";
 import { ReviewStep } from "@/components/orders/review-step";
 import { SubjectStep } from "@/components/orders/subject-step";
-import { toCents } from "@/lib/catalog/money";
 import { clientOrderSchema } from "@/lib/validators/order";
 
 export interface ClientOrderProduct extends ProductPrices {
@@ -38,7 +40,8 @@ interface ClientOrderFormProps {
 	holderType: HolderType;
 	// Documento mascarado da própria conta; nulo quando a conta não tem titular próprio.
 	selfDocumentMasked: string | null;
-	available: string;
+	// Nome e e-mail da conta, para "Adicionar eu".
+	buyer: { name: string; email: string };
 	declaration: { version: number; title: string; bodyMd: string };
 }
 
@@ -56,7 +59,7 @@ const BLEED = "-mx-4 min-[375px]:-mx-5";
 const SECTION_CLASS =
 	"space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20 [&_input]:scroll-mb-44 [&_button]:scroll-mb-44";
 
-// Campos que cada etapa valida ao continuar. Só as etapas "dados" e "sócios" têm campo de texto.
+// Campos que cada etapa valida ao continuar. Só as etapas "dados" e "pessoas" têm campo de texto.
 function stepFields(step: WizardStepId, isSelf: boolean): FieldPath<OrderFormValues>[] {
 	if (step === "data") return isSelf ? [] : ["subject.document", "subject.name", "contactEmail"];
 	if (step === "partners") return ["partners"];
@@ -80,7 +83,7 @@ function stepWithError(errors: FieldErrors<OrderFormValues>): WizardStepId | nul
 	return null;
 }
 
-export function ClientOrderForm({ products, holderType, selfDocumentMasked, available, declaration }: ClientOrderFormProps) {
+export function ClientOrderForm({ products, holderType, selfDocumentMasked, buyer, declaration }: ClientOrderFormProps) {
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
 	const [serverError, setServerError] = useState<string | null>(null);
@@ -110,7 +113,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 	const hasMembers = orderHasMembers(productCode, holderType);
 	const breakdown = product ? orderPriceBreakdown(product, values.partners, values.subject.document) : null;
 	const coupon = useCoupon({ productCode, partners: breakdown?.partnerCount ?? 0 }, breakdown?.totalCents ?? 0);
-	const insufficient = toCents(available) < coupon.totalCents;
+	const people = billablePartners(values.partners, values.subject.document);
 
 	const steps = wizardSteps(productCode, holderType);
 	const current = steps[Math.min(stepIndex, steps.length - 1)];
@@ -192,7 +195,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 				setServerError(result?.error ?? "Não foi possível abrir o pedido.");
 				return;
 			}
-			router.push(`/portal/pesquisas/${result.id}`);
+			router.push(`/portal/pesquisas/${result.id}${result.paymentRequired ? "/pagar" : ""}`);
 		});
 	};
 
@@ -239,7 +242,15 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 					{current.id === "data" && (
 						<SubjectStep form={form} isSelf={isSelf} isEmpresarial={productCode === "dossie_empresarial"} selfDocumentMasked={selfDocumentMasked} />
 					)}
-					{current.id === "partners" && <PartnersStep form={form} pricePerPartner={Number(product?.pricePerPartner ?? 0)} />}
+					{current.id === "partners" && (
+						<PartnersStep
+							form={form}
+							pricePerPartner={Number(product?.pricePerPartner ?? 0)}
+							canAddSelf={canAddSelf(holderType) && !hasBuyerRow(values.partners, buyer.email)}
+							buyer={buyer}
+							selfDocumentMasked={selfDocumentMasked}
+						/>
+					)}
 					{current.id === "review" && (
 						<ReviewStep
 							form={form}
@@ -251,8 +262,7 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 							breakdown={breakdown}
 							pricePerPartner={product ? Number(product.pricePerPartner) : null}
 							coupon={coupon}
-							available={available}
-							insufficient={insufficient}
+							people={people}
 							serverError={serverError}
 						/>
 					)}
@@ -267,14 +277,10 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 						<Button key="next" type="submit" size="lg" glow className="w-full" onClick={ignoreRepeatedClick}>
 							Continuar
 						</Button>
-					) : insufficient ? (
-						<Button asChild size="lg" glow className="w-full">
-							<Link href="/portal/credits">Comprar créditos</Link>
-						</Button>
 					) : (
 						<Button key="confirm" type="submit" size="lg" glow className="w-full" onClick={ignoreRepeatedClick} disabled={isPending || !reviewReady || !canConfirmOrder({ hasMembers, declarationAccepted })}>
 							{isPending && <Loader2 aria-hidden className="animate-spin" />}
-							{isPending ? "Enviando..." : "Confirmar pedido"}
+							{isPending ? "Enviando..." : reviewActionLabel(coupon.totalCents)}
 						</Button>
 					)}
 				</div>
