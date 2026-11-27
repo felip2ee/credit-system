@@ -9,8 +9,8 @@ export const MAX_PARTNERS = 20;
 const MAX_REASON = 500;
 
 const nameSchema = z.string().trim().min(2, "Informe o nome.").max(120, "Nome com no máximo 120 caracteres.");
-const subjectSchema = z.object({ name: nameSchema, document: z.string().trim().min(1, "Informe o documento.") });
-const emailSchema = z.string().trim().email("E-mail inválido.").max(254, "E-mail muito longo.");
+export const subjectSchema = z.object({ name: nameSchema, document: z.string().trim().min(1, "Informe o documento.") });
+export const emailSchema = z.string().trim().email("E-mail inválido.").max(254, "E-mail muito longo.");
 const phoneSchema = z.string().trim().max(30, "Celular com no máximo 30 caracteres.");
 const optionalText = (max: number) =>
 	z
@@ -52,7 +52,7 @@ const partnerEmailSchema = z
 	.email("E-mail do sócio inválido.")
 	.max(254, "E-mail muito longo.");
 
-const partnerSchema = z.object({
+export const partnerSchema = z.object({
 	document: z.string().refine(isValidCPF, "CPF do sócio inválido."),
 	name: nameSchema,
 	email: partnerEmailSchema,

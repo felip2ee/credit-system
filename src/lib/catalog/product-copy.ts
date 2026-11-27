@@ -23,6 +23,20 @@ const COPY: Record<string, ProductCopy> = {
 	},
 };
 
+// "O que você pode e não pode": as regras reais do pedido, por produto e tipo de conta.
+export function productRules(code: string, self: boolean): string[] {
+	if (code === "dossie_empresarial") {
+		return [
+			"Inclui a empresa e os sócios que você adicionar.",
+			"Cada sócio custa o valor por sócio e autoriza a consulta pelo próprio e-mail.",
+			"A consulta só roda depois da autorização de todos.",
+		];
+	}
+	return self
+		? ["A pesquisa é só do CPF do dono da conta.", "Você não pode pesquisar outra pessoa por aqui."]
+		: ["A pesquisa é do responsável pela empresa, que autoriza por e-mail.", "A consulta só roda depois da autorização."];
+}
+
 export function productCopy(code: string): ProductCopy | null {
 	return COPY[code] ?? null;
 }

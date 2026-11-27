@@ -34,20 +34,23 @@ export default async function NewClientOrderPage() {
 		.filter((item): item is typeof item & { code: OrderProductCode } => item.code === "dossie_pf" || item.code === "dossie_empresarial")
 		.map((item) => ({ code: item.code, name: item.name, price: item.salePrice, pricePerPartner: item.salePricePerPartner }));
 
-	return (
-		<div className="space-y-6">
-			<PageHeader title="Nova pesquisa" description="Escolha o dossiê e informe os dados do pedido" />
-			{products.length === 0 ? (
+	if (products.length === 0) {
+		return (
+			<div className="space-y-6">
+				<PageHeader title="Nova pesquisa" description="Escolha o dossiê e informe os dados do pedido" />
 				<StatusBanner tone="neutral" title="Nenhum produto à venda no momento." description="Tente novamente mais tarde." />
-			) : (
-				<ClientOrderForm
-					products={products}
-					holderType={data.holderType}
-					declaration={data.declaration}
-					selfDocumentMasked={data.status.documentMasked}
-					available={data.wallet?.available ?? "0"}
-				/>
-			)}
-		</div>
+			</div>
+		);
+	}
+
+	// O formulário em etapas traz o próprio cabeçalho, com voltar e fechar.
+	return (
+		<ClientOrderForm
+			products={products}
+			holderType={data.holderType}
+			declaration={data.declaration}
+			selfDocumentMasked={data.status.documentMasked}
+			available={data.wallet?.available ?? "0"}
+		/>
 	);
 }

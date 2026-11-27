@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Controller, useFieldArray, useForm, type Resolver } from "react-hook-form";
+import { useForm, type FieldErrors, type FieldPath, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { openClientOrderAction } from "@/actions/orders-client";
 import {
@@ -16,21 +16,18 @@ import {
 	type HolderType,
 	type ProductPrices,
 } from "@/components/orders/order-rules";
+import { canLeaveStep, hasTypedData, isStepSettled, STEP_CLICK_GUARD_MS, wizardSteps, type OrderFormValues, type WizardStepId } from "@/components/orders/order-wizard-steps";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { StatusBanner } from "@/components/ui/status-banner";
-import { CouponField, useCoupon } from "@/components/orders/coupon-field";
-import { OrderPriceSummary } from "@/components/orders/order-price-summary";
+import { Dialog } from "@/components/ui/dialog";
+import { ScreenHeader } from "@/components/ui/screen-header";
+import { useCoupon } from "@/components/orders/coupon-field";
+import { PartnersStep } from "@/components/orders/partners-step";
 import { ProductPicker } from "@/components/orders/product-picker";
 import { ResearchIntro } from "@/components/orders/research-intro";
+import { ReviewStep } from "@/components/orders/review-step";
+import { SubjectStep } from "@/components/orders/subject-step";
 import { toCents } from "@/lib/catalog/money";
-import type { OrderProductCode } from "@/lib/orders/types";
-import { clientOrderSchema, MAX_PARTNERS } from "@/lib/validators/order";
-import { failureMessage } from "@/lib/ui/failure-message";
-import { formatCurrency } from "@/lib/utils";
+import { clientOrderSchema } from "@/lib/validators/order";
 
 export interface ClientOrderProduct extends ProductPrices {
 	name: string;
@@ -45,91 +42,143 @@ interface ClientOrderFormProps {
 	declaration: { version: number; title: string; bodyMd: string };
 }
 
-// Valores como o usuário digita: o schema transforma na saída, e a action valida de novo com a entrada crua.
-interface FormValues {
-	productCode: OrderProductCode;
-	self: boolean;
-	subject: { name: string; document: string };
-	contactEmail: string;
-	contactPhone: string;
-	partners: { name: string; document: string; email: string }[];
-	declarationAccepted: boolean;
+const EXIT_HREF = "/portal/pesquisas";
+
+// Duplo clique: só o primeiro clique age. Teclado (detail 0) e clique simples (detail 1) sempre passam.
+const ignoreRepeatedClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+	if (event.detail > 1) event.preventDefault();
+};
+
+// Sangra até a borda da tela: o gutter da página é 16 px (20 px a partir de 375 px), como `.px-screen`.
+const BLEED = "-mx-4 min-[375px]:-mx-5";
+
+// Cabeçalho e rodapé fixos cobrem a tela: o foco de um campo inválido não pode ficar embaixo deles.
+const SECTION_CLASS =
+	"space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200 [&_input]:scroll-mt-20 [&_input]:scroll-mb-44 [&_button]:scroll-mb-44";
+
+// Campos que cada etapa valida ao continuar. Só as etapas "dados" e "sócios" têm campo de texto.
+function stepFields(step: WizardStepId, isSelf: boolean): FieldPath<OrderFormValues>[] {
+	if (step === "data") return isSelf ? [] : ["subject.document", "subject.name", "contactEmail"];
+	if (step === "partners") return ["partners"];
+	return [];
 }
 
-function FailureBanner({ what, next }: { what: string; next: string }) {
-	const msg = failureMessage({ what, money: "not_charged", next });
-	return (
-		<StatusBanner
-			tone="attention"
-			title={msg.title}
-			description={
-				<>
-					<p>{msg.money}</p>
-					<p>{msg.next}</p>
-				</>
-			}
-		/>
-	);
+const emptyValues = (productCode: OrderFormValues["productCode"], holderType: HolderType): OrderFormValues => ({
+	productCode,
+	self: isSelfOrder(productCode, holderType),
+	subject: { name: "", document: "" },
+	contactEmail: "",
+	contactPhone: "",
+	partners: [],
+	declarationAccepted: false,
+});
+
+// Primeira etapa que tem erro, para devolver o usuário a ela se a confirmação final falhar.
+function stepWithError(errors: FieldErrors<OrderFormValues>): WizardStepId | null {
+	if (errors.subject || errors.contactEmail) return "data";
+	if (errors.partners) return "partners";
+	return null;
 }
 
 export function ClientOrderForm({ products, holderType, selfDocumentMasked, available, declaration }: ClientOrderFormProps) {
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
 	const [serverError, setServerError] = useState<string | null>(null);
+	const [stepIndex, setStepIndex] = useState(0);
+	const [leaveOpen, setLeaveOpen] = useState(false);
+	// Depois de um "Continuar" que falhou, os erros da etapa são revalidados a cada digitação.
+	const [attempted, setAttempted] = useState(false);
+	// A confirmação só libera depois que a revisão foi mostrada (e passou o tempo de guarda).
+	const [reviewReady, setReviewReady] = useState(false);
+	const titleRef = useRef<HTMLHeadingElement>(null);
+	const shownStep = useRef(0);
+	// Só a confirmação usa o tempo de guarda, contado desde a troca para a revisão.
+	const stepChangedAt = useRef(0);
 	const firstCode = products[0]?.code ?? "dossie_pf";
 
-	const {
-		register,
-		handleSubmit,
-		watch,
-		setValue,
-		getValues,
-		control,
-		reset,
-		formState: { errors },
-	} = useForm<FormValues>({
+	const form = useForm<OrderFormValues>({
 		// O schema transforma a saída; a validação roda no valor cru e a action recebe a entrada crua.
-		resolver: zodResolver(clientOrderSchema) as unknown as Resolver<FormValues>,
-		defaultValues: {
-			productCode: firstCode,
-			self: isSelfOrder(firstCode, holderType),
-			subject: { name: "", document: "" },
-			contactEmail: "",
-			contactPhone: "",
-			partners: [],
-			declarationAccepted: false,
-		},
+		resolver: zodResolver(clientOrderSchema) as unknown as Resolver<OrderFormValues>,
+		defaultValues: emptyValues(firstCode, holderType),
 	});
-	const { fields, append, remove } = useFieldArray({ control, name: "partners" });
+	const { handleSubmit, watch, setValue, getValues, reset, trigger, clearErrors } = form;
 
-	const productCode = watch("productCode");
-	const declarationAccepted = watch("declarationAccepted");
-		const product = products.find((p) => p.code === productCode);
+	const values = watch();
+	const { productCode, declarationAccepted } = values;
+	const product = products.find((p) => p.code === productCode);
 	const isSelf = isSelfOrder(productCode, holderType);
-	const isEmpresarial = productCode === "dossie_empresarial";
 	const hasMembers = orderHasMembers(productCode, holderType);
-	const breakdown = product ? orderPriceBreakdown(product, watch("partners") ?? [], watch("subject.document")) : null;
-	const listCents = breakdown?.totalCents ?? 0;
-	const coupon = useCoupon({ productCode, partners: breakdown?.partnerCount ?? 0 }, listCents);
-	const totalCents = coupon.totalCents;
-	const insufficient = toCents(available) < totalCents;
+	const breakdown = product ? orderPriceBreakdown(product, values.partners, values.subject.document) : null;
+	const coupon = useCoupon({ productCode, partners: breakdown?.partnerCount ?? 0 }, breakdown?.totalCents ?? 0);
+	const insufficient = toCents(available) < coupon.totalCents;
+
+	const steps = wizardSteps(productCode, holderType);
+	const current = steps[Math.min(stepIndex, steps.length - 1)];
+	const isLast = stepIndex >= steps.length - 1;
 
 	// Trocar de produto descarta o que não vale mais: dados de outra pessoa, sócios e a declaração.
 	useEffect(() => {
-		reset({
-			productCode,
-			self: isSelfOrder(productCode, holderType),
-			subject: { name: "", document: "" },
-			contactEmail: "",
-			contactPhone: "",
-			partners: [],
-			declarationAccepted: false,
-		});
+		reset(emptyValues(productCode, holderType));
 		setServerError(null);
 	}, [productCode, holderType, reset]);
 
-	// Erro em campo que não está na tela nunca pode ser silencioso: o usuário vê o aviso na região aria-live.
-	const onInvalid = () => setServerError("Revise os dados do pedido e tente novamente.");
+	// Ao trocar de etapa o foco vai para o título, para o leitor de tela anunciar onde está. Não na abertura
+	// (o StrictMode roda o efeito duas vezes: comparar com a etapa já mostrada evita o foco falso).
+	useEffect(() => {
+		if (shownStep.current === stepIndex) return;
+		shownStep.current = stepIndex;
+		stepChangedAt.current = Date.now();
+		titleRef.current?.focus();
+	}, [stepIndex]);
+
+	const onReview = current.id === "review";
+	useEffect(() => {
+		if (!onReview) {
+			setReviewReady(false);
+			return;
+		}
+		const timer = setTimeout(() => setReviewReady(true), STEP_CLICK_GUARD_MS);
+		return () => clearTimeout(timer);
+	}, [onReview]);
+
+	const fieldsKey = JSON.stringify([values.subject, values.contactEmail, values.partners]);
+	useEffect(() => {
+		if (attempted) void trigger(stepFields(current.id, isSelf));
+		// Só a digitação dispara: fieldsKey resume os valores.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [attempted, fieldsKey]);
+
+	const requestExit = () => {
+		if (hasTypedData(getValues())) setLeaveOpen(true);
+		else router.push(EXIT_HREF);
+	};
+
+	const goBack = () => {
+		setAttempted(false);
+		if (stepIndex === 0) requestExit();
+		else setStepIndex(stepIndex - 1);
+	};
+
+	const goNext = async () => {
+		const fields = stepFields(current.id, isSelf);
+		if (!canLeaveStep(current.id, getValues())) {
+			setAttempted(true);
+			await trigger(fields, { shouldFocus: true });
+			return;
+		}
+		setAttempted(false);
+		clearErrors(fields);
+		setServerError(null);
+		setStepIndex(stepIndex + 1);
+	};
+
+	// Erro em campo de outra etapa nunca pode ser silencioso: volta para a etapa do erro ou avisa na região aria-live.
+	const onInvalid = (errors: FieldErrors<OrderFormValues>) => {
+		const target = stepWithError(errors);
+		const index = steps.findIndex((s) => s.id === target);
+		if (index >= 0) setStepIndex(index);
+		else setServerError("Revise os dados do pedido e tente novamente.");
+	};
 
 	const onSubmit = () => {
 		setServerError(null);
@@ -147,199 +196,99 @@ export function ClientOrderForm({ products, holderType, selfDocumentMasked, avai
 		});
 	};
 
-	const documentLabel = isEmpresarial ? "CNPJ da empresa" : "CPF do responsável";
-	const nameLabel = isEmpresarial ? "Razão social" : "Nome do responsável";
+	// Enter nas etapas 1 a 3 avança; só a última etapa confirma o pedido.
+	const onFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+		if (isLast) {
+			event.preventDefault();
+			// Dinheiro: um clique que ainda faz parte do duplo clique da etapa anterior não confirma.
+			if (!reviewReady || !isStepSettled(stepChangedAt.current, Date.now())) return;
+			return handleSubmit(onSubmit, onInvalid)(event);
+		}
+		event.preventDefault();
+		return goNext();
+	};
 
 	return (
-		<form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6" noValidate>
-			<ResearchIntro />
-			<Card>
-				<CardHeader>
-					<CardTitle className="text-lg">Produto</CardTitle>
-				</CardHeader>
-				<CardContent>
-						<ProductPicker
-							products={products}
-							value={productCode}
-							onChange={(value) => setValue("productCode", value)}
+		<div className="space-y-6">
+			<ScreenHeader
+				className={BLEED}
+				title="Nova pesquisa"
+				onBack={goBack}
+				onClose={requestExit}
+				step={{ current: stepIndex + 1, total: steps.length, label: current.label }}
+			/>
+			<form onSubmit={onFormSubmit} className="space-y-6" noValidate>
+				<section key={current.id} className={SECTION_CLASS}>
+					<h2 ref={titleRef} tabIndex={-1} className="text-xl font-bold focus:outline-none">
+						<span className="sr-only">
+							Passo {stepIndex + 1} de {steps.length}:{" "}
+						</span>
+						{current.title}
+					</h2>
+					{current.id === "product" && (
+						<>
+							<ResearchIntro />
+							<ProductPicker
+								products={products}
+								value={productCode}
+								onChange={(value) => setValue("productCode", value)}
+								holderType={holderType}
+							/>
+						</>
+					)}
+					{current.id === "data" && (
+						<SubjectStep form={form} isSelf={isSelf} isEmpresarial={productCode === "dossie_empresarial"} selfDocumentMasked={selfDocumentMasked} />
+					)}
+					{current.id === "partners" && <PartnersStep form={form} pricePerPartner={Number(product?.pricePerPartner ?? 0)} />}
+					{current.id === "review" && (
+						<ReviewStep
+							form={form}
+							values={values}
+							productName={product?.name ?? ""}
 							holderType={holderType}
+							selfDocumentMasked={selfDocumentMasked}
+							declarationBody={declaration.bodyMd}
+							breakdown={breakdown}
+							pricePerPartner={product ? Number(product.pricePerPartner) : null}
+							coupon={coupon}
+							available={available}
+							insufficient={insufficient}
+							serverError={serverError}
 						/>
-				</CardContent>
-			</Card>
-
-			{isSelf ? (
-				selfDocumentMasked !== null && (
-					<p className="text-base text-muted-foreground">A pesquisa é sobre você ({selfDocumentMasked}). Você recebe um pedido de autorização por e-mail.</p>
-				)
-			) : (
-				<Card>
-					<CardHeader>
-						<CardTitle className="text-lg">{isEmpresarial ? "Empresa" : "Responsável pela empresa"}</CardTitle>
-					</CardHeader>
-					<CardContent className="space-y-4">
-						<p className="text-base text-muted-foreground">
-							Cada pessoa informada recebe um pedido de autorização por e-mail. A consulta só roda depois da autorização de todas.
-						</p>
-						<div className="space-y-2">
-							<Label htmlFor="subject-document">{documentLabel}</Label>
-							<Input
-								id="subject-document"
-								inputMode="numeric"
-								autoComplete="off"
-								aria-invalid={Boolean(errors.subject?.document)}
-								{...register("subject.document")}
-							/>
-							{errors.subject?.document && <p className="text-base text-destructive">{errors.subject.document.message}</p>}
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="subject-name">{nameLabel}</Label>
-							<Input id="subject-name" autoComplete="off" aria-invalid={Boolean(errors.subject?.name)} {...register("subject.name")} />
-							{errors.subject?.name && <p className="text-base text-destructive">{errors.subject.name.message}</p>}
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="contact-email">E-mail do responsável</Label>
-							<Input
-								id="contact-email"
-								type="email"
-								autoComplete="off"
-								aria-invalid={Boolean(errors.contactEmail)}
-								{...register("contactEmail")}
-							/>
-							{errors.contactEmail && <p className="text-base text-destructive">{errors.contactEmail.message}</p>}
-						</div>
-					</CardContent>
-				</Card>
-			)}
-
-			{isEmpresarial && (
-				<Card>
-					<CardHeader>
-						<CardTitle className="text-lg">Sócios</CardTitle>
-					</CardHeader>
-					<CardContent className="space-y-4">
-						{fields.map((field, i) => (
-							<div key={field.id} className="space-y-3 rounded-card border border-border bg-muted p-3">
-								<div className="space-y-1">
-									<Label htmlFor={`partner-name-${i}`}>Nome do sócio {i + 1}</Label>
-									<Input
-										id={`partner-name-${i}`}
-										autoComplete="off"
-										aria-invalid={Boolean(errors.partners?.[i]?.name)}
-										{...register(`partners.${i}.name`)}
-									/>
-									{errors.partners?.[i]?.name && <p className="text-base text-destructive">{errors.partners[i]?.name?.message}</p>}
-								</div>
-								<div className="space-y-1">
-									<Label htmlFor={`partner-doc-${i}`}>CPF do sócio {i + 1}</Label>
-									<Input
-										id={`partner-doc-${i}`}
-										inputMode="numeric"
-										autoComplete="off"
-										aria-invalid={Boolean(errors.partners?.[i]?.document)}
-										{...register(`partners.${i}.document`)}
-									/>
-									{errors.partners?.[i]?.document && (
-										<p className="text-base text-destructive">{errors.partners[i]?.document?.message}</p>
-									)}
-								</div>
-								<div className="space-y-1">
-									<Label htmlFor={`partner-email-${i}`}>E-mail do sócio {i + 1}</Label>
-									<Input
-										id={`partner-email-${i}`}
-										type="email"
-										autoComplete="off"
-										aria-invalid={Boolean(errors.partners?.[i]?.email)}
-										{...register(`partners.${i}.email`)}
-									/>
-									{errors.partners?.[i]?.email && <p className="text-base text-destructive">{errors.partners[i]?.email?.message}</p>}
-								</div>
-								<Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => remove(i)} aria-label={`Remover sócio ${i + 1}`}>
-									<Trash2 aria-hidden />
-									Remover
-								</Button>
-							</div>
-						))}
-						{errors.partners?.message && <p className="text-base text-destructive">{errors.partners.message}</p>}
-						<Button
-							type="button"
-							variant="outline"
-							className="w-full sm:w-auto"
-							disabled={fields.length >= MAX_PARTNERS}
-							onClick={() => append({ name: "", document: "", email: "" })}
-						>
-							<Plus aria-hidden />
-							Adicionar sócio
+					)}
+					<p className="text-base text-muted-foreground">
+						<span className="font-bold text-foreground">O que acontece depois: </span>
+						{current.after}
+					</p>
+				</section>
+				<div className={`sticky bottom-[calc(4.5rem+1px+env(safe-area-inset-bottom))] z-30 border-t border-border bg-background px-screen py-3 md:bottom-0 ${BLEED}`}>
+					{!isLast ? (
+						<Button key="next" type="submit" size="lg" glow className="w-full" onClick={ignoreRepeatedClick}>
+							Continuar
 						</Button>
-						<p className="text-base text-muted-foreground">Até {MAX_PARTNERS} sócios. Cada sócio autoriza a consulta pelo próprio e-mail.</p>
-					</CardContent>
-				</Card>
-			)}
-
-			<Card>
-				<CardContent className="space-y-4 p-6">
-					{hasMembers && (
-						<div className="space-y-2">
-							<p className="whitespace-pre-line rounded-card border border-border bg-muted p-3 text-base" id="declaration-text">
-								{declaration.bodyMd}
-							</p>
-							<div className="flex min-h-12 items-start gap-3">
-								<Controller
-									control={control}
-									name="declarationAccepted"
-									render={({ field }) => (
-										<Checkbox
-											id="declaration-accepted"
-											className="mt-1"
-											aria-describedby="declaration-text"
-											checked={field.value}
-											onCheckedChange={(checked) => field.onChange(checked === true)}
-										/>
-									)}
-								/>
-								<Label htmlFor="declaration-accepted" className="cursor-pointer text-base font-normal">
-									Li e concordo com a declaração acima.
-								</Label>
-							</div>
-						</div>
+					) : insufficient ? (
+						<Button asChild size="lg" glow className="w-full">
+							<Link href="/portal/credits">Comprar créditos</Link>
+						</Button>
+					) : (
+						<Button key="confirm" type="submit" size="lg" glow className="w-full" onClick={ignoreRepeatedClick} disabled={isPending || !reviewReady || !canConfirmOrder({ hasMembers, declarationAccepted })}>
+							{isPending && <Loader2 aria-hidden className="animate-spin" />}
+							{isPending ? "Enviando..." : "Confirmar pedido"}
+						</Button>
 					)}
-					{product?.code === "dossie_empresarial" && breakdown && (
-						<OrderPriceSummary breakdown={breakdown} pricePerPartner={Number(product.pricePerPartner)} />
-					)}
-					<CouponField coupon={coupon} />
-					<dl className="grid grid-cols-2 gap-4">
-						<div>
-							<dt className="text-muted-foreground">Total</dt>
-							<dd className="text-2xl font-bold tabular-nums" aria-live="polite">
-								{formatCurrency(totalCents / 100)}
-							</dd>
-						</div>
-						<div>
-							<dt className="text-muted-foreground">Saldo disponível</dt>
-							<dd className="text-2xl font-bold tabular-nums">{formatCurrency(Number(available))}</dd>
-						</div>
-					</dl>
-					{insufficient && (
-						<StatusBanner
-							tone="attention"
-							title="Saldo insuficiente para este pedido."
-							description="Nada foi cobrado. Compre créditos e volte para confirmar."
-						/>
-					)}
-					{serverError && <FailureBanner what={serverError} next="Revise os dados e tente de novo." />}
-				</CardContent>
-			</Card>
-			<div className="sticky bottom-20 z-30 md:bottom-4">
-				{insufficient ? (
-					<Button asChild size="lg" glow className="w-full">
-						<Link href="/portal/credits">Comprar créditos</Link>
+				</div>
+			</form>
+			<Dialog open={leaveOpen} onClose={() => setLeaveOpen(false)} title="Sair sem concluir?" role="alertdialog">
+				<p className="text-base">Os dados digitados serão perdidos.</p>
+				<div className="flex flex-col gap-2 sm:flex-row-reverse">
+					<Button type="button" variant="destructive" onClick={() => router.push(EXIT_HREF)}>
+						Sair
 					</Button>
-				) : (
-					<Button type="submit" size="lg" glow className="w-full" disabled={isPending || !canConfirmOrder({ hasMembers, declarationAccepted })}>
-						{isPending && <Loader2 aria-hidden className="animate-spin" />}
-						{isPending ? "Enviando..." : "Confirmar pedido"}
+					<Button type="button" variant="outline" onClick={() => setLeaveOpen(false)}>
+						Continuar editando
 					</Button>
-				)}
-			</div>
-		</form>
+				</div>
+			</Dialog>
+		</div>
 	);
 }
