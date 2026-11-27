@@ -4,7 +4,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { getOrCreateLinkPixCharge, type LinkPixResult } from "@/lib/payment-links/pix";
 import { resolvePaymentLink } from "@/lib/payment-links/queries";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateTime } from "@/lib/utils";
+
+import { CopyPixButton } from "./copy-pix-button";
 
 // O token está na URL: sem indexação e sem Referer.
 export const metadata = {
@@ -56,13 +58,17 @@ export default async function PaymentLinkPage({
   return (
     <PublicShell width="3xl">
       <div className="space-y-6">
-        <h1 className="text-center text-3xl font-bold">Pagamento da consulta</h1>
+        <h1 className="text-center font-bold">Pagamento da consulta</h1>
         <Card>
-          <CardContent className="space-y-2 p-6 text-lg">
+          <CardContent className="space-y-2 pt-4">
             <p>{summary.bureauName}</p>
             <p>{summary.productName}</p>
             <p>Titular: {summary.maskedDocument}</p>
-            <p className="text-2xl font-bold">{formatCurrency(Number(summary.amount))}</p>
+            <div className="border-t pt-3">
+              <p className="text-sm text-muted-foreground">Valor a pagar</p>
+              {/* Exceção ao limite de tamanho: o valor é o dado mais importante da página, com um único degrau. */}
+              <p className="text-xl font-bold tabular-nums">{formatCurrency(Number(summary.amount))}</p>
+            </div>
           </CardContent>
         </Card>
         <PixSection pix={searchParams.pix === "1" ? await getOrCreateLinkPixCharge(resolved.link.id) : null} />
@@ -74,18 +80,20 @@ export default async function PaymentLinkPage({
 function PixSection({ pix }: { pix: LinkPixResult | null }) {
   if (!pix) {
     return (
-      <form method="get" className="text-center">
+      <form method="get" className="space-y-3 text-center">
         <input type="hidden" name="pix" value="1" />
-        <Button type="submit" size="lg">
-          Pagar com Pix
-        </Button>
+        <p className="text-sm text-muted-foreground">
+          Ao tocar em “Pagar com Pix”, geramos um código Pix para este valor. O código vale por 30 minutos. Esta página
+          não confirma o pagamento sozinha.
+        </p>
+        <Button type="submit">Pagar com Pix</Button>
       </form>
     );
   }
   if (!pix.ok) return <StatusBanner tone="neutral" title={PIX_ERRORS[pix.reason]} />;
   return (
     <Card>
-      <CardContent className="space-y-4 p-6 text-center">
+      <CardContent className="space-y-4 pt-4 text-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={pix.qrDataUrl} alt="QR Code do Pix" className="mx-auto size-52" />
         <p className="text-sm text-muted-foreground">Pix copia e cola</p>
@@ -94,10 +102,12 @@ function PixSection({ pix }: { pix: LinkPixResult | null }) {
           rows={4}
           value={pix.pixPayload}
           aria-label="Pix copia e cola"
-          className="w-full rounded-md border bg-muted p-3 text-xs"
+          className="w-full rounded-md border bg-muted p-3 text-base md:text-xs"
         />
+        <CopyPixButton code={pix.pixPayload} />
         <p className="text-sm text-muted-foreground">
-          Pague no app do seu banco. Este código vale por 30 minutos e esta página não confirma o pagamento sozinha.
+          Pague no app do seu banco. Este código vale até {formatDateTime(pix.expiresAt)} e esta página não confirma o
+          pagamento sozinha.
         </p>
       </CardContent>
     </Card>
