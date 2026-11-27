@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { canLeaveStep, dossierSteps, hasTypedData, ownResearchContacts, stepForErrors, type DossierFormState } from "@/components/dossiers/dossier-wizard-steps";
+import { PAYMENT_WINDOW_DAYS } from "@/lib/orders/types";
 
 const VALID_CPF = "529.982.247-25";
 const VALID_CNPJ = "11.222.333/0001-81";
@@ -35,6 +36,9 @@ describe("dossierSteps", () => {
 		const review = dossierSteps("dossie_pf").find((s) => s.id === "review");
 		expect(review?.after).toMatch(/pagamento/);
 		expect(review?.after).toMatch(/autoriza/);
+		expect(review?.after).toContain(`${PAYMENT_WINDOW_DAYS} dias`);
+		expect(review?.after).toMatch(/cancelado/);
+		expect(review?.after).toMatch(/só é solicitada depois do pagamento/);
 	});
 });
 

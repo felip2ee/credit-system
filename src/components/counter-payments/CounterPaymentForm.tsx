@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBanner } from "@/components/ui/status-banner";
 import { moneyError, normalizeMoney } from "@/lib/catalog/money-input";
+import type { OrderState } from "@/lib/orders/types";
 import { formatCurrency, todayInSaoPaulo } from "@/lib/utils";
 import { COUNTER_METHODS } from "@/lib/validators/counter-payments";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,9 +30,16 @@ interface CounterPaymentFormProps {
   holderName: string;
   // Quanto falta receber, em centavos; null quando o pedido ainda não tem preço.
   remainingCents: number | null;
+  // O servidor só registra pagamento de pedido em awaiting_payment; null quando não há pedido.
+  orderState: OrderState | null;
 }
 
-export function CounterPaymentForm({ dossierId, holderName, remainingCents }: CounterPaymentFormProps) {
+// Dinheiro: Enter num campo não registra o pagamento; só o botão envia.
+export function blockImplicitSubmit(event: Pick<React.KeyboardEvent, "key" | "target" | "preventDefault">): void {
+  if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") event.preventDefault();
+}
+
+export function CounterPaymentForm({ dossierId, holderName, remainingCents, orderState }: CounterPaymentFormProps) {
   const router = useRouter();
   const [method, setMethod] = useState<(typeof COUNTER_METHODS)[number]>("cash");
   const [amount, setAmount] = useState("");
@@ -84,13 +93,17 @@ export function CounterPaymentForm({ dossierId, holderName, remainingCents }: Co
     });
   };
 
+  if (orderState !== "awaiting_payment") {
+    return <StatusBanner tone="neutral" title="Este pedido não aguarda pagamento." />;
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Registrar pagamento</CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={submit} noValidate className="grid gap-4 sm:grid-cols-2">
+        <form onSubmit={submit} onKeyDown={blockImplicitSubmit} noValidate className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="cp-method">Forma de pagamento</Label>
             <Select value={method} onValueChange={(value) => setMethod(value as typeof method)} disabled={isPending}>

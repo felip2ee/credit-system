@@ -13,6 +13,7 @@ import { listCounterPayments } from "@/lib/counter-payments/queries";
 import { hasPermission } from "@/lib/db/permissions";
 import { withUserTransaction } from "@/lib/db/transaction";
 import { getDossierDetail } from "@/lib/dossiers/queries";
+import { getStaffOrder } from "@/lib/orders/staff-queries";
 import { formatCurrency } from "@/lib/utils";
 import { isUuid } from "@/lib/validators/id";
 import { StatusBanner } from "@/components/ui/status-banner";
@@ -52,7 +53,10 @@ export default async function CounterPaymentsPage({
     );
   }
 
-  const view = await withUserTransaction(session, (client) => listCounterPayments(client, dossierId));
+  const { view, order } = await withUserTransaction(session, async (client) => ({
+    view: await listCounterPayments(client, dossierId),
+    order: await getStaffOrder(client, dossierId),
+  }));
   const online = view.mode === "online";
   const remaining = view.price === null ? null : toCents(view.price) - toCents(view.paidTotal);
   const payments = view.payments.map((p) => ({
@@ -110,7 +114,14 @@ export default async function CounterPaymentsPage({
           </div>
         </CardContent>
       </Card>
-      {canWrite && !online && <CounterPaymentForm dossierId={dossierId} holderName={detail.dossier.holder_name} remainingCents={remaining} />}
+      {canWrite && !online && (
+        <CounterPaymentForm
+          dossierId={dossierId}
+          holderName={detail.dossier.holder_name}
+          remainingCents={remaining}
+          orderState={order?.state ?? null}
+        />
+      )}
       {!online && <CounterPaymentList key={payments[0]?.id ?? "empty"} payments={payments} canWrite={canWrite} />}
     </div>
   );

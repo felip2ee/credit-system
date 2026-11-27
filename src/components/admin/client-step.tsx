@@ -153,7 +153,7 @@ export function ClientStep({ value, onChange, picked, onPicked, errors = {} }: C
 
       {(picked || mode === "new") && (
         <div className="space-y-3">
-          <Field id="client-email" label="E-mail (opcional)">
+          <Field id="client-email" label="E-mail (opcional)" helper="Sem e-mail, o pedido só abre se a pessoa já tiver autorização válida ou um pedido de autorização no prazo.">
             {(a11y) => <Input {...a11y} type="email" value={value.email} onChange={(e) => set({ email: e.target.value })} placeholder="contato@exemplo.com" />}
           </Field>
           <Field id="client-phone" label="Celular (opcional)">

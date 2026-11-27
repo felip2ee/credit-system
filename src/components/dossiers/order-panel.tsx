@@ -11,7 +11,7 @@ import {
   type ActionResult,
 } from "@/actions/orders";
 import { OrderContactDialogList, type PendingContact } from "@/components/dossiers/order-contact-dialog";
-import { orderNowText } from "@/components/dossiers/order-now";
+import { canReleaseOrder, orderNowText } from "@/components/dossiers/order-now";
 import { RevokeOrderDialog } from "@/components/dossiers/revoke-order-dialog";
 import { OrderStateBadge } from "@/components/dossiers/order-state-badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ interface OrderPanelProps {
   order: StaffOrderView;
   canWrite: boolean;
   canRegisterPayment: boolean;
+  hasPartners: boolean;
   // Membros com autorização pendente (e-mail já mascarado).
   pendingContacts?: PendingContact[];
 }
@@ -52,7 +53,7 @@ function ActionWithEffect({ effect, children }: { effect: string; children: Reac
   );
 }
 
-export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContacts = [] }: OrderPanelProps) {
+export function OrderPanel({ order, canWrite, canRegisterPayment, hasPartners, pendingContacts = [] }: OrderPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -73,9 +74,22 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
   };
 
   const { state } = order;
-  const canRelease = state === "completed" && order.mode === "counter" && order.aiStatus !== "pending";
+  const hasBuyer = order.buyerName !== null;
+  const canRelease = canReleaseOrder({ state, mode: order.mode, aiStatus: order.aiStatus, hasBuyer });
 
-  const now = orderNowText({ state, mode: order.mode, aiStatus: order.aiStatus, reason: order.reason, canWrite, canRegisterPayment });
+  const now = orderNowText({
+    state,
+    mode: order.mode,
+    aiStatus: order.aiStatus,
+    reason: order.reason,
+    canWrite,
+    canRegisterPayment,
+    hasBuyer,
+    hasPartners,
+    revoked: order.revokedAt !== null,
+  });
+  const cancelRefund =
+    order.mode === "online" ? " A reserva do pagamento volta ao saldo do cliente." : " A reserva do Bureau volta à carteira do Bureau.";
   const actionClass = "w-full sm:w-auto";
 
   return (
@@ -139,7 +153,7 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
               </ActionWithEffect>
             )}
             {CANCELLABLE.includes(state) && (
-              <ActionWithEffect effect={`Encerra o pedido e invalida os links de autorização já enviados.${order.mode === "online" ? " A reserva do pagamento volta ao saldo do cliente." : ""} Não dá para desfazer.`}>
+              <ActionWithEffect effect={`Encerra o pedido e invalida os links de autorização já enviados.${cancelRefund} Não dá para desfazer.`}>
                 <Button variant="outline" className={actionClass} onClick={() => setConfirmingCancel(true)} disabled={isPending}>
                   Cancelar pedido
                 </Button>
@@ -163,7 +177,7 @@ export function OrderPanel({ order, canWrite, canRegisterPayment, pendingContact
         dismissible={!isPending}
       >
         <p className="text-sm text-muted-foreground">
-          {`O pedido será cancelado e os links de autorização já enviados deixam de valer.${order.mode === "online" ? " A reserva do pagamento volta ao saldo do cliente." : ""} Esta ação não pode ser desfeita.`}
+          {`O pedido será cancelado e os links de autorização já enviados deixam de valer.${cancelRefund} Esta ação não pode ser desfeita.`}
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setConfirmingCancel(false)} disabled={isPending}>

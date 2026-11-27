@@ -10,6 +10,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { PAYMENT_WINDOW_DAYS } from "@/lib/orders/types";
 import { STEP_CLICK_GUARD_MS } from "@/lib/ui/step-guard";
 import { formatCurrency } from "@/lib/utils";
 
@@ -29,12 +30,12 @@ const STEPS = [
   {
     label: "Confirmar",
     title: "Confirme o pedido",
-    after: "A consulta fica aguardando pagamento. Você gera o link para o cliente pagar por Pix.",
+    after: `A consulta fica aguardando pagamento. Você gera o link para o cliente pagar por Pix. Sem o pagamento completo em ${PAYMENT_WINDOW_DAYS} dias, ela é cancelada.`,
   },
   {
     label: "Cobrança",
     title: "Consulta aberta",
-    after: "O cliente paga e autoriza a consulta. Ela só roda depois do pagamento e da autorização.",
+    after: `O cliente tem ${PAYMENT_WINDOW_DAYS} dias após a abertura para pagar; sem o pagamento completo, a consulta é cancelada. A autorização só é solicitada depois do pagamento, e a consulta só roda com o pagamento e a autorização.`,
   },
 ] as const;
 const LAST_STEP = STEPS.length - 1;
