@@ -39,6 +39,8 @@ export default async function DashboardLayout({
   return (
     <div className="theme-admin flex min-h-screen bg-background">
       <IdleTimeout />
+      {/* Campo focado não fica sob o cabeçalho fixo do celular. */}
+      <style>{"@media (max-width:767px){html{scroll-padding-top:4.5rem}}"}</style>
       <Sidebar permissions={permissions} name={session.name} email={email} />
       <div className="flex min-w-0 flex-1 flex-col">
         {session.support && (
@@ -47,11 +49,12 @@ export default async function DashboardLayout({
             expiresAt={session.support.expiresAt.toISOString()}
           />
         )}
-        <header className="flex min-h-14 items-center justify-between gap-2 border-b border-sidebar-border bg-sidebar px-4 md:hidden">
+        {/* Fixo no topo no celular (h-14, z-40). Os ScreenHeader das telas (sticky, z-30) descem 3.5rem para ficar logo abaixo. */}
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 border-b border-sidebar-border bg-sidebar px-4 md:hidden">
           <MobileBrand />
           <MobileNav items={DASHBOARD_NAV_ITEMS} permissions={permissions} signOutAction={signOut} />
         </header>
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main className="flex-1 p-4 max-md:[&_header.sticky]:top-14 md:p-6">{children}</main>
         <Toaster />
       </div>
     </div>

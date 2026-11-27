@@ -30,7 +30,7 @@ export function AdminNav({ variant }: { variant: "top" | "bottom" }) {
             href={href}
             aria-current={isActive(pathname, href) ? "page" : undefined}
             className={cn(
-              "inline-flex h-9 items-center rounded-full px-3.5 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "inline-flex h-11 items-center rounded-full px-3.5 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               isActive(pathname, href)
                 ? "bg-primary text-primary-foreground"
                 : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
