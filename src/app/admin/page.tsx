@@ -54,7 +54,7 @@ export default async function AdminHomePage({ searchParams }: { searchParams: { 
       </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold">Resultados: {periodLabel}</h2>
+        <h2 className="text-base font-bold">Resultados: {periodLabel}</h2>
         <SegmentedNav
           label="Período"
           activeKey={period}
@@ -78,11 +78,11 @@ export default async function AdminHomePage({ searchParams }: { searchParams: { 
         </CardHeader>
         <CardContent>
           {metrics.ranking.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhuma venda de afiliado no período.</p>
+            <p className="text-sm text-muted-foreground">Nenhuma venda de afiliado no período. Envie o link de cadastro acima para atrair afiliados e clientes.</p>
           ) : (
             <ol className="divide-y divide-border">
               {metrics.ranking.map((r, i) => (
-                <li key={`${i}-${r.name}`} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <li key={`${i}-${r.name}`} className="flex items-center justify-between gap-3 py-3 text-sm">
                   <span className="flex min-w-0 items-center gap-3">
                     <span aria-hidden className="w-5 shrink-0 text-muted-foreground tabular-nums">{i + 1}</span>
                     <span className="truncate font-medium">{r.name}</span>

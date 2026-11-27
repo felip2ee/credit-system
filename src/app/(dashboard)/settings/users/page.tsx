@@ -38,6 +38,11 @@ interface UserRow {
   has_account: boolean;
 }
 
+function MemberStatus({ user }: { user: UserRow }) {
+  if (!user.has_account) return <Badge variant="muted">Convite pendente</Badge>;
+  return user.is_active ? <Badge variant="success">Ativo</Badge> : <Badge variant="muted">Inativo</Badge>;
+}
+
 export default async function UsersPage() {
   const session = await getRequiredSession().catch(() => redirect("/login"));
   if (!hasPermission(session, "users:manage")) {
@@ -64,7 +69,7 @@ export default async function UsersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Convidar membro</CardTitle>
+          <CardTitle>Convidar membro</CardTitle>
         </CardHeader>
         <CardContent>
           <CreateUserForm />
@@ -73,39 +78,29 @@ export default async function UsersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">
+          <CardTitle>
             Membros da equipe ({users.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>E-mail</TableHead>
-                <TableHead>Perfil</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Criado em</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.full_name}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>{ROLE_LABEL[user.role] ?? user.role}</TableCell>
-                  <TableCell>
-                    {!user.has_account ? (
-                      <Badge variant="muted">Convite pendente</Badge>
-                    ) : user.is_active ? (
-                      <Badge variant="success">Ativo</Badge>
-                    ) : (
-                      <Badge variant="muted">Inativo</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>{formatDate(user.created_at)}</TableCell>
-                  <TableCell className="text-right">
+          {users.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Ninguém na equipe ainda. Use &ldquo;Convidar membro&rdquo; acima: informe nome, e-mail e perfil.
+            </p>
+          ) : (
+            <>
+              <ul className="divide-y divide-border md:hidden">
+                {users.map((user) => (
+                  <li key={user.id} className="space-y-2 py-3 first:pt-0 last:pb-0">
+                    <div className="min-w-0">
+                      <p className="break-words font-bold">{user.full_name}</p>
+                      <p className="break-all text-sm text-muted-foreground">{user.email}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{ROLE_LABEL[user.role] ?? user.role}</Badge>
+                      <MemberStatus user={user} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">Criado em {formatDate(user.created_at)}</p>
                     <UserRowActions
                       userId={user.id}
                       isActive={user.is_active}
@@ -113,21 +108,47 @@ export default async function UsersPage() {
                       pendingInvite={!user.has_account}
                       disabled={user.id === session.userId}
                     />
-                  </TableCell>
-                </TableRow>
-              ))}
-              {users.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className="text-center text-muted-foreground"
-                  >
-                    Nenhum membro na equipe.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+                  </li>
+                ))}
+              </ul>
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>E-mail</TableHead>
+                      <TableHead>Perfil</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Criado em</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell className="font-medium">{user.full_name}</TableCell>
+                        <TableCell>{user.email}</TableCell>
+                        <TableCell>{ROLE_LABEL[user.role] ?? user.role}</TableCell>
+                        <TableCell>
+                          <MemberStatus user={user} />
+                        </TableCell>
+                        <TableCell>{formatDate(user.created_at)}</TableCell>
+                        <TableCell className="text-right">
+                          <UserRowActions
+                            userId={user.id}
+                            isActive={user.is_active}
+                            role={user.role}
+                            pendingInvite={!user.has_account}
+                            disabled={user.id === session.userId}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
